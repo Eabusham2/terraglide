@@ -1,5 +1,7 @@
 # TerraGlide
 
+**Play it: <https://eabusham2.github.io/terraglide/>**
+
 A first-person world exploration game that runs in a browser. Press one key and
 you are dropped somewhere random on Earth. Open a pair of elytra, dive to build
 speed, flare to trade it back for height, fire a rocket when you run out of
@@ -13,8 +15,12 @@ install, no framework. The only dependency is three.js, which is vendored into
 
 ## Run it
 
-Browsers refuse to load ES modules and web workers from `file://`, so the folder
-has to be served over HTTP. Any static server works; one is included:
+The published build is at <https://eabusham2.github.io/terraglide/> — nothing to
+install, it runs in the tab.
+
+To run your own copy: browsers refuse to load ES modules and web workers from
+`file://`, so the folder has to be served over HTTP. Any static server works;
+one is included:
 
 ```sh
 node serve.mjs          # http://127.0.0.1:8080

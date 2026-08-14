@@ -1,0 +1,50 @@
+# Keeps the published site in step with main.
+#
+# TerraGlide has no build step — the repository *is* the site — so this just
+# mirrors main onto the gh-pages branch, minus the bits that are development
+# tooling rather than part of the game.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+
+      - name: Verify the modules parse and the maths still holds
+        run: |
+          node tools/check.mjs
+          node tools/selftest.mjs
+
+      - name: Assemble the site
+        run: |
+          rm -rf _site
+          mkdir _site
+          cp -r index.html src styles vendor LICENSE THIRD-PARTY.md README.md _site/
+          # Stop GitHub's Jekyll pass from touching plain static files.
+          touch _site/.nojekyll
+
+      - name: Push to gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd _site
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Publish ${GITHUB_SHA::7}"
+          git push -q --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
