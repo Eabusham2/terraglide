@@ -1,0 +1,256 @@
+import * as THREE from '../../vendor/three/three.module.js';
+
+/**
+ * Terrain shader.
+ *
+ * Notable bits:
+ *  - `uUvOffset/uUvScale` let a tile draw a window into an ancestor's texture,
+ *    which is how a tile that has not streamed in yet still shows something.
+ *  - the vertex stage bends the ground down by d^2/2R so the horizon curves and
+ *    distant terrain sinks away instead of standing up like a wall.
+ *  - fog is blended toward the sky's horizon colour, so the render-distance
+ *    edge reads as haze rather than as a cliff.
+ */
+const TERRAIN_VERT = /* glsl */ `
+  #include <common>
+  #include <logdepthbuf_pars_vertex>
+
+  uniform float uEarthRadius;
+  uniform float uCurvature;
+  varying vec2 vUv;
+  varying vec3 vNormalW;
+  varying float vDist;
+  varying float vHeight;
+
+  void main() {
+    vUv = uv;
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vHeight = worldPos.y;
+    // "flat" is a reserved interpolation qualifier in GLSL ES 3, hence the name.
+    vec2 groundOffset = worldPos.xz - cameraPosition.xz;
+    float d = length(groundOffset);
+    vDist = d;
+    worldPos.y -= uCurvature * (d * d) / (2.0 * uEarthRadius);
+    vNormalW = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * viewMatrix * worldPos;
+    #include <logdepthbuf_vertex>
+  }
+`;
+
+const TERRAIN_FRAG = /* glsl */ `
+  precision highp float;
+
+  #include <common>
+  #include <logdepthbuf_pars_fragment>
+
+  uniform sampler2D uMap;
+  uniform vec2 uUvOffset;
+  uniform float uUvScale;
+  uniform vec3 uSunDir;
+  uniform vec3 uSunColor;
+  uniform vec3 uAmbient;
+  uniform vec3 uFogColor;
+  uniform float uFogDensity;
+  uniform float uFogEnabled;
+  uniform float uSnowLine;
+  uniform float uHasTexture;
+  uniform vec3 uFallbackColor;
+  uniform float uNight;
+
+  varying vec2 vUv;
+  varying vec3 vNormalW;
+  varying float vDist;
+  varying float vHeight;
+
+  void main() {
+    #include <logdepthbuf_fragment>
+    vec2 uv = uUvOffset + clamp(vUv, 0.0, 1.0) * uUvScale;
+    vec3 albedo = mix(uFallbackColor, texture2D(uMap, uv).rgb, uHasTexture);
+
+    vec3 n = normalize(vNormalW);
+    float lambert = max(dot(n, uSunDir), 0.0);
+    // Soft wrap keeps shaded slopes readable instead of crushing them to black.
+    float wrapped = lambert * 0.78 + 0.22;
+    vec3 lit = albedo * (uAmbient + uSunColor * wrapped);
+
+    // Snow above the seasonal snow line, on ground that is not too steep.
+    float flatness = smoothstep(0.55, 0.9, n.y);
+    float snow = smoothstep(uSnowLine, uSnowLine + 600.0, vHeight) * flatness;
+    // Tint toward snow but keep the shading underneath, or high ground turns
+    // into a flat white sheet with no readable relief.
+    vec3 snowColour = vec3(0.9, 0.92, 0.95) * (uAmbient + uSunColor * wrapped);
+    lit = mix(lit, snowColour, snow * 0.62);
+
+    lit = mix(lit, lit * vec3(0.35, 0.42, 0.62), uNight);
+
+    if (uFogEnabled > 0.5) {
+      float f = 1.0 - exp(-pow(vDist * uFogDensity, 2.0));
+      lit = mix(lit, uFogColor, clamp(f, 0.0, 1.0));
+    }
+
+    gl_FragColor = vec4(lit, 1.0);
+    #include <colorspace_fragment>
+  }
+`;
+
+const WHITE_PIXEL = (() => {
+  const data = new Uint8Array([255, 255, 255, 255]);
+  const tex = new THREE.DataTexture(data, 1, 1);
+  tex.needsUpdate = true;
+  return tex;
+})();
+
+export function createTerrainMaterial(shared) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uMap: { value: WHITE_PIXEL },
+      uUvOffset: { value: new THREE.Vector2(0, 0) },
+      uUvScale: { value: 1 },
+      uHasTexture: { value: 0 },
+      uFallbackColor: { value: new THREE.Color(0.42, 0.45, 0.4) },
+      uEarthRadius: shared.uEarthRadius,
+      uCurvature: shared.uCurvature,
+      uSunDir: shared.uSunDir,
+      uSunColor: shared.uSunColor,
+      uAmbient: shared.uAmbient,
+      uFogColor: shared.uFogColor,
+      uFogDensity: shared.uFogDensity,
+      uFogEnabled: shared.uFogEnabled,
+      uSnowLine: shared.uSnowLine,
+      uNight: shared.uNight,
+    },
+    vertexShader: TERRAIN_VERT,
+    fragmentShader: TERRAIN_FRAG,
+  });
+}
+
+/** Shared uniforms every terrain tile reads from, updated once per frame. */
+export function createSharedUniforms() {
+  return {
+    uEarthRadius: { value: 6378137 },
+    uCurvature: { value: 1 },
+    uSunDir: { value: new THREE.Vector3(0.4, 0.8, 0.3).normalize() },
+    uSunColor: { value: new THREE.Color(1, 0.97, 0.92) },
+    uAmbient: { value: new THREE.Color(0.34, 0.37, 0.44) },
+    uFogColor: { value: new THREE.Color(0.68, 0.75, 0.85) },
+    uFogDensity: { value: 1 / 26000 },
+    uFogEnabled: { value: 1 },
+    uSnowLine: { value: 2600 },
+    uNight: { value: 0 },
+  };
+}
+
+/** Sky dome: a plain three-band gradient plus a sun disc. No lens flare, no glow. */
+const SKY_VERT = /* glsl */ `
+  varying vec3 vDir;
+  void main() {
+    vDir = normalize((modelMatrix * vec4(position, 1.0)).xyz - cameraPosition);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const SKY_FRAG = /* glsl */ `
+  precision highp float;
+  uniform vec3 uZenith;
+  uniform vec3 uHorizon;
+  uniform vec3 uGround;
+  uniform vec3 uSunDir;
+  uniform vec3 uSunColor;
+  uniform float uSunSize;
+  varying vec3 vDir;
+
+  void main() {
+    vec3 dir = normalize(vDir);
+    float up = dir.y;
+    vec3 sky = mix(uHorizon, uZenith, pow(clamp(up, 0.0, 1.0), 0.55));
+    sky = mix(sky, uGround, smoothstep(0.0, -0.12, up));
+
+    float cosAngle = dot(dir, uSunDir);
+    float disc = smoothstep(uSunSize, uSunSize + 0.0016, cosAngle);
+    float halo = pow(max(cosAngle, 0.0), 90.0) * 0.28;
+    sky += uSunColor * (disc + halo);
+
+    gl_FragColor = vec4(sky, 1.0);
+    #include <colorspace_fragment>
+  }
+`;
+
+export function createSkyMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uZenith: { value: new THREE.Color(0.19, 0.36, 0.66) },
+      uHorizon: { value: new THREE.Color(0.72, 0.79, 0.87) },
+      uGround: { value: new THREE.Color(0.28, 0.3, 0.32) },
+      uSunDir: { value: new THREE.Vector3(0.4, 0.8, 0.3) },
+      uSunColor: { value: new THREE.Color(1, 0.95, 0.85) },
+      uSunSize: { value: 0.9994 },
+    },
+    vertexShader: SKY_VERT,
+    fragmentShader: SKY_FRAG,
+    side: THREE.BackSide,
+    depthWrite: false,
+    depthTest: false,
+    fog: false,
+  });
+}
+
+/**
+ * Street-level panorama dome. It sits around the player and fades out with
+ * distance from where the photo was taken and with height above the ground, so
+ * ground photography and satellite terrain meet in a soft band instead of a
+ * visible seam.
+ */
+const PANO_VERT = /* glsl */ `
+  #include <common>
+  #include <logdepthbuf_pars_vertex>
+  varying vec3 vDir;
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    vDir = normalize(position);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    #include <logdepthbuf_vertex>
+  }
+`;
+
+const PANO_FRAG = /* glsl */ `
+  precision highp float;
+  #include <common>
+  #include <logdepthbuf_pars_fragment>
+  uniform sampler2D uMap;
+  uniform float uOpacity;
+  uniform float uYaw;
+  uniform float uHorizonFade;
+  varying vec3 vDir;
+  varying vec2 vUv;
+
+  void main() {
+    #include <logdepthbuf_fragment>
+    vec2 uv = vec2(fract(vUv.x + uYaw), vUv.y);
+    vec4 tex = texture2D(uMap, uv);
+    // Fade the bottom of the sphere, where a pano is mostly the camera car,
+    // and the very top where it is usually stretched sky.
+    float lower = smoothstep(-0.62, -0.22, vDir.y);
+    float upper = 1.0 - smoothstep(0.55, 0.92, vDir.y) * uHorizonFade;
+    gl_FragColor = vec4(tex.rgb, tex.a * uOpacity * lower * upper);
+    #include <colorspace_fragment>
+  }
+`;
+
+export function createPanoramaMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uMap: { value: WHITE_PIXEL },
+      uOpacity: { value: 0 },
+      uYaw: { value: 0 },
+      uHorizonFade: { value: 1 },
+    },
+    vertexShader: PANO_VERT,
+    fragmentShader: PANO_FRAG,
+    side: THREE.BackSide,
+    transparent: true,
+    depthWrite: false,
+  });
+}
+
+export { WHITE_PIXEL };

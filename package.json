@@ -1,0 +1,16 @@
+{
+  "name": "terraglide",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A first-person world exploration game: satellite imagery, elevation and street-level photography stitched into one place you can walk through and fly over.",
+  "type": "module",
+  "license": "SEE LICENSE IN LICENSE",
+  "scripts": {
+    "start": "node serve.mjs",
+    "serve": "node serve.mjs",
+    "check": "node tools/check.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
