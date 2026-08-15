@@ -27,6 +27,7 @@ import { Autopilot } from '../src/player/autopilot.js';
 import { UNLOCK_CODE, cheats } from '../src/core/cheats.js';
 import { resolvePlace } from '../src/ui/cheatPanel.js';
 import { proceduralElevation } from '../src/tiles/procedural.js';
+import { classify, parseFeatures, pointInRing } from '../src/world/landcover.js';
 
 let failures = 0;
 let checks = 0;
@@ -348,6 +349,61 @@ console.log('\nauto-travel');
   player.onGround = true;
   auto.step(1 / 20, idle);
   ok('lets go once you are down', auto.active === false);
+}
+
+console.log('\nOpenStreetMap land cover');
+{
+  // What counts as what. These are the tags the scenery actually keys off.
+  ok('needleleaved wood is conifer', classify({ natural: 'wood', leaf_type: 'needleleaved' }).kind === 'conifer');
+  ok('broadleaved wood is broadleaf', classify({ natural: 'wood', leaf_type: 'broadleaved' }).kind === 'broadleaf');
+  ok('untyped forest is mixed', classify({ landuse: 'forest' }).kind === 'mixed');
+  ok('scrub is bush', classify({ natural: 'scrub' }).kind === 'bush');
+  ok('bare rock is rock', classify({ natural: 'bare_rock' }).kind === 'rock');
+  ok('scree is rock', classify({ natural: 'scree' }).kind === 'rock');
+  ok('orchards are planted closer', classify({ landuse: 'orchard' }).spacing === 10);
+  ok('a building is not scenery', classify({ building: 'yes' }) === null);
+  ok('an unrelated way is not scenery', classify({ highway: 'residential' }) === null);
+  ok('no tags at all is not scenery', classify({}) === null);
+
+  // A canned Overpass reply, shaped exactly as `out geom` returns one.
+  const response = {
+    elements: [
+      {
+        type: 'way',
+        id: 1,
+        tags: { natural: 'wood', leaf_type: 'needleleaved' },
+        geometry: [
+          { lat: 46.5, lon: 7.9 },
+          { lat: 46.5, lon: 7.91 },
+          { lat: 46.51, lon: 7.91 },
+          { lat: 46.51, lon: 7.9 },
+          { lat: 46.5, lon: 7.9 },
+        ],
+      },
+      { type: 'way', id: 2, tags: { building: 'house' }, geometry: [{ lat: 46.5, lon: 7.9 }, { lat: 46.5, lon: 7.901 }, { lat: 46.501, lon: 7.901 }, { lat: 46.5, lon: 7.9 }] },
+      { type: 'way', id: 3, tags: { natural: 'wood' }, geometry: [{ lat: 46.5, lon: 7.9 }, { lat: 46.5, lon: 7.901 }] },
+      { type: 'node', id: 4, lat: 46.505, lon: 7.905, tags: { natural: 'tree', leaf_type: 'broadleaved' } },
+      { type: 'node', id: 5, lat: 46.506, lon: 7.906, tags: { amenity: 'bench' } },
+    ],
+  };
+  const parsed = parseFeatures(response);
+  ok('the wood is picked up', parsed.areas.length === 1 && parsed.areas[0].kind === 'conifer', `${parsed.areas.length} areas`);
+  ok('the building is not', !parsed.areas.some((a) => a.id === 2));
+  ok('a two-point way is not an area', !parsed.areas.some((a) => a.id === 3));
+  ok('the mapped tree is picked up', parsed.points.length === 1 && parsed.points[0].lat === 46.505);
+  ok('a bench is not a tree', !parsed.points.some((p) => p.lat === 46.506));
+  ok('an empty response yields nothing', parseFeatures({ elements: [] }).areas.length === 0);
+  ok('a missing response yields nothing', parseFeatures(undefined).areas.length === 0);
+
+  // Point in polygon: a square, then an L that a naive test gets wrong.
+  const square = [0, 0, 100, 0, 100, 100, 0, 100];
+  ok('inside the square', pointInRing(square, 50, 50));
+  ok('outside the square', !pointInRing(square, 150, 50));
+  ok('outside on the other axis', !pointInRing(square, 50, -10));
+  const ell = [0, 0, 100, 0, 100, 40, 40, 40, 40, 100, 0, 100];
+  ok('inside the arm of the L', pointInRing(ell, 20, 80));
+  ok('in the notch of the L is outside', !pointInRing(ell, 80, 80), 'the bit an axis-aligned test gets wrong');
+  ok('inside the base of the L', pointInRing(ell, 80, 20));
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed\n`);

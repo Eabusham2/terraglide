@@ -72,7 +72,7 @@ const SECTIONS = [
       { key: 'freecamFov', label: 'Freecam field of view', type: 'range', min: 55, max: 118, step: 1, unit: '°' },
       { key: 'speedFovKick', label: 'Widen view with speed', type: 'toggle' },
       { key: 'fog', label: 'Distance haze', type: 'toggle' },
-      { key: 'scenery', label: 'Trees, rocks and scenery', type: 'toggle', help: 'Real geometry standing on the ground rather than flat imagery. Costs a few thousand instances.' },
+      { key: 'scenery', label: 'Trees, rocks and scenery', type: 'toggle', help: 'Trees, scrub and rock from OpenStreetMap land cover. Where nothing is mapped, nothing is drawn.' },
       { key: 'weather', label: 'Clouds and rain', type: 'toggle', help: 'Cloud cover and precipitation for where and when you are, from the same climate model as the temperature.' },
       { key: 'resolutionScale', label: 'Render scale', type: 'range', min: 0.5, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%` },
       { key: 'adaptiveResolution', label: 'Adapt render scale to keep the frame rate', type: 'toggle' },

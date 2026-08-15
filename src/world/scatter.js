@@ -1,30 +1,37 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { clamp } from '../core/math.js';
 import { settings } from '../core/settings.js';
-import { snowLineM } from '../geo/climate.js';
+import { latToNormY, lonToNormX, normXToLon, normYToLat, tileKey } from '../geo/mercator.js';
+import { classify, parseFeatures, pointInRing } from './landcover.js';
+import { overpass } from './overpass.js';
 
 /**
- * Scenery: the things standing on the ground.
+ * Scenery: trees, scrub and rock, in the places they actually are.
  *
- * Satellite imagery draped over elevation is flat — a forest is a green smear
- * and a boulder field is a grey one. This puts real geometry back on top of it:
- * conifers, broadleaf trees, bushes and rocks, instanced by the thousand around
- * wherever you are, so ground you fly over has height and shadow to it and the
- * ground you walk through has things to walk between.
+ * Every position here traces back to OpenStreetMap. Woods, scrub, heath, bare
+ * rock and scree are mapped as areas, individual notable trees are mapped as
+ * points, and OSM even records whether a wood is needleleaved or broadleaved —
+ * so a fir is a fir because the data says so, not because a noise function felt
+ * like it. Where OSM has nothing, this draws nothing. No invented forests.
  *
- * Placement is deterministic — a hash of the cell coordinates decides whether
- * something stands there, what kind it is and how big — so the same hillside is
- * always the same hillside, nothing pops as you turn around, and none of it has
- * to be stored or downloaded. What grows where comes from the world itself:
- * nothing below the waterline, nothing on cliffs, conifers taking over from
- * broadleaf with altitude, everything thinning out toward the snow line and in
- * the deserts, and bare rock above it.
+ * OSM does not record every trunk inside a wood, and no public dataset does, so
+ * the *filling in* of a mapped wood is generated: positions are hashed from the
+ * ground coordinate, deterministic and stable, spaced by species. That is the
+ * same division of labour a flight simulator uses outside its photogrammetry
+ * cities — the land class is surveyed data, the individual trunks are autogen.
+ * The boundary of the honesty is: the outline of the wood is real, the specific
+ * tree you are standing next to is not.
+ *
+ * Terrain height under each object comes from the elevation data the ground mesh
+ * is built from, so nothing floats and nothing sinks.
  */
 
-/** Metres between candidate positions. One thing per cell at most. */
-const CELL_M = 14;
-/** How many instances each kind may draw at once. */
-const KIND_LIMITS = { conifer: 2600, broadleaf: 2600, bush: 2200, rock: 1400 };
+/** Tiles of OSM land cover, at this zoom. ~2.4 km across at the equator. */
+const DATA_ZOOM = 14;
+/** Metres between generated trunks inside a mapped area, by kind. */
+const SPACING = { conifer: 13, broadleaf: 15, bush: 9, rock: 17 };
+/** Ceiling per kind, so a city-sized forest cannot melt the frame. */
+const KIND_LIMITS = { conifer: 3200, broadleaf: 3200, bush: 2400, rock: 1600 };
 
 const KINDS = ['conifer', 'broadleaf', 'bush', 'rock'];
 
@@ -36,56 +43,39 @@ function hash2(x, y, salt) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-/** Smooth 0..1 field for "how wooded is this region", from the same hash. */
-function woodedness(x, y) {
-  const s = 1 / 900; // metres per noise cell — patches a kilometre or so across
-  const fx = x * s;
-  const fy = y * s;
-  const x0 = Math.floor(fx);
-  const y0 = Math.floor(fy);
-  const tx = fx - x0;
-  const ty = fy - y0;
-  const sx = tx * tx * (3 - 2 * tx);
-  const sy = ty * ty * (3 - 2 * ty);
-  const a = hash2(x0, y0, 7);
-  const b = hash2(x0 + 1, y0, 7);
-  const c = hash2(x0, y0 + 1, 7);
-  const d = hash2(x0 + 1, y0 + 1, 7);
-  return (a * (1 - sx) + b * sx) * (1 - sy) + (c * (1 - sx) + d * sx) * sy;
-}
-
 export class Scatter {
-  constructor({ scene, terrain }) {
+  constructor({ scene, terrain, frame }) {
     this.scene = scene;
     this.terrain = terrain;
+    this.frame = frame;
     this.group = new THREE.Group();
     this.group.name = 'scenery';
     scene.add(this.group);
 
     this.meshes = {};
-    this.textures = {};
-    this.lastCentre = null;
-    this.climate = null;
-    this.stats = { placed: 0 };
+    this.tiles = new Map();
+    this.lastBuildAt = null;
+    this.dirty = false;
+    this.stats = { placed: 0, areas: 0, points: 0, tiles: 0, failed: 0 };
 
     this._matrix = new THREE.Matrix4();
     this._position = new THREE.Vector3();
     this._quaternion = new THREE.Quaternion();
+    this._euler = new THREE.Euler(0, 0, 0, 'YXZ');
     this._scale = new THREE.Vector3();
     this._colour = new THREE.Color();
+    this._world = { x: 0, y: 0, z: 0 };
 
     for (const kind of KINDS) this.meshes[kind] = this.makeMesh(kind);
   }
 
   /**
-   * Optional generated textures. They live in `assets/` and are only used by
-   * the served copy — the single-file build has no folder to load them from and
-   * falls back to flat colour, which is why nothing here depends on them.
+   * Optional generated textures, listed in `assets/manifest.json`. The
+   * single-file build has no assets folder and falls back to flat colour, which
+   * is why nothing here depends on them.
    */
   async loadTextures(base = './assets/') {
     if (typeof document === 'undefined' || typeof fetch !== 'function') return;
-    // Ask the manifest first: the single-file build has no assets folder, and
-    // one quiet 404 is better than one per texture.
     let manifest;
     try {
       const response = await fetch(`${base}manifest.json`, { cache: 'force-cache' });
@@ -94,7 +84,7 @@ export class Scatter {
     } catch {
       return;
     }
-    if (!manifest || !manifest.textures) return;
+    if (!manifest?.textures) return;
 
     const loader = new THREE.TextureLoader();
     const apply = (file, kinds) => {
@@ -124,7 +114,6 @@ export class Scatter {
     let geometry;
     let colour;
     if (kind === 'conifer') {
-      // Two stacked cones on a trunk: cheap, and unmistakably a fir at distance.
       const trunk = new THREE.CylinderGeometry(0.16, 0.24, 2.2, 5, 1, true);
       trunk.translate(0, 1.1, 0);
       const lower = new THREE.ConeGeometry(2.1, 5.2, 7);
@@ -153,113 +142,155 @@ export class Scatter {
       colour = 0x6f6a63;
     }
 
-    const material = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false });
+    const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
     const mesh = new THREE.InstancedMesh(geometry, material, KIND_LIMITS[kind]);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.count = 0;
     mesh.frustumCulled = false;
-    mesh.castShadow = false;
     mesh.name = `scenery-${kind}`;
     mesh.userData.baseColour = new THREE.Color(colour);
     this.group.add(mesh);
     return mesh;
   }
 
-  setClimate(climate) {
-    this.climate = climate;
+  /** How far out mapped areas are filled in, in metres. */
+  get radius() {
+    return clamp(settings.preset().sceneryRadiusM ?? 500, 120, 2400);
   }
 
-  /** Radius to fill, in metres — the graphics preset decides how generous. */
-  get radius() {
-    const preset = settings.preset();
-    return clamp(preset.sceneryRadiusM ?? 500, 120, 2400);
-  }
+  /* --------------------------------------------------------------- data */
 
   update(camera, player) {
     const on = settings.get('scenery');
     this.group.visible = on;
     if (!on) return;
 
-    // Nothing to place while you are miles up; it would never be visible and
-    // the tiles under you are more use.
     const altitude = player ? player.altitudeAboveGround : 0;
-    if (altitude > this.radius * 3) {
-      if (this.stats.placed !== 0) this.clear();
+    // Same rule as buildings: nothing is fetched or filled while you cruise.
+    if (altitude > 2200) {
+      if (this.stats.placed > 0) this.clearInstances();
       return;
     }
+
+    if (player) this.requestAround(player.lat, player.lon);
 
     const x = camera.position.x;
     const z = camera.position.z;
-    const step = CELL_M * 4;
-    if (
-      this.lastCentre &&
-      Math.abs(this.lastCentre.x - x) < step &&
-      Math.abs(this.lastCentre.z - z) < step &&
-      this.lastCentre.radius === this.radius
-    ) {
-      return;
-    }
-    this.lastCentre = { x, z, radius: this.radius };
+    const moved =
+      !this.lastBuildAt ||
+      Math.hypot(this.lastBuildAt.x - x, this.lastBuildAt.z - z) > 220 ||
+      this.lastBuildAt.radius !== this.radius;
+    if (!moved && !this.dirty) return;
+
+    this.lastBuildAt = { x, z, radius: this.radius };
+    this.dirty = false;
     this.rebuild(x, z);
   }
 
-  clear() {
+  /** Keep the OSM land-cover tiles around the player loaded. */
+  requestAround(lat, lon) {
+    const n = Math.pow(2, DATA_ZOOM);
+    const cx = Math.floor(lonToNormX(lon) * n);
+    const cy = Math.floor(latToNormY(lat) * n);
+
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const x = (((cx + dx) % n) + n) % n;
+        const y = cy + dy;
+        if (y < 0 || y >= n) continue;
+        const key = tileKey(DATA_ZOOM, x, y);
+        if (this.tiles.has(key)) continue;
+        // The tile you are standing in first; neighbours wait their turn.
+        if ((dx !== 0 || dy !== 0) && overpass.inflight) continue;
+        this.fetchTile(key, { z: DATA_ZOOM, x, y });
+      }
+    }
+
+    if (this.tiles.size > 14) {
+      for (const [key, record] of this.tiles) {
+        if (Math.abs(record.tile.x - cx) > 2 || Math.abs(record.tile.y - cy) > 2) {
+          this.tiles.delete(key);
+          this.dirty = true;
+        }
+      }
+    }
+    this.stats.tiles = this.tiles.size;
+  }
+
+  async fetchTile(key, tile) {
+    const record = { tile, state: 'loading', areas: [], points: [] };
+    this.tiles.set(key, record);
+
+    const n = Math.pow(2, DATA_ZOOM);
+    const west = normXToLon(tile.x / n);
+    const east = normXToLon((tile.x + 1) / n);
+    const north = normYToLat(tile.y / n);
+    const south = normYToLat((tile.y + 1) / n);
+    const bbox = `${south},${west},${north},${east}`;
+    // `out geom` returns each way's coordinates inline, which is a fraction of
+    // the traffic of pulling every node separately.
+    const query =
+      `[out:json][timeout:30];(` +
+      `way["natural"~"^(wood|scrub|heath|bare_rock|scree|shingle)$"](${bbox});` +
+      `way["landuse"~"^(forest|orchard|vineyard|meadow)$"](${bbox});` +
+      `node["natural"="tree"](${bbox});` +
+      `);out geom;`;
+
+    try {
+      const data = await overpass.query(query);
+      const parsed = parseFeatures(data);
+      record.areas = parsed.areas;
+      record.points = parsed.points;
+      record.state = 'ready';
+      this.dirty = true;
+      this.stats.areas = [...this.tiles.values()].reduce((n2, r) => n2 + r.areas.length, 0);
+      this.stats.points = [...this.tiles.values()].reduce((n2, r) => n2 + r.points.length, 0);
+    } catch {
+      record.state = 'failed';
+      this.stats.failed++;
+      // Forget it so it can be asked for again later, rather than caching a
+      // hole in the world forever.
+      setTimeout(() => {
+        if (this.tiles.get(key) === record) this.tiles.delete(key);
+      }, 60000);
+    }
+  }
+
+  /** Is there any real land-cover data to draw right now? */
+  get hasData() {
+    for (const record of this.tiles.values()) {
+      if (record.state === 'ready' && (record.areas.length > 0 || record.points.length > 0)) return true;
+    }
+    return false;
+  }
+
+  /* ------------------------------------------------------------ placing */
+
+  clearInstances() {
     for (const kind of KINDS) this.meshes[kind].count = 0;
     this.stats.placed = 0;
-    // Forget where we filled from, or coming back down to the same spot would
-    // find nothing to do and leave the ground bare.
-    this.lastCentre = null;
+    this.lastBuildAt = null;
   }
 
   rebuild(centreX, centreZ) {
-    const radius = this.radius;
-    const cells = Math.ceil(radius / CELL_M);
-    const baseX = Math.round(centreX / CELL_M);
-    const baseZ = Math.round(centreZ / CELL_M);
     const counts = { conifer: 0, broadleaf: 0, bush: 0, rock: 0 };
+    const radius = this.radius;
 
-    // Temperature decides the tree line and whether anything grows at all.
-    const avgC = this.climate ? this.climate.avgC : 12;
-    const snowLine = snowLineM(avgC);
-    const cold = avgC < -4;
+    for (const record of this.tiles.values()) {
+      if (record.state !== 'ready') continue;
 
-    for (let cz = -cells; cz <= cells; cz++) {
-      for (let cx = -cells; cx <= cells; cx++) {
-        if (Math.hypot(cx, cz) > cells) continue;
-        const gx = baseX + cx;
-        const gz = baseZ + cz;
+      for (const area of record.areas) {
+        this.fillArea(area, counts, centreX, centreZ, radius);
+      }
 
-        const roll = hash2(gx, gz, 1);
-        // Jitter inside the cell so nothing lands on a grid.
-        const px = (gx + hash2(gx, gz, 2) - 0.5) * CELL_M;
-        const pz = (gz + hash2(gx, gz, 3) - 0.5) * CELL_M;
-
-        const ground = this.terrain.heightAt(px, pz);
-        if (ground <= 0.4) continue; // sea, and beaches stay bare
-
-        // Steep ground gets rocks, not woodland.
-        const slope = this.slopeAt(px, pz);
-        const alpine = clamp((ground - (snowLine - 450)) / 500, 0, 1);
-        const wooded = woodedness(px, pz);
-
-        let density = wooded * 0.85 * (1 - alpine);
-        if (cold) density *= 0.35;
-        if (slope > 0.55) density *= 0.15;
-        if (density < 0.03) density = 0.03; // never completely empty
-
-        if (roll > density) {
-          // Nothing growing here — but bare ground still has stones on it.
-          if (hash2(gx, gz, 9) < 0.05 + alpine * 0.22 + slope * 0.2) {
-            this.place('rock', counts, px, pz, ground, gx, gz);
-          }
-          continue;
-        }
-
-        const pick = hash2(gx, gz, 4);
-        // Conifers take over as you climb; bushes fill in between.
-        const coniferShare = clamp(0.25 + alpine * 0.6 + (cold ? 0.3 : 0), 0, 0.9);
-        const kind = pick < coniferShare ? 'conifer' : pick < 0.86 ? 'broadleaf' : 'bush';
-        this.place(kind, counts, px, pz, ground, gx, gz);
+      // Individually mapped trees stand exactly where the survey put them.
+      for (const point of record.points) {
+        this.frame.toWorld(point.lat, point.lon, this._world);
+        const dx = this._world.x - centreX;
+        const dz = this._world.z - centreZ;
+        if (Math.hypot(dx, dz) > radius) continue;
+        const kind = point.tags?.leaf_type === 'needleleaved' ? 'conifer' : 'broadleaf';
+        this.place(kind, counts, this._world.x, this._world.z, 1.15);
       }
     }
 
@@ -274,45 +305,100 @@ export class Scatter {
     this.stats.placed = placed;
   }
 
-  place(kind, counts, x, z, ground, gx, gz) {
+  /**
+   * Fill one mapped area with the species it is mapped as. The outline is the
+   * survey's; the spacing inside it is ours.
+   */
+  fillArea(area, counts, centreX, centreZ, radius) {
+    const ring = this.ringToWorld(area);
+    if (!ring) return;
+
+    // Skip anything wholly outside the fill radius before doing real work.
+    const { minX, maxX, minZ, maxZ } = ring.bounds;
+    const nearestX = clamp(centreX, minX, maxX);
+    const nearestZ = clamp(centreZ, minZ, maxZ);
+    if (Math.hypot(nearestX - centreX, nearestZ - centreZ) > radius) return;
+
+    const mixed = area.kind === 'mixed';
+    const baseKind = mixed ? 'conifer' : area.kind;
+    const spacing = area.spacing ?? SPACING[baseKind] ?? 14;
+
+    const x0 = Math.max(minX, centreX - radius);
+    const x1 = Math.min(maxX, centreX + radius);
+    const z0 = Math.max(minZ, centreZ - radius);
+    const z1 = Math.min(maxZ, centreZ + radius);
+
+    for (let gz = Math.floor(z0 / spacing); gz <= Math.ceil(z1 / spacing); gz++) {
+      for (let gx = Math.floor(x0 / spacing); gx <= Math.ceil(x1 / spacing); gx++) {
+        // Jitter off the grid, deterministically, so a wood is not an orchard.
+        const x = (gx + hash2(gx, gz, 1) - 0.5) * spacing;
+        const z = (gz + hash2(gx, gz, 2) - 0.5) * spacing;
+        if (Math.hypot(x - centreX, z - centreZ) > radius) continue;
+        if (!pointInRing(ring.points, x, z)) continue;
+        // A few gaps: clearings, tracks, and the edge of a wood being ragged.
+        if (hash2(gx, gz, 3) > 0.86) continue;
+
+        const kind = mixed ? (hash2(gx, gz, 4) < 0.5 ? 'conifer' : 'broadleaf') : baseKind;
+        this.place(kind, counts, x, z, 0.7 + hash2(gx, gz, 5) * 0.8);
+      }
+    }
+  }
+
+  /** OSM lat/lon ring to local world XZ, with bounds, cached per rebase. */
+  ringToWorld(area) {
+    if (area._ring && area._anchor === this.frame.anchorSerial) return area._ring;
+
+    const points = new Float64Array(area.geometry.length * 2);
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (let i = 0; i < area.geometry.length; i++) {
+      const node = area.geometry[i];
+      this.frame.toWorld(node.lat, node.lon, this._world);
+      points[i * 2] = this._world.x;
+      points[i * 2 + 1] = this._world.z;
+      if (this._world.x < minX) minX = this._world.x;
+      if (this._world.x > maxX) maxX = this._world.x;
+      if (this._world.z < minZ) minZ = this._world.z;
+      if (this._world.z > maxZ) maxZ = this._world.z;
+    }
+    area._ring = { points, bounds: { minX, maxX, minZ, maxZ } };
+    area._anchor = this.frame.anchorSerial;
+    return area._ring;
+  }
+
+  place(kind, counts, x, z, scale) {
     const mesh = this.meshes[kind];
     const index = counts[kind];
     if (index >= KIND_LIMITS[kind]) return;
 
-    const sizeRoll = hash2(gx, gz, 5);
-    const scale =
-      kind === 'rock' ? 0.5 + sizeRoll * 1.8 : kind === 'bush' ? 0.6 + sizeRoll * 0.9 : 0.7 + sizeRoll * 0.8;
-    const spin = hash2(gx, gz, 6) * Math.PI * 2;
-    // A little lean, so a hillside of firs is not a hillside of identical firs.
-    const lean = (hash2(gx, gz, 8) - 0.5) * 0.12;
+    const ground = this.terrain.heightAt(x, z);
+    // Nothing grows in the sea, whatever the map says about the shoreline.
+    if (ground <= 0.2) return;
+
+    const key = Math.round(x * 7) ^ Math.round(z * 13);
+    const spin = hash2(key, index, 6) * Math.PI * 2;
+    const lean = (hash2(key, index, 7) - 0.5) * 0.12;
 
     this._position.set(x, ground - 0.2 * scale, z);
-    this._quaternion.setFromEuler(new THREE.Euler(lean, spin, lean * 0.6, 'YXZ'));
-    this._scale.set(scale, scale * (0.85 + hash2(gx, gz, 10) * 0.4), scale);
+    this._euler.set(lean, spin, lean * 0.6, 'YXZ');
+    this._quaternion.setFromEuler(this._euler);
+    this._scale.set(scale, scale * (0.85 + hash2(key, index, 8) * 0.4), scale);
     this._matrix.compose(this._position, this._quaternion, this._scale);
     mesh.setMatrixAt(index, this._matrix);
 
-    // Vary the colour a shade per instance so a wood is not one flat green.
-    const tint = 0.82 + hash2(gx, gz, 11) * 0.36;
+    const tint = 0.82 + hash2(key, index, 9) * 0.36;
     this._colour.copy(mesh.userData.baseColour).multiplyScalar(tint);
     mesh.setColorAt(index, this._colour);
 
     counts[kind] = index + 1;
   }
 
-  /** Rough slope, 0 flat to 1 vertical-ish, from the elevation field. */
-  slopeAt(x, z) {
-    const d = 12;
-    const h = this.terrain.heightAt(x, z);
-    const dx = Math.abs(this.terrain.heightAt(x + d, z) - h);
-    const dz = Math.abs(this.terrain.heightAt(x, z + d) - h);
-    return clamp(Math.hypot(dx, dz) / d, 0, 1);
-  }
-
-  /** Everything moved: the local frame re-anchored or you teleported. */
+  /** The local frame re-anchored, or you teleported: drop everything placed. */
   rebase() {
-    this.lastCentre = null;
-    this.clear();
+    this.clearInstances();
+    this.dirty = true;
   }
 }
 

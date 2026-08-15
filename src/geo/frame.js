@@ -28,6 +28,9 @@ export class LocalFrame {
   }
 
   setAnchor(lat, lon) {
+    // Bumped on every re-anchor so anything caching world-space geometry knows
+    // its coordinates just became stale.
+    this.anchorSerial = (this.anchorSerial ?? 0) + 1;
     this.anchorLat = Math.max(-MAX_LATITUDE, Math.min(MAX_LATITUDE, lat));
     this.anchorLon = wrapLon(lon);
     this.cosAnchor = Math.cos(this.anchorLat * DEG);

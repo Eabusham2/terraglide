@@ -2,6 +2,7 @@ import * as THREE from '../../vendor/three/three.module.js';
 import { clamp, rand3 } from '../core/math.js';
 import { settings } from '../core/settings.js';
 import { latToNormY, lonToNormX, normXToLon, normYToLat, tileKey } from '../geo/mercator.js';
+import { overpass } from './overpass.js';
 
 /**
  * Buildings.
@@ -18,11 +19,6 @@ import { latToNormY, lonToNormX, normXToLon, normYToLat, tileKey } from '../geo/
  */
 
 const DATA_ZOOM = 15;
-const OVERPASS_ENDPOINTS = [
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
-];
-const MIN_REQUEST_GAP_MS = 2200;
 const STOREY_M = 3.2;
 const DOOR_WIDTH = 1.4;
 const DOOR_HEIGHT = 2.3;
@@ -43,10 +39,6 @@ export class Buildings {
     });
 
     this.tiles = new Map();
-    this.lastRequestAt = 0;
-    this.inflight = 0;
-    this.backoffUntil = 0;
-    this.endpointIndex = 0;
     this.stats = { tiles: 0, buildings: 0, failed: 0 };
     this.enabled = true;
   }
@@ -85,7 +77,7 @@ export class Buildings {
         if (this.tiles.has(key)) continue;
         // Only the tile you are standing in loads immediately; neighbours wait
         // until it is done so a walk never fires a burst of Overpass queries.
-        if ((dx !== 0 || dy !== 0) && this.inflight > 0) continue;
+        if ((dx !== 0 || dy !== 0) && overpass.inflight) continue;
         this.fetchTile(key, { z: DATA_ZOOM, x, y });
       }
     }
@@ -105,12 +97,6 @@ export class Buildings {
   }
 
   async fetchTile(key, tile) {
-    const now = performance.now();
-    if (now < this.backoffUntil) return;
-    if (this.inflight > 0 || now - this.lastRequestAt < MIN_REQUEST_GAP_MS) return;
-
-    this.lastRequestAt = now;
-    this.inflight++;
     const record = { tile, state: 'loading', mesh: null, colliders: [] };
     this.tiles.set(key, record);
 
@@ -125,30 +111,17 @@ export class Buildings {
       `(._;>;);out body;`;
 
     try {
-      const endpoint = OVERPASS_ENDPOINTS[this.endpointIndex % OVERPASS_ENDPOINTS.length];
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        body: 'data=' + encodeURIComponent(query),
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      });
-      if (res.status === 429 || res.status === 504) {
-        this.endpointIndex++;
-        throw new Error(`overpass busy (${res.status})`);
-      }
-      if (!res.ok) throw new Error(`overpass ${res.status}`);
-      const data = await res.json();
+      const data = await overpass.query(query);
       this.buildTile(record, data);
       record.state = 'ready';
     } catch {
       record.state = 'failed';
       this.stats.failed++;
-      this.backoffUntil = performance.now() + 45000;
       // Let it retry later rather than caching a hole forever.
       setTimeout(() => {
         if (this.tiles.get(key) === record && record.state === 'failed') this.tiles.delete(key);
       }, 60000);
     } finally {
-      this.inflight--;
       this.stats.tiles = this.tiles.size;
     }
   }

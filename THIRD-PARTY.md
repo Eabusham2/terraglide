@@ -43,6 +43,15 @@ policies: they are rate limited in `src/tiles/providers.ts` and
 `src/geo/geocode.ts`, and those limits must not be raised for unattended or
 bulk use.
 
+## OpenStreetMap land cover
+
+The scenery reads `natural=wood|scrub|heath|bare_rock|scree|shingle`,
+`landuse=forest|orchard|vineyard|meadow` and `natural=tree` from the same
+Overpass API the buildings use, under the Open Database Licence. Attribution
+for it is already in the corner of the screen alongside the buildings credit.
+Requests are queued one at a time with a gap and a long backoff, and nothing is
+cached to disk.
+
 ## Generated assets
 
 `assets/foliage.jpg` and `assets/rock.jpg` are AI-generated material textures,

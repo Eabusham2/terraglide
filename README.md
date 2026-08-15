@@ -154,14 +154,26 @@ the status line says so rather than leaving you on blank ground.
 ### What is standing on the ground
 
 Satellite imagery draped over elevation is flat, so the world also grows real
-geometry: conifers, broadleaf trees, bushes and rocks, instanced by the
-thousand around wherever you are. Placement is a hash of the ground position —
-deterministic, so the same hillside is always the same hillside, nothing pops
-as you turn round, and none of it is stored or downloaded. What grows where
-comes out of the world itself: nothing below the waterline, nothing on the
-cliffs, conifers taking over from broadleaf as you climb, everything thinning
-toward the snow line and bare stone above it. **Settings → Graphics** turns it
-off and sets how far it reaches.
+geometry — and every bit of it traces back to OpenStreetMap. Woods, scrub,
+heath, bare rock and scree are mapped as areas; individual notable trees are
+mapped as points; and OSM records whether a wood is needleleaved or
+broadleaved, so a fir is a fir because the survey says so. **Where OSM has
+nothing mapped, nothing is drawn.** No invented forests.
+
+What is *not* surveyed is the position of every trunk inside a wood — no public
+dataset has that, anywhere. So the outline of the wood is real data and the
+filling-in is generated: hashed from the ground coordinate, deterministic,
+spaced by species, thinned by a few percent for clearings. That is the same
+division of labour a flight simulator uses outside its photogrammetry cities.
+The line is worth stating plainly: **the edge of the wood is real, the
+particular tree you are standing next to is not.**
+
+Individually mapped trees are the exception — those stand exactly where the
+survey put them.
+
+Land cover comes down the same Overpass queue as the buildings, one request at
+a time with a gap and a backoff, because it is a donated service.
+**Settings → Graphics** turns the scenery off and sets how far it fills in.
 
 Above that there is weather — cloud cover and rain or snow for the place and
 month you are in, from the same climate model as the temperature readout. It is
