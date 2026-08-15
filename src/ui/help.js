@@ -81,9 +81,13 @@ export class HelpCard {
           ).join('')}
         </div>
         <p class="help-note">
-          Out of the box the ground is generated locally so the game runs with no account and no network.
-          Open <strong>Settings → Providers</strong> to point it at real satellite imagery, elevation and
-          street-level photography.
+          Satellite imagery and elevation work with no account at all. <strong>Settings → Providers</strong>
+          swaps in Google, Bing or Mapbox if you have a key, or falls back to a generated world offline.
+        </p>
+        <p class="help-note">
+          On a touch screen the on-screen stick and buttons appear by themselves. To play with no internet
+          at all, download <a href="./terraglide.html" download>terraglide.html</a> — one file, opens by
+          double-clicking, no server needed.
         </p>
       </div>`;
   }

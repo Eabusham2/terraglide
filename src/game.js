@@ -16,6 +16,7 @@ import { HOTBAR, Player } from './player/player.js';
 import { ElevationField } from './tiles/elevation.js';
 import { createElevationSource, createImagerySource } from './tiles/providers.js';
 import { ImageryStreamer } from './tiles/streamer.js';
+import { createTileWorker } from './tiles/workerHost.js';
 import { Buildings } from './world/buildings.js';
 import { Panorama } from './world/panorama.js';
 import { pickRandomDestination } from './world/rtp.js';
@@ -28,6 +29,7 @@ import { HUD } from './ui/hud.js';
 import { mapTiles } from './ui/mapTiles.js';
 import { Minimap } from './ui/minimap.js';
 import { SettingsPanel } from './ui/settingsPanel.js';
+import { TouchControls } from './ui/touch.js';
 import { trail } from './ui/trail.js';
 import { waypoints } from './ui/waypoints.js';
 import { WorldMap } from './ui/worldmap.js';
@@ -79,7 +81,7 @@ export class Game {
     this.scene.add(this.camera);
 
     this.onStatus('Starting tile worker');
-    this.worker = new Worker(new URL('./tiles/tileWorker.js', import.meta.url), { type: 'module' });
+    this.worker = createTileWorker();
 
     this.frame = new LocalFrame(DEFAULT_SPAWN.lat, DEFAULT_SPAWN.lon);
     this.shared = createSharedUniforms();
@@ -112,6 +114,8 @@ export class Game {
     this.worldmap = new WorldMap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints, trail });
     this.settingsPanel = new SettingsPanel(ui);
     this.help = new HelpCard(ui);
+    this.touch = new TouchControls(ui);
+    this.input.attachTouch(this.touch);
 
     this.bindEvents();
     this.applyProviders();
@@ -149,6 +153,13 @@ export class Game {
       };
       if (map[action]) this.onAction(map[action]);
     };
+
+    this.touch.onAction = (id) => {
+      if (id === 'boost') this.fireRocket();
+      else this.onAction(id);
+    };
+    this.touch.onLook = (dx, dy) => this.rig.applyLook(this.player, dx, dy);
+    this.touch.watchForTouch();
 
     // Clicking the minimap opens the big map centred where you are.
     this.minimap.onOpenMap = () => {

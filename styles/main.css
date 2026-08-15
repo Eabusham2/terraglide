@@ -1113,3 +1113,77 @@ input[type='checkbox'] {
     grid-template-columns: 110px 1fr;
   }
 }
+
+/* ---------- touch ---------- */
+
+.touch {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.touch-stick {
+  position: absolute;
+  left: 22px;
+  bottom: 22px;
+  width: 132px;
+  height: 132px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: rgba(28, 27, 24, 0.4);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.touch-stick i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  border-radius: 50%;
+  background: rgba(240, 236, 226, 0.32);
+  border: 1px solid var(--line-strong);
+}
+
+.touch-buttons {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: grid;
+  grid-template-columns: repeat(2, 88px);
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.touch-buttons button {
+  height: 52px;
+  font-size: 13px;
+  background: rgba(28, 27, 24, 0.72);
+  touch-action: none;
+}
+
+.touch-buttons button.down {
+  background: rgba(74, 66, 46, 0.85);
+  border-color: var(--accent);
+}
+
+/* On a touch screen the hotbar and rail would sit under your thumbs. */
+body.touch-active .hud-rail {
+  display: none;
+}
+
+body.touch-active .hud-hotbar {
+  bottom: auto;
+  top: 40px;
+}
+
+body.touch-active .hud-bottomleft {
+  bottom: 168px;
+}
+
+body.touch-active .hud-crosshair {
+  display: none;
+}

@@ -78,7 +78,7 @@ export class InputManager extends Emitter {
 
   /** Movement snapshot the controller consumes each frame. */
   movement() {
-    return {
+    const keys = {
       forward: this.isDown('forward'),
       back: this.isDown('back'),
       left: this.isDown('left'),
@@ -87,6 +87,16 @@ export class InputManager extends Emitter {
       sprint: this.isDown('sprint'),
       crouch: this.isDown('crouch'),
     };
+    // Touch and keyboard both feed the same snapshot, so either can drive and
+    // holding both does the obvious thing.
+    const touch = this.touch ? this.touch.movement() : null;
+    if (!touch) return keys;
+    for (const key of Object.keys(keys)) keys[key] = keys[key] || touch[key];
+    return keys;
+  }
+
+  attachTouch(touch) {
+    this.touch = touch;
   }
 
   requestPointerLock() {

@@ -18,9 +18,14 @@ install, no framework. The only dependency is three.js, which is vendored into
 The published build is at <https://eabusham2.github.io/terraglide/> — nothing to
 install, it runs in the tab.
 
-To run your own copy: browsers refuse to load ES modules and web workers from
-`file://`, so the folder has to be served over HTTP. Any static server works;
-one is included:
+**No internet at all?** Download
+[terraglide.html](https://eabusham2.github.io/terraglide/terraglide.html) — the
+whole game in one file. Save it anywhere and double-click it; no server, no
+install, works on a Chromebook, and the generated world runs entirely offline.
+
+To run the source copy: browsers refuse to load ES modules from `file://`, so
+the folder has to be served over HTTP. Any static server works; one is
+included:
 
 ```sh
 node serve.mjs          # http://127.0.0.1:8080
@@ -36,7 +41,11 @@ python3 -m http.server 8080
 Then open the address it prints. Needs a browser with WebGL 2 (anything current).
 
 There is nothing to install — `npm install` does nothing, because there are no
-runtime dependencies.
+runtime dependencies. `node tools/bundle.mjs` rebuilds the single-file version.
+
+**Touch screens** — on a phone, tablet or a Chromebook used as a tablet, an
+on-screen stick and buttons appear by themselves: left thumb moves, drag the
+right side to look, buttons for wings, boost, jump, 2x, teleport and the map.
 
 ---
 
@@ -50,18 +59,18 @@ runtime dependencies.
 | `F` | deploy or stow the elytra |
 | mouse buttons | fire a rocket (see mouse modes below) |
 | `1`–`5` | rockets, flight duration I to V |
-| `6` | elytra · `7` waypoint · `8` path pen · `9` tape measure |
 | `V` | speed mode — everything at 2x for a while, then a cooldown |
 | `R` | random teleport |
 | `G` | world map · `M` minimap on/off · `=` / `-` minimap zoom |
-| `B` | drop a waypoint · `N` path tool · `P` copy coordinates |
+| `B` | drop a waypoint · `P` copy coordinates |
 | `C` | freecam · `T` third person · `[` / `]` shrink / grow |
 | `L` | swap mouse mode · `F1` hide HUD · `F2` controls · `F3` debug · `Esc` settings |
 
 Every one of those is rebindable in **Settings → Controls**.
 
 You are 6 ft 6 in (1.98 m) by default and can grow to about 40x, which changes
-your stride, your jump and how the world reads underfoot.
+your stride, your jump and how the world reads underfoot. Deep water holds you
+up — jump to rise, crouch to dive.
 
 ### Flying
 
@@ -73,9 +82,6 @@ toward wherever you are looking. In practice: point the nose down to build to
 about 120 km/h, then flare and you will climb most of it back. Rockets add thrust
 along your look vector for 10·duration + 6 ticks, so a Rocket V burns for nearly
 three seconds.
-
-The elytra wears out at one point a second out of 432, like the real item. Turn
-that off in **Settings → Player** if you would rather not think about it.
 
 Speed mode multiplies *displacement*, not forces — you cover twice the ground
 without the aircraft handling like a different machine.
@@ -105,8 +111,9 @@ without the aircraft handling like a different machine.
 - **World map** (`G`): the same thing at any zoom, plus search, your waypoints,
   your drawn paths, and how much of the world you have covered. Drag to pan,
   wheel to zoom, double-click to travel there.
-- **Paths**: tap `N` to drop a point, tap it twice quickly to finish the line.
-  Thin lines from start to end, drawn on both maps, saved between sessions.
+- **Your trail**: a thin line of everywhere you have been, recorded as you go
+  and drawn on both maps. A teleport starts a new leg, so it never draws a line
+  across an ocean you did not cross.
 
 ---
 

@@ -29,11 +29,14 @@ jobs:
           node tools/check.mjs
           node tools/selftest.mjs
 
+      - name: Build the single-file download
+        run: node tools/bundle.mjs
+
       - name: Assemble the site
         run: |
           rm -rf _site
           mkdir _site
-          cp -r index.html src styles vendor LICENSE THIRD-PARTY.md README.md _site/
+          cp -r index.html terraglide.html src styles vendor LICENSE THIRD-PARTY.md README.md _site/
           # Stop GitHub's Jekyll pass from touching plain static files.
           touch _site/.nojekyll
 
