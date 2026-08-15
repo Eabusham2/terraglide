@@ -36,7 +36,10 @@ jobs:
         run: |
           rm -rf _site
           mkdir _site
-          cp -r index.html terraglide.html src styles vendor LICENSE THIRD-PARTY.md README.md _site/
+          cp -r index.html terraglide.html src styles vendor assets LICENSE THIRD-PARTY.md README.md _site/
+          # The textures are part of the served game — without assets/ the site
+          # silently falls back to flat colour and nobody can tell why.
+          test -f _site/assets/manifest.json
           # Stop GitHub's Jekyll pass from touching plain static files.
           touch _site/.nojekyll
 
