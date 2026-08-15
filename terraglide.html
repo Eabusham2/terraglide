@@ -82660,7 +82660,7 @@ const ACTIONS = [
   { id: 'right', label: 'Strafe right', group: 'Movement', required: true },
   { id: 'jump', label: 'Jump / ascend', group: 'Movement', required: true },
   { id: 'sprint', label: 'Sprint / descend', group: 'Movement' },
-  { id: 'crouch', label: 'Crouch / slow', group: 'Movement' },
+  { id: 'crouch', label: 'Crouch / dive / descend', group: 'Movement' },
   { id: 'rocket', label: 'Fire rocket (keyboard)', group: 'Flight' },
   { id: 'speedMode', label: 'Speed mode (2x)', group: 'Flight' },
   { id: 'rtp', label: 'Random teleport', group: 'Map' },
@@ -82694,11 +82694,11 @@ const DEFAULT_BINDS = {
   right: 'KeyD',
   jump: 'Space',
   sprint: 'ShiftLeft',
-  crouch: 'ControlLeft',
+  crouch: 'KeyC',
   rocket: 'KeyE',
   speedMode: 'KeyV',
   rtp: 'KeyR',
-  freecam: 'KeyC',
+  freecam: 'KeyQ',
   perspective: 'F5',
   barrelRoll: 'KeyX',
   worldMap: 'KeyG',
@@ -82977,8 +82977,15 @@ class InputManager extends Emitter {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
     }
 
-    // Let the browser keep its own shortcuts when a modifier is held.
-    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    // Let the browser keep its own shortcuts when a modifier is held — but not
+    // for the modifier keys themselves, or holding crouch would silently
+    // disable every other key you pressed with it.
+    const modifierItself =
+      event.code === 'ControlLeft' ||
+      event.code === 'ControlRight' ||
+      event.code === 'AltLeft' ||
+      event.code === 'AltRight';
+    if (!modifierItself && (event.ctrlKey || event.metaKey || event.altKey)) return;
 
     const actions = keybinds.actionsFor(event.code);
     if (actions.length === 0) return;
@@ -84142,7 +84149,7 @@ function weatherAt({ lat, lon, date = new Date(), avgC = 12, landFraction = 0.6 
   // Rain follows cloud, but only the thick part of it, and the tropics wring
   // out far more of it than the poles do.
   const capacity = clamp(smoothstep(-14, 26, avgC), 0.05, 1);
-  const precipitation = clamp((cloudCover - 0.55) * 2.1 * capacity, 0, 1);
+  const precipitation = clamp((cloudCover - 0.48) * 1.9 * capacity, 0, 1);
   const kind = precipitation < 0.04 ? 'none' : avgC <= 1.5 ? 'snow' : 'rain';
 
   return { cloudCover, precipitation, kind, label: describe(cloudCover, precipitation, kind) };
@@ -91610,6 +91617,13 @@ class Game {
     // The frame-rate governor wants real seconds; everything else runs on the
     // game clock, which the game-speed cheat is allowed to stretch.
     this.perf.update(elapsed);
+    // The governor only decides a scale — something has to act on it. Applied
+    // in steps, and only when it has really moved, so it never oscillates a
+    // few percent per frame and turns into the stutter it exists to prevent.
+    if (Math.abs(this.perf.scale - (this.appliedScale ?? 1)) > 0.04) {
+      this.appliedScale = this.perf.scale;
+      this.resize();
+    }
     this.update(elapsed * cheats.gameSpeed);
     this.renderer.render(this.scene, this.camera);
   }

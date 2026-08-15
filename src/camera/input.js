@@ -141,8 +141,15 @@ export class InputManager extends Emitter {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
     }
 
-    // Let the browser keep its own shortcuts when a modifier is held.
-    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    // Let the browser keep its own shortcuts when a modifier is held — but not
+    // for the modifier keys themselves, or holding crouch would silently
+    // disable every other key you pressed with it.
+    const modifierItself =
+      event.code === 'ControlLeft' ||
+      event.code === 'ControlRight' ||
+      event.code === 'AltLeft' ||
+      event.code === 'AltRight';
+    if (!modifierItself && (event.ctrlKey || event.metaKey || event.altKey)) return;
 
     const actions = keybinds.actionsFor(event.code);
     if (actions.length === 0) return;

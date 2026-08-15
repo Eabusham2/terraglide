@@ -386,6 +386,13 @@ export class Game {
     // The frame-rate governor wants real seconds; everything else runs on the
     // game clock, which the game-speed cheat is allowed to stretch.
     this.perf.update(elapsed);
+    // The governor only decides a scale — something has to act on it. Applied
+    // in steps, and only when it has really moved, so it never oscillates a
+    // few percent per frame and turns into the stutter it exists to prevent.
+    if (Math.abs(this.perf.scale - (this.appliedScale ?? 1)) > 0.04) {
+      this.appliedScale = this.perf.scale;
+      this.resize();
+    }
     this.update(elapsed * cheats.gameSpeed);
     this.renderer.render(this.scene, this.camera);
   }

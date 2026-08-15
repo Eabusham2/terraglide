@@ -55,7 +55,7 @@ export function weatherAt({ lat, lon, date = new Date(), avgC = 12, landFraction
   // Rain follows cloud, but only the thick part of it, and the tropics wring
   // out far more of it than the poles do.
   const capacity = clamp(smoothstep(-14, 26, avgC), 0.05, 1);
-  const precipitation = clamp((cloudCover - 0.55) * 2.1 * capacity, 0, 1);
+  const precipitation = clamp((cloudCover - 0.48) * 1.9 * capacity, 0, 1);
   const kind = precipitation < 0.04 ? 'none' : avgC <= 1.5 ? 'snow' : 'rain';
 
   return { cloudCover, precipitation, kind, label: describe(cloudCover, precipitation, kind) };
