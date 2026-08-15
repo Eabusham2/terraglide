@@ -339,6 +339,14 @@ export class PlayerController {
    */
   groundHeightAt(x, z, referenceY, colliders) {
     let ground = this.terrain.heightAt(x, z);
+
+    // Stand on the ground you can see. The elevation field is finer than the
+    // mesh built from it, so on broken ground the drawn surface sits a little
+    // above the sampled height — which is what left you shin-deep in a hill.
+    if (this.terrain.meshHeightAt) {
+      const drawn = this.terrain.meshHeightAt(x, z);
+      if (drawn !== null && drawn > ground && drawn - ground < 25) ground = drawn;
+    }
     const list =
       colliders ?? (this.buildings ? this.buildings.collidersNear(x, z, this.player.radius + 1) : []);
 

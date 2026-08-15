@@ -42,6 +42,9 @@ export class Terrain {
     this.stats = { drawn: 0, built: 0, nodes: 0, baseZoom: 0, maxZoom: 0 };
 
     this._box = new THREE.Box3();
+    this._ray = new THREE.Raycaster();
+    this._rayOrigin = new THREE.Vector3();
+    this._rayDown = new THREE.Vector3(0, -1, 0);
     this._vecA = new THREE.Vector3();
     this._norm = { nx: 0, ny: 0 };
     this._world = { x: 0, z: 0 };
@@ -404,6 +407,8 @@ export class Terrain {
 
     node.mesh.position.set(x0, 0, z0);
     node.mesh.updateMatrix();
+    node.mesh.updateMatrixWorld(true);
+    node.size = size;
     node.geometry = geometry;
     node.grid = grid;
     node.tile = tile;
@@ -415,6 +420,37 @@ export class Terrain {
 
     this.nodes.set(key, node);
     return node;
+  }
+
+  /**
+   * Height of the *drawn* surface under a point, or null if nothing is drawn
+   * there yet.
+   *
+   * `heightAt` samples the elevation field, but a tile's mesh only carries a
+   * grid of those samples and interpolates between them — so on broken ground
+   * the surface you can see sits a little above the field, and standing at the
+   * field's height leaves you shin-deep in it. Asking the mesh directly is what
+   * keeps your feet on the ground you are actually looking at.
+   */
+  meshHeightAt(x, z) {
+    let best = null;
+    let bestSize = Infinity;
+    for (const node of this.drawn) {
+      // A tile's mesh sits with its corner at the origin, spanning `size`.
+      const dx = x - node.mesh.position.x;
+      const dz = z - node.mesh.position.z;
+      if (dx < 0 || dz < 0 || dx > node.size || dz > node.size) continue;
+      // The smallest tile covering the point is the most detailed one.
+      if (node.size < bestSize) {
+        bestSize = node.size;
+        best = node;
+      }
+    }
+    if (!best) return null;
+
+    this._ray.set(this._rayOrigin.set(x, 60000, z), this._rayDown);
+    const hit = this._ray.intersectObject(best.mesh, false);
+    return hit.length > 0 ? hit[0].point.y : null;
   }
 
   /** Mark nearby tiles for a rebuild when fresh elevation data lands. */
