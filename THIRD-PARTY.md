@@ -42,3 +42,13 @@ The keyless providers above are community or public endpoints with strict fair-u
 policies: they are rate limited in `src/tiles/providers.ts` and
 `src/geo/geocode.ts`, and those limits must not be raised for unattended or
 bulk use.
+
+## Generated assets
+
+`assets/foliage.jpg` and `assets/rock.jpg` are AI-generated material textures,
+made for this project through Pixa (FLUX 2 Klein) from prompts asking for
+seamless tileable foliage and granite. They depict no real place, person or
+product, and they are covered by the project licence along with the rest of the
+Work. They are optional: `assets/manifest.json` is fetched at startup and, when
+it is absent — as it is in the single-file build — the scenery falls back to
+flat colour.

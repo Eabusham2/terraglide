@@ -151,6 +151,23 @@ must not be removed.
 If a provider cannot be reached, the world falls back to generated terrain and
 the status line says so rather than leaving you on blank ground.
 
+### What is standing on the ground
+
+Satellite imagery draped over elevation is flat, so the world also grows real
+geometry: conifers, broadleaf trees, bushes and rocks, instanced by the
+thousand around wherever you are. Placement is a hash of the ground position —
+deterministic, so the same hillside is always the same hillside, nothing pops
+as you turn round, and none of it is stored or downloaded. What grows where
+comes out of the world itself: nothing below the waterline, nothing on the
+cliffs, conifers taking over from broadleaf as you climb, everything thinning
+toward the snow line and bare stone above it. **Settings → Graphics** turns it
+off and sets how far it reaches.
+
+Above that there is weather — cloud cover and rain or snow for the place and
+month you are in, from the same climate model as the temperature readout. It is
+a climatology, not a forecast: the doldrums are cloudy, the subtropics are not,
+and Antarctica is overcast and bone dry.
+
 ### How the world is put together
 
 - **Terrain** is a mercator quadtree streamed around the camera. Tiles subdivide
@@ -226,11 +243,13 @@ src/
   geo/              mercator, the local world frame, sun, climate, geocoding, water
   tiles/            provider registry, worker, imagery streamer, elevation field,
                     the offline world generator
-  world/            terrain quadtree, shaders, sky, buildings, panorama, teleport
+  world/            terrain quadtree, shaders, sky, weather, scenery, buildings,
+                    panorama, teleport
   player/           state, walking and collision, elytra physics, autopilot, avatar
   camera/           camera rig, freecam, input and mouse modes
   ui/               HUD, minimap, world map, settings, cheats, help, waypoints,
                     exploration, touch controls
+assets/             optional generated scenery textures (+ manifest)
 tools/              check.mjs, selftest.mjs
 vendor/three/       three.js (MIT), vendored so there is nothing to install
 ```
