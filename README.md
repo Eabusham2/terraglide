@@ -75,20 +75,31 @@ actually is, so you can swim down to it.
 
 ### Flying
 
-The glide model is a re-derivation of Minecraft's, at real-world scale where one
-block is one metre. Gravity is scaled by the square of the cosine of your pitch,
-a dive converts fall speed into forward speed, pulling up trades airspeed for
-climb at a little over 3x, and your horizontal velocity is continuously steered
-toward wherever you are looking. In practice: point the nose down to build to
-about 120 km/h, then flare and you will climb most of it back. Rockets add thrust
-along your look vector for 10·duration + 6 ticks, so a Rocket V burns for nearly
-three seconds — and as in Minecraft the slot number is the powder as well as the
-duration, so a V shoves about twice as hard as a I. The kick is strongest at
-ignition and tapers off across the burn. There is no cooldown: light another
-whenever you like.
+There are exactly three forces, and gravity is not one of the negotiable ones.
 
-Flown well the exchange very nearly breaks even, so a dive-flare-dive rhythm at
-the right angle will keep you up more or less indefinitely.
+- **Gravity** applies at full strength every tick. Nothing discounts it.
+- **The wing** turns your velocity vector toward wherever you are looking, and
+  bites harder the faster you are going. A turn is a rotation, and a rotation
+  cannot create energy — so the wing can only ever spend what gravity gave you.
+- **Drag** bleeds a little constantly and more at speed, which is what sets
+  terminal velocity.
+
+What that means in the air: look level and hold it and you sink at about 3 m/s
+— you cannot float. Point the nose down and you build to around 85 m/s. Flare
+out of that dive and you buy back something like 60 metres of height, which is a
+lot, but always less than the dive cost you. Fly the angle well and you get
+roughly eight metres forward for every metre down, so a kilometre of altitude is
+eight kilometres of ground — a long way, and still a slope.
+
+**No sequence of inputs ends higher and faster than it started.** That is
+checked on every build across a sweep of dive-and-flare shapes, because the
+obvious version of this model — the one Minecraft uses, discounting gravity when
+you are level and crediting a pull-up several times what it costs — lets a
+patient player porpoise upward forever on nothing at all.
+
+Rockets are the only way to add energy. The slot number is the flight duration
+*and* the powder behind it, the kick is strongest at ignition and tapers across
+the burn, and there is no cooldown: light another whenever you like.
 
 Speed mode multiplies *displacement*, not forces — you cover twice the ground
 without the aircraft handling like a different machine.

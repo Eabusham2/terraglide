@@ -2,6 +2,7 @@ import * as THREE from '../../vendor/three/three.module.js';
 import { clamp } from '../core/math.js';
 import { settings } from '../core/settings.js';
 import { latToNormY, lonToNormX, normXToLon, normYToLat, tileKey } from '../geo/mercator.js';
+import { mapTiles } from '../ui/mapTiles.js';
 import { classify, parseFeatures, pointInRing } from './landcover.js';
 import { overpass } from './overpass.js';
 
@@ -24,7 +25,15 @@ import { overpass } from './overpass.js';
  *
  * Terrain height under each object comes from the elevation data the ground mesh
  * is built from, so nothing floats and nothing sinks.
+ *
+ * Colour comes from the aerial photograph of that exact spot rather than from a
+ * palette: the imagery already knows that a Norwegian spruce plantation and a
+ * Californian hillside are not the same green. The generated texture is only
+ * grain on top of it, so it reads as bark and canopy without deciding the hue.
  */
+
+/** Imagery zoom to sample colour from — close enough to be the right field. */
+const COLOUR_ZOOM = 16;
 
 /** Tiles of OSM land cover, at this zoom. ~2.4 km across at the equator. */
 const DATA_ZOOM = 14;
@@ -65,6 +74,7 @@ export class Scatter {
     this._scale = new THREE.Vector3();
     this._colour = new THREE.Color();
     this._world = { x: 0, y: 0, z: 0 };
+    this._geo = { lat: 0, lon: 0 };
 
     for (const kind of KINDS) this.meshes[kind] = this.makeMesh(kind);
   }
@@ -388,11 +398,42 @@ export class Scatter {
     this._matrix.compose(this._position, this._quaternion, this._scale);
     mesh.setMatrixAt(index, this._matrix);
 
-    const tint = 0.82 + hash2(key, index, 9) * 0.36;
-    this._colour.copy(mesh.userData.baseColour).multiplyScalar(tint);
+    // Take the colour off the aerial photograph of this spot; fall back to the
+    // species tone only until that tile has arrived.
+    const sampled = this.sampleImagery(x, z);
+    const tint = 0.86 + hash2(key, index, 9) * 0.28;
+    if (sampled) {
+      // Lift it a little — a canopy lit from above is brighter than the
+      // top-down average — and pull it a third of the way toward the species
+      // tone so a wood still reads as a wood in flat grey winter imagery.
+      this._colour
+        .setRGB(sampled.r, sampled.g, sampled.b)
+        .multiplyScalar(1.25)
+        .lerp(mesh.userData.baseColour, 0.32)
+        .multiplyScalar(tint);
+    } else {
+      this._colour.copy(mesh.userData.baseColour).multiplyScalar(tint);
+    }
     mesh.setColorAt(index, this._colour);
 
     counts[kind] = index + 1;
+  }
+
+  /** Colour of the imagery under a world position, or null if not loaded yet. */
+  sampleImagery(x, z) {
+    if (!this.frame) return null;
+    const geo = this.frame.toGeo(x, z, this._geo);
+    const n = Math.pow(2, COLOUR_ZOOM);
+    const fx = lonToNormX(geo.lon) * n;
+    const fy = latToNormY(geo.lat) * n;
+    const tx = Math.floor(fx);
+    const ty = Math.floor(fy);
+    if (ty < 0 || ty >= n) return null;
+    try {
+      return mapTiles.sampleColour(COLOUR_ZOOM, tx, ty, fx - tx, fy - ty);
+    } catch {
+      return null;
+    }
   }
 
   /** The local frame re-anchored, or you teleported: drop everything placed. */

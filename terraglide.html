@@ -84601,13 +84601,27 @@ __tg_modules["src/player/elytra.js"] = function (__tg_exports) {
 /**
  * Elytra flight.
  *
- * This is a faithful re-derivation of Minecraft's glide integrator, written from
- * the behaviour rather than lifted from anywhere: gravity is scaled by the
- * square of the cosine of pitch, a dive converts fall speed into forward speed,
- * pulling up trades airspeed for climb at a little over 3x, and the horizontal
- * velocity is continuously steered toward wherever you are looking. The result
- * is the same feel — dive to build speed, flare to trade it back for height —
- * at real-world scale, where one block is one metre.
+ * Same feel as the game this borrows from — dive to build speed, flare to trade
+ * it back for height — but built so that it cannot cheat. Minecraft discounts
+ * gravity by three quarters whenever you are level and credits a pull-up with
+ * several times the speed it costs; both are free energy, and together they let
+ * a patient player porpoise upward forever on nothing at all.
+ *
+ * Here there are exactly three forces:
+ *
+ *   gravity   full strength, every tick, no discount for anything
+ *   the wing  turns the velocity vector toward where you are looking, scaled by
+ *             airspeed. A turn is a rotation, and a rotation cannot create
+ *             energy — so the wing can only ever spend what gravity gave you
+ *   drag      a constant bleed plus a term that grows with speed, which is what
+ *             sets terminal velocity
+ *
+ * The consequence is the one that matters: **no sequence of inputs can end
+ * higher and faster than it started.** Look level and you sink at about 3 m/s.
+ * Dive and you build to around 85 m/s. Flare out of that and you buy back
+ * something like 60 metres — a lot, but always less than the dive cost you.
+ * Flown well the ratio is roughly eight metres forward per metre down, which is
+ * a long way, and still a slope.
  *
  * Everything below runs at a fixed 20 steps a second in blocks-per-tick, the
  * units the constants were tuned in, then converts back to metres per second.
@@ -84615,7 +84629,9 @@ __tg_modules["src/player/elytra.js"] = function (__tg_exports) {
 
 const TICK = 1 / 20;
 const GRAVITY_PER_TICK = 0.08; // blocks / tick^2  (~32 m/s^2)
-const DRAG = { x: 0.99, y: 0.985, z: 0.99 };
+/** Constant drag per tick, plus a term that grows with speed. */
+const DRAG_BASE = 0.004;
+const DRAG_SPEED = 0.0022;
 /**
  * Peak firework thrust, blocks per tick. A rocket kicks hard at ignition and
  * tapers off across its burn, so it shoves you and then hands you back to the
@@ -84623,6 +84639,10 @@ const DRAG = { x: 0.99, y: 0.985, z: 0.99 };
  */
 const ROCKET_THRUST = 2.5;
 const ROCKET_TAPER = 0.5; // how much of the kick is left at burnout
+/** Airspeed at which the wings give their full support, blocks per tick. */
+const STALL_SPEED = 1.55;
+/** How much of the velocity the wing turns toward your look each tick. */
+const TURN_RATE = 0.4;
 const TO_TICK = TICK; // m/s -> blocks/tick
 const TO_SECOND = 1 / TICK; // blocks/tick -> m/s
 
@@ -84639,43 +84659,44 @@ function stepGlide(velocity, look, pitch) {
   let vy = velocity.y * TO_TICK;
   let vz = velocity.z * TO_TICK;
 
-  const horizontalLook = Math.hypot(look.x, look.z);
-  const horizontalSpeed = Math.hypot(vx, vz);
+  // Gravity, in full, every tick. Nothing here discounts it.
+  vy -= GRAVITY_PER_TICK;
 
-  // Minecraft's xRot is positive looking down; ours is positive looking up.
-  const f = -pitch;
-  const cosPitch = Math.cos(f);
-  const lift = cosPitch * cosPitch;
+  const speed = Math.hypot(vx, vy, vz);
+  const lookLength = Math.hypot(look.x, look.y, look.z);
 
-  vy += GRAVITY_PER_TICK * (-1 + lift * 0.75);
+  if (speed > 1e-6 && lookLength > 1e-6) {
+    // The wing turns the airflow toward wherever you are pointing it. Rotating
+    // the velocity vector is all a wing really does, and rotation cannot
+    // create energy — so a dive buys speed, a flare spends that speed on
+    // height, and neither can ever hand back more than gravity gave you.
+    //
+    // How hard it bites scales with airspeed: fast, it rotates decisively;
+    // slow, it barely responds, which is what stalling feels like.
+    const bite = TURN_RATE * Math.min(1, speed / STALL_SPEED);
+    const nx = look.x / lookLength;
+    const ny = look.y / lookLength;
+    const nz = look.z / lookLength;
 
-  if (vy < 0 && horizontalLook > 0) {
-    // Diving: some of the fall is redirected along the look direction.
-    const transfer = vy * -0.1 * lift;
-    vy += transfer;
-    vx += (look.x * transfer) / horizontalLook;
-    vz += (look.z * transfer) / horizontalLook;
+    vx += (nx * speed - vx) * bite;
+    vy += (ny * speed - vy) * bite;
+    vz += (nz * speed - vz) * bite;
+
+    // Renormalise so the turn is exactly that — a turn, not a push.
+    const after = Math.hypot(vx, vy, vz);
+    if (after > 1e-6) {
+      const scale = speed / after;
+      vx *= scale;
+      vy *= scale;
+      vz *= scale;
+    }
   }
 
-  if (f < 0 && horizontalLook > 0) {
-    // Pulling up: airspeed is spent climbing, and rather efficiently. Flown
-    // well — dive, flare, dive again — the exchange very nearly breaks even,
-    // which is what lets a good angle keep you up indefinitely.
-    const climb = horizontalSpeed * -Math.sin(f) * 0.04;
-    vy += climb * 3.4;
-    vx -= (look.x * climb) / horizontalLook;
-    vz -= (look.z * climb) / horizontalLook;
-  }
-
-  if (horizontalLook > 0) {
-    // Steering: horizontal velocity chases the heading you are looking at.
-    vx += ((look.x / horizontalLook) * horizontalSpeed - vx) * 0.1;
-    vz += ((look.z / horizontalLook) * horizontalSpeed - vz) * 0.1;
-  }
-
-  vx *= DRAG.x;
-  vy *= DRAG.y;
-  vz *= DRAG.z;
+  // Drag: the only other way to lose energy, and what sets terminal speed.
+  const drag = 1 - DRAG_BASE - DRAG_SPEED * Math.hypot(vx, vy, vz);
+  vx *= drag;
+  vy *= drag;
+  vz *= drag;
 
   velocity.x = vx * TO_SECOND;
   velocity.y = vy * TO_SECOND;
@@ -87592,6 +87613,219 @@ async function nearLand(origin, radius, waterMap, started) {
 
 __tg_exports["pickRandomDestination"] = pickRandomDestination;
 };
+__tg_modules["src/ui/mapTiles.js"] = function (__tg_exports) {
+const { tileKey, wrapTileX } = __tg_require("src/geo/mercator.js");
+const { proceduralImagery } = __tg_require("src/tiles/procedural.js");
+
+/**
+ * A small ImageBitmap cache for the 2D maps (minimap and world map).
+ *
+ * Deliberately separate from the 3D streamer: the maps want whole tiles at a
+ * fixed zoom, the terrain wants a quadtree, and mixing the two made both worse.
+ * Requests are capped and least-recently-used tiles are dropped so panning the
+ * world map cannot run away with memory.
+ */
+
+const LIMIT = 260;
+const MAX_ACTIVE = 6;
+
+class MapTileCache {
+  constructor() {
+    this.source = null;
+    this.tiles = new Map();
+    /** Decoded pixels, for colour sampling. */
+    this.pixels = new Map();
+    this.active = 0;
+    this.queue = [];
+    this.listeners = new Set();
+    this.generation = 0;
+    /** Mirrors the 3D streamer: draw generated tiles when a provider is down. */
+    this.degraded = false;
+  }
+
+  /** Called whenever a tile finishes loading. Returns an unsubscribe function. */
+  onTileLoaded(fn) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  notify() {
+    for (const fn of this.listeners) fn();
+  }
+
+  setDegraded(degraded) {
+    if (this.degraded === degraded) return;
+    this.degraded = degraded;
+    for (const entry of this.tiles.values()) {
+      if (entry.bitmap) entry.bitmap.close();
+    }
+    this.tiles.clear();
+    this.pixels.clear();
+    this.queue.length = 0;
+    this.generation++;
+  }
+
+  setSource(source) {
+    this.source = source;
+    for (const entry of this.tiles.values()) {
+      if (entry.bitmap) entry.bitmap.close();
+    }
+    this.tiles.clear();
+    this.pixels.clear();
+    this.queue.length = 0;
+    this.generation++;
+  }
+
+  /** Bitmap for a tile, or null while it loads. */
+  get(z, x, y) {
+    const n = Math.pow(2, z);
+    if (y < 0 || y >= n) return null;
+    const wrapped = wrapTileX(x, z);
+    const key = tileKey(z, wrapped, y);
+    const entry = this.tiles.get(key);
+    if (entry) {
+      entry.used = performance.now();
+      return entry.bitmap;
+    }
+    this.tiles.set(key, { key, bitmap: null, used: performance.now(), state: 'queued' });
+    this.queue.push({ key, tile: { z, x: wrapped, y } });
+    this.pump();
+    return null;
+  }
+
+  /** Best available bitmap for a tile: itself or an ancestor, with a UV window. */
+  resolve(z, x, y, maxSteps = 5) {
+    let tz = z;
+    let tx = wrapTileX(x, z);
+    let ty = y;
+    let scale = 1;
+    let ox = 0;
+    let oy = 0;
+    for (let step = 0; step <= maxSteps && tz >= 0; step++) {
+      const bitmap = step === 0 ? this.get(tz, tx, ty) : this.peek(tz, tx, ty);
+      if (bitmap) return { bitmap, scale, ox, oy };
+      ox = (ox + (tx & 1)) * 0.5;
+      oy = (oy + (ty & 1)) * 0.5;
+      scale *= 0.5;
+      tx >>= 1;
+      ty >>= 1;
+      tz -= 1;
+    }
+    return null;
+  }
+
+  /**
+   * Average colour of the imagery at a point, or null if that tile has not
+   * arrived. Used to take scenery colour from the actual aerial photograph
+   * rather than from a palette someone invented: a fir in a Norwegian spruce
+   * plantation and one in a Californian chaparral are not the same green, and
+   * the imagery already knows which is which.
+   *
+   * One tile is decoded to pixels at most once and kept, so this costs a canvas
+   * draw per tile and an array read per lookup.
+   */
+  sampleColour(z, x, y, u, v) {
+    const key = tileKey(z, wrapTileX(x, z), y);
+    let pixels = this.pixels.get(key);
+    if (pixels === undefined) {
+      const bitmap = this.peek(z, wrapTileX(x, z), y);
+      if (!bitmap) {
+        // Ask for it; the caller can use a fallback until it lands.
+        this.get(z, x, y);
+        return null;
+      }
+      const size = 64; // plenty: this is a colour, not a texture
+      const canvas =
+        typeof OffscreenCanvas === 'function'
+          ? new OffscreenCanvas(size, size)
+          : Object.assign(document.createElement('canvas'), { width: size, height: size });
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(bitmap, 0, 0, size, size);
+      pixels = { data: ctx.getImageData(0, 0, size, size).data, size };
+      this.pixels.set(key, pixels);
+      if (this.pixels.size > 220) {
+        const oldest = this.pixels.keys().next().value;
+        this.pixels.delete(oldest);
+      }
+    }
+
+    const size = pixels.size;
+    const px = Math.min(size - 1, Math.max(0, Math.floor(u * size)));
+    const py = Math.min(size - 1, Math.max(0, Math.floor(v * size)));
+    const index = (py * size + px) * 4;
+    return {
+      r: pixels.data[index] / 255,
+      g: pixels.data[index + 1] / 255,
+      b: pixels.data[index + 2] / 255,
+    };
+  }
+
+  peek(z, x, y) {
+    const entry = this.tiles.get(tileKey(z, wrapTileX(x, z), y));
+    return entry ? entry.bitmap : null;
+  }
+
+  pump() {
+    while (this.active < MAX_ACTIVE && this.queue.length > 0) {
+      const job = this.queue.shift();
+      if (!job) break;
+      this.load(job);
+    }
+    this.evict();
+  }
+
+  async load(job) {
+    const entry = this.tiles.get(job.key);
+    if (!entry) return;
+    const generation = this.generation;
+    this.active++;
+    entry.state = 'loading';
+    try {
+      const url = this.source && !this.degraded ? this.source.urlFor(job.tile) : null;
+      let bitmap;
+      if (!url) {
+        const image = proceduralImagery(job.tile, 128);
+        bitmap = await createImageBitmap(new ImageData(image.data, image.width, image.height));
+      } else {
+        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+        if (!res.ok) throw new Error(String(res.status));
+        bitmap = await createImageBitmap(await res.blob());
+      }
+      if (generation !== this.generation) {
+        bitmap.close();
+        return;
+      }
+      entry.bitmap = bitmap;
+      entry.state = 'ready';
+      this.notify();
+    } catch {
+      entry.state = 'failed';
+    } finally {
+      this.active--;
+      if (this.queue.length > 0) this.pump();
+    }
+  }
+
+  evict() {
+    if (this.tiles.size <= LIMIT) return;
+    const sorted = [...this.tiles.values()].sort((a, b) => a.used - b.used);
+    let excess = this.tiles.size - LIMIT;
+    for (const entry of sorted) {
+      if (excess <= 0) break;
+      if (entry.state === 'loading') continue;
+      if (entry.bitmap) entry.bitmap.close();
+      this.tiles.delete(entry.key);
+      this.pixels.delete(entry.key);
+      excess--;
+    }
+  }
+}
+
+const mapTiles = new MapTileCache();
+
+__tg_exports["MapTileCache"] = MapTileCache;
+__tg_exports["mapTiles"] = mapTiles;
+};
 __tg_modules["src/world/landcover.js"] = function (__tg_exports) {
 /**
  * Reading OpenStreetMap land cover.
@@ -87663,6 +87897,7 @@ const THREE = __tg_require("vendor/three/three.module.js");
 const { clamp } = __tg_require("src/core/math.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { latToNormY, lonToNormX, normXToLon, normYToLat, tileKey } = __tg_require("src/geo/mercator.js");
+const { mapTiles } = __tg_require("src/ui/mapTiles.js");
 const { classify, parseFeatures, pointInRing } = __tg_require("src/world/landcover.js");
 const { overpass } = __tg_require("src/world/overpass.js");
 
@@ -87685,7 +87920,15 @@ const { overpass } = __tg_require("src/world/overpass.js");
  *
  * Terrain height under each object comes from the elevation data the ground mesh
  * is built from, so nothing floats and nothing sinks.
+ *
+ * Colour comes from the aerial photograph of that exact spot rather than from a
+ * palette: the imagery already knows that a Norwegian spruce plantation and a
+ * Californian hillside are not the same green. The generated texture is only
+ * grain on top of it, so it reads as bark and canopy without deciding the hue.
  */
+
+/** Imagery zoom to sample colour from — close enough to be the right field. */
+const COLOUR_ZOOM = 16;
 
 /** Tiles of OSM land cover, at this zoom. ~2.4 km across at the equator. */
 const DATA_ZOOM = 14;
@@ -87726,6 +87969,7 @@ class Scatter {
     this._scale = new THREE.Vector3();
     this._colour = new THREE.Color();
     this._world = { x: 0, y: 0, z: 0 };
+    this._geo = { lat: 0, lon: 0 };
 
     for (const kind of KINDS) this.meshes[kind] = this.makeMesh(kind);
   }
@@ -88049,11 +88293,42 @@ class Scatter {
     this._matrix.compose(this._position, this._quaternion, this._scale);
     mesh.setMatrixAt(index, this._matrix);
 
-    const tint = 0.82 + hash2(key, index, 9) * 0.36;
-    this._colour.copy(mesh.userData.baseColour).multiplyScalar(tint);
+    // Take the colour off the aerial photograph of this spot; fall back to the
+    // species tone only until that tile has arrived.
+    const sampled = this.sampleImagery(x, z);
+    const tint = 0.86 + hash2(key, index, 9) * 0.28;
+    if (sampled) {
+      // Lift it a little — a canopy lit from above is brighter than the
+      // top-down average — and pull it a third of the way toward the species
+      // tone so a wood still reads as a wood in flat grey winter imagery.
+      this._colour
+        .setRGB(sampled.r, sampled.g, sampled.b)
+        .multiplyScalar(1.25)
+        .lerp(mesh.userData.baseColour, 0.32)
+        .multiplyScalar(tint);
+    } else {
+      this._colour.copy(mesh.userData.baseColour).multiplyScalar(tint);
+    }
     mesh.setColorAt(index, this._colour);
 
     counts[kind] = index + 1;
+  }
+
+  /** Colour of the imagery under a world position, or null if not loaded yet. */
+  sampleImagery(x, z) {
+    if (!this.frame) return null;
+    const geo = this.frame.toGeo(x, z, this._geo);
+    const n = Math.pow(2, COLOUR_ZOOM);
+    const fx = lonToNormX(geo.lon) * n;
+    const fy = latToNormY(geo.lat) * n;
+    const tx = Math.floor(fx);
+    const ty = Math.floor(fy);
+    if (ty < 0 || ty >= n) return null;
+    try {
+      return mapTiles.sampleColour(COLOUR_ZOOM, tx, ty, fx - tx, fy - ty);
+    } catch {
+      return null;
+    }
   }
 
   /** The local frame re-anchored, or you teleported: drop everything placed. */
@@ -90698,168 +90973,6 @@ function modeLabel(player, state) {
 }
 
 __tg_exports["HUD"] = HUD;
-};
-__tg_modules["src/ui/mapTiles.js"] = function (__tg_exports) {
-const { tileKey, wrapTileX } = __tg_require("src/geo/mercator.js");
-const { proceduralImagery } = __tg_require("src/tiles/procedural.js");
-
-/**
- * A small ImageBitmap cache for the 2D maps (minimap and world map).
- *
- * Deliberately separate from the 3D streamer: the maps want whole tiles at a
- * fixed zoom, the terrain wants a quadtree, and mixing the two made both worse.
- * Requests are capped and least-recently-used tiles are dropped so panning the
- * world map cannot run away with memory.
- */
-
-const LIMIT = 260;
-const MAX_ACTIVE = 6;
-
-class MapTileCache {
-  constructor() {
-    this.source = null;
-    this.tiles = new Map();
-    this.active = 0;
-    this.queue = [];
-    this.listeners = new Set();
-    this.generation = 0;
-    /** Mirrors the 3D streamer: draw generated tiles when a provider is down. */
-    this.degraded = false;
-  }
-
-  /** Called whenever a tile finishes loading. Returns an unsubscribe function. */
-  onTileLoaded(fn) {
-    this.listeners.add(fn);
-    return () => this.listeners.delete(fn);
-  }
-
-  notify() {
-    for (const fn of this.listeners) fn();
-  }
-
-  setDegraded(degraded) {
-    if (this.degraded === degraded) return;
-    this.degraded = degraded;
-    for (const entry of this.tiles.values()) {
-      if (entry.bitmap) entry.bitmap.close();
-    }
-    this.tiles.clear();
-    this.queue.length = 0;
-    this.generation++;
-  }
-
-  setSource(source) {
-    this.source = source;
-    for (const entry of this.tiles.values()) {
-      if (entry.bitmap) entry.bitmap.close();
-    }
-    this.tiles.clear();
-    this.queue.length = 0;
-    this.generation++;
-  }
-
-  /** Bitmap for a tile, or null while it loads. */
-  get(z, x, y) {
-    const n = Math.pow(2, z);
-    if (y < 0 || y >= n) return null;
-    const wrapped = wrapTileX(x, z);
-    const key = tileKey(z, wrapped, y);
-    const entry = this.tiles.get(key);
-    if (entry) {
-      entry.used = performance.now();
-      return entry.bitmap;
-    }
-    this.tiles.set(key, { key, bitmap: null, used: performance.now(), state: 'queued' });
-    this.queue.push({ key, tile: { z, x: wrapped, y } });
-    this.pump();
-    return null;
-  }
-
-  /** Best available bitmap for a tile: itself or an ancestor, with a UV window. */
-  resolve(z, x, y, maxSteps = 5) {
-    let tz = z;
-    let tx = wrapTileX(x, z);
-    let ty = y;
-    let scale = 1;
-    let ox = 0;
-    let oy = 0;
-    for (let step = 0; step <= maxSteps && tz >= 0; step++) {
-      const bitmap = step === 0 ? this.get(tz, tx, ty) : this.peek(tz, tx, ty);
-      if (bitmap) return { bitmap, scale, ox, oy };
-      ox = (ox + (tx & 1)) * 0.5;
-      oy = (oy + (ty & 1)) * 0.5;
-      scale *= 0.5;
-      tx >>= 1;
-      ty >>= 1;
-      tz -= 1;
-    }
-    return null;
-  }
-
-  peek(z, x, y) {
-    const entry = this.tiles.get(tileKey(z, wrapTileX(x, z), y));
-    return entry ? entry.bitmap : null;
-  }
-
-  pump() {
-    while (this.active < MAX_ACTIVE && this.queue.length > 0) {
-      const job = this.queue.shift();
-      if (!job) break;
-      this.load(job);
-    }
-    this.evict();
-  }
-
-  async load(job) {
-    const entry = this.tiles.get(job.key);
-    if (!entry) return;
-    const generation = this.generation;
-    this.active++;
-    entry.state = 'loading';
-    try {
-      const url = this.source && !this.degraded ? this.source.urlFor(job.tile) : null;
-      let bitmap;
-      if (!url) {
-        const image = proceduralImagery(job.tile, 128);
-        bitmap = await createImageBitmap(new ImageData(image.data, image.width, image.height));
-      } else {
-        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
-        if (!res.ok) throw new Error(String(res.status));
-        bitmap = await createImageBitmap(await res.blob());
-      }
-      if (generation !== this.generation) {
-        bitmap.close();
-        return;
-      }
-      entry.bitmap = bitmap;
-      entry.state = 'ready';
-      this.notify();
-    } catch {
-      entry.state = 'failed';
-    } finally {
-      this.active--;
-      if (this.queue.length > 0) this.pump();
-    }
-  }
-
-  evict() {
-    if (this.tiles.size <= LIMIT) return;
-    const sorted = [...this.tiles.values()].sort((a, b) => a.used - b.used);
-    let excess = this.tiles.size - LIMIT;
-    for (const entry of sorted) {
-      if (excess <= 0) break;
-      if (entry.state === 'loading') continue;
-      if (entry.bitmap) entry.bitmap.close();
-      this.tiles.delete(entry.key);
-      excess--;
-    }
-  }
-}
-
-const mapTiles = new MapTileCache();
-
-__tg_exports["MapTileCache"] = MapTileCache;
-__tg_exports["mapTiles"] = mapTiles;
 };
 __tg_modules["src/ui/minimap.js"] = function (__tg_exports) {
 const { keybinds } = __tg_require("src/core/keybinds.js");

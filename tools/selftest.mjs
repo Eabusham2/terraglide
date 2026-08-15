@@ -22,7 +22,7 @@ import {
 import { annualMeanC, climateAt } from '../src/geo/climate.js';
 import { solarPosition } from '../src/geo/sun.js';
 import { isWaterPixel } from '../src/geo/water.js';
-import { stepGlide, stepRocket, rocketTicks, TICK } from '../src/player/elytra.js';
+import { stepGlide, stepRocket, rocketTicks, rocketPowerFor, TICK } from '../src/player/elytra.js';
 import { Autopilot } from '../src/player/autopilot.js';
 import { UNLOCK_CODE, cheats } from '../src/core/cheats.js';
 import { resolvePlace } from '../src/ui/cheatPanel.js';
@@ -109,59 +109,103 @@ console.log('\nlocal frame');
 
 console.log('\nelytra flight model');
 {
-  // A steady shallow dive should build up to a realistic glide speed and settle,
-  // the way it does in the game this borrows from.
-  const velocity = { x: 0, y: 0, z: 0 };
-  const pitch = -0.35; // nose down ~20 degrees
-  const look = { x: 0, y: Math.sin(pitch), z: -Math.cos(pitch) };
+  const look = (pitch) => ({ x: 0, y: Math.sin(pitch), z: -Math.cos(pitch) });
+  const cruising = () => ({ x: 0, y: 0, z: -38 });
+
+  // A steady shallow dive builds to a sensible speed and settles there.
+  const diving = { x: 0, y: 0, z: 0 };
   let drop = 0;
   let forward = 0;
-  for (let tick = 0; tick < 200; tick++) {
-    stepGlide(velocity, look, pitch);
-    drop -= velocity.y * TICK;
-    forward += Math.hypot(velocity.x, velocity.z) * TICK;
+  for (let tick = 0; tick < 300; tick++) {
+    stepGlide(diving, look(-0.35), -0.35);
+    drop -= diving.y * TICK;
+    forward += Math.hypot(diving.x, diving.z) * TICK;
   }
-  const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
-  ok('dive reaches a sensible glide speed', speed > 25 && speed < 60, `${speed.toFixed(1)} m/s`);
+  const speed = Math.hypot(diving.x, diving.y, diving.z);
+  ok('dive reaches a sensible glide speed', speed > 25 && speed < 80, `${speed.toFixed(1)} m/s`);
   ok('glide ratio beats freefall', forward / drop > 1.2, `${(forward / drop).toFixed(2)} : 1`);
 
-  // Level flight from speed: pulling level should not instantly stall.
-  const level = { x: 0, y: 0, z: -35 };
-  const levelLook = { x: 0, y: 0, z: -1 };
-  for (let tick = 0; tick < 20; tick++) stepGlide(level, levelLook, 0);
-  ok('level flight keeps most of its speed', Math.abs(level.z) > 25, `${Math.abs(level.z).toFixed(1)} m/s`);
+  // Gravity is never off. Look level and hold: you sink, always.
+  const level = cruising();
+  for (let tick = 0; tick < 400; tick++) stepGlide(level, look(0), 0);
+  ok('level flight sinks — you cannot float', level.y < -1, `${level.y.toFixed(2)} m/s vertical`);
+  ok('level flight keeps a useful speed', Math.hypot(level.x, level.z) > 15,
+    `${Math.hypot(level.x, level.z).toFixed(1)} m/s forward`);
 
-  // Pulling up trades speed for height.
-  const climbing = { x: 0, y: 0, z: -40 };
-  const upPitch = 0.5;
-  const upLook = { x: 0, y: Math.sin(upPitch), z: -Math.cos(upPitch) };
+  // Flaring out of a dive buys real height — that is the whole technique.
+  const fast = { x: 0, y: 0, z: 0 };
+  for (let tick = 0; tick < 200; tick++) stepGlide(fast, look(-0.8), -0.8);
+  const diveSpeed = Math.hypot(fast.x, fast.y, fast.z);
   let climbed = 0;
-  for (let tick = 0; tick < 30; tick++) {
-    stepGlide(climbing, upLook, upPitch);
-    climbed += climbing.y * TICK;
+  for (let tick = 0; tick < 70; tick++) {
+    stepGlide(fast, look(0.55), 0.55);
+    climbed += fast.y * TICK;
   }
-  ok('flaring converts speed into altitude', climbed > 0, `+${climbed.toFixed(1)} m`);
+  ok('a dive builds real speed', diveSpeed > 60, `${diveSpeed.toFixed(0)} m/s`);
+  ok('flaring converts speed into altitude', climbed > 25, `+${climbed.toFixed(0)} m`);
+
+  // The invariant that matters: no dive-and-flare cycle may end up higher than
+  // it started. If one ever does, the model is a perpetual motion machine and
+  // you can porpoise to orbit.
+  let bestCycle = -Infinity;
+  let bestShape = '';
+  for (const [dive, flare, diveTicks, flareTicks] of [
+    [-0.5, 0.5, 40, 40], [-0.35, 0.35, 60, 60], [-0.7, 0.6, 30, 45], [-0.6, 0.45, 35, 50],
+    [-0.9, 0.7, 25, 40], [-0.2, 0.2, 100, 100], [-0.8, 0.55, 20, 60], [-1.0, 0.8, 40, 40],
+    [-0.3, 0.15, 90, 120], [-0.45, 0.55, 50, 50], [-0.15, 0.6, 120, 30], [-1.2, 0.9, 60, 60],
+  ]) {
+    const velocity = cruising();
+    let altitude = 0;
+    for (let tick = 0; tick < diveTicks; tick++) {
+      stepGlide(velocity, look(dive), dive);
+      altitude += velocity.y * TICK;
+    }
+    for (let tick = 0; tick < flareTicks; tick++) {
+      stepGlide(velocity, look(flare), flare);
+      altitude += velocity.y * TICK;
+    }
+    if (altitude > bestCycle) {
+      bestCycle = altitude;
+      bestShape = `${dive}/${flare}`;
+    }
+  }
+  ok('no dive-flare cycle gains height', bestCycle < 0,
+    `best was ${bestCycle.toFixed(1)} m at ${bestShape}`);
+
+  // Flown well it still goes a very long way.
+  let best = 0;
+  for (const pitch of [-0.05, -0.1, -0.15, -0.25]) {
+    const velocity = cruising();
+    let altitude = 1000;
+    let distance = 0;
+    let tick = 0;
+    while (altitude > 0 && tick < 200000) {
+      stepGlide(velocity, look(pitch), pitch);
+      altitude += velocity.y * TICK;
+      distance += Math.hypot(velocity.x, velocity.z) * TICK;
+      tick++;
+    }
+    best = Math.max(best, distance / 1000);
+  }
+  ok('a good angle glides a long way', best > 6 && best < 20, `${best.toFixed(1)} : 1`);
 
   // Rockets accelerate along the look vector.
   const boosted = { x: 0, y: 0, z: -10 };
-  for (let tick = 0; tick < rocketTicks(3); tick++) stepRocket(boosted, levelLook, 1);
-  const boostedSpeed = Math.hypot(boosted.x, boosted.y, boosted.z);
-  ok('rocket boosts toward look direction', boostedSpeed > 25, `${boostedSpeed.toFixed(1)} m/s`);
+  const levelLook = { x: 0, y: 0, z: -1 };
+  for (let tick = 0; tick < rocketTicks(3); tick++) stepRocket(boosted, levelLook, 1, tick / rocketTicks(3));
+  ok('rocket boosts toward look direction', Math.hypot(boosted.x, boosted.y, boosted.z) > 25,
+    `${Math.hypot(boosted.x, boosted.y, boosted.z).toFixed(1)} m/s`);
   ok('rocket III burns for ~1.8 s', near(rocketTicks(3) * TICK, 1.8, 0.05));
   ok('rocket I is shorter than rocket V', rocketTicks(1) < rocketTicks(5));
+  ok('a bigger rocket carries more powder', rocketPowerFor(5) > rocketPowerFor(1) * 1.8);
 
-  // Speed mode doubles distance covered, not the handling.
-  const plain = { x: 0, y: 0, z: -30 };
-  const fast = { x: 0, y: 0, z: -30 };
-  let plainDistance = 0;
-  let fastDistance = 0;
-  for (let tick = 0; tick < 40; tick++) {
-    stepGlide(plain, levelLook, 0);
-    stepGlide(fast, levelLook, 0);
-    plainDistance += Math.hypot(plain.x, plain.z) * TICK * 1;
-    fastDistance += Math.hypot(fast.x, fast.z) * TICK * 2;
-  }
-  ok('speed mode covers twice the ground', near(fastDistance / plainDistance, 2, 0.001));
+  // The kick fades across the burn rather than holding flat.
+  const early = { x: 0, y: 0, z: -20 };
+  const late = { x: 0, y: 0, z: -20 };
+  stepRocket(early, levelLook, 1, 0);
+  stepRocket(late, levelLook, 1, 1);
+  ok('a rocket kicks hardest at ignition',
+    Math.hypot(early.x, early.z) > Math.hypot(late.x, late.z));
 }
 
 console.log('\nclimate and sun');

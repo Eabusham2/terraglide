@@ -17,6 +17,8 @@ export class MapTileCache {
   constructor() {
     this.source = null;
     this.tiles = new Map();
+    /** Decoded pixels, for colour sampling. */
+    this.pixels = new Map();
     this.active = 0;
     this.queue = [];
     this.listeners = new Set();
@@ -42,6 +44,7 @@ export class MapTileCache {
       if (entry.bitmap) entry.bitmap.close();
     }
     this.tiles.clear();
+    this.pixels.clear();
     this.queue.length = 0;
     this.generation++;
   }
@@ -52,6 +55,7 @@ export class MapTileCache {
       if (entry.bitmap) entry.bitmap.close();
     }
     this.tiles.clear();
+    this.pixels.clear();
     this.queue.length = 0;
     this.generation++;
   }
@@ -92,6 +96,52 @@ export class MapTileCache {
       tz -= 1;
     }
     return null;
+  }
+
+  /**
+   * Average colour of the imagery at a point, or null if that tile has not
+   * arrived. Used to take scenery colour from the actual aerial photograph
+   * rather than from a palette someone invented: a fir in a Norwegian spruce
+   * plantation and one in a Californian chaparral are not the same green, and
+   * the imagery already knows which is which.
+   *
+   * One tile is decoded to pixels at most once and kept, so this costs a canvas
+   * draw per tile and an array read per lookup.
+   */
+  sampleColour(z, x, y, u, v) {
+    const key = tileKey(z, wrapTileX(x, z), y);
+    let pixels = this.pixels.get(key);
+    if (pixels === undefined) {
+      const bitmap = this.peek(z, wrapTileX(x, z), y);
+      if (!bitmap) {
+        // Ask for it; the caller can use a fallback until it lands.
+        this.get(z, x, y);
+        return null;
+      }
+      const size = 64; // plenty: this is a colour, not a texture
+      const canvas =
+        typeof OffscreenCanvas === 'function'
+          ? new OffscreenCanvas(size, size)
+          : Object.assign(document.createElement('canvas'), { width: size, height: size });
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(bitmap, 0, 0, size, size);
+      pixels = { data: ctx.getImageData(0, 0, size, size).data, size };
+      this.pixels.set(key, pixels);
+      if (this.pixels.size > 220) {
+        const oldest = this.pixels.keys().next().value;
+        this.pixels.delete(oldest);
+      }
+    }
+
+    const size = pixels.size;
+    const px = Math.min(size - 1, Math.max(0, Math.floor(u * size)));
+    const py = Math.min(size - 1, Math.max(0, Math.floor(v * size)));
+    const index = (py * size + px) * 4;
+    return {
+      r: pixels.data[index] / 255,
+      g: pixels.data[index + 1] / 255,
+      b: pixels.data[index + 2] / 255,
+    };
   }
 
   peek(z, x, y) {
@@ -149,6 +199,7 @@ export class MapTileCache {
       if (entry.state === 'loading') continue;
       if (entry.bitmap) entry.bitmap.close();
       this.tiles.delete(entry.key);
+      this.pixels.delete(entry.key);
       excess--;
     }
   }
