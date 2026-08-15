@@ -94,7 +94,10 @@ export class Avatar {
     // arms are, so the slot you are on is readable without the HUD.
     const rocketMat = mat(ROCKET);
     this.rocket = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.13, 8), rocketMat);
-    this.rocket.position.set(0, -0.3, -0.04);
+    // The limb mesh is a box of its own length centred on its origin, so the
+    // hand is at −length/2. Sit the rocket just past the fingers, pointing the
+    // way the arm does: the cylinder's +Y axis is turned onto −Z, forward.
+    this.rocket.position.set(0, -this.armR.length / 2 + 0.01, -0.03);
     this.rocket.rotation.x = -Math.PI / 2;
     this.armR.limb.add(this.rocket);
     this.cloth.rocket = [rocketMat];
