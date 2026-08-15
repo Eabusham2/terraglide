@@ -11,7 +11,7 @@ import { readJSON, removeKey, writeJSON } from './storage.js';
  * graphics:          'low' | 'medium' | 'high' | 'ultra'
  * mouseMode:         'locked' | 'pan'
  * units:             'metric' | 'imperial'
- * world3d:           'off' | 'google'
+ * world3d:           'off' | 'google' | 'cesium'
  * perspective:       'first' | 'third'
  * rtpTarget:         'anywhere' | 'populated'
  * timeMode:          'day' | 'live' | 'golden' | 'night' | 'custom'
@@ -27,8 +27,10 @@ export const DEFAULT_SETTINGS = {
    * 'google' — Google Photorealistic 3D Tiles: the actual scanned world,
    *            buildings and trees included, from oblique aerial photogrammetry.
    *            Needs a Google Maps Platform key.
+   * 'cesium' — the same dataset through Cesium ion, on an ion token instead.
    */
   world3d: 'off',
+  cesiumToken: '',
   googleKey: '',
   bingKey: '',
   mapboxKey: '',

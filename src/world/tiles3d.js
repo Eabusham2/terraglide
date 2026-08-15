@@ -13,8 +13,19 @@ import { boundingSphereOf, ecefToLocalMatrix, screenSpaceError } from '../geo/ec
  * mesh*. Nothing here is placed, invented, or filled in: if a tree is in the
  * tile, it is because somebody flew over it.
  *
- * It needs a Google Maps Platform key, because Google does not serve it
- * otherwise. Without one the game falls back to what it already does — real
+ * Two ways in, because it is worth not depending on one account:
+ *
+ *   Google    tile.googleapis.com, on a Google Maps Platform key
+ *   Cesium    the same photorealistic dataset through Cesium ion, on an ion
+ *             access token — a different account and a different quota
+ *
+ * Microsoft is the obvious third and is not possible: Flight Simulator gets its
+ * Bing imagery and photogrammetry through an internal agreement, Bing Maps has
+ * never published a 3D tile API, and the platform is being retired into Azure
+ * Maps, which does not serve photogrammetry either. Cesium ion is the nearest
+ * real equivalent, and it is carrying the same scanned data.
+ *
+ * Without either credential the game falls back to what it already does — real
  * imagery, real elevation, real OpenStreetMap footprints and land cover, none
  * of which need an account — and with no network at all, to the generated
  * world. Three tiers, most real first.
@@ -28,13 +39,40 @@ import { boundingSphereOf, ecefToLocalMatrix, screenSpaceError } from '../geo/ec
  * it breaks their terms and this project's licence.
  */
 
-const ROOT_URL = 'https://tile.googleapis.com/v1/3dtiles/root.json';
+const GOOGLE_ROOT = 'https://tile.googleapis.com/v1/3dtiles/root.json';
+/**
+ * Cesium ion serves the same Google photorealistic tiles under asset 2275207,
+ * on a Cesium token instead of a Google one. Worth having as a second door to
+ * the same room: different account, different quota, same scanned world.
+ */
+const ION_ASSET = 2275207;
+const ION_ENDPOINT = 'https://api.cesium.com/v1/assets';
 /** Refine while a tile would show more error than this many pixels. */
 const MAX_SSE = 24;
 /** How many tile requests may be in flight at once. */
 const MAX_ACTIVE = 6;
 /** Hard ceiling on loaded content, so a city cannot exhaust memory. */
 const MAX_LOADED = 220;
+/**
+ * How long to wait on the handshake before calling it dead. A request that
+ * never answers is worse than one that fails: the status line would sit on
+ * "connecting" forever and the player would have no idea anything was wrong.
+ */
+const CONNECT_TIMEOUT_MS = 15000;
+
+/** fetch that gives up rather than hanging. */
+async function fetchWithin(url, options = {}, timeout = CONNECT_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error('timed out');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export class Tiles3D {
   constructor({ scene, frame, camera, renderer }) {
@@ -61,6 +99,8 @@ export class Tiles3D {
     this.pending = new Set();
     this.active = 0;
     this.session = '';
+    this.bearer = '';
+    this.base = '';
     this.copyrights = new Set();
     this.state = 'idle';
     this.error = '';
@@ -69,10 +109,18 @@ export class Tiles3D {
     this._matrix = new THREE.Matrix4();
     this._ecefToLocal = new THREE.Matrix4();
     this._anchorSerial = -1;
+    /** Which provider and credential the current connection belongs to. */
+    this._connectedAs = '';
+  }
+
+  get provider() {
+    return settings.get('world3d');
   }
 
   get key() {
-    return settings.get('googleKey').trim();
+    return this.provider === 'cesium'
+      ? settings.get('cesiumToken').trim()
+      : settings.get('googleKey').trim();
   }
 
   get attribution() {
@@ -85,13 +133,48 @@ export class Tiles3D {
     if (this.state === 'loading' || this.state === 'ready') return;
     if (!this.key) {
       this.state = 'needs-key';
-      this.error = 'Google Maps Platform key required for 3D tiles.';
+      this.error =
+        this.provider === 'cesium'
+          ? 'Cesium ion access token required for 3D tiles.'
+          : 'Google Maps Platform key required for 3D tiles.';
       return;
     }
     this.state = 'loading';
+    this._connectedAs = `${this.provider}:${this.key}`;
     try {
-      const response = await fetch(`${ROOT_URL}?key=${encodeURIComponent(this.key)}`);
-      if (!response.ok) throw new Error(`root ${response.status}`);
+      let rootUrl = `${GOOGLE_ROOT}?key=${encodeURIComponent(this.key)}`;
+
+      if (this.provider === 'cesium') {
+        // ion hands out a short-lived token and the real tileset URL; every
+        // request after this one carries it as a bearer header.
+        const endpoint = await fetchWithin(
+          `${ION_ENDPOINT}/${ION_ASSET}/endpoint?access_token=${encodeURIComponent(this.key)}`,
+        );
+        if (!endpoint.ok) {
+          throw new Error(
+            endpoint.status === 401 || endpoint.status === 403
+              ? 'Cesium ion rejected that token'
+              : `ion ${endpoint.status}`,
+          );
+        }
+        const grant = await endpoint.json();
+        this.bearer = grant.accessToken ?? '';
+        rootUrl = grant.url;
+        this.base = rootUrl;
+        for (const credit of grant.attributions ?? []) {
+          if (credit.html) this.copyrights.add(stripTags(credit.html));
+        }
+        this.loader.setRequestHeader({ Authorization: `Bearer ${this.bearer}` });
+      }
+
+      const response = await fetchWithin(rootUrl, { headers: this.headers() });
+      if (!response.ok) {
+        throw new Error(
+          response.status === 401 || response.status === 403
+            ? 'that key was refused'
+            : `root ${response.status}`,
+        );
+      }
       const tileset = await response.json();
       this.root = tileset.root;
       if (tileset.asset?.copyright) this.copyrights.add(tileset.asset.copyright);
@@ -103,11 +186,21 @@ export class Tiles3D {
     }
   }
 
+  /** Auth headers, if this provider uses them rather than a query parameter. */
+  headers() {
+    return this.bearer ? { Authorization: `Bearer ${this.bearer}` } : undefined;
+  }
+
   /**
    * Google hands back a session token inside the child URIs. Every subsequent
-   * request has to carry it along with the key, or it is refused.
+   * request has to carry it along with the key, or it is refused. ion instead
+   * signs with the bearer header, so its URIs resolve plainly.
    */
   absolute(uri) {
+    if (this.provider === 'cesium') {
+      // ion tilesets are plain relative URIs against the tileset's own folder.
+      return new URL(uri, this.base ?? 'https://assets.ion.cesium.com/').toString();
+    }
     const url = new URL(uri, 'https://tile.googleapis.com');
     if (!url.searchParams.has('key')) url.searchParams.set('key', this.key);
     const session = url.searchParams.get('session');
@@ -129,6 +222,12 @@ export class Tiles3D {
     const on = settings.get('world3d') !== 'off';
     this.group.visible = on;
     if (!on) return;
+    // Somebody swapped the provider or pasted a new credential. Nothing here
+    // belongs to that account, so start over. Checked here rather than only on
+    // the settings callback, so it holds however the value was changed.
+    if (this._connectedAs && this._connectedAs !== `${this.provider}:${this.key}`) {
+      this.reconfigure();
+    }
     if (this.state === 'idle' || this.state === 'needs-key') {
       this.start();
       return;
@@ -221,7 +320,7 @@ export class Tiles3D {
     if (this.pending.has(uri) || this.active >= MAX_ACTIVE) return;
     this.pending.add(uri);
     this.active++;
-    fetch(this.absolute(uri))
+    fetch(this.absolute(uri), { headers: this.headers() })
       .then((response) => {
         if (!response.ok) throw new Error(`tileset ${response.status}`);
         return response.json();
@@ -298,12 +397,43 @@ export class Tiles3D {
     this.loaded.clear();
   }
 
+  /**
+   * The provider or its credential changed under us. Everything cached belongs
+   * to the old account — the session token, the bearer, the tiles themselves —
+   * so it all goes, and the next frame connects again from scratch. Without
+   * this a failed Google attempt would leave the state stuck at `error` and a
+   * later Cesium token would never be tried.
+   */
+  reconfigure() {
+    this.clear();
+    this.tilesets.clear();
+    this.copyrights.clear();
+    this.root = null;
+    this.session = '';
+    this.bearer = '';
+    this.base = '';
+    this.error = '';
+    this.state = 'idle';
+    this.stats.failed = 0;
+    this._connectedAs = '';
+    this.loader.setRequestHeader({});
+  }
+
   /** One line for the status readout. */
   status() {
-    if (settings.get('world3d') === 'off') return '';
-    if (this.state === 'needs-key') return 'photorealistic 3D: key required';
+    if (this.provider === 'off') return '';
+    if (this.state === 'needs-key') {
+      return this.provider === 'cesium'
+        ? 'photorealistic 3D: Cesium token required'
+        : 'photorealistic 3D: Google key required';
+    }
     if (this.state === 'error') return `photorealistic 3D: ${this.error}`;
     if (this.state === 'loading') return 'photorealistic 3D: connecting';
     return `photorealistic 3D: ${this.stats.drawn} tiles`;
   }
+}
+
+/** Cesium's attributions arrive as HTML; the status line wants words. */
+function stripTags(html) {
+  return String(html).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }

@@ -46,16 +46,20 @@ const SECTIONS = [
         type: 'select',
         options: () => [
           { value: 'off', label: 'Off — imagery, elevation and OpenStreetMap' },
-          { value: 'google', label: 'Google Photorealistic 3D Tiles (needs a key)' },
+          { value: 'google', label: 'Google Photorealistic 3D Tiles (needs a Google key)' },
+          { value: 'cesium', label: 'The same, via Cesium ion (needs an ion token)' },
         ],
         help: (value) =>
-          value === 'google'
-            ? 'The actual scanned world: buildings, trees and bridges are in the mesh, built from aerial photogrammetry. Needs a Google Maps Platform key with the Map Tiles API enabled, and it is not cheap to run. Terrain and scenery step aside where it loads.'
-            : 'Real satellite imagery, real elevation and real OpenStreetMap buildings and woodland — all of it keyless. Falls back to a generated world with no network at all.',
+          value === 'off'
+            ? 'Real satellite imagery, real elevation and real OpenStreetMap buildings and woodland — all of it keyless. Falls back to a generated world with no network at all.'
+            : value === 'cesium'
+              ? 'The same scanned world as the Google option, served through Cesium ion on an ion access token — a different account and a different quota. Terrain and scenery step aside where it loads.'
+              : 'The actual scanned world: buildings, trees and bridges are in the mesh, built from aerial photogrammetry. Needs a Google Maps Platform key with the Map Tiles API enabled, and it is not cheap to run. Terrain and scenery step aside where it loads.',
       },
       { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Photorealistic 3D Tiles, Street View Static and Geocoding APIs.' },
       { key: 'bingKey', label: 'Bing Maps key', type: 'secret' },
       { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation.' },
+      { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'Only for the Cesium route into photorealistic 3D.' },
       { key: 'mapillaryToken', label: 'Mapillary token', type: 'secret' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },
       { key: 'buildings', label: 'OpenStreetMap buildings', type: 'toggle', help: 'Extrudes real footprints near the ground. Interiors are generated.' },

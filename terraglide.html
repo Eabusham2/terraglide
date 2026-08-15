@@ -82294,7 +82294,7 @@ const { readJSON, removeKey, writeJSON } = __tg_require("src/core/storage.js");
  * graphics:          'low' | 'medium' | 'high' | 'ultra'
  * mouseMode:         'locked' | 'pan'
  * units:             'metric' | 'imperial'
- * world3d:           'off' | 'google'
+ * world3d:           'off' | 'google' | 'cesium'
  * perspective:       'first' | 'third'
  * rtpTarget:         'anywhere' | 'populated'
  * timeMode:          'day' | 'live' | 'golden' | 'night' | 'custom'
@@ -82310,8 +82310,10 @@ const DEFAULT_SETTINGS = {
    * 'google' — Google Photorealistic 3D Tiles: the actual scanned world,
    *            buildings and trees included, from oblique aerial photogrammetry.
    *            Needs a Google Maps Platform key.
+   * 'cesium' — the same dataset through Cesium ion, on an ion token instead.
    */
   world3d: 'off',
+  cesiumToken: '',
   googleKey: '',
   bingKey: '',
   mapboxKey: '',
@@ -91221,16 +91223,20 @@ const SECTIONS = [
         type: 'select',
         options: () => [
           { value: 'off', label: 'Off — imagery, elevation and OpenStreetMap' },
-          { value: 'google', label: 'Google Photorealistic 3D Tiles (needs a key)' },
+          { value: 'google', label: 'Google Photorealistic 3D Tiles (needs a Google key)' },
+          { value: 'cesium', label: 'The same, via Cesium ion (needs an ion token)' },
         ],
         help: (value) =>
-          value === 'google'
-            ? 'The actual scanned world: buildings, trees and bridges are in the mesh, built from aerial photogrammetry. Needs a Google Maps Platform key with the Map Tiles API enabled, and it is not cheap to run. Terrain and scenery step aside where it loads.'
-            : 'Real satellite imagery, real elevation and real OpenStreetMap buildings and woodland — all of it keyless. Falls back to a generated world with no network at all.',
+          value === 'off'
+            ? 'Real satellite imagery, real elevation and real OpenStreetMap buildings and woodland — all of it keyless. Falls back to a generated world with no network at all.'
+            : value === 'cesium'
+              ? 'The same scanned world as the Google option, served through Cesium ion on an ion access token — a different account and a different quota. Terrain and scenery step aside where it loads.'
+              : 'The actual scanned world: buildings, trees and bridges are in the mesh, built from aerial photogrammetry. Needs a Google Maps Platform key with the Map Tiles API enabled, and it is not cheap to run. Terrain and scenery step aside where it loads.',
       },
       { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Photorealistic 3D Tiles, Street View Static and Geocoding APIs.' },
       { key: 'bingKey', label: 'Bing Maps key', type: 'secret' },
       { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation.' },
+      { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'Only for the Cesium route into photorealistic 3D.' },
       { key: 'mapillaryToken', label: 'Mapillary token', type: 'secret' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },
       { key: 'buildings', label: 'OpenStreetMap buildings', type: 'toggle', help: 'Extrudes real footprints near the ground. Interiors are generated.' },
@@ -92366,8 +92372,11 @@ class Game {
   async loadWorld3D() {
     if (this.tiles3d || this.loading3d) return this.tiles3d;
     if (settings.get('world3d') === 'off') return null;
-    if (!settings.get('googleKey').trim()) {
-      this.notice3d = 'Photorealistic 3D needs a Google Maps Platform key';
+    const cesium = settings.get('world3d') === 'cesium';
+    if (!(cesium ? settings.get('cesiumToken') : settings.get('googleKey')).trim()) {
+      this.notice3d = cesium
+        ? 'Photorealistic 3D needs a Cesium ion access token'
+        : 'Photorealistic 3D needs a Google Maps Platform key';
       return null;
     }
     if (globalThis.__TERRAGLIDE_INLINE_WORKER__) {
@@ -92377,6 +92386,9 @@ class Game {
     }
 
     this.loading3d = true;
+    // We have a credential and we are about to use it; whatever the panel was
+    // complaining about is answered, and the status line takes over from here.
+    this.notice3d = '';
     try {
       const module = await import('./world/tiles3d.js');
       this.tiles3d = new module.Tiles3D({
@@ -92386,8 +92398,8 @@ class Game {
         renderer: this.renderer,
       });
       await this.tiles3d.start();
-      this.notice3d = '';
-      this.toast('Photorealistic 3D connected');
+      if (this.tiles3d.state === 'ready') this.toast('Photorealistic 3D connected');
+      else this.toast(`Photorealistic 3D: ${this.tiles3d.error}`, 'bad');
     } catch (error) {
       this.notice3d = `Photorealistic 3D unavailable: ${error.message ?? error}`;
       this.toast(this.notice3d, 'bad');
@@ -92403,9 +92415,14 @@ class Game {
       this.toast('Provider updated');
     }
     if (key === 'panoramaProvider' || key === 'mapillaryToken') this.panorama.clear();
-    if (key === 'world3d' || key === 'googleKey') {
+    if (key === 'world3d' || key === 'googleKey' || key === 'cesiumToken') {
       if (settings.get('world3d') === 'off') {
         if (this.tiles3d) this.tiles3d.clear();
+      } else if (this.tiles3d) {
+        // Different provider or a new credential: drop the old account's
+        // session and let the next frame reconnect.
+        this.tiles3d.reconfigure();
+        this.notice3d = '';
       } else {
         this.loadWorld3D();
       }

@@ -298,8 +298,11 @@ export class Game {
   async loadWorld3D() {
     if (this.tiles3d || this.loading3d) return this.tiles3d;
     if (settings.get('world3d') === 'off') return null;
-    if (!settings.get('googleKey').trim()) {
-      this.notice3d = 'Photorealistic 3D needs a Google Maps Platform key';
+    const cesium = settings.get('world3d') === 'cesium';
+    if (!(cesium ? settings.get('cesiumToken') : settings.get('googleKey')).trim()) {
+      this.notice3d = cesium
+        ? 'Photorealistic 3D needs a Cesium ion access token'
+        : 'Photorealistic 3D needs a Google Maps Platform key';
       return null;
     }
     if (globalThis.__TERRAGLIDE_INLINE_WORKER__) {
@@ -309,6 +312,9 @@ export class Game {
     }
 
     this.loading3d = true;
+    // We have a credential and we are about to use it; whatever the panel was
+    // complaining about is answered, and the status line takes over from here.
+    this.notice3d = '';
     try {
       const module = await import('./world/tiles3d.js');
       this.tiles3d = new module.Tiles3D({
@@ -318,8 +324,8 @@ export class Game {
         renderer: this.renderer,
       });
       await this.tiles3d.start();
-      this.notice3d = '';
-      this.toast('Photorealistic 3D connected');
+      if (this.tiles3d.state === 'ready') this.toast('Photorealistic 3D connected');
+      else this.toast(`Photorealistic 3D: ${this.tiles3d.error}`, 'bad');
     } catch (error) {
       this.notice3d = `Photorealistic 3D unavailable: ${error.message ?? error}`;
       this.toast(this.notice3d, 'bad');
@@ -335,9 +341,14 @@ export class Game {
       this.toast('Provider updated');
     }
     if (key === 'panoramaProvider' || key === 'mapillaryToken') this.panorama.clear();
-    if (key === 'world3d' || key === 'googleKey') {
+    if (key === 'world3d' || key === 'googleKey' || key === 'cesiumToken') {
       if (settings.get('world3d') === 'off') {
         if (this.tiles3d) this.tiles3d.clear();
+      } else if (this.tiles3d) {
+        // Different provider or a new credential: drop the old account's
+        // session and let the next frame reconnect.
+        this.tiles3d.reconfigure();
+        this.notice3d = '';
       } else {
         this.loadWorld3D();
       }
