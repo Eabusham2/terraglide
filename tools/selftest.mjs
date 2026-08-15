@@ -23,6 +23,9 @@ import { annualMeanC, climateAt } from '../src/geo/climate.js';
 import { solarPosition } from '../src/geo/sun.js';
 import { isWaterPixel } from '../src/geo/water.js';
 import { stepGlide, stepRocket, rocketTicks, TICK } from '../src/player/elytra.js';
+import { Autopilot } from '../src/player/autopilot.js';
+import { UNLOCK_CODE, cheats } from '../src/core/cheats.js';
+import { resolvePlace } from '../src/ui/cheatPanel.js';
 import { proceduralElevation } from '../src/tiles/procedural.js';
 
 let failures = 0;
@@ -232,6 +235,119 @@ console.log('\ngenerated world');
     );
   }
   ok('generated terrain is continuous', maxJump < 5, `largest step ${maxJump.toFixed(2)} m`);
+}
+
+console.log('\ncheats');
+{
+  ok('locked to begin with', cheats.unlocked === false);
+  ok('no cheat is active by default', cheats.active === false);
+
+  // Letters on their own belong to the game, not to the code.
+  ok('a stray letter is passed through', cheats.offerKey({ code: 'KeyT' }) === '');
+  ok('backquote arms the code', cheats.offerKey({ code: 'Backquote' }) === 'consume');
+  // Once armed the letters are swallowed, so typing the code cannot fire the
+  // teleport and map keys that live on r, g, l and d.
+  const eaten = [...'terraglid'].map((c) => cheats.offerKey({ code: `Key${c.toUpperCase()}` }));
+  ok('the code eats its own keystrokes', eaten.every((r) => r === 'consume'), eaten.join(','));
+  ok('the last letter unlocks', cheats.offerKey({ code: 'KeyE' }) === 'unlock');
+  ok('typing the code unlocks', cheats.unlocked === true);
+
+  cheats.set('gameSpeed', 999);
+  ok('game speed is clamped', cheats.gameSpeed === 8, `${cheats.gameSpeed}x`);
+  cheats.set('playerSpeed', -20);
+  ok('player speed is clamped', cheats.playerSpeed === 0.1, `${cheats.playerSpeed}x`);
+  cheats.set('nonsense', 5);
+  ok('unknown dials are ignored', cheats.nonsense === undefined);
+  cheats.toggle('fly');
+  ok('fly toggles', cheats.fly === true);
+  ok('active reports the change', cheats.active === true);
+  ok('labels list what is on', cheats.labels.includes('fly'), cheats.labels.join(', '));
+
+  // Locking is what a page reload does: every dial back to the default.
+  cheats.lock();
+  ok('locking puts everything back', !cheats.active && !cheats.unlocked && cheats.gameSpeed === 1);
+
+  cheats.offerKey({ code: 'Backquote' });
+  const typed = [...UNLOCK_CODE].map((c) => ({ code: `Key${c.toUpperCase()}` }));
+  typed.splice(3, 1);
+  const results = typed.map((event) => cheats.offerKey(event));
+  ok('a mistyped code does not unlock', cheats.unlocked === false);
+  ok('and gives the keys back once it breaks', results.slice(-3).every((r) => r === ''));
+  ok('the chord unlocks', cheats.offerKey({ code: 'Backquote', ctrlKey: true, shiftKey: true }) === 'unlock');
+  ok('backquote then opens the panel', cheats.offerKey({ code: 'Backquote' }) === 'panel');
+
+  ok('coordinates resolve', resolvePlace('48.8566, 2.3522')?.lat === 48.8566);
+  ok('a city name resolves', Math.round(resolvePlace('Reykjavik')?.lat ?? 0) === 64);
+  ok('nonsense does not resolve', resolvePlace('qzqzqz') === null);
+  ok('nothing does not resolve', resolvePlace('  ') === null);
+}
+
+console.log('\nauto-travel');
+{
+  // A stand-in player and a flat world: enough to check the steering laws.
+  const player = {
+    lat: 0,
+    lon: 0,
+    yaw: Math.PI, // facing due south, target is due east
+    pitch: 0,
+    position: { x: 0, y: 500, z: 0 },
+    velocity: { x: 0, y: 0, z: 0 },
+    groundHeight: 0,
+    onGround: false,
+    elytraDeployed: true,
+    horizontalSpeed: 30,
+    rocketTicksLeft: 0,
+    altitudeAboveGround: 500,
+    toggleElytra(v) {
+      this.elytraDeployed = v;
+    },
+  };
+  const terrain = { heightAt: () => 0 };
+  const notices = [];
+  let rockets = 0;
+  const auto = new Autopilot({
+    player,
+    terrain,
+    fireRocket: () => rockets++,
+    onNotice: (m) => notices.push(m),
+  });
+  const idle = { forward: false, back: false, left: false, right: false, jump: false };
+
+  ok('idle until engaged', auto.active === false);
+  auto.engage(0, 1, 'east'); // one degree of longitude east of 0,0
+  ok('engages on a target', auto.active === true);
+
+  for (let i = 0; i < 120; i++) auto.step(1 / 20, idle);
+  const yawDegrees = ((auto.player.yaw * 180) / Math.PI + 360) % 360;
+  ok('turns onto the bearing', near(yawDegrees, 90, 3), `${yawDegrees.toFixed(1)}°`);
+  ok('holds a cruise height', auto.cruiseTarget() > 200, `${auto.cruiseTarget().toFixed(0)} m`);
+
+  // Well below the cruise line it should climb, and spend rockets doing it.
+  player.position.y = 20;
+  player.altitudeAboveGround = 20;
+  rockets = 0;
+  for (let i = 0; i < 20; i++) auto.step(1 / 20, idle);
+  ok('climbs when low', player.pitch > 0.1, `pitch ${player.pitch.toFixed(2)}`);
+  ok('spends rockets to climb', rockets > 0, `${rockets} fired`);
+
+  // Above it, the nose drops instead.
+  player.position.y = 4000;
+  for (let i = 0; i < 20; i++) auto.step(1 / 20, idle);
+  ok('descends when high', player.pitch < 0, `pitch ${player.pitch.toFixed(2)}`);
+
+  auto.step(1 / 20, { ...idle, forward: true });
+  ok('a movement key cancels it', auto.active === false);
+  ok('and says so', notices.some((n) => n.includes('cancelled')), notices.join(' | '));
+
+  // Arriving: it stows the wings and hands the controls back.
+  player.position.y = 30;
+  player.altitudeAboveGround = 8;
+  auto.engage(0, 0.0002, 'right here');
+  auto.step(1 / 20, idle);
+  ok('stows the wings on arrival', player.elytraDeployed === false);
+  player.onGround = true;
+  auto.step(1 / 20, idle);
+  ok('lets go once you are down', auto.active === false);
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed\n`);

@@ -3,10 +3,15 @@ import { latToNormY, lonToNormX, wrapTileX } from '../geo/mercator.js';
 /**
  * Shared 2D map painter for the minimap and the world map.
  *
- * Explored ground is drawn as-is; ground you have never been to is dimmed and
- * hatched, so the map fills in as you travel. Paths are hairlines, waypoints are
- * small squares, and the whole thing is deliberately flat — no glow, no
- * gradients, nothing that competes with the imagery underneath.
+ * Ground you have been to is drawn as satellite imagery. Ground you have not is
+ * drawn as a *map*: the same tile, flattened to a pale monochrome so coastlines,
+ * rivers and towns still read, but obviously not photographic. So the world is
+ * always legible — you can zoom out and see where you are on the planet — while
+ * only the places you have actually been look real.
+ *
+ * Trails are hairlines, waypoints are small squares, and the whole thing is
+ * deliberately flat: no glow, no gradients, nothing that competes with the
+ * imagery underneath.
  */
 
 const TILE_PX = 256;
@@ -67,14 +72,18 @@ export function drawMap(ctx, view, layers) {
       const screenX = tx * TILE_PX - centre.x;
       const screenY = ty * TILE_PX - centre.y;
       const explored = !layers.exploration || layers.exploration.isExplored(zoom, wrappedX, ty);
-      // Imagery is only drawn for ground you have actually been to — the map
-      // fills in as you explore instead of handing you the whole planet.
-      const resolved = explored || !options.fog ? layers.tiles.resolve(zoom, wrappedX, ty) : null;
+      const asMap = !explored && options.fog !== false;
+      // Always load the tile: the map has to be readable when you zoom out,
+      // whether or not you have been there.
+      const resolved = layers.tiles.resolve(zoom, wrappedX, ty);
 
       if (resolved) {
         const { bitmap, scale, ox, oy } = resolved;
         const sw = bitmap.width * scale;
         const sh = bitmap.height * scale;
+        ctx.save();
+        // Unvisited ground is drawn as a map rather than a photograph.
+        if (asMap) ctx.filter = 'grayscale(1) brightness(1.45) contrast(0.45)';
         ctx.drawImage(
           bitmap,
           ox * bitmap.width,
@@ -86,12 +95,15 @@ export function drawMap(ctx, view, layers) {
           TILE_PX + 0.5,
           TILE_PX + 0.5,
         );
+        ctx.restore();
+        if (asMap) {
+          ctx.fillStyle = 'rgba(24, 28, 34, 0.34)';
+          ctx.fillRect(screenX, screenY, TILE_PX + 0.5, TILE_PX + 0.5);
+        }
       } else {
         ctx.fillStyle = explored ? '#1b1f24' : '#141619';
         ctx.fillRect(screenX, screenY, TILE_PX, TILE_PX);
       }
-
-      if (!explored && options.fog) drawUnexplored(ctx, screenX, screenY, TILE_PX);
     }
   }
 
@@ -140,41 +152,50 @@ export function drawMap(ctx, view, layers) {
   return { centre, toScreen };
 }
 
-/** Ground you have not visited: a plain hatched blank, no imagery. */
-function drawUnexplored(ctx, x, y, size) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(x, y, size, size);
-  ctx.clip();
-  ctx.strokeStyle = 'rgba(190,200,215,0.06)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let i = -size; i < size * 2; i += 12) {
-    ctx.moveTo(x + i, y);
-    ctx.lineTo(x + i - size, y + size);
-  }
-  ctx.stroke();
-  ctx.restore();
-}
-
 /**
  * The trail: a thin line of where you have actually been, recorded as you
- * travel. No tool to fiddle with — you move, it draws.
+ * travel. No tool to fiddle with — you move, it draws. Each leg begins where
+ * you arrived and ends where you teleported away from, and both ends are
+ * marked, so the line reads as a journey rather than a scribble.
  */
 function drawTrail(ctx, trail, toScreen, width) {
-  for (const leg of trail.legs) {
-    if (leg.length < 2) continue;
-    ctx.strokeStyle = 'rgba(214, 206, 178, 0.85)';
-    ctx.lineWidth = width;
-    ctx.lineJoin = 'round';
+  trail.legs.forEach((leg, legIndex) => {
+    if (leg.length === 0) return;
+    if (leg.length > 1) {
+      ctx.strokeStyle = 'rgba(214, 206, 178, 0.85)';
+      ctx.lineWidth = width;
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      leg.forEach((point, index) => {
+        const p = toScreen(point.lat, point.lon);
+        if (index === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      });
+      ctx.stroke();
+    }
+
+    const start = toScreen(leg[0].lat, leg[0].lon);
+    // A ring where this leg started: the first one is where you began, and
+    // every one after it is where a teleport put you down.
     ctx.beginPath();
-    leg.forEach((point, index) => {
-      const p = toScreen(point.lat, point.lon);
-      if (index === 0) ctx.moveTo(p.x, p.y);
-      else ctx.lineTo(p.x, p.y);
-    });
+    ctx.arc(start.x, start.y, width * 2.2, 0, Math.PI * 2);
+    ctx.strokeStyle = legIndex === 0 ? 'rgba(216, 196, 138, 0.95)' : 'rgba(214, 206, 178, 0.7)';
+    ctx.lineWidth = width;
     ctx.stroke();
-  }
+
+    // A cross where you left, on every leg but the one you are still walking.
+    if (legIndex < trail.legs.length - 1 && leg.length > 1) {
+      const end = toScreen(leg[leg.length - 1].lat, leg[leg.length - 1].lon);
+      const r = width * 2;
+      ctx.beginPath();
+      ctx.moveTo(end.x - r, end.y - r);
+      ctx.lineTo(end.x + r, end.y + r);
+      ctx.moveTo(end.x + r, end.y - r);
+      ctx.lineTo(end.x - r, end.y + r);
+      ctx.strokeStyle = 'rgba(214, 206, 178, 0.6)';
+      ctx.stroke();
+    }
+  });
 }
 
 function drawWaypoints(ctx, store, toScreen, labels) {

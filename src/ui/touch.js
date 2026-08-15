@@ -1,3 +1,4 @@
+import { TOUCH_HOLD_MS, cheats } from '../core/cheats.js';
 import { clamp } from '../core/math.js';
 
 /**
@@ -11,12 +12,14 @@ import { clamp } from '../core/math.js';
  */
 
 const BUTTONS = [
-  { id: 'elytra', label: 'Wings', hint: 'open / stow' },
   { id: 'boost', label: 'Boost', hint: 'rocket' },
   { id: 'jump', label: 'Jump', hold: true },
+  // Held, because it is also how you dive when you are in the water.
+  { id: 'dive', label: 'Dive', hold: true },
   { id: 'speedMode', label: '2x' },
   { id: 'rtp', label: 'Teleport' },
   { id: 'worldMap', label: 'Map' },
+  { id: 'cheats', label: '•••', cheat: true },
 ];
 
 export class TouchControls {
@@ -37,7 +40,9 @@ export class TouchControls {
       <div class="touch-buttons">
         ${BUTTONS.map(
           (b) =>
-            `<button type="button" data-touch="${b.id}"${b.hold ? ' data-hold="1"' : ''}>${b.label}</button>`,
+            `<button type="button" data-touch="${b.id}"${b.hold ? ' data-hold="1"' : ''}${
+              b.cheat ? ' data-cheat="1" hidden' : ''
+            }>${b.label}</button>`,
         ).join('')}
       </div>
     `;
@@ -49,6 +54,63 @@ export class TouchControls {
     this.bindStick();
     this.bindButtons();
     this.bindLook();
+    this.bindCheatGesture();
+
+    cheats.on('unlock', (unlocked) => this.showCheatButton(unlocked));
+    this.showCheatButton(cheats.unlocked);
+  }
+
+  showCheatButton(visible) {
+    this.element.querySelectorAll('[data-cheat]').forEach((button) => {
+      button.hidden = !visible;
+    });
+  }
+
+  /**
+   * The cheat code, for a screen with no keyboard: three fingers held still on
+   * the view for a moment and a half. Long enough that nothing else does it.
+   */
+  bindCheatGesture() {
+    let timer = null;
+    let origin = null;
+    const cancel = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      origin = null;
+    };
+
+    window.addEventListener(
+      'touchstart',
+      (event) => {
+        cancel();
+        if (cheats.unlocked || event.touches.length !== 3) return;
+        origin = [...event.touches].map((t) => ({ x: t.clientX, y: t.clientY }));
+        timer = setTimeout(() => {
+          timer = null;
+          if (cheats.unlock() && this.onAction) this.onAction('cheatsUnlocked');
+        }, TOUCH_HOLD_MS);
+      },
+      { passive: true },
+    );
+
+    // Fingers resting on glass wander a few pixels; only a real drag cancels.
+    window.addEventListener(
+      'touchmove',
+      (event) => {
+        if (!timer || !origin) return;
+        for (let i = 0; i < event.touches.length && i < origin.length; i++) {
+          const touch = event.touches[i];
+          if (Math.hypot(touch.clientX - origin[i].x, touch.clientY - origin[i].y) > 36) {
+            cancel();
+            return;
+          }
+        }
+      },
+      { passive: true },
+    );
+    for (const type of ['touchend', 'touchcancel']) {
+      window.addEventListener(type, cancel, { passive: true });
+    }
   }
 
   /** Turn the controls on the first time a finger touches the screen. */
@@ -206,7 +268,8 @@ export class TouchControls {
       right: this.move.x > dead,
       jump: this.held.has('jump'),
       sprint: Math.hypot(this.move.x, this.move.y) > 0.85,
-      crouch: false,
+      // Dive is crouch: it sinks you in water and drops the nose in the air.
+      crouch: this.held.has('dive'),
     };
   }
 

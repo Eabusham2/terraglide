@@ -262,6 +262,11 @@ export class Terrain {
     if (node.shownFrame !== this.streamer.frame) {
       node.shownFrame = this.streamer.frame;
       node.mesh.visible = true;
+      // Draw the ground under your feet before the ground on the horizon: the
+      // near tiles fill the depth buffer first and everything behind them is
+      // rejected cheaply, and a stutter shows up as a far tile arriving late
+      // rather than the one you are standing on.
+      node.mesh.renderOrder = Math.round(distance * 0.01);
       this.drawn.push(node);
     }
 

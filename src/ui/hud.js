@@ -53,6 +53,11 @@ export class HUD {
       <div class="hud-crosshair" data-id="crosshair"><i></i></div>
 
       <div class="hud-rail">
+        <div class="cheat-flag" data-id="cheat-flag" hidden>
+          <label>Modified</label>
+          <span data-id="cheat-list">—</span>
+          <em data-id="autopilot"></em>
+        </div>
         <div class="gauge" data-id="speed-gauge">
           <label>Speed mode</label>
           <div class="bar"><i data-id="speed-bar"></i></div>
@@ -136,7 +141,7 @@ export class HUD {
     host.innerHTML = HOTBAR.map((item, index) => {
       const key = keybinds.labelFor(`hotbar${index + 1}`);
       return `
-        <button type="button" class="slot" data-slot="${index}" data-kind="${item.kind}">
+        <button type="button" class="slot" data-slot="${index}">
           <span class="slot-key">${escapeHtml(key)}</span>
           <span class="slot-label">${escapeHtml(item.label)}</span>
           <span class="slot-meta" data-slot-meta="${index}"></span>
@@ -168,9 +173,10 @@ export class HUD {
     if (state.climate) {
       this.setText('temp', formatTemperature(state.climate.avgC, units));
       this.setText('season', `${state.climate.monthName} · ${state.climate.season}`);
+      const weather = state.weather ? `${state.weather.label} · ` : '';
       this.setText(
         'climate-sub',
-        `${state.climate.band} · seasonal average · annual ${formatTemperature(state.climate.annualC, units)}`,
+        `${weather}${state.climate.band} · seasonal average · annual ${formatTemperature(state.climate.annualC, units)}`,
       );
     }
 
@@ -209,6 +215,12 @@ export class HUD {
       'scale-text',
       `${formatHeight(player.height, units)} · ${player.scale.toFixed(2)}x`,
     );
+
+    // If the numbers are not the real ones, the corner says so quietly.
+    const cheatText = state.cheats || '';
+    this.refs['cheat-flag'].hidden = !cheatText && !state.autopilot;
+    this.setText('cheat-list', cheatText || 'auto-travel');
+    this.setText('autopilot', state.autopilot || '');
 
     this.updateHotbar(player);
 
@@ -251,11 +263,8 @@ export class HUD {
       const meta = host.querySelector(`[data-slot-meta="${index}"]`);
       if (!meta) return;
       const item = HOTBAR[index];
-      const text =
-        player.rocketCooldown > 0 && selected
-          ? `${player.rocketCooldown.toFixed(1)}s`
-          : item.hint;
-      if (meta.textContent !== text) meta.textContent = text;
+      // No countdown: a rocket has a duration and a power, not a timer.
+      if (meta.textContent !== item.hint) meta.textContent = item.hint;
     });
   }
 
@@ -275,6 +284,7 @@ export class HUD {
 
 function modeLabel(player, state) {
   if (state.freecam) return 'Freecam';
+  if (player.mode === 'fly') return 'Flying';
   if (player.swimming) return 'Swimming';
   if (player.mode === 'glide') {
     return player.rocketTicksLeft > 0 ? 'Gliding · rocket' : 'Gliding';

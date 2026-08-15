@@ -1,3 +1,4 @@
+import { cheats } from '../core/cheats.js';
 import { clamp } from '../core/math.js';
 import { settings } from '../core/settings.js';
 import { formatDistance, formatLatLon } from '../core/units.js';
@@ -54,11 +55,12 @@ export class WorldMap {
         </div>
         <aside class="worldmap-side">
           <div class="worldmap-actions">
-            <button type="button" data-action="teleport">Travel to centre</button>
             <button type="button" data-action="rtp">Random teleport</button>
             <button type="button" data-action="waypoint">Waypoint at centre</button>
             <button type="button" data-action="copy">Copy centre</button>
+            <button type="button" data-action="teleport" data-directed hidden>Travel to centre</button>
           </div>
+          <label class="worldmap-tick"><input type="checkbox" data-trail /> Show my trail</label>
           <div class="worldmap-stats"></div>
           <h3>Waypoints</h3>
           <ul class="worldmap-list" data-list="waypoints"></ul>
@@ -131,16 +133,21 @@ export class WorldMap {
       'wheel',
       (event) => {
         event.preventDefault();
-        // Half a level per notch: a full level per notch flew past the scale
-        // you were looking for.
-        this.setZoom(this.zoom + (event.deltaY > 0 ? -0.5 : 0.5));
+        // A quarter of a level per notch. Anything faster flies past the scale
+        // you were looking for before you can let go of the wheel.
+        this.setZoom(this.zoom + (event.deltaY > 0 ? -0.25 : 0.25));
       },
       { passive: false },
     );
     canvas.addEventListener('dblclick', (event) => {
+      if (!cheats.unlocked) return;
       const point = this.pointAt(event);
       if (point && this.onTeleport) this.onTeleport(point.lat, point.lon);
     });
+
+    const trailTick = this.element.querySelector('[data-trail]');
+    trailTick.addEventListener('change', () => settings.set('showTrail', trailTick.checked));
+    cheats.on('unlock', () => this.applyPermissions());
   }
 
   pointAt(event) {
@@ -236,6 +243,16 @@ export class WorldMap {
     this.dirty = true;
   }
 
+  /** Directed teleports are not part of the game; they only exist with cheats. */
+  applyPermissions() {
+    this.element.querySelectorAll('[data-directed]').forEach((node) => {
+      node.hidden = !cheats.unlocked;
+    });
+    this.element.querySelectorAll('[data-action="travel"]').forEach((node) => {
+      node.hidden = !cheats.unlocked;
+    });
+  }
+
   show(player) {
     this.open = true;
     this.element.hidden = false;
@@ -244,6 +261,8 @@ export class WorldMap {
     this.dirty = true;
     this.resize();
     this.renderLists();
+    this.element.querySelector('[data-trail]').checked = settings.get('showTrail');
+    this.applyPermissions();
   }
 
   close() {
@@ -298,7 +317,7 @@ export class WorldMap {
         player,
         options: {
           fog: settings.get('minimapFog'),
-          trail: true,
+          trail: settings.get('showTrail'),
           waypoints: true,
           labels: true,
           grid: this.zoom >= 12,
@@ -340,7 +359,7 @@ export class WorldMap {
         </li>`,
         )
         .join('') || '<li class="muted">None yet — press the waypoint key to drop one.</li>';
-
+    this.applyPermissions();
   }
 }
 

@@ -1,4 +1,5 @@
 import * as THREE from '../../vendor/three/three.module.js';
+import { cheats } from '../core/cheats.js';
 import { clamp, damp } from '../core/math.js';
 import { FixedStep } from '../core/perf.js';
 import { settings } from '../core/settings.js';
@@ -27,6 +28,9 @@ const SWIM_RISE = 3.2;
 const WATER_DRAG = 5.5;
 /** How far the feet can be lifted per second when walking up a slope. */
 const STEP_SMOOTHING = 12;
+/** Creative flight, metres per second, cruise and sprint. */
+const FLY_SPEED = 18;
+const FLY_SPRINT = 46;
 
 export class PlayerController {
   constructor({ player, terrain, buildings }) {
@@ -50,10 +54,20 @@ export class PlayerController {
     this.landedThisFrame = false;
     player.tickTimers(dt);
 
+    // A stretched clock needs proportionally more catch-up ticks per frame, or
+    // the substep cap quietly swallows the extra speed on a slow machine.
+    this.fixed.maxSteps = Math.ceil(5 * Math.max(1, cheats.gameSpeed));
     this.fixed.run(dt, (step) => this.tick(step, input));
 
     player.syncGeo();
     player.groundHeight = this.groundHeightAt(player.position.x, player.position.z, player.position.y);
+    // Under water the useful floor is the sea bed, not the surface above you.
+    if (player.swimming) {
+      player.groundHeight = Math.min(
+        player.groundHeight,
+        this.terrain.bedAt(player.position.x, player.position.z),
+      );
+    }
   }
 
   tick(step, input) {
@@ -61,10 +75,12 @@ export class PlayerController {
     const scale = player.scale;
     player.lookVector(this.look);
 
-    const gliding = player.elytraDeployed && !player.onGround;
-    player.mode = gliding ? 'glide' : player.onGround ? 'walk' : 'fall';
+    const flying = cheats.fly;
+    const gliding = !flying && player.elytraDeployed && !player.onGround;
+    player.mode = flying ? 'fly' : gliding ? 'glide' : player.onGround ? 'walk' : 'fall';
 
-    if (gliding) this.tickGlide(step, input);
+    if (flying) this.tickFly(step, input, scale);
+    else if (gliding) this.tickGlide(step, input);
     else this.tickGround(step, input, scale);
 
     // Speed mode stretches distance covered, not the handling model.
@@ -81,7 +97,7 @@ export class PlayerController {
     const player = this.player;
 
     if (player.rocketTicksLeft > 0) {
-      stepRocket(player.velocity, this.look, player.speedMultiplier);
+      stepRocket(player.velocity, this.look, player.rocketPower, player.rocketSpent);
       player.rocketTicksLeft--;
     }
 
@@ -90,6 +106,40 @@ export class PlayerController {
 
     // Crouch pulls the nose down a touch — handy for shedding altitude.
     if (input.crouch) player.velocity.y -= 4 * step;
+  }
+
+  /**
+   * Creative flight (a cheat). No gravity, no wings: you move along your look
+   * vector, jump and crouch trade height, and sprint makes it a cruise missile.
+   */
+  tickFly(step, input, scale) {
+    const player = this.player;
+    const strideScale = Math.pow(scale, 0.75);
+    const speed = (input.sprint ? FLY_SPRINT : FLY_SPEED) * strideScale;
+
+    const forward = (input.forward ? 1 : 0) - (input.back ? 1 : 0);
+    const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    const sin = Math.sin(player.yaw);
+    const cos = Math.cos(player.yaw);
+
+    let tx = this.look.x * forward + cos * strafe;
+    let ty = this.look.y * forward;
+    let tz = this.look.z * forward + sin * strafe;
+    const length = Math.hypot(tx, ty, tz);
+    if (length > 0) {
+      tx = (tx / length) * speed;
+      ty = (ty / length) * speed;
+      tz = (tz / length) * speed;
+    }
+    if (input.jump) ty += speed * 0.7;
+    if (input.crouch) ty -= speed * 0.7;
+
+    player.velocity.x = damp(player.velocity.x, tx, 9, step);
+    player.velocity.y = damp(player.velocity.y, ty, 9, step);
+    player.velocity.z = damp(player.velocity.z, tz, 9, step);
+
+    player.airborneSeconds = 0;
+    player.rocketTicksLeft = 0;
   }
 
   tickGround(step, input, scale) {
@@ -167,6 +217,14 @@ export class PlayerController {
     this.climbing = false;
     player.inBuilding = false;
 
+    if (cheats.noclip) {
+      // Nothing stops you: no walls, no floor, not even the sea.
+      player.groundHeight = this.terrain.heightAt(player.position.x, player.position.z);
+      player.onGround = false;
+      player.swimming = false;
+      return;
+    }
+
     const colliders = this.buildings
       ? this.buildings.collidersNear(player.position.x, player.position.z, radius + 1.5)
       : [];
@@ -232,19 +290,34 @@ export class PlayerController {
     );
     player.groundHeight = ground;
 
-    // Swimming: the sea sits at height zero, so anything below it is water.
-    const seaDepth = -this.terrain.bedAt(player.position.x, player.position.z);
-    player.swimming = seaDepth > 0.6 && player.position.y < height * 0.55 && !player.elytraDeployed;
+    if (cheats.fly) {
+      // Flying still lands on solid ground rather than sinking into it.
+      if (player.position.y < ground) {
+        player.position.y = ground;
+        if (player.velocity.y < 0) player.velocity.y = 0;
+      }
+      player.onGround = false;
+      player.swimming = false;
+      return;
+    }
 
-    if (player.position.y <= ground + 0.001) {
+    // Swimming: the sea sits at height zero, so anything below it is water.
+    // Once you are in it the floor becomes the sea bed rather than the surface,
+    // which is what lets you dive instead of standing on the water.
+    const bed = this.terrain.bedAt(player.position.x, player.position.z);
+    player.swimming = -bed > 0.6 && player.position.y < height * 0.55 && !player.elytraDeployed;
+    const floor = player.swimming ? Math.min(ground, bed) : ground;
+    if (player.swimming) player.groundHeight = floor;
+
+    if (player.position.y <= floor + 0.001) {
       // Walking uphill lifts the feet over a step or two rather than snapping,
       // which is what made short slopes feel like stairs before.
-      const rise = ground - player.position.y;
+      const rise = floor - player.position.y;
       if (player.onGround && rise > 0 && rise < stepUp) {
-        player.position.y = damp(player.position.y, ground, STEP_SMOOTHING, step);
-        if (ground - player.position.y < 0.02) player.position.y = ground;
+        player.position.y = damp(player.position.y, floor, STEP_SMOOTHING, step);
+        if (floor - player.position.y < 0.02) player.position.y = floor;
       } else {
-        player.position.y = ground;
+        player.position.y = floor;
       }
       if (player.velocity.y < 0) player.velocity.y = 0;
       if (!player.onGround) this.landedThisFrame = true;

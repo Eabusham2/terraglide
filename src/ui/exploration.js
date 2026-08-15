@@ -1,3 +1,4 @@
+import { cheats } from '../core/cheats.js';
 import { Emitter } from '../core/events.js';
 import { readJSON, writeJSON } from '../core/storage.js';
 import { settings } from '../core/settings.js';
@@ -47,13 +48,16 @@ export class Exploration extends Emitter {
 
   /** Record a visit. Reveal radius grows with altitude. */
   visit(lat, lon, altitudeAboveGround) {
-    const scale = settings.get('fogRevealScale');
     // Deliberately short: altitude widens what you uncover, but only up to a
     // few kilometres. A single high pass used to reveal half a country, which
     // made the explored map meaningless.
-    const radius = Math.min(6000, Math.max(220, altitudeAboveGround * 0.45 + 220)) * scale;
+    const radius = Math.min(6000, Math.max(220, altitudeAboveGround * 0.45 + 220));
     const nx = lonToNormX(lon);
     const ny = latToNormY(lat);
+    // Tile space is mercator, which stretches away from the equator, so the
+    // ground radius has to be stretched the same way before it is compared.
+    const stretch = 1 / Math.max(0.05, Math.cos((lat * Math.PI) / 180));
+    const mercatorRadius = radius * stretch;
 
     // Only re-run the flood when we have actually moved somewhere new.
     if (this.lastVisit) {
@@ -69,14 +73,20 @@ export class Exploration extends Emitter {
     for (const level of LEVELS) {
       const n = Math.pow(2, level);
       const tileMetres = EARTH_CIRCUMFERENCE / n;
-      const reach = Math.min(4, Math.ceil(radius / tileMetres));
-      const cx = Math.floor(nx * n);
-      const cy = Math.floor(ny * n);
+      const reach = Math.min(4, Math.ceil(mercatorRadius / tileMetres));
+      // Exact tile position, not the rounded one: the circle is measured from
+      // where you actually are to the middle of each tile, in metres. Comparing
+      // whole tile counts is what used to uncover a plus-shape.
+      const px = nx * n;
+      const py = ny * n;
+      const cx = Math.floor(px);
+      const cy = Math.floor(py);
       for (let dy = -reach; dy <= reach; dy++) {
         const ty = cy + dy;
         if (ty < 0 || ty >= n) continue;
         for (let dx = -reach; dx <= reach; dx++) {
-          if (Math.hypot(dx, dy) > reach + 0.35) continue;
+          const distance = Math.hypot(cx + dx + 0.5 - px, ty + 0.5 - py) * tileMetres;
+          if (distance > Math.max(mercatorRadius, tileMetres * 0.5)) continue;
           const key = tileKey(level, ((cx + dx) % n + n) % n, ty);
           if (this.cells.has(key)) continue;
           this.cells.add(key);
@@ -94,6 +104,9 @@ export class Exploration extends Emitter {
 
   /** Is this tile explored? Falls back to the nearest recorded level. */
   isExplored(z, x, y) {
+    // The unlock-map cheat only lifts the fog for as long as it is on: the real
+    // record underneath is never written to, so a reload puts it back.
+    if (cheats.mapUnlocked) return true;
     let level = LEVELS[0];
     for (const candidate of LEVELS) {
       if (candidate <= z) level = candidate;

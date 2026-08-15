@@ -487,7 +487,7 @@ input[type='checkbox'] {
 
 .hud-hotbar .slot {
   position: relative;
-  width: 92px;
+  width: 104px;
   height: 50px;
   padding: 4px 8px 5px;
   text-align: left;
@@ -531,21 +531,25 @@ input[type='checkbox'] {
 
 .hud-bottomright {
   position: absolute;
-  right: 12px;
-  /* Sits above the hotbar row rather than fighting it for the corner. */
-  bottom: 68px;
+  right: 6px;
+  /* Right into the corner, under the hotbar, and small: it is a credit line
+     and a status line, not something you read while flying. */
+  bottom: 4px;
   text-align: right;
-  max-width: 300px;
+  max-width: 260px;
+  opacity: 0.75;
 }
 
 .status-line {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 9px;
+  line-height: 1.35;
   color: var(--text-dim);
 }
 
 .attribution {
-  font-size: 10.5px;
+  font-size: 9px;
+  line-height: 1.35;
   color: var(--text-faint);
 }
 
@@ -683,6 +687,22 @@ input[type='checkbox'] {
   padding: 0;
   line-height: 1;
   font-size: 13px;
+}
+
+.minimap-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -18px;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.minimap-hint kbd {
+  margin-right: 4px;
 }
 
 .minimap-readout {
@@ -1062,6 +1082,15 @@ input[type='checkbox'] {
   vertical-align: -1px;
 }
 
+.worldmap-tick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
 .worldmap-danger {
   margin-top: 16px;
 }
@@ -1122,6 +1151,73 @@ input[type='checkbox'] {
   margin-bottom: 0;
   color: var(--text-faint);
   max-width: 68ch;
+}
+
+/* cheats */
+
+.cheats {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(620px, 94vw);
+  max-height: 88vh;
+  border-left: 2px solid var(--warn);
+}
+
+.cheats-body {
+  padding: 12px 14px;
+  overflow-y: auto;
+}
+
+.cheats .field {
+  grid-template-columns: 190px 1fr;
+}
+
+.cheat-goto {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.cheat-goto input {
+  flex: 1 1 220px;
+}
+
+.cheat-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--warn);
+  padding: 4px 0;
+}
+
+.cheat-flag {
+  background: var(--panel);
+  border-left: 2px solid var(--warn);
+  padding: 4px 8px;
+  backdrop-filter: blur(4px);
+}
+
+.cheat-flag label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.cheat-flag span,
+.cheat-flag em {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-style: normal;
+  color: var(--text-dim);
+  word-break: break-word;
+}
+
+.cheat-flag em:empty {
+  display: none;
 }
 
 @media (max-width: 900px) {
@@ -1207,6 +1303,19 @@ body.touch-active .hud-rail {
 body.touch-active .hud-hotbar {
   bottom: auto;
   top: 40px;
+}
+
+/* On a narrow touch screen the hotbar sits across the top, so the temperature
+   and the toolbar move down out from under it. */
+@media (max-width: 900px) {
+  body.touch-active .hud-topleft {
+    top: 104px;
+  }
+
+  body.touch-active .hud-hotbar .slot {
+    width: 74px;
+    height: 44px;
+  }
 }
 
 body.touch-active .hud-bottomleft {

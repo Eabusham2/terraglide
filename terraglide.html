@@ -504,7 +504,7 @@ input[type='checkbox'] {
 
 .hud-hotbar .slot {
   position: relative;
-  width: 92px;
+  width: 104px;
   height: 50px;
   padding: 4px 8px 5px;
   text-align: left;
@@ -548,21 +548,25 @@ input[type='checkbox'] {
 
 .hud-bottomright {
   position: absolute;
-  right: 12px;
-  /* Sits above the hotbar row rather than fighting it for the corner. */
-  bottom: 68px;
+  right: 6px;
+  /* Right into the corner, under the hotbar, and small: it is a credit line
+     and a status line, not something you read while flying. */
+  bottom: 4px;
   text-align: right;
-  max-width: 300px;
+  max-width: 260px;
+  opacity: 0.75;
 }
 
 .status-line {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 9px;
+  line-height: 1.35;
   color: var(--text-dim);
 }
 
 .attribution {
-  font-size: 10.5px;
+  font-size: 9px;
+  line-height: 1.35;
   color: var(--text-faint);
 }
 
@@ -700,6 +704,22 @@ input[type='checkbox'] {
   padding: 0;
   line-height: 1;
   font-size: 13px;
+}
+
+.minimap-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -18px;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.minimap-hint kbd {
+  margin-right: 4px;
 }
 
 .minimap-readout {
@@ -1079,6 +1099,15 @@ input[type='checkbox'] {
   vertical-align: -1px;
 }
 
+.worldmap-tick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
 .worldmap-danger {
   margin-top: 16px;
 }
@@ -1139,6 +1168,73 @@ input[type='checkbox'] {
   margin-bottom: 0;
   color: var(--text-faint);
   max-width: 68ch;
+}
+
+/* cheats */
+
+.cheats {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(620px, 94vw);
+  max-height: 88vh;
+  border-left: 2px solid var(--warn);
+}
+
+.cheats-body {
+  padding: 12px 14px;
+  overflow-y: auto;
+}
+
+.cheats .field {
+  grid-template-columns: 190px 1fr;
+}
+
+.cheat-goto {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.cheat-goto input {
+  flex: 1 1 220px;
+}
+
+.cheat-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--warn);
+  padding: 4px 0;
+}
+
+.cheat-flag {
+  background: var(--panel);
+  border-left: 2px solid var(--warn);
+  padding: 4px 8px;
+  backdrop-filter: blur(4px);
+}
+
+.cheat-flag label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.cheat-flag span,
+.cheat-flag em {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-style: normal;
+  color: var(--text-dim);
+  word-break: break-word;
+}
+
+.cheat-flag em:empty {
+  display: none;
 }
 
 @media (max-width: 900px) {
@@ -1224,6 +1320,19 @@ body.touch-active .hud-rail {
 body.touch-active .hud-hotbar {
   bottom: auto;
   top: 40px;
+}
+
+/* On a narrow touch screen the hotbar sits across the top, so the temperature
+   and the toolbar move down out from under it. */
+@media (max-width: 900px) {
+  body.touch-active .hud-topleft {
+    top: 104px;
+  }
+
+  body.touch-active .hud-hotbar .slot {
+    width: 74px;
+    height: 44px;
+  }
 }
 
 body.touch-active .hud-bottomleft {
@@ -81772,6 +81881,43 @@ __tg_exports["log"] = log;
 __tg_exports["warn"] = warn;
 __tg_exports["warnOnce"] = warnOnce;
 };
+__tg_modules["src/core/events.js"] = function (__tg_exports) {
+/** Minimal event emitter. */
+class Emitter {
+  constructor() {
+    this.handlers = new Map();
+  }
+
+  /** Returns an unsubscribe function. */
+  on(event, fn) {
+    let set = this.handlers.get(event);
+    if (!set) {
+      set = new Set();
+      this.handlers.set(event, set);
+    }
+    set.add(fn);
+    return () => set.delete(fn);
+  }
+
+  emit(event, payload) {
+    const set = this.handlers.get(event);
+    if (!set) return;
+    for (const fn of [...set]) {
+      try {
+        fn(payload);
+      } catch (err) {
+        console.error(`[terraglide] handler for "${String(event)}" threw`, err);
+      }
+    }
+  }
+
+  clear() {
+    this.handlers.clear();
+  }
+}
+
+__tg_exports["Emitter"] = Emitter;
+};
 __tg_modules["src/core/math.js"] = function (__tg_exports) {
 /** Small numeric helpers shared across the engine. */
 
@@ -81880,42 +82026,196 @@ __tg_exports["fract"] = fract;
 __tg_exports["bilinear"] = bilinear;
 __tg_exports["finiteOr"] = finiteOr;
 };
-__tg_modules["src/core/events.js"] = function (__tg_exports) {
-/** Minimal event emitter. */
-class Emitter {
+__tg_modules["src/core/cheats.js"] = function (__tg_exports) {
+const { Emitter } = __tg_require("src/core/events.js");
+const { clamp } = __tg_require("src/core/math.js");
+
+/**
+ * Cheats.
+ *
+ * Deliberately the one part of the game that is *not* saved. Nothing here ever
+ * touches local storage, so a refresh puts every dial back to normal — while the
+ * ground you explored, the waypoints you dropped and the trail you left behind
+ * are stored as they always were and survive untouched. Cheat your way to the
+ * far side of the planet and the map still remembers you went.
+ *
+ * Getting in is a code rather than a button, because it should be something you
+ * choose to do:
+ *
+ *   press ` and then type `terraglide`, or press Ctrl+Shift+`
+ *   on a touch screen, hold three fingers on the view for a second and a half
+ *
+ * After that the backtick key opens the panel.
+ *
+ * The backtick arms the code and the letters after it are swallowed rather than
+ * passed on — otherwise typing it would fire half the keyboard on the way past,
+ * and `r` alone would teleport you somewhere else mid-word.
+ */
+
+/** The typed unlock code. */
+const UNLOCK_CODE = 'terraglide';
+/** Letters have to arrive within this many milliseconds of each other. */
+const CODE_GAP_MS = 2000;
+/** How long three fingers have to rest on the screen. */
+const TOUCH_HOLD_MS = 1500;
+
+/** Every dial, and the value it has when cheats are off. */
+const CHEAT_DEFAULTS = {
+  /** Multiplies how far you travel per second, on foot and in the air. */
+  playerSpeed: 1,
+  /** Multiplies the clock: the whole world runs faster or slower. */
+  gameSpeed: 1,
+  /** Multiplies firework thrust. */
+  rocketPower: 1,
+  /** Creative flight: no gravity, look where you want to go. */
+  fly: false,
+  /** Walk through walls and terrain. */
+  noclip: false,
+  /** Show the whole map without having been there. */
+  mapUnlocked: false,
+  /** Speed mode never runs out and never needs to recharge. */
+  speedFree: false,
+};
+
+const LIMITS = {
+  playerSpeed: [0.1, 12],
+  gameSpeed: [0.1, 8],
+  rocketPower: [0.1, 12],
+};
+
+class Cheats extends Emitter {
   constructor() {
-    this.handlers = new Map();
+    super();
+    this.unlocked = false;
+    this.armed = false;
+    this.typed = '';
+    this.typedAt = 0;
+    Object.assign(this, CHEAT_DEFAULTS);
   }
 
-  /** Returns an unsubscribe function. */
-  on(event, fn) {
-    let set = this.handlers.get(event);
-    if (!set) {
-      set = new Set();
-      this.handlers.set(event, set);
+  /** Is anything actually turned on? Drives the HUD flag. */
+  get active() {
+    return Object.keys(CHEAT_DEFAULTS).some((key) => this[key] !== CHEAT_DEFAULTS[key]);
+  }
+
+  /** Short labels for whatever is currently on. */
+  get labels() {
+    const list = [];
+    if (this.fly) list.push('fly');
+    if (this.noclip) list.push('noclip');
+    if (this.mapUnlocked) list.push('map');
+    if (this.speedFree) list.push('2x free');
+    if (this.playerSpeed !== 1) list.push(`speed ${trim(this.playerSpeed)}x`);
+    if (this.gameSpeed !== 1) list.push(`time ${trim(this.gameSpeed)}x`);
+    if (this.rocketPower !== 1) list.push(`rocket ${trim(this.rocketPower)}x`);
+    return list;
+  }
+
+  set(key, value) {
+    if (!(key in CHEAT_DEFAULTS)) return;
+    let next = value;
+    if (typeof CHEAT_DEFAULTS[key] === 'number') {
+      const [min, max] = LIMITS[key] ?? [0, 1000];
+      next = clamp(Number(value), min, max);
+      if (!Number.isFinite(next)) return;
+    } else {
+      next = Boolean(value);
     }
-    set.add(fn);
-    return () => set.delete(fn);
+    if (this[key] === next) return;
+    this[key] = next;
+    this.emit('change', { key, value: next });
   }
 
-  emit(event, payload) {
-    const set = this.handlers.get(event);
-    if (!set) return;
-    for (const fn of [...set]) {
-      try {
-        fn(payload);
-      } catch (err) {
-        console.error(`[terraglide] handler for "${String(event)}" threw`, err);
-      }
+  toggle(key) {
+    this.set(key, !this[key]);
+    return this[key];
+  }
+
+  /** Back to a clean game, without locking the panel again. */
+  reset() {
+    let changed = false;
+    for (const key of Object.keys(CHEAT_DEFAULTS)) {
+      if (this[key] === CHEAT_DEFAULTS[key]) continue;
+      this[key] = CHEAT_DEFAULTS[key];
+      changed = true;
     }
+    if (changed) this.emit('change', { key: '*', value: null });
+    return changed;
   }
 
-  clear() {
-    this.handlers.clear();
+  unlock() {
+    if (this.unlocked) return false;
+    this.unlocked = true;
+    this.emit('unlock', true);
+    return true;
+  }
+
+  /** Lock up again — and put everything back, so locked always means honest. */
+  lock() {
+    this.reset();
+    if (!this.unlocked) return;
+    this.unlocked = false;
+    this.emit('unlock', false);
+  }
+
+  /**
+   * Feed a keydown. Returns 'unlock' when the code has just been completed,
+   * 'panel' for the panel key, 'consume' for a key the code has eaten, or ''
+   * for anything the game should handle as usual.
+   */
+  offerKey(event) {
+    const code = event.code;
+    const plain = !event.ctrlKey && !event.metaKey && !event.altKey;
+    const now = event.timeStamp ?? Date.now();
+
+    if (code === 'Backquote' && event.ctrlKey && event.shiftKey) {
+      return this.unlock() ? 'unlock' : 'panel';
+    }
+    if (this.unlocked) {
+      return code === 'Backquote' && plain ? 'panel' : '';
+    }
+
+    // Backquote arms the code; the letters after it are ours until it breaks.
+    if (code === 'Backquote' && plain) {
+      this.armed = true;
+      this.typed = '';
+      this.typedAt = now;
+      return 'consume';
+    }
+    if (!this.armed) return '';
+    if (now - this.typedAt > CODE_GAP_MS) {
+      this.armed = false;
+      return '';
+    }
+
+    const letter = plain ? /^Key([A-Z])$/.exec(code) : null;
+    const next = letter ? this.typed + letter[1].toLowerCase() : '';
+    if (!next || !UNLOCK_CODE.startsWith(next)) {
+      this.armed = false;
+      this.typed = '';
+      return '';
+    }
+
+    this.typed = next;
+    this.typedAt = now;
+    if (next !== UNLOCK_CODE) return 'consume';
+
+    this.armed = false;
+    this.typed = '';
+    return this.unlock() ? 'unlock' : 'consume';
   }
 }
 
-__tg_exports["Emitter"] = Emitter;
+function trim(value) {
+  return Number(value.toFixed(2)).toString();
+}
+
+const cheats = new Cheats();
+
+__tg_exports["UNLOCK_CODE"] = UNLOCK_CODE;
+__tg_exports["TOUCH_HOLD_MS"] = TOUCH_HOLD_MS;
+__tg_exports["CHEAT_DEFAULTS"] = CHEAT_DEFAULTS;
+__tg_exports["cheats"] = cheats;
 };
 __tg_modules["src/core/storage.js"] = function (__tg_exports) {
 /** localStorage wrapper that never throws (private mode, quota, disabled storage). */
@@ -81994,6 +82294,7 @@ const { readJSON, removeKey, writeJSON } = __tg_require("src/core/storage.js");
  * graphics:          'low' | 'medium' | 'high' | 'ultra'
  * mouseMode:         'locked' | 'pan'
  * units:             'metric' | 'imperial'
+ * perspective:       'first' | 'third'
  * rtpTarget:         'anywhere' | 'populated'
  * timeMode:          'day' | 'live' | 'golden' | 'night' | 'custom'
  */
@@ -82020,8 +82321,9 @@ const DEFAULT_SETTINGS = {
   adaptiveResolution: true,
   fpsTarget: 60,
   fog: true,
-  maxTileZoom: 19,
-  meshDetail: 1,
+  weather: true,
+  maxTileZoom: 20,
+  meshDetail: 1.2,
   showFps: false,
 
   /* controls */
@@ -82029,7 +82331,10 @@ const DEFAULT_SETTINGS = {
   swapMouseButtons: false,
   sensitivity: 1,
   invertY: false,
-  thirdPerson: false,
+  /** 'first' | 'third' — F5 cycles it, the same key Minecraft uses. */
+  perspective: 'first',
+  showBody: true,
+  barrelRoll: false,
 
   /* player */
   playerHeightM: 1.98, // 6 ft 6 in
@@ -82040,11 +82345,17 @@ const DEFAULT_SETTINGS = {
   /* world / exploration */
   units: 'metric',
   exploreSeas: false,
+  /** How far from land a sea drop may be, in km. At the top of the range: no limit. */
+  seaDistanceKm: 40,
+  /** Random teleport arrives high with the wings out. */
+  rtpSkySpawn: true,
+  /** Prefer arriving where there is street-level imagery, and inside a building. */
+  spawnStreetLevel: true,
+  spawnInBuilding: true,
   /** 'anywhere' | 'populated' — where random teleport is allowed to drop you. */
   rtpTarget: 'anywhere',
   timeMode: 'day',
   customHour: 12,
-  fogRevealScale: 1,
 
   /* minimap */
   minimapVisible: true,
@@ -82052,7 +82363,7 @@ const DEFAULT_SETTINGS = {
   minimapSize: 220,
   minimapZoom: 14,
   minimapRotates: false,
-  minimapShowTrail: true,
+  showTrail: true,
   minimapShowWaypoints: true,
   minimapFog: true,
 
@@ -82069,39 +82380,39 @@ const DEFAULT_SETTINGS = {
  */
 const GRAPHICS_PRESETS = {
   low: {
-    sseThreshold: 2.9,
-    tileGridSize: 13,
+    sseThreshold: 2.4,
+    tileGridSize: 17,
     maxConcurrentRequests: 6,
     textureCacheSize: 320,
     anisotropy: 1,
-    buildingRadiusM: 220,
+    buildingRadiusM: 420,
     pixelRatioCap: 1,
   },
   medium: {
-    sseThreshold: 2.1,
-    tileGridSize: 21,
+    sseThreshold: 1.7,
+    tileGridSize: 25,
     maxConcurrentRequests: 10,
     textureCacheSize: 560,
     anisotropy: 4,
-    buildingRadiusM: 380,
+    buildingRadiusM: 750,
     pixelRatioCap: 1.25,
   },
   high: {
-    sseThreshold: 1.6,
-    tileGridSize: 27,
+    sseThreshold: 1.25,
+    tileGridSize: 33,
     maxConcurrentRequests: 14,
     textureCacheSize: 900,
     anisotropy: 8,
-    buildingRadiusM: 550,
+    buildingRadiusM: 1200,
     pixelRatioCap: 1.5,
   },
   ultra: {
-    sseThreshold: 1.15,
-    tileGridSize: 33,
+    sseThreshold: 0.85,
+    tileGridSize: 41,
     maxConcurrentRequests: 18,
     textureCacheSize: 1400,
     anisotropy: 16,
-    buildingRadiusM: 800,
+    buildingRadiusM: 1800,
     pixelRatioCap: 2,
   },
 };
@@ -82350,12 +82661,12 @@ const ACTIONS = [
   { id: 'jump', label: 'Jump / ascend', group: 'Movement', required: true },
   { id: 'sprint', label: 'Sprint / descend', group: 'Movement' },
   { id: 'crouch', label: 'Crouch / slow', group: 'Movement' },
-  { id: 'elytra', label: 'Deploy or stow elytra', group: 'Flight' },
   { id: 'rocket', label: 'Fire rocket (keyboard)', group: 'Flight' },
   { id: 'speedMode', label: 'Speed mode (2x)', group: 'Flight' },
   { id: 'rtp', label: 'Random teleport', group: 'Map' },
   { id: 'freecam', label: 'Freecam', group: 'View' },
-  { id: 'thirdPerson', label: 'Third person', group: 'View' },
+  { id: 'perspective', label: 'Change perspective', group: 'View' },
+  { id: 'barrelRoll', label: 'Barrel roll', group: 'Flight' },
   { id: 'worldMap', label: 'Open world map', group: 'Map' },
   { id: 'waypoint', label: 'Place waypoint here', group: 'Map' },
   { id: 'copyCoords', label: 'Copy coordinates', group: 'Map' },
@@ -82384,12 +82695,12 @@ const DEFAULT_BINDS = {
   jump: 'Space',
   sprint: 'ShiftLeft',
   crouch: 'ControlLeft',
-  elytra: 'KeyF',
   rocket: 'KeyE',
   speedMode: 'KeyV',
   rtp: 'KeyR',
   freecam: 'KeyC',
-  thirdPerson: 'KeyT',
+  perspective: 'F5',
+  barrelRoll: 'KeyX',
   worldMap: 'KeyG',
   waypoint: 'KeyB',
   copyCoords: 'KeyP',
@@ -82781,12 +83092,22 @@ const { settings } = __tg_require("src/core/settings.js");
 /**
  * Camera rig: first person, third person, and the freecam.
  *
- * Field of view widens with speed (subtly, and only if you leave the toggle on),
- * the horizon rolls a little when you bank in a glide, and the third-person
- * camera refuses to sink into the ground or into a building floor.
+ * Yaw is a compass bearing — 0 is north, and it grows clockwise, the same
+ * number the HUD, the minimap and the autopilot all use. Forward is therefore
+ * (sin yaw, 0, −cos yaw), and the camera's own Y rotation has to be the
+ * *negative* of it, because three.js measures its Euler the other way round.
+ * Getting that backwards is what used to send you off at an angle to wherever
+ * you were looking.
+ *
+ * The view does not roll. Turning hard in a glide used to bank the horizon,
+ * which reads as the world tilting rather than you turning; it is now flat like
+ * Minecraft's, and the only thing that rolls the camera is a barrel roll you
+ * asked for.
  */
 
 const PITCH_LIMIT = Math.PI / 2 - 0.02;
+/** One barrel roll, in seconds. */
+const ROLL_TIME = 0.8;
 
 class CameraRig {
   constructor(camera) {
@@ -82825,13 +83146,21 @@ class CameraRig {
   }
 
   applyLook(player, dx, dy) {
+    // Mouse right turns you clockwise, which *increases* a compass bearing.
     if (this.freecam.active) {
-      this.freecam.yaw -= dx;
+      this.freecam.yaw += dx;
       this.freecam.pitch = clamp(this.freecam.pitch - dy, -PITCH_LIMIT, PITCH_LIMIT);
       return;
     }
-    player.yaw -= dx;
+    player.yaw += dx;
     player.pitch = clamp(player.pitch - dy, -PITCH_LIMIT, PITCH_LIMIT);
+  }
+
+  /** Start a barrel roll, if the option is on and one is not already running. */
+  startBarrelRoll() {
+    if (!settings.get('barrelRoll') || this.rolling) return false;
+    this.rolling = 0.0001;
+    return true;
   }
 
   adjustFreecamSpeed(delta) {
@@ -82877,19 +83206,22 @@ class CameraRig {
 
     if (this.freecam.active) {
       camera.position.copy(this.freecam.position);
-      this._euler.set(this.freecam.pitch, this.freecam.yaw, 0, 'YXZ');
+      this._euler.set(this.freecam.pitch, -this.freecam.yaw, 0, 'YXZ');
       camera.quaternion.setFromEuler(this._euler);
       return;
     }
 
-    // Bank the horizon slightly when turning in a glide.
-    const turning = player.mode === 'glide' ? clamp(-this.yawRate * 2.2, -0.5, 0.5) : 0;
-    this.roll = damp(this.roll, turning, 4, dt);
+    // The only roll is a barrel roll, and only if you asked for one.
+    if (this.rolling) {
+      this.rolling += dt / ROLL_TIME;
+      if (this.rolling >= 1) this.rolling = 0;
+    }
+    this.roll = this.rolling ? this.rolling * Math.PI * 2 : 0;
 
     const eye = player.eyeHeight;
     this._target.set(player.position.x, player.position.y + eye, player.position.z);
 
-    if (settings.get('thirdPerson')) {
+    if (settings.get('perspective') === 'third') {
       const distance = 3.4 * player.height;
       const cosPitch = Math.cos(player.pitch);
       this._offset.set(
@@ -82901,12 +83233,13 @@ class CameraRig {
       const desired = this._target.clone().add(this._offset);
       const floor = terrain ? terrain.heightAt(desired.x, desired.z) + player.height * 0.35 : -Infinity;
       desired.y = Math.max(desired.y, floor);
-      camera.position.lerpVectors(camera.position, desired, 1 - Math.exp(-14 * dt));
+      // Tight enough that the view is where you pointed it, not trailing it.
+      camera.position.lerpVectors(camera.position, desired, 1 - Math.exp(-24 * dt));
       camera.lookAt(this._target);
-      camera.rotateZ(this.roll);
+      if (this.roll) camera.rotateZ(this.roll);
     } else {
       camera.position.copy(this._target);
-      this._euler.set(player.pitch, player.yaw, this.roll, 'YXZ');
+      this._euler.set(player.pitch, -player.yaw, this.roll, 'YXZ');
       camera.quaternion.setFromEuler(this._euler);
     }
 
@@ -82917,11 +83250,6 @@ class CameraRig {
       camera.position.z += (Math.random() - 0.5) * amount;
       this.shake = damp(this.shake, 0, 5, dt);
     }
-  }
-
-  /** Called by the game each frame so banking knows how fast you are turning. */
-  setYawRate(rate) {
-    this.yawRate = rate;
   }
 
   kick(amount) {
@@ -83756,15 +84084,316 @@ __tg_exports["WaterMap"] = WaterMap;
 __tg_exports["isWaterPixel"] = isWaterPixel;
 __tg_exports["waterMap"] = waterMap;
 };
+__tg_modules["src/geo/weather.js"] = function (__tg_exports) {
+const { clamp, smoothstep } = __tg_require("src/core/math.js");
+
+/**
+ * Weather, for the place and the time of year you are standing in.
+ *
+ * Same bargain as the temperature readout: this is a *climatology*, not a
+ * forecast. It needs no key, no network and no account, and it gives you the
+ * cloud and rain that place tends to get in that month — the doldrums are
+ * cloudy, the subtropical deserts are not, the mid-latitude storm belt is
+ * cloudier in winter, oceans are cloudier than land, and it snows instead of
+ * raining when it is cold enough.
+ *
+ * The result is stable for a given place and day, so flying from the Sahara
+ * into the monsoon actually changes the sky.
+ */
+
+/** Long-term mean cloud cover by latitude, 0 to 1. */
+function zonalCloudCover(lat) {
+  const a = Math.abs(lat);
+  // Rising air at the equator and along the polar front; sinking air between.
+  const itcz = 0.34 * Math.exp(-((a / 11) ** 2));
+  const subtropicalGap = -0.22 * Math.exp(-(((a - 24) / 13) ** 2));
+  const stormBelt = 0.28 * Math.exp(-(((a - 58) / 20) ** 2));
+  return clamp(0.42 + itcz + subtropicalGap + stormBelt, 0.05, 0.95);
+}
+
+/**
+ * @param {object} options
+ * @param {number} options.lat
+ * @param {number} options.lon
+ * @param {Date}   options.date
+ * @param {number} options.avgC        seasonal mean temperature from the climate model
+ * @param {number} options.landFraction 0 at sea, 1 well inland
+ */
+function weatherAt({ lat, lon, date = new Date(), avgC = 12, landFraction = 0.6 }) {
+  const dayOfYear = Math.floor((date - Date.UTC(date.getUTCFullYear(), 0, 0)) / 86400000);
+  const seasonPhase = (dayOfYear / 365.25) * Math.PI * 2;
+  // North of the equator winter is cloudier in the storm belt; south is flipped.
+  const winter = Math.cos(seasonPhase - (lat >= 0 ? 0.35 : Math.PI + 0.35));
+  const beltWeight = smoothstep(28, 52, Math.abs(lat));
+
+  // Oceans are cloudier and steadier than land.
+  const ocean = (1 - landFraction) * 0.16;
+  // A slow spatial wobble so neighbouring regions are not identical.
+  const wobble =
+    0.12 * Math.sin(lon * 0.031 + lat * 0.017 + dayOfYear * 0.021) +
+    0.07 * Math.sin(lon * 0.077 - lat * 0.043);
+
+  const cloudCover = clamp(
+    zonalCloudCover(lat) + ocean + wobble + beltWeight * winter * 0.16,
+    0.02,
+    1,
+  );
+
+  // Rain follows cloud, but only the thick part of it, and the tropics wring
+  // out far more of it than the poles do.
+  const capacity = clamp(smoothstep(-14, 26, avgC), 0.05, 1);
+  const precipitation = clamp((cloudCover - 0.55) * 2.1 * capacity, 0, 1);
+  const kind = precipitation < 0.04 ? 'none' : avgC <= 1.5 ? 'snow' : 'rain';
+
+  return { cloudCover, precipitation, kind, label: describe(cloudCover, precipitation, kind) };
+}
+
+function describe(cloudCover, precipitation, kind) {
+  const sky =
+    cloudCover < 0.2 ? 'Clear' : cloudCover < 0.45 ? 'Fair' : cloudCover < 0.72 ? 'Cloudy' : 'Overcast';
+  if (kind === 'none') return sky;
+  const strength = precipitation < 0.25 ? 'light' : precipitation < 0.6 ? 'steady' : 'heavy';
+  return `${sky} · ${strength} ${kind}`;
+}
+
+__tg_exports["zonalCloudCover"] = zonalCloudCover;
+__tg_exports["weatherAt"] = weatherAt;
+};
+__tg_modules["src/player/autopilot.js"] = function (__tg_exports) {
+const { cheats } = __tg_require("src/core/cheats.js");
+const { clamp } = __tg_require("src/core/math.js");
+const { bearing, haversine } = __tg_require("src/geo/mercator.js");
+
+/**
+ * Auto-travel — the "baritone" cheat.
+ *
+ * Give it a point on the map and it flies you there: it turns onto the great
+ * circle, takes off if you are standing still, holds a cruise height above
+ * whatever ground is coming up, spends rockets when it is low or slow, and puts
+ * you down at the far end. It drives the same yaw, pitch and rocket the player
+ * does — there is no teleporting and no cheating the flight model, so the trip
+ * fills in the map exactly as flying it by hand would.
+ *
+ * Any movement key cancels it, which is the behaviour you want the first time it
+ * points at a mountain.
+ */
+
+/** Close enough to start the descent, in metres. */
+const ARRIVE_M = 140;
+/** Height above the ground ahead to aim for while cruising. */
+const CRUISE_AGL = 340;
+const MIN_CRUISE_AGL = 90;
+/** How fast the autopilot is allowed to turn the head, radians per second. */
+const YAW_RATE = 1.8;
+const PITCH_RATE = 1.6;
+/** Give up if the distance has not improved in this long. */
+const STALL_S = 25;
+
+class Autopilot {
+  constructor({ player, terrain, fireRocket, onNotice } = {}) {
+    this.player = player;
+    this.terrain = terrain;
+    this.fireRocket = fireRocket ?? (() => {});
+    this.onNotice = onNotice ?? (() => {});
+    this.target = null;
+    this.label = '';
+    this.distance = 0;
+    this.phase = 'idle';
+    this.elapsed = 0;
+    this.best = Infinity;
+    this.sinceProgress = 0;
+  }
+
+  get active() {
+    return this.target !== null;
+  }
+
+  engage(lat, lon, label = '') {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+    this.target = { lat, lon };
+    this.label = label || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    this.phase = 'turning';
+    this.elapsed = 0;
+    this.best = Infinity;
+    this.sinceProgress = 0;
+    this.distance = haversine({ lat: this.player.lat, lon: this.player.lon }, this.target);
+    this.onNotice(`Auto-travel engaged — ${this.label}`);
+    return true;
+  }
+
+  disengage(reason = '') {
+    if (!this.target) return;
+    this.target = null;
+    this.phase = 'idle';
+    if (reason) this.onNotice(reason);
+  }
+
+  /** One frame of steering. Returns the movement the controller should use. */
+  step(dt, movement) {
+    if (!this.active) return movement;
+    if (!cheats.unlocked) {
+      this.disengage('Auto-travel off');
+      return movement;
+    }
+    // Touching the controls takes it back off the autopilot.
+    if (movement.forward || movement.back || movement.left || movement.right) {
+      this.disengage('Auto-travel cancelled');
+      return movement;
+    }
+
+    const player = this.player;
+    const here = { lat: player.lat, lon: player.lon };
+    this.distance = haversine(here, this.target);
+    this.elapsed += dt;
+
+    if (this.distance < this.best - 5) {
+      this.best = this.distance;
+      this.sinceProgress = 0;
+    } else {
+      this.sinceProgress += dt;
+      if (this.sinceProgress > STALL_S) {
+        this.disengage('Auto-travel gave up — no progress');
+        return movement;
+      }
+    }
+
+    this.turnToward(bearing(here, this.target), dt);
+
+    if (this.distance < ARRIVE_M) return this.arrive(dt, movement);
+    if (cheats.fly) return this.flyLeg(dt, movement);
+    return this.glideLeg(dt, movement);
+  }
+
+  /* ------------------------------------------------------------- steering */
+
+  turnToward(target, dt) {
+    const player = this.player;
+    let delta = target - player.yaw;
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+    player.yaw += clamp(delta, -YAW_RATE * dt, YAW_RATE * dt);
+  }
+
+  pitchToward(target, dt) {
+    const player = this.player;
+    const delta = clamp(target - player.pitch, -PITCH_RATE * dt, PITCH_RATE * dt);
+    player.pitch = clamp(player.pitch + delta, -1.4, 1.4);
+  }
+
+  /** Highest ground on the next couple of kilometres of track. */
+  groundAhead() {
+    const player = this.player;
+    if (!this.terrain) return player.groundHeight;
+    const p = player.position;
+    const dx = Math.sin(player.yaw);
+    const dz = -Math.cos(player.yaw);
+    let highest = this.terrain.heightAt(p.x, p.z);
+    for (const reach of [300, 900, 1800]) {
+      const h = this.terrain.heightAt(p.x + dx * reach, p.z + dz * reach);
+      if (h > highest) highest = h;
+    }
+    return highest;
+  }
+
+  /** Height we want to be at, easing down as the destination approaches. */
+  cruiseTarget() {
+    const approach = clamp(this.distance * 0.2, MIN_CRUISE_AGL, CRUISE_AGL);
+    return this.groundAhead() + approach;
+  }
+
+  /* ---------------------------------------------------------------- phases */
+
+  /** Creative flight: point the nose at the right height and hold forward. */
+  flyLeg(dt, movement) {
+    this.phase = 'cruise';
+    const player = this.player;
+    const error = this.cruiseTarget() - player.position.y;
+    this.pitchToward(clamp(error / 240, -0.7, 0.7), dt);
+    return { ...movement, forward: true, sprint: this.distance > 600 };
+  }
+
+  /** Wings: take off if needed, then hold a cruise height on rockets and dives. */
+  glideLeg(dt, movement) {
+    const player = this.player;
+
+    if (player.onGround) {
+      this.phase = 'takeoff';
+      if (!player.elytraDeployed) player.toggleElytra(true);
+      this.pitchToward(0.35, dt);
+      return { ...movement, jump: true };
+    }
+
+    if (!player.elytraDeployed) player.toggleElytra(true);
+
+    const error = this.cruiseTarget() - player.position.y;
+    const speed = player.horizontalSpeed;
+
+    if (error > 30) {
+      // Below the line: flare and spend a rocket to climb back onto it.
+      this.phase = 'climb';
+      this.pitchToward(0.42, dt);
+      if (player.rocketTicksLeft <= 0 && player.velocity.y < 6) this.fireRocket();
+    } else if (error < -30) {
+      this.phase = 'descend';
+      this.pitchToward(-0.3, dt);
+    } else {
+      this.phase = 'cruise';
+      // Level flight bleeds speed, so trade a little height back for it.
+      this.pitchToward(speed < 24 ? -0.24 : -0.05, dt);
+      if (speed < 15 && player.rocketTicksLeft <= 0) this.fireRocket();
+    }
+
+    return movement;
+  }
+
+  /** Last hundred metres: get down, stow the wings, hand the controls back. */
+  arrive(dt, movement) {
+    const player = this.player;
+    this.phase = 'arriving';
+
+    if (cheats.fly) {
+      this.disengage(`Arrived — ${this.label}`);
+      return movement;
+    }
+
+    // Down is down: standing on it, or floating on it.
+    if (player.onGround || player.swimming) {
+      this.disengage(`Arrived — ${this.label}`);
+      return movement;
+    }
+
+    if (player.altitudeAboveGround < 14 && player.elytraDeployed) {
+      player.toggleElytra(false);
+    }
+    this.pitchToward(-0.5, dt);
+    return movement;
+  }
+
+  /** One-line readout for the cheat panel. */
+  status() {
+    if (!this.active) return '';
+    const km = this.distance / 1000;
+    const away = km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(this.distance)} m`;
+    return `${this.phase} · ${away} to ${this.label}`;
+  }
+}
+
+__tg_exports["Autopilot"] = Autopilot;
+};
 __tg_modules["src/player/avatar.js"] = function (__tg_exports) {
 const THREE = __tg_require("vendor/three/three.module.js");
 const { clamp, damp, dampAngle } = __tg_require("src/core/math.js");
 
 /**
- * The character you can see in third person and freecam: a plain figure with a
- * pair of elytra on its back. Deliberately simple — the world is the thing worth
- * looking at — but it animates enough to read what you are doing: legs swing
- * when you walk, arms sweep back and the wings open when you glide.
+ * The character.
+ *
+ * You see it in third person and in freecam, and — with the head hidden — you
+ * see your own body in first person too: legs below you, arms out in front when
+ * the wings are open, which is what makes strafing and flying read as yours.
+ *
+ * The model faces −Z, the direction three.js treats as forward, so the root
+ * yaw is simply the negative of the compass bearing. Getting that wrong is what
+ * used to lay the character out backwards in a glide and look upside down.
  *
  * Built at 1 metre tall and scaled to the player's height, so growing works for
  * free.
@@ -83808,16 +84437,18 @@ class Avatar {
     this.legR = this.makeLimb(0.09, 0.36, mat(TROUSERS), 0.07, 0.51);
     body.add(this.armL.pivot, this.armR.pivot, this.legL.pivot, this.legR.pivot);
 
+    // Toes point forward, which is −Z.
     const bootGeo = new THREE.BoxGeometry(0.1, 0.05, 0.14);
     this.bootL = new THREE.Mesh(bootGeo, mat(BOOTS));
-    this.bootL.position.set(0, -0.34, 0.02);
+    this.bootL.position.set(0, -0.34, -0.02);
     this.legL.limb.add(this.bootL);
     this.bootR = new THREE.Mesh(bootGeo, mat(BOOTS));
-    this.bootR.position.set(0, -0.34, 0.02);
+    this.bootR.position.set(0, -0.34, -0.02);
     this.legR.limb.add(this.bootR);
 
+    // Wings sit on the back, which is +Z.
     this.wings = new THREE.Group();
-    this.wings.position.set(0, 0.76, -0.08);
+    this.wings.position.set(0, 0.76, 0.08);
     body.add(this.wings);
     this.wingL = this.makeWing(mat(WING), mat(WING_EDGE), -1);
     this.wingR = this.makeWing(mat(WING), mat(WING_EDGE), 1);
@@ -83826,6 +84457,7 @@ class Avatar {
     this.walkPhase = 0;
     this.glideBlend = 0;
     this.visibleYaw = 0;
+    this.firstPerson = false;
     this.root.visible = false;
   }
 
@@ -83854,6 +84486,17 @@ class Avatar {
   }
 
   /**
+   * First person shows the same body with the head taken off, so looking down
+   * shows your legs instead of the inside of your own skull.
+   */
+  setFirstPerson(firstPerson) {
+    if (this.firstPerson === firstPerson) return;
+    this.firstPerson = firstPerson;
+    this.head.visible = !firstPerson;
+    this.hair.visible = !firstPerson;
+  }
+
+  /**
    * @param {object} player
    * @param {number} dt
    */
@@ -83863,12 +84506,14 @@ class Avatar {
     this.root.position.copy(player.position);
 
     const gliding = player.mode === 'glide';
-    this.glideBlend = damp(this.glideBlend, gliding ? 1 : 0, 7, dt);
+    const flying = player.mode === 'fly';
+    this.glideBlend = damp(this.glideBlend, gliding || flying ? 1 : 0, 7, dt);
 
-    // The body always faces where you are looking; strafing swings the legs
-    // sideways rather than spinning the whole character round, which is what
-    // made walking sideways look broken.
-    this.visibleYaw = dampAngle(this.visibleYaw, player.yaw, 12, dt);
+    // The model faces −Z, so the root turns by the negative of the bearing. In
+    // first person the body must not lag the view at all or it swims about.
+    this.visibleYaw = this.firstPerson
+      ? -player.yaw
+      : dampAngle(this.visibleYaw, -player.yaw, 14, dt);
     this.root.rotation.set(0, this.visibleYaw, 0);
 
     const forwardSpeed =
@@ -83876,25 +84521,25 @@ class Avatar {
     const sideSpeed =
       player.velocity.x * Math.cos(player.yaw) + player.velocity.z * Math.sin(player.yaw);
 
-    // Gliding lies the body flat along the flight path: face down, feet back.
-    // Pitch is negated because looking up must raise the nose, not roll onto
-    // the character's back.
-    const glidePitch = 1.35 + player.pitch;
-    this.body.rotation.x = damp(this.body.rotation.x, gliding ? glidePitch : 0, 8, dt);
+    // Gliding lays the body along the flight path. The head points where you
+    // look: level flight is face down, a dive is head down, a climb stands up.
+    const glidePitch = player.pitch - Math.PI / 2;
+    this.body.rotation.x = damp(this.body.rotation.x, gliding || flying ? glidePitch : 0, 9, dt);
     this.body.rotation.z = damp(
       this.body.rotation.z,
-      gliding ? 0 : clamp(-sideSpeed * 0.05, -0.25, 0.25),
+      gliding || flying ? 0 : clamp(sideSpeed * 0.05, -0.25, 0.25),
       8,
       dt,
     );
-    this.body.position.y = damp(this.body.position.y, gliding ? 0.3 : 0, 8, dt);
+    this.body.position.y = damp(this.body.position.y, gliding || flying ? 0.3 : 0, 8, dt);
 
     const stride = clamp(player.horizontalSpeed / (4.3 * Math.pow(player.scale, 0.75)), 0, 1.8);
     const strafing = Math.abs(sideSpeed) > Math.abs(forwardSpeed) * 1.2 && stride > 0.15;
-    if (player.onGround) this.walkPhase += dt * stride * 9;
+    if (player.onGround || player.swimming) this.walkPhase += dt * stride * 9;
     else this.walkPhase = damp(this.walkPhase % (Math.PI * 2), 0, 4, dt);
 
     const swing = Math.sin(this.walkPhase) * 0.7 * stride * (1 - this.glideBlend);
+    // Strafing swings the legs sideways instead of marching on the spot.
     const side = strafing ? swing : 0;
     const fore = strafing ? swing * 0.25 : swing;
     this.legL.pivot.rotation.x = fore;
@@ -83904,29 +84549,34 @@ class Avatar {
     this.armL.pivot.rotation.x = -fore * 0.8;
     this.armR.pivot.rotation.x = fore * 0.8;
 
-    // Arms sweep back into the slipstream while gliding.
+    // Arms reach out in front in the air — which is what you see of yourself.
     const tuck = this.glideBlend;
-    this.armL.pivot.rotation.x = this.armL.pivot.rotation.x * (1 - tuck) + 2.5 * tuck;
-    this.armR.pivot.rotation.x = this.armR.pivot.rotation.x * (1 - tuck) + 2.5 * tuck;
-    this.armL.pivot.rotation.z = 0.25 * tuck;
-    this.armR.pivot.rotation.z = -0.25 * tuck;
-    this.legL.pivot.rotation.x += 0.2 * tuck;
-    this.legR.pivot.rotation.x += 0.2 * tuck;
+    this.armL.pivot.rotation.x = this.armL.pivot.rotation.x * (1 - tuck) - 2.5 * tuck;
+    this.armR.pivot.rotation.x = this.armR.pivot.rotation.x * (1 - tuck) - 2.5 * tuck;
+    // In first person the arms are swept wider so they frame the view instead
+    // of filling it — you should see the world, with your arms at the edges.
+    const spread = this.firstPerson ? 0.62 : 0.25;
+    this.armL.pivot.rotation.z = spread * tuck;
+    this.armR.pivot.rotation.z = -spread * tuck;
+    this.legL.pivot.rotation.x -= 0.2 * tuck;
+    this.legR.pivot.rotation.x -= 0.2 * tuck;
     this.legL.pivot.rotation.z *= 1 - tuck;
     this.legR.pivot.rotation.z *= 1 - tuck;
 
-    const open = player.elytraDeployed ? this.glideBlend : 0;
-    this.wings.visible = open > 0.02 || player.elytraDeployed;
-    this.wingL.rotation.set(-0.15 * open, 0.35 - 1.5 * (1 - open), -0.2 * open);
-    this.wingR.rotation.set(-0.15 * open, -0.35 + 1.5 * (1 - open), 0.2 * open);
+    const open = player.elytraDeployed ? Math.max(this.glideBlend, 0.6) : 0;
+    this.wings.visible = player.elytraDeployed;
+    this.wingL.rotation.set(0.15 * open, -0.35 + 1.5 * (1 - open), 0.2 * open);
+    this.wingR.rotation.set(0.15 * open, 0.35 - 1.5 * (1 - open), -0.2 * open);
 
-    // Head counter-rotates in a glide so the character looks where you look.
-    this.head.rotation.x = damp(
-      this.head.rotation.x,
-      gliding ? clamp(-glidePitch + 0.5, -1.2, 0.4) : clamp(player.pitch, -0.9, 0.9),
-      10,
-      dt,
-    );
+    // The head counter-rotates so the character keeps looking where you look.
+    if (!this.firstPerson) {
+      this.head.rotation.x = damp(
+        this.head.rotation.x,
+        gliding || flying ? clamp(-glidePitch - 1.1, -1.2, 0.6) : clamp(-player.pitch, -0.9, 0.9),
+        10,
+        dt,
+      );
+    }
   }
 }
 
@@ -83950,8 +84600,14 @@ __tg_modules["src/player/elytra.js"] = function (__tg_exports) {
 
 const TICK = 1 / 20;
 const GRAVITY_PER_TICK = 0.08; // blocks / tick^2  (~32 m/s^2)
-const DRAG = { x: 0.99, y: 0.98, z: 0.99 };
-const ROCKET_THRUST = 1.5; // blocks / tick, asymptotic
+const DRAG = { x: 0.99, y: 0.985, z: 0.99 };
+/**
+ * Peak firework thrust, blocks per tick. A rocket kicks hard at ignition and
+ * tapers off across its burn, so it shoves you and then hands you back to the
+ * glide rather than holding one flat speed until it stops.
+ */
+const ROCKET_THRUST = 2.5;
+const ROCKET_TAPER = 0.5; // how much of the kick is left at burnout
 const TO_TICK = TICK; // m/s -> blocks/tick
 const TO_SECOND = 1 / TICK; // blocks/tick -> m/s
 
@@ -83987,9 +84643,11 @@ function stepGlide(velocity, look, pitch) {
   }
 
   if (f < 0 && horizontalLook > 0) {
-    // Pulling up: airspeed is spent climbing, and rather efficiently.
+    // Pulling up: airspeed is spent climbing, and rather efficiently. Flown
+    // well — dive, flare, dive again — the exchange very nearly breaks even,
+    // which is what lets a good angle keep you up indefinitely.
     const climb = horizontalSpeed * -Math.sin(f) * 0.04;
-    vy += climb * 3.2;
+    vy += climb * 3.4;
     vx -= (look.x * climb) / horizontalLook;
     vz -= (look.z * climb) / horizontalLook;
   }
@@ -84009,9 +84667,15 @@ function stepGlide(velocity, look, pitch) {
   velocity.z = vz * TO_SECOND;
 }
 
-/** One tick of firework-rocket thrust along the look vector. */
-function stepRocket(velocity, look, power = 1) {
-  const thrust = ROCKET_THRUST * power;
+/**
+ * One tick of firework-rocket thrust along the look vector.
+ *
+ * @param {number} power  strength multiplier (the slot's power, times cheats)
+ * @param {number} spent  0 at ignition, 1 at burnout — the kick fades across it
+ */
+function stepRocket(velocity, look, power = 1, spent = 0) {
+  const fade = 1 - (1 - ROCKET_TAPER) * Math.min(1, Math.max(0, spent));
+  const thrust = ROCKET_THRUST * power * fade;
   const vx = velocity.x * TO_TICK;
   const vy = velocity.y * TO_TICK;
   const vz = velocity.z * TO_TICK;
@@ -84030,6 +84694,11 @@ function rocketTicks(duration) {
   return 10 * duration + 6;
 }
 
+/** Thrust multiplier for a slot: bigger rockets carry more powder. */
+function rocketPowerFor(duration) {
+  return 0.6 + duration * 0.28;
+}
+
 /** Terminal glide speed for the HUD's "best glide" readout, metres per second. */
 function bestGlideSpeed() {
   return 33.5;
@@ -84039,10 +84708,12 @@ __tg_exports["TICK"] = TICK;
 __tg_exports["stepGlide"] = stepGlide;
 __tg_exports["stepRocket"] = stepRocket;
 __tg_exports["rocketTicks"] = rocketTicks;
+__tg_exports["rocketPowerFor"] = rocketPowerFor;
 __tg_exports["bestGlideSpeed"] = bestGlideSpeed;
 };
 __tg_modules["src/player/controller.js"] = function (__tg_exports) {
 const THREE = __tg_require("vendor/three/three.module.js");
+const { cheats } = __tg_require("src/core/cheats.js");
 const { clamp, damp } = __tg_require("src/core/math.js");
 const { FixedStep } = __tg_require("src/core/perf.js");
 const { settings } = __tg_require("src/core/settings.js");
@@ -84071,6 +84742,9 @@ const SWIM_RISE = 3.2;
 const WATER_DRAG = 5.5;
 /** How far the feet can be lifted per second when walking up a slope. */
 const STEP_SMOOTHING = 12;
+/** Creative flight, metres per second, cruise and sprint. */
+const FLY_SPEED = 18;
+const FLY_SPRINT = 46;
 
 class PlayerController {
   constructor({ player, terrain, buildings }) {
@@ -84094,10 +84768,20 @@ class PlayerController {
     this.landedThisFrame = false;
     player.tickTimers(dt);
 
+    // A stretched clock needs proportionally more catch-up ticks per frame, or
+    // the substep cap quietly swallows the extra speed on a slow machine.
+    this.fixed.maxSteps = Math.ceil(5 * Math.max(1, cheats.gameSpeed));
     this.fixed.run(dt, (step) => this.tick(step, input));
 
     player.syncGeo();
     player.groundHeight = this.groundHeightAt(player.position.x, player.position.z, player.position.y);
+    // Under water the useful floor is the sea bed, not the surface above you.
+    if (player.swimming) {
+      player.groundHeight = Math.min(
+        player.groundHeight,
+        this.terrain.bedAt(player.position.x, player.position.z),
+      );
+    }
   }
 
   tick(step, input) {
@@ -84105,10 +84789,12 @@ class PlayerController {
     const scale = player.scale;
     player.lookVector(this.look);
 
-    const gliding = player.elytraDeployed && !player.onGround;
-    player.mode = gliding ? 'glide' : player.onGround ? 'walk' : 'fall';
+    const flying = cheats.fly;
+    const gliding = !flying && player.elytraDeployed && !player.onGround;
+    player.mode = flying ? 'fly' : gliding ? 'glide' : player.onGround ? 'walk' : 'fall';
 
-    if (gliding) this.tickGlide(step, input);
+    if (flying) this.tickFly(step, input, scale);
+    else if (gliding) this.tickGlide(step, input);
     else this.tickGround(step, input, scale);
 
     // Speed mode stretches distance covered, not the handling model.
@@ -84125,7 +84811,7 @@ class PlayerController {
     const player = this.player;
 
     if (player.rocketTicksLeft > 0) {
-      stepRocket(player.velocity, this.look, player.speedMultiplier);
+      stepRocket(player.velocity, this.look, player.rocketPower, player.rocketSpent);
       player.rocketTicksLeft--;
     }
 
@@ -84134,6 +84820,40 @@ class PlayerController {
 
     // Crouch pulls the nose down a touch — handy for shedding altitude.
     if (input.crouch) player.velocity.y -= 4 * step;
+  }
+
+  /**
+   * Creative flight (a cheat). No gravity, no wings: you move along your look
+   * vector, jump and crouch trade height, and sprint makes it a cruise missile.
+   */
+  tickFly(step, input, scale) {
+    const player = this.player;
+    const strideScale = Math.pow(scale, 0.75);
+    const speed = (input.sprint ? FLY_SPRINT : FLY_SPEED) * strideScale;
+
+    const forward = (input.forward ? 1 : 0) - (input.back ? 1 : 0);
+    const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    const sin = Math.sin(player.yaw);
+    const cos = Math.cos(player.yaw);
+
+    let tx = this.look.x * forward + cos * strafe;
+    let ty = this.look.y * forward;
+    let tz = this.look.z * forward + sin * strafe;
+    const length = Math.hypot(tx, ty, tz);
+    if (length > 0) {
+      tx = (tx / length) * speed;
+      ty = (ty / length) * speed;
+      tz = (tz / length) * speed;
+    }
+    if (input.jump) ty += speed * 0.7;
+    if (input.crouch) ty -= speed * 0.7;
+
+    player.velocity.x = damp(player.velocity.x, tx, 9, step);
+    player.velocity.y = damp(player.velocity.y, ty, 9, step);
+    player.velocity.z = damp(player.velocity.z, tz, 9, step);
+
+    player.airborneSeconds = 0;
+    player.rocketTicksLeft = 0;
   }
 
   tickGround(step, input, scale) {
@@ -84211,6 +84931,14 @@ class PlayerController {
     this.climbing = false;
     player.inBuilding = false;
 
+    if (cheats.noclip) {
+      // Nothing stops you: no walls, no floor, not even the sea.
+      player.groundHeight = this.terrain.heightAt(player.position.x, player.position.z);
+      player.onGround = false;
+      player.swimming = false;
+      return;
+    }
+
     const colliders = this.buildings
       ? this.buildings.collidersNear(player.position.x, player.position.z, radius + 1.5)
       : [];
@@ -84276,19 +85004,34 @@ class PlayerController {
     );
     player.groundHeight = ground;
 
-    // Swimming: the sea sits at height zero, so anything below it is water.
-    const seaDepth = -this.terrain.bedAt(player.position.x, player.position.z);
-    player.swimming = seaDepth > 0.6 && player.position.y < height * 0.55 && !player.elytraDeployed;
+    if (cheats.fly) {
+      // Flying still lands on solid ground rather than sinking into it.
+      if (player.position.y < ground) {
+        player.position.y = ground;
+        if (player.velocity.y < 0) player.velocity.y = 0;
+      }
+      player.onGround = false;
+      player.swimming = false;
+      return;
+    }
 
-    if (player.position.y <= ground + 0.001) {
+    // Swimming: the sea sits at height zero, so anything below it is water.
+    // Once you are in it the floor becomes the sea bed rather than the surface,
+    // which is what lets you dive instead of standing on the water.
+    const bed = this.terrain.bedAt(player.position.x, player.position.z);
+    player.swimming = -bed > 0.6 && player.position.y < height * 0.55 && !player.elytraDeployed;
+    const floor = player.swimming ? Math.min(ground, bed) : ground;
+    if (player.swimming) player.groundHeight = floor;
+
+    if (player.position.y <= floor + 0.001) {
       // Walking uphill lifts the feet over a step or two rather than snapping,
       // which is what made short slopes feel like stairs before.
-      const rise = ground - player.position.y;
+      const rise = floor - player.position.y;
       if (player.onGround && rise > 0 && rise < stepUp) {
-        player.position.y = damp(player.position.y, ground, STEP_SMOOTHING, step);
-        if (ground - player.position.y < 0.02) player.position.y = ground;
+        player.position.y = damp(player.position.y, floor, STEP_SMOOTHING, step);
+        if (floor - player.position.y < 0.02) player.position.y = floor;
       } else {
-        player.position.y = ground;
+        player.position.y = floor;
       }
       if (player.velocity.y < 0) player.velocity.y = 0;
       if (!player.onGround) this.landedThisFrame = true;
@@ -84356,10 +85099,11 @@ __tg_exports["pointInPolygon"] = pointInPolygon;
 };
 __tg_modules["src/player/player.js"] = function (__tg_exports) {
 const THREE = __tg_require("vendor/three/three.module.js");
+const { cheats } = __tg_require("src/core/cheats.js");
 const { Emitter } = __tg_require("src/core/events.js");
 const { clamp } = __tg_require("src/core/math.js");
 const { settings } = __tg_require("src/core/settings.js");
-const { rocketTicks } = __tg_require("src/player/elytra.js");
+const { rocketPowerFor, rocketTicks } = __tg_require("src/player/elytra.js");
 
 /**
  * Player state: where you are, how fast, how big, what is in the hotbar.
@@ -84369,14 +85113,17 @@ const { rocketTicks } = __tg_require("src/player/elytra.js");
  * the local frame is just a coordinate swap.
  */
 
-/** The hotbar is five rockets, flight duration 1 to 5. Nothing else. */
-const HOTBAR = [
-  { duration: 1, label: 'Rocket I', hint: 'short hop' },
-  { duration: 2, label: 'Rocket II', hint: 'standard' },
-  { duration: 3, label: 'Rocket III', hint: 'long' },
-  { duration: 4, label: 'Rocket IV', hint: 'climb' },
-  { duration: 5, label: 'Rocket V', hint: 'full burn' },
-];
+/**
+ * The hotbar is five rockets and nothing else. As in Minecraft, the number is
+ * the flight duration *and* the powder behind it: a Rocket V burns five times
+ * as long as a Rocket I and shoves about twice as hard.
+ */
+const HOTBAR = [1, 2, 3, 4, 5].map((duration) => ({
+  duration,
+  power: rocketPowerFor(duration),
+  label: `Rocket ${'I II III IV V'.split(' ')[duration - 1]}`,
+  hint: `dur ${duration} · pwr ${duration}`,
+}));
 
 class Player extends Emitter {
   constructor(frame) {
@@ -84398,8 +85145,8 @@ class Player extends Emitter {
     this.swimming = false;
 
     this.rocketTicksLeft = 0;
+    this.rocketTotalTicks = 0;
     this.rocketDuration = 0;
-    this.rocketCooldown = 0;
     this.rocketsFired = 0;
 
     this.speedActive = false;
@@ -84444,8 +85191,21 @@ class Player extends Emitter {
     return HOTBAR[this.selectedSlot];
   }
 
+  /** How far a second of movement carries you. Speed mode, then any cheat. */
   get speedMultiplier() {
-    return this.speedActive ? 2 : 1;
+    return (this.speedActive ? 2 : 1) * cheats.playerSpeed;
+  }
+
+  /** Firework thrust: the slot's powder, speed mode, and any cheat on top. */
+  get rocketPower() {
+    const slot = this.selectedItem;
+    return (slot ? slot.power : 1) * (this.speedActive ? 2 : 1) * cheats.rocketPower;
+  }
+
+  /** How far through the current burn we are, 0 at ignition and 1 at burnout. */
+  get rocketSpent() {
+    if (this.rocketTicksLeft <= 0 || this.rocketTotalTicks <= 0) return 1;
+    return 1 - this.rocketTicksLeft / this.rocketTotalTicks;
   }
 
   /** Unit vector the player is looking along. */
@@ -84495,15 +85255,18 @@ class Player extends Emitter {
     return next;
   }
 
-  /** Fire the selected rocket, if the hotbar has one and the cooldown allows. */
+  /**
+   * Fire the selected rocket. No cooldown and no timer: like the real thing,
+   * you can light another one whenever you want, and lighting one mid-burn
+   * simply restarts the burn.
+   */
   fireRocket() {
     const item = this.selectedItem;
     const duration = item ? item.duration : 2;
-    if (this.rocketCooldown > 0) return false;
     if (!this.elytraDeployed) return false;
     this.rocketTicksLeft = rocketTicks(duration);
+    this.rocketTotalTicks = this.rocketTicksLeft;
     this.rocketDuration = duration;
-    this.rocketCooldown = 0.28 + duration * 0.12;
     this.rocketsFired++;
     this.emit('rocket', duration);
     return true;
@@ -84511,16 +85274,29 @@ class Player extends Emitter {
 
   /** Start the 2x burst, if it is off cooldown. */
   startSpeedMode() {
-    if (this.speedActive || this.speedCooldown > 0) return false;
+    if (this.speedActive) return false;
+    if (this.speedCooldown > 0 && !cheats.speedFree) return false;
     this.speedActive = true;
     this.speedRemaining = settings.get('speedModeDurationS');
     this.emit('speed', true);
     return true;
   }
 
+  /** End the burst early. Only reachable with unlimited speed mode on. */
+  stopSpeedMode() {
+    if (!this.speedActive) return false;
+    this.speedActive = false;
+    this.speedRemaining = 0;
+    if (!cheats.speedFree) this.speedCooldown = settings.get('speedModeCooldownS');
+    this.emit('speed', false);
+    return true;
+  }
+
   tickTimers(dt) {
-    if (this.rocketCooldown > 0) this.rocketCooldown = Math.max(0, this.rocketCooldown - dt);
-    if (this.speedActive) {
+    if (this.speedActive && cheats.speedFree) {
+      // Unlimited: hold the gauge full rather than counting down.
+      this.speedRemaining = settings.get('speedModeDurationS');
+    } else if (this.speedActive) {
       this.speedRemaining -= dt;
       if (this.speedRemaining <= 0) {
         this.speedActive = false;
@@ -85603,7 +86379,9 @@ class Buildings {
     const wanted = settings.get('buildings');
     this.group.visible = wanted;
     if (!wanted) return;
-    if (altitudeAboveGround > 900) return;
+    // High enough to keep the skyline honest on approach, low enough that a
+    // cruise at altitude never touches the network.
+    if (altitudeAboveGround > 2200) return;
 
     const n = Math.pow(2, DATA_ZOOM);
     const cx = Math.floor(lonToNormX(lon) * n);
@@ -86570,7 +87348,7 @@ __tg_exports["PLACES"] = PLACES;
 __tg_modules["src/world/rtp.js"] = function (__tg_exports) {
 const { clamp } = __tg_require("src/core/math.js");
 const { settings } = __tg_require("src/core/settings.js");
-const { MAX_LATITUDE, randomLatLon } = __tg_require("src/geo/mercator.js");
+const { MAX_LATITUDE, destination, randomLatLon } = __tg_require("src/geo/mercator.js");
 const { randomPopulatedPlace } = __tg_require("src/world/places.js");
 
 /**
@@ -86581,6 +87359,11 @@ const { randomPopulatedPlace } = __tg_require("src/world/places.js");
  * *explore seas* setting. Anywhere on Earth, every time. Water rejection reads one low-zoom imagery tile per
  * region and caches it, so a few dozen attempts cost at most a handful of small
  * requests and usually none at all.
+ *
+ * With sea drops allowed, the *stay within of land* slider caps how far out you
+ * may be put: a candidate over water is nudged back toward the nearest land it
+ * can find within that distance, and at the top of the slider it is not capped
+ * at all and the open ocean is fair game.
  *
  * The whole thing is capped in both attempts and time. If the water test cannot
  * answer — no network, no provider, a blocked request — the last candidate is
@@ -86614,6 +87397,15 @@ async function pickRandomDestination({ waterMap, onProgress }) {
   let attempts = 0;
   let landed = !wantsLand;
 
+  // Sea drops allowed, but only within reach of land unless the slider is at
+  // its top, which means anywhere.
+  const limitKm = settings.get('seaDistanceKm');
+  const limited = !wantsLand && limitKm <= 500;
+  if (limited) {
+    const found = await nearLand(candidate, limitKm * 1000, waterMap, started);
+    if (found) candidate = found;
+  }
+
   while (wantsLand && attempts < MAX_ATTEMPTS) {
     attempts++;
     if (onProgress && attempts % 4 === 0) onProgress(attempts);
@@ -86638,6 +87430,31 @@ async function pickRandomDestination({ waterMap, onProgress }) {
     onLand: landed,
     elapsedMs: performance.now() - started,
   };
+}
+
+/**
+ * A point within `radius` of land, starting from `origin`. Walks outward in
+ * rings and returns the first spot whose neighbourhood has any land in it, or
+ * null if the whole area is open ocean (or the test cannot answer).
+ */
+async function nearLand(origin, radius, waterMap, started) {
+  try {
+    if (!(await waterMap.isWater(origin.lat, origin.lon))) return origin;
+    for (let ring = 1; ring <= 4; ring++) {
+      const distance = (radius * ring) / 4;
+      for (let i = 0; i < 8; i++) {
+        if (performance.now() - started > TIME_BUDGET_MS) return null;
+        const point = destination(origin, (i / 8) * Math.PI * 2, distance);
+        if (!(await waterMap.isWater(point.lat, point.lon))) {
+          // Sit just off that coast rather than on it — you asked for the sea.
+          return destination(point, Math.random() * Math.PI * 2, Math.min(radius, 1500));
+        }
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 __tg_exports["pickRandomDestination"] = pickRandomDestination;
@@ -87232,6 +88049,11 @@ class Terrain {
     if (node.shownFrame !== this.streamer.frame) {
       node.shownFrame = this.streamer.frame;
       node.mesh.visible = true;
+      // Draw the ground under your feet before the ground on the horizon: the
+      // near tiles fill the depth buffer first and everything behind them is
+      // rejected cheaply, and a stutter shows up as a far tile arriving late
+      // rather than the one you are standing on.
+      node.mesh.renderOrder = Math.round(distance * 0.01);
       this.drawn.push(node);
     }
 
@@ -87455,7 +88277,545 @@ function buildIndices(verts) {
 
 __tg_exports["Terrain"] = Terrain;
 };
+__tg_modules["src/world/weather.js"] = function (__tg_exports) {
+const THREE = __tg_require("vendor/three/three.module.js");
+const { clamp } = __tg_require("src/core/math.js");
+const { settings } = __tg_require("src/core/settings.js");
+
+/**
+ * What the weather looks like: a cloud deck overhead and precipitation around
+ * you.
+ *
+ * The deck is one plane with a noise shader rather than a cloud system — you
+ * fly through it at 120 km/h, and a single well-shaded layer at the right height
+ * reads far better than a thousand billboards would, at a fraction of the cost.
+ * Rain and snow are a recycled box of points that follows the camera, so it only
+ * ever draws the few thousand you could actually see.
+ */
+
+const DECK_HEIGHT = 2100;
+const DECK_SIZE = 60000;
+const DROPS = 1800;
+const BOX = 34;
+
+const CLOUD_VERT = `
+varying vec2 vUv;
+varying vec3 vWorld;
+void main() {
+  vUv = uv;
+  vec4 world = modelMatrix * vec4(position, 1.0);
+  vWorld = world.xyz;
+  gl_Position = projectionMatrix * viewMatrix * world;
+}`;
+
+const CLOUD_FRAG = `
+precision highp float;
+varying vec2 vUv;
+varying vec3 vWorld;
+uniform float uTime;
+uniform float uCover;
+uniform vec3 uSunColor;
+uniform vec3 uAmbient;
+uniform vec3 uCameraPos;
+
+float hash(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float noise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+float fbm(vec2 p) {
+  float total = 0.0;
+  float amplitude = 0.5;
+  for (int i = 0; i < 5; i++) {
+    total += noise(p) * amplitude;
+    p *= 2.03;
+    amplitude *= 0.5;
+  }
+  return total;
+}
+
+void main() {
+  vec2 p = vWorld.xz * 0.00042 + vec2(uTime * 0.0035, uTime * 0.0018);
+  float n = fbm(p);
+  // Cover pushes the threshold down: overcast fills in, clear leaves wisps.
+  float density = smoothstep(0.62 - uCover * 0.55, 0.92 - uCover * 0.42, n);
+  if (density < 0.01) discard;
+
+  // Thicker cloud is darker underneath, which is most of what sells rain.
+  vec3 lit = mix(uSunColor * 1.05, uAmbient * 0.9, clamp(density * 0.9, 0.0, 1.0));
+  // Fade out at the rim of the deck so the edge never shows.
+  float radial = 1.0 - smoothstep(0.30, 0.5, distance(vUv, vec2(0.5)));
+  // And fade as you approach it, so you are never inside a flat sheet.
+  float approach = smoothstep(0.0, 320.0, abs(vWorld.y - uCameraPos.y));
+  gl_FragColor = vec4(lit, density * radial * approach * 0.92);
+}`;
+
+class Weather {
+  constructor(scene) {
+    this.scene = scene;
+    this.time = 0;
+    this.state = { cloudCover: 0.4, precipitation: 0, kind: 'none' };
+
+    this.cloudMaterial = new THREE.ShaderMaterial({
+      vertexShader: CLOUD_VERT,
+      fragmentShader: CLOUD_FRAG,
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      uniforms: {
+        uTime: { value: 0 },
+        uCover: { value: 0.4 },
+        uSunColor: { value: new THREE.Color(1, 1, 1) },
+        uAmbient: { value: new THREE.Color(0.4, 0.44, 0.5) },
+        uCameraPos: { value: new THREE.Vector3() },
+      },
+    });
+    this.deck = new THREE.Mesh(new THREE.PlaneGeometry(DECK_SIZE, DECK_SIZE), this.cloudMaterial);
+    this.deck.rotation.x = -Math.PI / 2;
+    this.deck.frustumCulled = false;
+    this.deck.renderOrder = -900;
+    scene.add(this.deck);
+
+    // Precipitation: a box of points that is always centred on you.
+    const positions = new Float32Array(DROPS * 3);
+    this.speeds = new Float32Array(DROPS);
+    for (let i = 0; i < DROPS; i++) {
+      positions[i * 3] = (Math.random() - 0.5) * BOX;
+      positions[i * 3 + 1] = Math.random() * BOX;
+      positions[i * 3 + 2] = (Math.random() - 0.5) * BOX;
+      this.speeds[i] = 0.8 + Math.random() * 0.5;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    this.dropGeometry = geometry;
+    this.dropMaterial = new THREE.PointsMaterial({
+      color: 0xc8d4e0,
+      size: 0.09,
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+      sizeAttenuation: true,
+    });
+    this.drops = new THREE.Points(geometry, this.dropMaterial);
+    this.drops.frustumCulled = false;
+    this.drops.visible = false;
+    scene.add(this.drops);
+  }
+
+  /** @param {{cloudCover:number, precipitation:number, kind:string}} state */
+  setState(state) {
+    this.state = state;
+  }
+
+  update(camera, dt, sky) {
+    const enabled = settings.get('weather');
+    this.deck.visible = enabled && this.state.cloudCover > 0.05;
+    this.time += dt;
+
+    if (this.deck.visible) {
+      this.deck.position.set(camera.position.x, DECK_HEIGHT, camera.position.z);
+      const u = this.cloudMaterial.uniforms;
+      u.uTime.value = this.time;
+      u.uCover.value = this.state.cloudCover;
+      u.uCameraPos.value.copy(camera.position);
+      if (sky) {
+        u.uSunColor.value.copy(sky.current.sun);
+        u.uAmbient.value.copy(sky.current.ambient);
+      }
+    }
+
+    const falling = enabled && this.state.kind !== 'none' && this.state.precipitation > 0.04;
+    this.drops.visible = falling;
+    if (!falling) return;
+
+    const snow = this.state.kind === 'snow';
+    this.dropMaterial.size = snow ? 0.16 : 0.075;
+    this.dropMaterial.opacity = clamp(0.25 + this.state.precipitation * 0.5, 0.2, 0.8);
+    this.dropMaterial.color.setHex(snow ? 0xf2f5f8 : 0xb9c7d6);
+
+    const fall = (snow ? 2.2 : 26) * dt;
+    const array = this.dropGeometry.attributes.position.array;
+    const drift = snow ? Math.sin(this.time * 1.3) * 0.6 * dt : 0;
+    for (let i = 0; i < DROPS; i++) {
+      const base = i * 3;
+      array[base + 1] -= fall * this.speeds[i];
+      array[base] += drift;
+      if (array[base + 1] < -BOX * 0.5) {
+        array[base] = (Math.random() - 0.5) * BOX;
+        array[base + 1] = BOX * 0.5;
+        array[base + 2] = (Math.random() - 0.5) * BOX;
+      }
+    }
+    this.dropGeometry.attributes.position.needsUpdate = true;
+    this.drops.position.copy(camera.position);
+  }
+}
+
+__tg_exports["Weather"] = Weather;
+};
+__tg_modules["src/ui/waypoints.js"] = function (__tg_exports) {
+const { Emitter } = __tg_require("src/core/events.js");
+const { readJSON, writeJSON } = __tg_require("src/core/storage.js");
+const { haversine } = __tg_require("src/geo/mercator.js");
+
+/** Saved places. Drop one where you are standing; it shows on both maps. */
+
+const WAYPOINT_KEY = 'waypoints';
+
+const PALETTE = ['#c8b98f', '#8fb3c8', '#a9c88f', '#c88f9b', '#b39bc8', '#c8a98f'];
+
+class WaypointStore extends Emitter {
+  constructor() {
+    super();
+    this.waypoints = readJSON(WAYPOINT_KEY, []);
+    this.nextId = 1 + Math.max(0, ...this.waypoints.map((w) => w.id ?? 0));
+  }
+
+  add(lat, lon, name, altitude = 0) {
+    const waypoint = {
+      id: this.nextId++,
+      name: name || `Waypoint ${this.waypoints.length + 1}`,
+      lat,
+      lon,
+      altitude,
+      colour: PALETTE[this.waypoints.length % PALETTE.length],
+      createdAt: Date.now(),
+    };
+    this.waypoints.push(waypoint);
+    this.persist();
+    this.emit('change', this);
+    return waypoint;
+  }
+
+  rename(id, name) {
+    const waypoint = this.waypoints.find((w) => w.id === id);
+    if (!waypoint) return;
+    waypoint.name = name;
+    this.persist();
+    this.emit('change', this);
+  }
+
+  remove(id) {
+    this.waypoints = this.waypoints.filter((w) => w.id !== id);
+    this.persist();
+    this.emit('change', this);
+  }
+
+  nearest(lat, lon) {
+    let best = null;
+    let bestDistance = Infinity;
+    for (const waypoint of this.waypoints) {
+      const d = haversine({ lat, lon }, waypoint);
+      if (d < bestDistance) {
+        bestDistance = d;
+        best = waypoint;
+      }
+    }
+    return best ? { waypoint: best, distance: bestDistance } : null;
+  }
+
+  clearAll() {
+    this.waypoints = [];
+    this.persist();
+    this.emit('change', this);
+  }
+
+  persist() {
+    writeJSON(WAYPOINT_KEY, this.waypoints);
+  }
+
+  export() {
+    return { waypoints: this.waypoints };
+  }
+
+  import(data) {
+    if (Array.isArray(data.waypoints)) this.waypoints = data.waypoints;
+    this.persist();
+    this.emit('change', this);
+  }
+}
+
+const waypoints = new WaypointStore();
+
+__tg_exports["WaypointStore"] = WaypointStore;
+__tg_exports["waypoints"] = waypoints;
+};
+__tg_modules["src/ui/cheatPanel.js"] = function (__tg_exports) {
+const { CHEAT_DEFAULTS, cheats } = __tg_require("src/core/cheats.js");
+const { PLACES } = __tg_require("src/world/places.js");
+const { waypoints } = __tg_require("src/ui/waypoints.js");
+
+/**
+ * The cheat panel.
+ *
+ * Same flat panel as everything else — this is a set of dials, not a different
+ * game. The line at the top is the important one: none of it is written down, so
+ * a reload puts it all back, while everywhere you went stays on the map.
+ */
+
+const DIALS = [
+  {
+    key: 'playerSpeed',
+    label: 'Player speed',
+    min: 0.1,
+    max: 12,
+    step: 0.1,
+    help: 'Multiplies how far you travel — walking, swimming and flying alike.',
+  },
+  {
+    key: 'gameSpeed',
+    label: 'Game speed',
+    min: 0.1,
+    max: 8,
+    step: 0.1,
+    help: 'Runs the whole clock faster or slower. Everything moves with it.',
+  },
+  {
+    key: 'rocketPower',
+    label: 'Rocket strength',
+    min: 0.1,
+    max: 12,
+    step: 0.1,
+    help: 'Multiplies firework thrust. Past about 4x a Rocket V leaves the troposphere.',
+  },
+];
+
+const SWITCHES = [
+  { key: 'fly', label: 'Fly', help: 'Creative flight: no gravity, and you go wherever you look.' },
+  { key: 'noclip', label: 'Noclip', help: 'Through walls, through the ground, through mountains.' },
+  { key: 'mapUnlocked', label: 'Unlock the whole map', help: 'Shows every tile without having been there. Your real explored ground is untouched underneath.' },
+  { key: 'speedFree', label: 'Unlimited speed mode', help: '2x never runs out and never needs to recharge.' },
+];
+
+class CheatPanel {
+  constructor(root) {
+    this.open = false;
+    this.onTeleport = null;
+    this.onTravel = null;
+    this.onStopTravel = null;
+    this.onNotice = null;
+
+    this.element = document.createElement('div');
+    this.element.className = 'panel cheats';
+    this.element.hidden = true;
+    root.appendChild(this.element);
+
+    this.element.addEventListener('click', (event) => {
+      if (event.target.closest('[data-close]')) this.close();
+    });
+
+    cheats.on('change', () => {
+      if (this.open) this.sync();
+    });
+    cheats.on('unlock', (unlocked) => {
+      if (!unlocked) this.close();
+    });
+  }
+
+  toggle() {
+    if (this.open) this.close();
+    else this.show();
+  }
+
+  show() {
+    if (!cheats.unlocked) return;
+    this.open = true;
+    this.element.hidden = false;
+    this.render();
+  }
+
+  close() {
+    this.open = false;
+    this.element.hidden = true;
+  }
+
+  render() {
+    this.element.innerHTML = `
+      <div class="panel-head">
+        <h2>Cheats</h2>
+        <button type="button" class="panel-close" data-close>Close</button>
+      </div>
+      <div class="cheats-body">
+        <p class="settings-intro">
+          None of this is saved. Reload the page and every dial here is back to normal —
+          while explored ground, waypoints and your trail are kept exactly as they were.
+        </p>
+
+        ${DIALS.map(
+          (dial) => `
+          <div class="field field-range">
+            <label for="cheat-${dial.key}">${escape(dial.label)}</label>
+            <span class="range">
+              <input type="range" id="cheat-${dial.key}" data-dial="${dial.key}"
+                     min="${dial.min}" max="${dial.max}" step="${dial.step}" value="${cheats[dial.key]}" />
+              <output data-out="${dial.key}">${format(cheats[dial.key])}</output>
+            </span>
+            <small>${escape(dial.help)}</small>
+          </div>`,
+        ).join('')}
+
+        ${SWITCHES.map(
+          (row) => `
+          <div class="field field-toggle">
+            <label for="cheat-${row.key}">${escape(row.label)}</label>
+            <input type="checkbox" id="cheat-${row.key}" data-switch="${row.key}" ${cheats[row.key] ? 'checked' : ''} />
+            <small>${escape(row.help)}</small>
+          </div>`,
+        ).join('')}
+
+        <h3>Go somewhere</h3>
+        <p class="settings-intro">
+          Coordinates, one of your waypoints, or the name of a city. <strong>Teleport</strong> puts you
+          there now; <strong>auto-travel</strong> flies you there on the wings, which fills the map in
+          on the way.
+        </p>
+        <div class="cheat-goto">
+          <input type="text" data-destination list="cheat-places" placeholder="48.8566, 2.3522 — or Paris" spellcheck="false" />
+          <button type="button" data-go="teleport">Teleport</button>
+          <button type="button" data-go="travel">Auto-travel</button>
+        </div>
+        <datalist id="cheat-places">
+          ${[...waypoints.waypoints.map((w) => w.name), ...PLACES.map((p) => p[0])]
+            .map((name) => `<option value="${escape(name)}"></option>`)
+            .join('')}
+        </datalist>
+        <div class="cheat-status" data-status hidden></div>
+
+        <div class="settings-actions">
+          <button type="button" data-stop>Stop auto-travel</button>
+          <button type="button" data-reset>Reset cheats</button>
+          <button type="button" data-lock class="danger">Lock cheats</button>
+        </div>
+      </div>`;
+
+    this.bind();
+  }
+
+  bind() {
+    this.element.querySelectorAll('[data-dial]').forEach((input) => {
+      input.addEventListener('input', () => {
+        const key = input.dataset.dial;
+        cheats.set(key, Number(input.value));
+        const out = this.element.querySelector(`[data-out="${key}"]`);
+        if (out) out.textContent = format(cheats[key]);
+      });
+    });
+
+    this.element.querySelectorAll('[data-switch]').forEach((input) => {
+      input.addEventListener('change', () => cheats.set(input.dataset.switch, input.checked));
+    });
+
+    const field = this.element.querySelector('[data-destination]');
+    field.addEventListener('keydown', (event) => {
+      event.stopPropagation();
+      if (event.key === 'Enter') this.go('travel');
+    });
+
+    this.element.querySelectorAll('[data-go]').forEach((button) => {
+      button.addEventListener('click', () => this.go(button.dataset.go));
+    });
+    this.element.querySelector('[data-stop]').addEventListener('click', () => {
+      if (this.onStopTravel) this.onStopTravel();
+    });
+    this.element.querySelector('[data-reset]').addEventListener('click', () => {
+      cheats.reset();
+      this.render();
+      this.notify('Cheats reset');
+    });
+    this.element.querySelector('[data-lock]').addEventListener('click', () => {
+      cheats.lock();
+      this.notify('Cheats locked');
+    });
+  }
+
+  go(kind) {
+    const field = this.element.querySelector('[data-destination]');
+    const place = resolvePlace(field.value);
+    if (!place) {
+      this.notify('No such place — try coordinates, a waypoint or a city name');
+      return;
+    }
+    if (kind === 'teleport') {
+      if (this.onTeleport) this.onTeleport(place.lat, place.lon, place.label);
+    } else if (this.onTravel) {
+      this.onTravel(place.lat, place.lon, place.label);
+    }
+  }
+
+  /** Live autopilot readout, pushed from the frame loop. */
+  setStatus(text) {
+    if (!this.open) return;
+    const node = this.element.querySelector('[data-status]');
+    if (!node) return;
+    node.hidden = !text;
+    if (node.textContent !== text) node.textContent = text;
+  }
+
+  /** Refresh the controls from state changed elsewhere (a hotkey, say). */
+  sync() {
+    for (const dial of DIALS) {
+      const input = this.element.querySelector(`[data-dial="${dial.key}"]`);
+      if (input && Number(input.value) !== cheats[dial.key]) input.value = cheats[dial.key];
+      const out = this.element.querySelector(`[data-out="${dial.key}"]`);
+      if (out) out.textContent = format(cheats[dial.key]);
+    }
+    for (const key of Object.keys(CHEAT_DEFAULTS)) {
+      const box = this.element.querySelector(`[data-switch="${key}"]`);
+      if (box) box.checked = Boolean(cheats[key]);
+    }
+  }
+
+  notify(message) {
+    if (this.onNotice) this.onNotice(message);
+  }
+}
+
+/** Coordinates, a waypoint name, or one of the built-in cities. */
+function resolvePlace(raw) {
+  const text = String(raw ?? '').trim();
+  if (!text) return null;
+
+  const numbers = text.match(/-?\d+(?:\.\d+)?/g);
+  if (numbers && numbers.length >= 2 && /^[-\d\s.,;]+$/.test(text)) {
+    const lat = Number(numbers[0]);
+    const lon = Number(numbers[1]);
+    if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+      return { lat, lon, label: `${lat.toFixed(4)}, ${lon.toFixed(4)}` };
+    }
+  }
+
+  const needle = text.toLowerCase();
+  const waypoint = waypoints.waypoints.find((w) => w.name.toLowerCase() === needle);
+  if (waypoint) return { lat: waypoint.lat, lon: waypoint.lon, label: waypoint.name };
+
+  const place =
+    PLACES.find((p) => p[0].toLowerCase() === needle) ??
+    PLACES.find((p) => p[0].toLowerCase().startsWith(needle));
+  if (place) return { lat: place[1], lon: place[2], label: place[0] };
+
+  return null;
+}
+
+function format(value) {
+  return `${Number(value).toFixed(value < 10 ? 2 : 1)}x`;
+}
+
+function escape(value) {
+  return String(value).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+__tg_exports["CheatPanel"] = CheatPanel;
+__tg_exports["resolvePlace"] = resolvePlace;
+};
 __tg_modules["src/ui/exploration.js"] = function (__tg_exports) {
+const { cheats } = __tg_require("src/core/cheats.js");
 const { Emitter } = __tg_require("src/core/events.js");
 const { readJSON, writeJSON } = __tg_require("src/core/storage.js");
 const { settings } = __tg_require("src/core/settings.js");
@@ -87505,13 +88865,16 @@ class Exploration extends Emitter {
 
   /** Record a visit. Reveal radius grows with altitude. */
   visit(lat, lon, altitudeAboveGround) {
-    const scale = settings.get('fogRevealScale');
     // Deliberately short: altitude widens what you uncover, but only up to a
     // few kilometres. A single high pass used to reveal half a country, which
     // made the explored map meaningless.
-    const radius = Math.min(6000, Math.max(220, altitudeAboveGround * 0.45 + 220)) * scale;
+    const radius = Math.min(6000, Math.max(220, altitudeAboveGround * 0.45 + 220));
     const nx = lonToNormX(lon);
     const ny = latToNormY(lat);
+    // Tile space is mercator, which stretches away from the equator, so the
+    // ground radius has to be stretched the same way before it is compared.
+    const stretch = 1 / Math.max(0.05, Math.cos((lat * Math.PI) / 180));
+    const mercatorRadius = radius * stretch;
 
     // Only re-run the flood when we have actually moved somewhere new.
     if (this.lastVisit) {
@@ -87527,14 +88890,20 @@ class Exploration extends Emitter {
     for (const level of LEVELS) {
       const n = Math.pow(2, level);
       const tileMetres = EARTH_CIRCUMFERENCE / n;
-      const reach = Math.min(4, Math.ceil(radius / tileMetres));
-      const cx = Math.floor(nx * n);
-      const cy = Math.floor(ny * n);
+      const reach = Math.min(4, Math.ceil(mercatorRadius / tileMetres));
+      // Exact tile position, not the rounded one: the circle is measured from
+      // where you actually are to the middle of each tile, in metres. Comparing
+      // whole tile counts is what used to uncover a plus-shape.
+      const px = nx * n;
+      const py = ny * n;
+      const cx = Math.floor(px);
+      const cy = Math.floor(py);
       for (let dy = -reach; dy <= reach; dy++) {
         const ty = cy + dy;
         if (ty < 0 || ty >= n) continue;
         for (let dx = -reach; dx <= reach; dx++) {
-          if (Math.hypot(dx, dy) > reach + 0.35) continue;
+          const distance = Math.hypot(cx + dx + 0.5 - px, ty + 0.5 - py) * tileMetres;
+          if (distance > Math.max(mercatorRadius, tileMetres * 0.5)) continue;
           const key = tileKey(level, ((cx + dx) % n + n) % n, ty);
           if (this.cells.has(key)) continue;
           this.cells.add(key);
@@ -87552,6 +88921,9 @@ class Exploration extends Emitter {
 
   /** Is this tile explored? Falls back to the nearest recorded level. */
   isExplored(z, x, y) {
+    // The unlock-map cheat only lifts the fog for as long as it is on: the real
+    // record underneath is never written to, so a reload puts it back.
+    if (cheats.mapUnlocked) return true;
     let level = LEVELS[0];
     for (const candidate of LEVELS) {
       if (candidate <= z) level = candidate;
@@ -87608,10 +88980,15 @@ const { latToNormY, lonToNormX, wrapTileX } = __tg_require("src/geo/mercator.js"
 /**
  * Shared 2D map painter for the minimap and the world map.
  *
- * Explored ground is drawn as-is; ground you have never been to is dimmed and
- * hatched, so the map fills in as you travel. Paths are hairlines, waypoints are
- * small squares, and the whole thing is deliberately flat — no glow, no
- * gradients, nothing that competes with the imagery underneath.
+ * Ground you have been to is drawn as satellite imagery. Ground you have not is
+ * drawn as a *map*: the same tile, flattened to a pale monochrome so coastlines,
+ * rivers and towns still read, but obviously not photographic. So the world is
+ * always legible — you can zoom out and see where you are on the planet — while
+ * only the places you have actually been look real.
+ *
+ * Trails are hairlines, waypoints are small squares, and the whole thing is
+ * deliberately flat: no glow, no gradients, nothing that competes with the
+ * imagery underneath.
  */
 
 const TILE_PX = 256;
@@ -87672,14 +89049,18 @@ function drawMap(ctx, view, layers) {
       const screenX = tx * TILE_PX - centre.x;
       const screenY = ty * TILE_PX - centre.y;
       const explored = !layers.exploration || layers.exploration.isExplored(zoom, wrappedX, ty);
-      // Imagery is only drawn for ground you have actually been to — the map
-      // fills in as you explore instead of handing you the whole planet.
-      const resolved = explored || !options.fog ? layers.tiles.resolve(zoom, wrappedX, ty) : null;
+      const asMap = !explored && options.fog !== false;
+      // Always load the tile: the map has to be readable when you zoom out,
+      // whether or not you have been there.
+      const resolved = layers.tiles.resolve(zoom, wrappedX, ty);
 
       if (resolved) {
         const { bitmap, scale, ox, oy } = resolved;
         const sw = bitmap.width * scale;
         const sh = bitmap.height * scale;
+        ctx.save();
+        // Unvisited ground is drawn as a map rather than a photograph.
+        if (asMap) ctx.filter = 'grayscale(1) brightness(1.45) contrast(0.45)';
         ctx.drawImage(
           bitmap,
           ox * bitmap.width,
@@ -87691,12 +89072,15 @@ function drawMap(ctx, view, layers) {
           TILE_PX + 0.5,
           TILE_PX + 0.5,
         );
+        ctx.restore();
+        if (asMap) {
+          ctx.fillStyle = 'rgba(24, 28, 34, 0.34)';
+          ctx.fillRect(screenX, screenY, TILE_PX + 0.5, TILE_PX + 0.5);
+        }
       } else {
         ctx.fillStyle = explored ? '#1b1f24' : '#141619';
         ctx.fillRect(screenX, screenY, TILE_PX, TILE_PX);
       }
-
-      if (!explored && options.fog) drawUnexplored(ctx, screenX, screenY, TILE_PX);
     }
   }
 
@@ -87745,41 +89129,50 @@ function drawMap(ctx, view, layers) {
   return { centre, toScreen };
 }
 
-/** Ground you have not visited: a plain hatched blank, no imagery. */
-function drawUnexplored(ctx, x, y, size) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(x, y, size, size);
-  ctx.clip();
-  ctx.strokeStyle = 'rgba(190,200,215,0.06)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let i = -size; i < size * 2; i += 12) {
-    ctx.moveTo(x + i, y);
-    ctx.lineTo(x + i - size, y + size);
-  }
-  ctx.stroke();
-  ctx.restore();
-}
-
 /**
  * The trail: a thin line of where you have actually been, recorded as you
- * travel. No tool to fiddle with — you move, it draws.
+ * travel. No tool to fiddle with — you move, it draws. Each leg begins where
+ * you arrived and ends where you teleported away from, and both ends are
+ * marked, so the line reads as a journey rather than a scribble.
  */
 function drawTrail(ctx, trail, toScreen, width) {
-  for (const leg of trail.legs) {
-    if (leg.length < 2) continue;
-    ctx.strokeStyle = 'rgba(214, 206, 178, 0.85)';
-    ctx.lineWidth = width;
-    ctx.lineJoin = 'round';
+  trail.legs.forEach((leg, legIndex) => {
+    if (leg.length === 0) return;
+    if (leg.length > 1) {
+      ctx.strokeStyle = 'rgba(214, 206, 178, 0.85)';
+      ctx.lineWidth = width;
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      leg.forEach((point, index) => {
+        const p = toScreen(point.lat, point.lon);
+        if (index === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      });
+      ctx.stroke();
+    }
+
+    const start = toScreen(leg[0].lat, leg[0].lon);
+    // A ring where this leg started: the first one is where you began, and
+    // every one after it is where a teleport put you down.
     ctx.beginPath();
-    leg.forEach((point, index) => {
-      const p = toScreen(point.lat, point.lon);
-      if (index === 0) ctx.moveTo(p.x, p.y);
-      else ctx.lineTo(p.x, p.y);
-    });
+    ctx.arc(start.x, start.y, width * 2.2, 0, Math.PI * 2);
+    ctx.strokeStyle = legIndex === 0 ? 'rgba(216, 196, 138, 0.95)' : 'rgba(214, 206, 178, 0.7)';
+    ctx.lineWidth = width;
     ctx.stroke();
-  }
+
+    // A cross where you left, on every leg but the one you are still walking.
+    if (legIndex < trail.legs.length - 1 && leg.length > 1) {
+      const end = toScreen(leg[leg.length - 1].lat, leg[leg.length - 1].lon);
+      const r = width * 2;
+      ctx.beginPath();
+      ctx.moveTo(end.x - r, end.y - r);
+      ctx.lineTo(end.x + r, end.y + r);
+      ctx.moveTo(end.x + r, end.y - r);
+      ctx.lineTo(end.x - r, end.y + r);
+      ctx.strokeStyle = 'rgba(214, 206, 178, 0.6)';
+      ctx.stroke();
+    }
+  });
 }
 
 function drawWaypoints(ctx, store, toScreen, labels) {
@@ -87833,6 +89226,7 @@ __tg_exports["drawMap"] = drawMap;
 __tg_exports["metresPerPixel"] = metresPerPixel;
 };
 __tg_modules["src/ui/worldmap.js"] = function (__tg_exports) {
+const { cheats } = __tg_require("src/core/cheats.js");
 const { clamp } = __tg_require("src/core/math.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { formatDistance, formatLatLon } = __tg_require("src/core/units.js");
@@ -87889,11 +89283,12 @@ class WorldMap {
         </div>
         <aside class="worldmap-side">
           <div class="worldmap-actions">
-            <button type="button" data-action="teleport">Travel to centre</button>
             <button type="button" data-action="rtp">Random teleport</button>
             <button type="button" data-action="waypoint">Waypoint at centre</button>
             <button type="button" data-action="copy">Copy centre</button>
+            <button type="button" data-action="teleport" data-directed hidden>Travel to centre</button>
           </div>
+          <label class="worldmap-tick"><input type="checkbox" data-trail /> Show my trail</label>
           <div class="worldmap-stats"></div>
           <h3>Waypoints</h3>
           <ul class="worldmap-list" data-list="waypoints"></ul>
@@ -87966,16 +89361,21 @@ class WorldMap {
       'wheel',
       (event) => {
         event.preventDefault();
-        // Half a level per notch: a full level per notch flew past the scale
-        // you were looking for.
-        this.setZoom(this.zoom + (event.deltaY > 0 ? -0.5 : 0.5));
+        // A quarter of a level per notch. Anything faster flies past the scale
+        // you were looking for before you can let go of the wheel.
+        this.setZoom(this.zoom + (event.deltaY > 0 ? -0.25 : 0.25));
       },
       { passive: false },
     );
     canvas.addEventListener('dblclick', (event) => {
+      if (!cheats.unlocked) return;
       const point = this.pointAt(event);
       if (point && this.onTeleport) this.onTeleport(point.lat, point.lon);
     });
+
+    const trailTick = this.element.querySelector('[data-trail]');
+    trailTick.addEventListener('change', () => settings.set('showTrail', trailTick.checked));
+    cheats.on('unlock', () => this.applyPermissions());
   }
 
   pointAt(event) {
@@ -88071,6 +89471,16 @@ class WorldMap {
     this.dirty = true;
   }
 
+  /** Directed teleports are not part of the game; they only exist with cheats. */
+  applyPermissions() {
+    this.element.querySelectorAll('[data-directed]').forEach((node) => {
+      node.hidden = !cheats.unlocked;
+    });
+    this.element.querySelectorAll('[data-action="travel"]').forEach((node) => {
+      node.hidden = !cheats.unlocked;
+    });
+  }
+
   show(player) {
     this.open = true;
     this.element.hidden = false;
@@ -88079,6 +89489,8 @@ class WorldMap {
     this.dirty = true;
     this.resize();
     this.renderLists();
+    this.element.querySelector('[data-trail]').checked = settings.get('showTrail');
+    this.applyPermissions();
   }
 
   close() {
@@ -88133,7 +89545,7 @@ class WorldMap {
         player,
         options: {
           fog: settings.get('minimapFog'),
-          trail: true,
+          trail: settings.get('showTrail'),
           waypoints: true,
           labels: true,
           grid: this.zoom >= 12,
@@ -88175,7 +89587,7 @@ class WorldMap {
         </li>`,
         )
         .join('') || '<li class="muted">None yet — press the waypoint key to drop one.</li>';
-
+    this.applyPermissions();
   }
 }
 
@@ -88203,8 +89615,7 @@ const ROWS = [
   ['Move', ['forward', 'left', 'back', 'right']],
   ['Sprint / crouch', ['sprint', 'crouch']],
   ['Jump — hold while falling to open the wings', ['jump']],
-  ['Deploy or stow the elytra', ['elytra']],
-  ['Fire a rocket (or use the mouse)', ['rocket']],
+  ['Fire a rocket — opens the wings for you (or use the mouse)', ['rocket']],
   ['Swim — jump to rise, crouch to dive', ['jump', 'crouch']],
   ['Speed mode — 2x for a while, then a cooldown', ['speedMode']],
   ['Random teleport', ['rtp']],
@@ -88213,7 +89624,7 @@ const ROWS = [
   ['Copy coordinates', ['copyCoords']],
   ['Minimap zoom', ['minimapZoomOut', 'minimapZoomIn']],
   ['Freecam', ['freecam']],
-  ['Third person', ['thirdPerson']],
+  ['Change perspective', ['perspective']],
   ['Grow / shrink', ['scaleDown', 'scaleUp']],
   ['Swap mouse mode', ['mouseMode']],
   ['Rockets I to V', ['hotbar1', 'hotbar5']],
@@ -88357,6 +89768,11 @@ class HUD {
       <div class="hud-crosshair" data-id="crosshair"><i></i></div>
 
       <div class="hud-rail">
+        <div class="cheat-flag" data-id="cheat-flag" hidden>
+          <label>Modified</label>
+          <span data-id="cheat-list">—</span>
+          <em data-id="autopilot"></em>
+        </div>
         <div class="gauge" data-id="speed-gauge">
           <label>Speed mode</label>
           <div class="bar"><i data-id="speed-bar"></i></div>
@@ -88440,7 +89856,7 @@ class HUD {
     host.innerHTML = HOTBAR.map((item, index) => {
       const key = keybinds.labelFor(`hotbar${index + 1}`);
       return `
-        <button type="button" class="slot" data-slot="${index}" data-kind="${item.kind}">
+        <button type="button" class="slot" data-slot="${index}">
           <span class="slot-key">${escapeHtml(key)}</span>
           <span class="slot-label">${escapeHtml(item.label)}</span>
           <span class="slot-meta" data-slot-meta="${index}"></span>
@@ -88472,9 +89888,10 @@ class HUD {
     if (state.climate) {
       this.setText('temp', formatTemperature(state.climate.avgC, units));
       this.setText('season', `${state.climate.monthName} · ${state.climate.season}`);
+      const weather = state.weather ? `${state.weather.label} · ` : '';
       this.setText(
         'climate-sub',
-        `${state.climate.band} · seasonal average · annual ${formatTemperature(state.climate.annualC, units)}`,
+        `${weather}${state.climate.band} · seasonal average · annual ${formatTemperature(state.climate.annualC, units)}`,
       );
     }
 
@@ -88513,6 +89930,12 @@ class HUD {
       'scale-text',
       `${formatHeight(player.height, units)} · ${player.scale.toFixed(2)}x`,
     );
+
+    // If the numbers are not the real ones, the corner says so quietly.
+    const cheatText = state.cheats || '';
+    this.refs['cheat-flag'].hidden = !cheatText && !state.autopilot;
+    this.setText('cheat-list', cheatText || 'auto-travel');
+    this.setText('autopilot', state.autopilot || '');
 
     this.updateHotbar(player);
 
@@ -88555,11 +89978,8 @@ class HUD {
       const meta = host.querySelector(`[data-slot-meta="${index}"]`);
       if (!meta) return;
       const item = HOTBAR[index];
-      const text =
-        player.rocketCooldown > 0 && selected
-          ? `${player.rocketCooldown.toFixed(1)}s`
-          : item.hint;
-      if (meta.textContent !== text) meta.textContent = text;
+      // No countdown: a rocket has a duration and a power, not a timer.
+      if (meta.textContent !== item.hint) meta.textContent = item.hint;
     });
   }
 
@@ -88579,6 +89999,7 @@ class HUD {
 
 function modeLabel(player, state) {
   if (state.freecam) return 'Freecam';
+  if (player.mode === 'fly') return 'Flying';
   if (player.swimming) return 'Swimming';
   if (player.mode === 'glide') {
     return player.rocketTicksLeft > 0 ? 'Gliding · rocket' : 'Gliding';
@@ -88754,6 +90175,7 @@ __tg_exports["MapTileCache"] = MapTileCache;
 __tg_exports["mapTiles"] = mapTiles;
 };
 __tg_modules["src/ui/minimap.js"] = function (__tg_exports) {
+const { keybinds } = __tg_require("src/core/keybinds.js");
 const { clamp } = __tg_require("src/core/math.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { formatDistance } = __tg_require("src/core/units.js");
@@ -88762,9 +90184,10 @@ const { drawMap, metresPerPixel } = __tg_require("src/ui/mapRenderer.js");
 /**
  * Minimap.
  *
- * Shows satellite imagery for ground you have explored and a dimmed, hatched
- * version of everything you have not, so the map fills in behind you as you
- * travel. Zoom with the hotkeys or the wheel, click it to open the big map.
+ * Shows satellite imagery for ground you have explored and a flat map view of
+ * everything you have not, so the world is always legible and the photography
+ * fills in behind you as you travel. Zoom with the hotkeys or the wheel, click
+ * it to open the big map — the key for which is printed underneath.
  * Redraws at 20 Hz rather than every frame — it is a map, not a viewport.
  */
 
@@ -88797,6 +90220,7 @@ class Minimap {
         <button type="button" data-zoom="-1" title="Zoom out">−</button>
       </div>
       <div class="minimap-readout"><span class="minimap-z">z14</span></div>
+      <div class="minimap-hint"><kbd data-key="worldMap"></kbd>map</div>
     `;
     this.element.appendChild(this.overlay);
     root.appendChild(this.element);
@@ -88805,6 +90229,12 @@ class Minimap {
     this.scaleBar = this.overlay.querySelector('.minimap-scale i');
     this.zoomLabel = this.overlay.querySelector('.minimap-z');
     this.northLabel = this.overlay.querySelector('.minimap-north');
+    this.hintKey = this.overlay.querySelector('.minimap-hint kbd');
+    const refreshHint = () => {
+      this.hintKey.textContent = keybinds.labelFor('worldMap');
+    };
+    refreshHint();
+    keybinds.on('change', refreshHint);
 
     this.overlay.querySelectorAll('[data-zoom]').forEach((button) => {
       button.addEventListener('click', (event) => {
@@ -88892,7 +90322,7 @@ class Minimap {
         player: { lat: player.lat, lon: player.lon, heading: player.heading },
         options: {
           fog: settings.get('minimapFog'),
-          trail: settings.get('minimapShowTrail'),
+          trail: settings.get('showTrail'),
           waypoints: settings.get('minimapShowWaypoints'),
           labels: this.size >= 200,
           playerSize: 7,
@@ -88987,6 +90417,7 @@ const SECTIONS = [
       { key: 'freecamFov', label: 'Freecam field of view', type: 'range', min: 55, max: 118, step: 1, unit: '°' },
       { key: 'speedFovKick', label: 'Widen view with speed', type: 'toggle' },
       { key: 'fog', label: 'Distance haze', type: 'toggle' },
+      { key: 'weather', label: 'Clouds and rain', type: 'toggle', help: 'Cloud cover and precipitation for where and when you are, from the same climate model as the temperature.' },
       { key: 'resolutionScale', label: 'Render scale', type: 'range', min: 0.5, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%` },
       { key: 'adaptiveResolution', label: 'Adapt render scale to keep the frame rate', type: 'toggle' },
       { key: 'fpsTarget', label: 'Frame rate target', type: 'range', min: 30, max: 144, step: 5, unit: ' fps' },
@@ -89010,7 +90441,17 @@ const SECTIONS = [
       { key: 'swapMouseButtons', label: 'Swap mouse buttons in pan mode', type: 'toggle', help: 'Normally: drag with left to look, right click to boost, click to land.' },
       { key: 'sensitivity', label: 'Look sensitivity', type: 'range', min: 0.2, max: 3, step: 0.05, format: (v) => `${v.toFixed(2)}x` },
       { key: 'invertY', label: 'Invert vertical look', type: 'toggle' },
-      { key: 'thirdPerson', label: 'Third person', type: 'toggle' },
+      {
+        key: 'perspective',
+        label: 'Perspective',
+        type: 'select',
+        options: () => [
+          { value: 'first', label: 'First person' },
+          { value: 'third', label: 'Third person' },
+        ],
+      },
+      { key: 'showBody', label: 'Show your body in first person', type: 'toggle', help: 'Legs below you, arms out in front when the wings are open.' },
+      { key: 'barrelRoll', label: 'Barrel roll', type: 'toggle', help: 'Off by default. Turns the roll key on.' },
     ],
     keybinds: true,
   },
@@ -89061,6 +90502,19 @@ const SECTIONS = [
       },
       { key: 'exploreSeas', label: 'Anywhere-mode may land at sea', type: 'toggle', help: 'Off keeps you on land. On lets you drop anywhere, oceans included.' },
       {
+        key: 'seaDistanceKm',
+        label: 'Stay within of land',
+        type: 'range',
+        min: 1,
+        max: 501,
+        step: 10,
+        format: (v) => (v > 500 ? 'no limit' : `${Math.round(v)} km`),
+        help: 'How far out to sea a drop may be. All the way up is anywhere on the ocean.',
+      },
+      { key: 'rtpSkySpawn', label: 'Random teleport arrives in the sky', type: 'toggle', help: 'On: you arrive high with the wings out. Off: you arrive standing on the ground.' },
+      { key: 'spawnStreetLevel', label: 'Arrive where there is street-level imagery', type: 'toggle', help: 'Street-level photography is switched on for the arrival if the provider has any.' },
+      { key: 'spawnInBuilding', label: 'Arrive inside a building where there is one', type: 'toggle' },
+      {
         key: 'timeMode',
         label: 'Time of day',
         type: 'select',
@@ -89074,7 +90528,6 @@ const SECTIONS = [
       },
       { key: 'customHour', label: 'Custom hour', type: 'range', min: 0, max: 23.5, step: 0.5, format: (v) => `${String(Math.floor(v)).padStart(2, '0')}:${v % 1 ? '30' : '00'}` },
       { key: 'showTemperature', label: 'Show seasonal temperature', type: 'toggle' },
-      { key: 'fogRevealScale', label: 'Exploration reveal radius', type: 'range', min: 0.3, max: 3, step: 0.1, format: (v) => `${v.toFixed(1)}x` },
     ],
   },
   {
@@ -89097,7 +90550,7 @@ const SECTIONS = [
       { key: 'minimapZoom', label: 'Zoom', type: 'range', min: 3, max: 19, step: 1, format: (v) => `z${v}` },
       { key: 'minimapRotates', label: 'Rotate with heading', type: 'toggle' },
       { key: 'minimapFog', label: 'Hide ground you have not explored', type: 'toggle', help: 'The map fills in as you travel. Turn off to see the whole world at once.' },
-      { key: 'minimapShowTrail', label: 'Show your trail', type: 'toggle' },
+      { key: 'showTrail', label: 'Show your trail', type: 'toggle' },
       { key: 'minimapShowWaypoints', label: 'Show waypoints', type: 'toggle' },
       { key: 'hudVisible', label: 'Show HUD', type: 'toggle' },
       { key: 'showCompass', label: 'Show compass', type: 'toggle' },
@@ -89377,6 +90830,7 @@ class SettingsPanel {
 __tg_exports["SettingsPanel"] = SettingsPanel;
 };
 __tg_modules["src/ui/touch.js"] = function (__tg_exports) {
+const { TOUCH_HOLD_MS, cheats } = __tg_require("src/core/cheats.js");
 const { clamp } = __tg_require("src/core/math.js");
 
 /**
@@ -89390,12 +90844,14 @@ const { clamp } = __tg_require("src/core/math.js");
  */
 
 const BUTTONS = [
-  { id: 'elytra', label: 'Wings', hint: 'open / stow' },
   { id: 'boost', label: 'Boost', hint: 'rocket' },
   { id: 'jump', label: 'Jump', hold: true },
+  // Held, because it is also how you dive when you are in the water.
+  { id: 'dive', label: 'Dive', hold: true },
   { id: 'speedMode', label: '2x' },
   { id: 'rtp', label: 'Teleport' },
   { id: 'worldMap', label: 'Map' },
+  { id: 'cheats', label: '•••', cheat: true },
 ];
 
 class TouchControls {
@@ -89416,7 +90872,9 @@ class TouchControls {
       <div class="touch-buttons">
         ${BUTTONS.map(
           (b) =>
-            `<button type="button" data-touch="${b.id}"${b.hold ? ' data-hold="1"' : ''}>${b.label}</button>`,
+            `<button type="button" data-touch="${b.id}"${b.hold ? ' data-hold="1"' : ''}${
+              b.cheat ? ' data-cheat="1" hidden' : ''
+            }>${b.label}</button>`,
         ).join('')}
       </div>
     `;
@@ -89428,6 +90886,63 @@ class TouchControls {
     this.bindStick();
     this.bindButtons();
     this.bindLook();
+    this.bindCheatGesture();
+
+    cheats.on('unlock', (unlocked) => this.showCheatButton(unlocked));
+    this.showCheatButton(cheats.unlocked);
+  }
+
+  showCheatButton(visible) {
+    this.element.querySelectorAll('[data-cheat]').forEach((button) => {
+      button.hidden = !visible;
+    });
+  }
+
+  /**
+   * The cheat code, for a screen with no keyboard: three fingers held still on
+   * the view for a moment and a half. Long enough that nothing else does it.
+   */
+  bindCheatGesture() {
+    let timer = null;
+    let origin = null;
+    const cancel = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      origin = null;
+    };
+
+    window.addEventListener(
+      'touchstart',
+      (event) => {
+        cancel();
+        if (cheats.unlocked || event.touches.length !== 3) return;
+        origin = [...event.touches].map((t) => ({ x: t.clientX, y: t.clientY }));
+        timer = setTimeout(() => {
+          timer = null;
+          if (cheats.unlock() && this.onAction) this.onAction('cheatsUnlocked');
+        }, TOUCH_HOLD_MS);
+      },
+      { passive: true },
+    );
+
+    // Fingers resting on glass wander a few pixels; only a real drag cancels.
+    window.addEventListener(
+      'touchmove',
+      (event) => {
+        if (!timer || !origin) return;
+        for (let i = 0; i < event.touches.length && i < origin.length; i++) {
+          const touch = event.touches[i];
+          if (Math.hypot(touch.clientX - origin[i].x, touch.clientY - origin[i].y) > 36) {
+            cancel();
+            return;
+          }
+        }
+      },
+      { passive: true },
+    );
+    for (const type of ['touchend', 'touchcancel']) {
+      window.addEventListener(type, cancel, { passive: true });
+    }
   }
 
   /** Turn the controls on the first time a finger touches the screen. */
@@ -89585,7 +91100,8 @@ class TouchControls {
       right: this.move.x > dead,
       jump: this.held.has('jump'),
       sprint: Math.hypot(this.move.x, this.move.y) > 0.85,
-      crouch: false,
+      // Dive is crouch: it sinks you in water and drops the nose in the air.
+      crouch: this.held.has('dive'),
     };
   }
 
@@ -89705,95 +91221,9 @@ const trail = new Trail();
 __tg_exports["Trail"] = Trail;
 __tg_exports["trail"] = trail;
 };
-__tg_modules["src/ui/waypoints.js"] = function (__tg_exports) {
-const { Emitter } = __tg_require("src/core/events.js");
-const { readJSON, writeJSON } = __tg_require("src/core/storage.js");
-const { haversine } = __tg_require("src/geo/mercator.js");
-
-/** Saved places. Drop one where you are standing; it shows on both maps. */
-
-const WAYPOINT_KEY = 'waypoints';
-
-const PALETTE = ['#c8b98f', '#8fb3c8', '#a9c88f', '#c88f9b', '#b39bc8', '#c8a98f'];
-
-class WaypointStore extends Emitter {
-  constructor() {
-    super();
-    this.waypoints = readJSON(WAYPOINT_KEY, []);
-    this.nextId = 1 + Math.max(0, ...this.waypoints.map((w) => w.id ?? 0));
-  }
-
-  add(lat, lon, name, altitude = 0) {
-    const waypoint = {
-      id: this.nextId++,
-      name: name || `Waypoint ${this.waypoints.length + 1}`,
-      lat,
-      lon,
-      altitude,
-      colour: PALETTE[this.waypoints.length % PALETTE.length],
-      createdAt: Date.now(),
-    };
-    this.waypoints.push(waypoint);
-    this.persist();
-    this.emit('change', this);
-    return waypoint;
-  }
-
-  rename(id, name) {
-    const waypoint = this.waypoints.find((w) => w.id === id);
-    if (!waypoint) return;
-    waypoint.name = name;
-    this.persist();
-    this.emit('change', this);
-  }
-
-  remove(id) {
-    this.waypoints = this.waypoints.filter((w) => w.id !== id);
-    this.persist();
-    this.emit('change', this);
-  }
-
-  nearest(lat, lon) {
-    let best = null;
-    let bestDistance = Infinity;
-    for (const waypoint of this.waypoints) {
-      const d = haversine({ lat, lon }, waypoint);
-      if (d < bestDistance) {
-        bestDistance = d;
-        best = waypoint;
-      }
-    }
-    return best ? { waypoint: best, distance: bestDistance } : null;
-  }
-
-  clearAll() {
-    this.waypoints = [];
-    this.persist();
-    this.emit('change', this);
-  }
-
-  persist() {
-    writeJSON(WAYPOINT_KEY, this.waypoints);
-  }
-
-  export() {
-    return { waypoints: this.waypoints };
-  }
-
-  import(data) {
-    if (Array.isArray(data.waypoints)) this.waypoints = data.waypoints;
-    this.persist();
-    this.emit('change', this);
-  }
-}
-
-const waypoints = new WaypointStore();
-
-__tg_exports["WaypointStore"] = WaypointStore;
-__tg_exports["waypoints"] = waypoints;
-};
 __tg_modules["src/game.js"] = function (__tg_exports) {
 const THREE = __tg_require("vendor/three/three.module.js");
+const { cheats } = __tg_require("src/core/cheats.js");
 const { clamp } = __tg_require("src/core/math.js");
 const { PerfGovernor } = __tg_require("src/core/perf.js");
 const { settings } = __tg_require("src/core/settings.js");
@@ -89805,9 +91235,11 @@ const { LocalFrame } = __tg_require("src/geo/frame.js");
 const { geocoder } = __tg_require("src/geo/geocode.js");
 const { haversine, latToNormY, lonToNormX } = __tg_require("src/geo/mercator.js");
 const { waterMap } = __tg_require("src/geo/water.js");
+const { weatherAt } = __tg_require("src/geo/weather.js");
+const { Autopilot } = __tg_require("src/player/autopilot.js");
 const { Avatar } = __tg_require("src/player/avatar.js");
 const { PlayerController } = __tg_require("src/player/controller.js");
-const { HOTBAR, Player } = __tg_require("src/player/player.js");
+const { Player } = __tg_require("src/player/player.js");
 const { ElevationField } = __tg_require("src/tiles/elevation.js");
 const { createElevationSource, createImagerySource } = __tg_require("src/tiles/providers.js");
 const { ImageryStreamer } = __tg_require("src/tiles/streamer.js");
@@ -89818,6 +91250,8 @@ const { pickRandomDestination } = __tg_require("src/world/rtp.js");
 const { createSharedUniforms } = __tg_require("src/world/shaders.js");
 const { Sky } = __tg_require("src/world/sky.js");
 const { Terrain } = __tg_require("src/world/terrain.js");
+const { Weather } = __tg_require("src/world/weather.js");
+const { CheatPanel } = __tg_require("src/ui/cheatPanel.js");
 const { exploration } = __tg_require("src/ui/exploration.js");
 const { HelpCard } = __tg_require("src/ui/help.js");
 const { HUD } = __tg_require("src/ui/hud.js");
@@ -89872,7 +91306,8 @@ class Game {
 
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.FogExp2(0xaebccd, 1 / 26000);
-    this.camera = new THREE.PerspectiveCamera(settings.get('fov'), 1, 0.4, 260000);
+    // A near plane close enough to see your own legs when you look down.
+    this.camera = new THREE.PerspectiveCamera(settings.get('fov'), 1, 0.15, 260000);
     this.scene.add(this.camera);
 
     this.onStatus('Starting tile worker');
@@ -89890,6 +91325,7 @@ class Game {
       shared: this.shared,
     });
     this.sky = new Sky(this.scene, this.shared);
+    this.weather = new Weather(this.scene);
     this.buildings = new Buildings({ scene: this.scene, frame: this.frame, terrain: this.terrain });
     this.panorama = new Panorama({ scene: this.scene, frame: this.frame, worker: this.worker });
 
@@ -89902,6 +91338,12 @@ class Game {
     this.avatar = new Avatar(this.scene);
     this.rig = new CameraRig(this.camera);
     this.input = new InputManager(canvas);
+    this.autopilot = new Autopilot({
+      player: this.player,
+      terrain: this.terrain,
+      fireRocket: () => this.fireRocket(),
+      onNotice: (message) => this.toast(message),
+    });
 
     this.onStatus('Building interface');
     this.hud = new HUD(ui);
@@ -89909,6 +91351,7 @@ class Game {
     this.worldmap = new WorldMap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints, trail });
     this.settingsPanel = new SettingsPanel(ui);
     this.help = new HelpCard(ui);
+    this.cheatPanel = new CheatPanel(ui);
     this.touch = new TouchControls(ui);
     this.input.attachTouch(this.touch);
 
@@ -89951,6 +91394,8 @@ class Game {
 
     this.touch.onAction = (id) => {
       if (id === 'boost') this.fireRocket();
+      else if (id === 'cheats') this.cheatPanel.toggle();
+      else if (id === 'cheatsUnlocked') this.onCheatsUnlocked();
       else this.onAction(id);
     };
     this.touch.onLook = (dx, dy) => this.rig.applyLook(this.player, dx, dy);
@@ -89974,6 +91419,23 @@ class Game {
     this.settingsPanel.onChange = (key) => this.onSettingChanged(key);
     this.settingsPanel.onDataAction = (name, payload) => this.onDataAction(name, payload);
 
+    this.cheatPanel.onNotice = (message) => this.toast(message);
+    this.cheatPanel.onTeleport = (lat, lon, label) => {
+      this.autopilot.disengage();
+      this.teleportTo(lat, lon, { reason: 'cheat', quiet: true });
+      this.toast(`Teleported to ${label}`);
+    };
+    this.cheatPanel.onTravel = (lat, lon, label) => {
+      this.cheatPanel.close();
+      this.autopilot.engage(lat, lon, label);
+    };
+    this.cheatPanel.onStopTravel = () => this.autopilot.disengage('Auto-travel stopped');
+
+    // The cheat code. Its own listener, in the capture phase so the letters of
+    // the code never reach the game's own bindings on the way past.
+    window.addEventListener('keydown', (event) => this.onCheatKey(event), true);
+    cheats.on('change', () => this.onCheatChanged());
+
     geocoder.on('address', (place) => {
       this.address = place.label;
     });
@@ -89994,7 +91456,46 @@ class Game {
     });
   }
 
-  applyProviders() {
+  /* ----------------------------------------------------------------- cheats */
+
+  onCheatKey(event) {
+    const target = event.target;
+    if (target instanceof HTMLElement) {
+      const tag = target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
+    }
+    const result = cheats.offerKey(event);
+    if (!result) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (result === 'unlock') this.onCheatsUnlocked();
+    else if (result === 'panel') this.cheatPanel.toggle();
+  }
+
+  onCheatsUnlocked() {
+    this.toast('Cheats unlocked — press ` for the panel', 'warn');
+    this.cheatPanel.show();
+  }
+
+  /** A dial moved: some of them need the rest of the game told. */
+  onCheatChanged() {
+    // Lifting the fog changes what both maps should be drawing right now.
+    this.minimap.timer = 1e6;
+    this.worldmap.dirty = true;
+    if (cheats.fly) {
+      this.player.toggleElytra(false);
+      this.player.onGround = false;
+    }
+    if (!cheats.unlocked) this.autopilot.disengage();
+  }
+
+  /**
+   * @param {boolean} rebuild throw away the terrain meshes as well. Only an
+   *   elevation change needs that; swapping imagery keeps the geometry and just
+   *   re-resolves textures, which is the difference between a seamless swap and
+   *   a second of blank ground you cannot move on.
+   */
+  applyProviders({ rebuild = true } = {}) {
     this.imagerySource = createImagerySource(settings.values);
     this.elevationSource = createElevationSource(settings.values);
     this.streamer.setSource(this.imagerySource);
@@ -90002,14 +91503,14 @@ class Game {
     mapTiles.setSource(this.imagerySource);
     mapTiles.setDegraded(false);
     waterMap.setSource(this.imagerySource);
-    this.terrain.rebase();
+    if (rebuild) this.terrain.rebase();
     this.imagerySource.prepare();
     this.elevationSource.prepare();
   }
 
   onSettingChanged(key) {
     if (['imageryProvider', 'elevationProvider', 'googleKey', 'bingKey', 'mapboxKey'].includes(key)) {
-      this.applyProviders();
+      this.applyProviders({ rebuild: key === 'elevationProvider' });
       this.toast('Provider updated');
     }
     if (key === 'panoramaProvider' || key === 'mapillaryToken') this.panorama.clear();
@@ -90102,12 +91603,14 @@ class Game {
     if (!this.running) return;
     requestAnimationFrame((t) => this.loop(t));
 
-    const dt = clamp((now - this.lastTime) / 1000, 0, 0.25);
+    const elapsed = clamp((now - this.lastTime) / 1000, 0, 0.25);
     this.lastTime = now;
     if (document.hidden) return;
 
-    this.perf.update(dt);
-    this.update(dt);
+    // The frame-rate governor wants real seconds; everything else runs on the
+    // game clock, which the game-speed cheat is allowed to stretch.
+    this.perf.update(elapsed);
+    this.update(elapsed * cheats.gameSpeed);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -90115,14 +91618,18 @@ class Game {
 
   update(dt) {
     const player = this.player;
-    const panelOpen = this.settingsPanel.open || this.worldmap.open || this.help.open;
+    const panelOpen =
+      this.settingsPanel.open || this.worldmap.open || this.help.open || this.cheatPanel.open;
     if (panelOpen !== this.uiSuspended) {
       this.uiSuspended = panelOpen;
       this.input.setSuspended(panelOpen);
     }
     this.canvas.classList.toggle('pan', settings.get('mouseMode') === 'pan');
 
-    const movement = this.input.movement();
+    let movement = this.input.movement();
+    if (this.autopilot.active && !this.rig.isFreecam) {
+      movement = this.autopilot.step(dt, movement);
+    }
 
     if (this.rig.isFreecam) {
       const ground = this.terrain.heightAt(this.rig.freecam.position.x, this.rig.freecam.position.z);
@@ -90138,9 +91645,6 @@ class Game {
     if (this.frame.needsRebase(player.position.x, player.position.z)) this.rebase();
     player.syncGeo();
 
-    const yawRate = (player.yaw - this.lastYaw) / Math.max(dt, 0.001);
-    this.lastYaw = player.yaw;
-    this.rig.setYawRate(yawRate);
     this.rig.update(player, dt, this.terrain);
 
     const budget = this.perf.budgetMs();
@@ -90153,6 +91657,18 @@ class Game {
     this.scene.fog.color.copy(this.sky.horizonColor);
     this.scene.fog.density = this.shared.uFogDensity.value;
     this.renderer.setClearColor(this.sky.horizonColor, 1);
+
+    // Weather for where and when you are, from the same climate model as the
+    // temperature readout — no forecast service, no key.
+    this.weatherState = weatherAt({
+      lat: player.lat,
+      lon: player.lon,
+      date: this.sky.date,
+      avgC: this.sky.climate ? this.sky.climate.avgC : 12,
+      landFraction: this.landFraction,
+    });
+    this.weather.setState(this.weatherState);
+    this.weather.update(this.camera, dt, this.sky);
 
     this.buildings.update(player.lat, player.lon, player.altitudeAboveGround);
 
@@ -90167,8 +91683,12 @@ class Game {
       dt,
     );
 
-    const showAvatar = settings.get('thirdPerson') || this.rig.isFreecam;
+    // The body is drawn in first person too, minus the head, so you can see
+    // your own legs and the wings you are flying on.
+    const thirdPerson = settings.get('perspective') === 'third' || this.rig.isFreecam;
+    const showAvatar = thirdPerson || settings.get('showBody');
     this.avatar.setVisible(showAvatar);
+    this.avatar.setFirstPerson(!thirdPerson);
     if (showAvatar) this.avatar.update(player, dt);
 
     exploration.visit(player.lat, player.lon, player.altitudeAboveGround);
@@ -90181,14 +91701,19 @@ class Game {
     this.hud.update({
       player,
       climate: this.sky.climate,
+      weather: this.weatherState,
       address: this.address,
       status: this.statusLine(),
       attribution: this.attributionLine(),
       freecam: this.rig.isFreecam,
       onWater: this.terrain.isWaterAt(player.position.x, player.position.z),
       landAway: this.landAway,
+      cheats: cheats.active ? cheats.labels.join(' · ') : '',
+      autopilot: this.autopilot.status(),
       debug: this.debugVisible ? this.debugText() : '',
     });
+
+    this.cheatPanel.setStatus(this.autopilot.status());
 
     this.minimap.update(
       { lat: player.lat, lon: player.lon, heading: player.yaw },
@@ -90247,16 +91772,54 @@ class Game {
   settle(dt) {
     const player = this.player;
     const ground = this.terrain.heightAt(player.position.x, player.position.z);
-    player.position.y = ground + 1.2;
     player.groundHeight = ground;
     player.velocity.set(0, 0, 0);
-    player.onGround = true;
     player.tickTimers(dt);
 
-    // Release early once real elevation has landed and had a moment to settle.
+    if (this.holdInAir) {
+      // Hang at spawn height with the wings out while the world builds under
+      // you, so the first second of a teleport is not a slideshow.
+      player.position.y = ground + SPAWN_HEIGHT_M;
+      player.onGround = false;
+    } else {
+      player.position.y = ground + 1.2;
+      player.onGround = true;
+    }
+
+    // Release once real elevation has landed, the tiles under you have been
+    // built, and it has had a moment to settle.
     const waited = performance.now() - (this.settleUntil - SETTLE_MS);
     const norm = this.frame.worldToNorm(player.position.x, player.position.z);
-    if (waited > 650 && this.elevation.hasData(norm.nx, norm.ny)) this.settleUntil = 0;
+    const ready = this.elevation.hasData(norm.nx, norm.ny) && this.terrain.stats.drawn > 6;
+    if (waited > 650 && ready) this.settleUntil = 0;
+    if (!this.settling && this.arrivalPending) this.finishArrival();
+  }
+
+  /**
+   * Once the ground is real, put the arrival where the settings asked for:
+   * inside a building if there is one, and with street-level photography on if
+   * the provider has any.
+   */
+  finishArrival() {
+    this.arrivalPending = false;
+    const player = this.player;
+
+    if (settings.get('spawnInBuilding') && settings.get('buildings')) {
+      const near = this.buildings.collidersNear(player.position.x, player.position.z, 90);
+      const inside = near.find((collider) => collider.floors && collider.floors.length > 0);
+      if (inside) {
+        const centre = polygonCentre(inside.polygon);
+        player.position.x = centre.x;
+        player.position.z = centre.z;
+        player.position.y = (inside.floors[0] ?? player.groundHeight) + 0.1;
+        player.velocity.set(0, 0, 0);
+        this.toast('Arrived indoors');
+      }
+    }
+
+    if (settings.get('spawnStreetLevel') && settings.get('panoramaProvider') !== 'none') {
+      settings.set('streetLevel', true);
+    }
   }
 
   rebase() {
@@ -90275,6 +91838,8 @@ class Game {
 
   async teleportTo(lat, lon, { reason = 'manual', quiet = false } = {}) {
     this.teleporting = true;
+    // Being somewhere else makes the old destination somebody else's problem.
+    this.autopilot.disengage();
     const player = this.player;
     const previous = { lat: player.lat, lon: player.lon };
 
@@ -90293,8 +91858,9 @@ class Game {
 
     const ground = Math.max(0, this.elevation.sampleLatLon(lat, lon));
     // Arrive in the air with the wings out: you are here to look around, and a
-    // teleport that dumps you in a field facing a hedge wastes the trip.
-    const airborne = reason === 'rtp' || reason === 'spawn';
+    // teleport that dumps you in a field facing a hedge wastes the trip. Turn
+    // "arrives in the sky" off in Settings → World to land on your feet instead.
+    const airborne = (reason === 'rtp' || reason === 'spawn') && settings.get('rtpSkySpawn');
     player.teleport(lat, lon, ground, airborne ? SPAWN_HEIGHT_M : 1.2);
     if (airborne) {
       player.onGround = false;
@@ -90302,7 +91868,12 @@ class Game {
     }
     trail.break();
     this.camera.position.set(0, ground + player.eyeHeight, 0);
-    this.settleUntil = airborne ? 0 : performance.now() + SETTLE_MS;
+    // Hold still either way until the ground under you actually exists. Being
+    // dropped into a hole while the tiles stream in is what made an arrival
+    // feel like a stutter, and what left the ground invisible underfoot.
+    this.holdInAir = airborne;
+    this.settleUntil = performance.now() + SETTLE_MS;
+    this.arrivalPending = !airborne;
     this.address = 'Locating…';
 
     if (!quiet) {
@@ -90362,16 +91933,16 @@ class Game {
       case 'rtp':
         this.randomTeleport();
         break;
-      case 'elytra': {
-        const out = player.toggleElytra();
-        this.toast(out ? 'Wings out' : 'Wings stowed');
-        break;
-      }
       case 'rocket':
         this.fireRocket();
         break;
       case 'speedMode':
-        if (player.startSpeedMode()) this.toast('Speed mode — 2x');
+        // With unlimited speed mode on there is no timer to wait out, so the
+        // key has to be able to switch it back off again.
+        if (cheats.speedFree && player.speedActive) {
+          player.stopSpeedMode();
+          this.toast('Speed mode off');
+        } else if (player.startSpeedMode()) this.toast('Speed mode — 2x');
         else if (player.speedCooldown > 0) {
           this.toast(`Speed mode recharging (${Math.ceil(player.speedCooldown)}s)`, 'warn');
         }
@@ -90381,8 +91952,14 @@ class Game {
         this.toast(active ? 'Freecam on — wheel changes speed' : 'Freecam off');
         break;
       }
-      case 'thirdPerson':
-        settings.set('thirdPerson', !settings.get('thirdPerson'));
+      case 'perspective': {
+        const next = settings.get('perspective') === 'first' ? 'third' : 'first';
+        settings.set('perspective', next);
+        this.toast(next === 'third' ? 'Third person' : 'First person');
+        break;
+      }
+      case 'barrelRoll':
+        if (this.rig.startBarrelRoll()) this.toast('Barrel roll');
         break;
       case 'worldMap':
         this.worldmap.toggle({ lat: player.lat, lon: player.lon, heading: player.yaw });
@@ -90424,6 +92001,7 @@ class Game {
       case 'settings':
         if (this.worldmap.open) this.worldmap.close();
         else if (this.help.open) this.help.close();
+        else if (this.cheatPanel.open) this.cheatPanel.close();
         else this.settingsPanel.toggle();
         break;
       case 'help':
@@ -90441,9 +92019,13 @@ class Game {
     }
   }
 
-  /** Picking a hotbar slot just chooses which rocket you fire next. */
+  /**
+   * Picking a hotbar slot chooses which rocket you fire next — and pressing the
+   * number you are already on fires it, so a rocket is one key, not two.
+   */
   useSlot(index) {
-    this.player.selectSlot(index);
+    if (index === this.player.selectedSlot) this.fireRocket();
+    else this.player.selectSlot(index);
   }
 
   fireRocket() {
@@ -90496,7 +92078,14 @@ class Game {
       else parts.push(source.descriptor.label);
     }
     if (this.elevation.unreachable) parts.push('elevation unavailable — flat terrain');
-    if (this.panorama.status && this.panorama.status !== 'off') parts.push(`street: ${this.panorama.status}`);
+    // Only say something about street level when it is actually doing
+    // something. Announcing "no coverage here" every time you walk about is
+    // noise: most of the planet has no street-level photography, and the game
+    // does not need it.
+    const street = this.panorama.status;
+    if (street === 'loading' || street === 'showing ground imagery') {
+      parts.push(`street level: ${street === 'loading' ? 'loading' : 'on'}`);
+    }
     if (settings.get('showFps')) parts.push(`${Math.round(this.perf.fps)} fps`);
     return parts.join(' · ');
   }
@@ -90524,6 +92113,18 @@ class Game {
       `mode ${player.mode}  vel ${player.velocity.length().toFixed(1)} m/s  land ${(this.landFraction * 100).toFixed(0)}%`,
     ].join('\n');
   }
+}
+
+/** Centre of a building footprint, in world XZ. */
+function polygonCentre(polygon) {
+  let x = 0;
+  let z = 0;
+  for (const point of polygon) {
+    x += point[0];
+    z += point[1];
+  }
+  const n = Math.max(1, polygon.length);
+  return { x: x / n, z: z / n };
 }
 
 __tg_exports["Game"] = Game;
