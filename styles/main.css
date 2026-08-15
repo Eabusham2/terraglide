@@ -275,7 +275,12 @@ input[type='checkbox'] {
 .toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 3px;
+  max-width: 340px;
+}
+
+.toolbar button {
+  padding: 4px 8px;
 }
 
 .toolbar button {
@@ -458,9 +463,9 @@ input[type='checkbox'] {
 
 .hud-hotbar .slot {
   position: relative;
-  width: 88px;
-  height: 42px;
-  padding: 3px 7px;
+  width: 92px;
+  height: 50px;
+  padding: 4px 8px 5px;
   text-align: left;
   background: var(--panel);
   border: none;
