@@ -48,7 +48,10 @@ export class Exploration extends Emitter {
   /** Record a visit. Reveal radius grows with altitude. */
   visit(lat, lon, altitudeAboveGround) {
     const scale = settings.get('fogRevealScale');
-    const radius = Math.min(90000, Math.max(260, altitudeAboveGround * 1.35 + 260)) * scale;
+    // Deliberately short: altitude widens what you uncover, but only up to a
+    // few kilometres. A single high pass used to reveal half a country, which
+    // made the explored map meaningless.
+    const radius = Math.min(6000, Math.max(220, altitudeAboveGround * 0.45 + 220)) * scale;
     const nx = lonToNormX(lon);
     const ny = latToNormY(lat);
 
@@ -66,7 +69,7 @@ export class Exploration extends Emitter {
     for (const level of LEVELS) {
       const n = Math.pow(2, level);
       const tileMetres = EARTH_CIRCUMFERENCE / n;
-      const reach = Math.min(6, Math.ceil(radius / tileMetres));
+      const reach = Math.min(4, Math.ceil(radius / tileMetres));
       const cx = Math.floor(nx * n);
       const cy = Math.floor(ny * n);
       for (let dy = -reach; dy <= reach; dy++) {

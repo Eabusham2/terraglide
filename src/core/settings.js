@@ -37,7 +37,7 @@ export const DEFAULT_SETTINGS = {
   adaptiveResolution: true,
   fpsTarget: 60,
   fog: true,
-  maxTileZoom: 18,
+  maxTileZoom: 19,
   meshDetail: 1,
   showFps: false,
 

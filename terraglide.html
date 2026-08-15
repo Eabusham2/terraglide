@@ -82020,7 +82020,7 @@ const DEFAULT_SETTINGS = {
   adaptiveResolution: true,
   fpsTarget: 60,
   fog: true,
-  maxTileZoom: 18,
+  maxTileZoom: 19,
   meshDetail: 1,
   showFps: false,
 
@@ -87506,7 +87506,10 @@ class Exploration extends Emitter {
   /** Record a visit. Reveal radius grows with altitude. */
   visit(lat, lon, altitudeAboveGround) {
     const scale = settings.get('fogRevealScale');
-    const radius = Math.min(90000, Math.max(260, altitudeAboveGround * 1.35 + 260)) * scale;
+    // Deliberately short: altitude widens what you uncover, but only up to a
+    // few kilometres. A single high pass used to reveal half a country, which
+    // made the explored map meaningless.
+    const radius = Math.min(6000, Math.max(220, altitudeAboveGround * 0.45 + 220)) * scale;
     const nx = lonToNormX(lon);
     const ny = latToNormY(lat);
 
@@ -87524,7 +87527,7 @@ class Exploration extends Emitter {
     for (const level of LEVELS) {
       const n = Math.pow(2, level);
       const tileMetres = EARTH_CIRCUMFERENCE / n;
-      const reach = Math.min(6, Math.ceil(radius / tileMetres));
+      const reach = Math.min(4, Math.ceil(radius / tileMetres));
       const cx = Math.floor(nx * n);
       const cy = Math.floor(ny * n);
       for (let dy = -reach; dy <= reach; dy++) {
@@ -88978,7 +88981,7 @@ const SECTIONS = [
         help: 'Sets terrain detail, texture cache and how many tiles load at once.',
       },
       { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 32, step: 1, unit: ' km' },
-      { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 12, max: 21, step: 1, help: 'How close the ground can get before it stops sharpening.' },
+      { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 12, max: 21, step: 1, help: 'How close the ground can get before it stops sharpening. Higher is sharper underfoot and costs more to stream.' },
       { key: 'meshDetail', label: 'Terrain mesh detail', type: 'range', min: 0.5, max: 1.6, step: 0.1, format: (v) => `${v.toFixed(1)}x` },
       { key: 'fov', label: 'Field of view', type: 'range', min: 55, max: 118, step: 1, unit: '°' },
       { key: 'freecamFov', label: 'Freecam field of view', type: 'range', min: 55, max: 118, step: 1, unit: '°' },
