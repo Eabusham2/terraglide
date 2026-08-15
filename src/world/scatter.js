@@ -107,6 +107,9 @@ export class Scatter {
 
   async loadTextures(base = './assets/') {
     if (typeof document === 'undefined' || typeof fetch !== 'function') return;
+    // No assets folder in the single-file build, and over file:// the ask is a
+    // CORS error rather than a quiet 404. Skip it and keep the flat colours.
+    if (globalThis.__TERRAGLIDE_INLINE_WORKER__) return;
     let manifest;
     try {
       const response = await fetch(`${base}manifest.json`, { cache: 'force-cache' });

@@ -117,6 +117,7 @@ export class Game {
       buildings: this.buildings,
     });
     this.avatar = new Avatar(this.scene);
+    this.avatar.loadTextures();
     this.rig = new CameraRig(this.camera);
     this.input = new InputManager(canvas);
     this.autopilot = new Autopilot({

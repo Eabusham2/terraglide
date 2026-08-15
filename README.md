@@ -146,7 +146,7 @@ Open **Settings → Providers** to point it at the real thing:
 
 | Slot | Options |
 | --- | --- |
-| Photorealistic 3D | Google Photorealistic 3D Tiles (needs a key), or off |
+| Photorealistic 3D | Google Photorealistic 3D Tiles (needs a key), the same via Cesium ion (needs a token), or off |
 | Imagery | Esri World Imagery (keyless), Google Maps, Bing Maps, Mapbox Satellite, OpenStreetMap, or the generated world |
 | Elevation | AWS Terrain Tiles (keyless, the default), Mapbox Terrain-RGB, or generated relief |
 | Street level | Google Street View, Mapillary, or off |
@@ -165,13 +165,25 @@ the status line says so rather than leaving you on blank ground.
 
 ### Three tiers, most real first
 
-1. **With a Google Maps Platform key** — switch on **Settings → Providers →
-   Photorealistic 3D** and you get Google's Photorealistic 3D Tiles: the actual
-   scanned world, built from oblique aerial photogrammetry. The buildings, the
-   trees and the bridges are *in the mesh*. Nothing is placed, filled in or
-   invented, and the game's own terrain, scenery and footprints step aside
-   wherever those tiles are drawn. The copyright that comes back with the tiles
-   is shown in the corner, because Google requires it.
+1. **With a Google key or a Cesium ion token** — switch on **Settings →
+   Providers → Photorealistic 3D** and you get the actual scanned world, built
+   from oblique aerial photogrammetry. The buildings, the trees and the bridges
+   are *in the mesh*. Nothing is placed, filled in or invented, and the game's
+   own terrain, scenery and footprints step aside wherever those tiles are
+   drawn. The copyright that comes back with the tiles is shown in the corner,
+   because the terms require it.
+
+   Two routes to the same dataset, so the game does not depend on one account:
+   Google's own **Photorealistic 3D Tiles** on a Maps Platform key, or the same
+   tiles through **Cesium ion** on an ion access token — a different provider
+   with a different quota. Swapping between them drops the old session and
+   reconnects.
+
+   Microsoft is the obvious third and is not available to anyone: Flight
+   Simulator gets its Bing photogrammetry through an internal agreement, Bing
+   Maps never published a 3D tile API, and the platform is being retired into
+   Azure Maps, which does not serve photogrammetry either. Cesium ion is the
+   real equivalent, carrying the same scanned data.
 2. **With no key** — everything below: real satellite imagery, real elevation,
    real OpenStreetMap buildings and land cover. None of it needs an account.
 3. **With no network at all** — a generated world, so it still runs.
@@ -203,6 +215,23 @@ survey put them.
 Land cover comes down the same Overpass queue as the buildings, one request at
 a time with a gap and a backoff, because it is a donated service.
 **Settings → Graphics** turns the scenery off and sets how far it fills in.
+
+#### Where generated art is allowed
+
+There are AI-generated textures in `assets/`, and exactly one rule governs
+them: **nothing generated may stand in for real map data.**
+
+That splits them in two. The foliage and rock textures dress *scenery*, so they
+are drawn only on the generated world — pick any real imagery provider and they
+come straight back off, and the trees take their colour from the satellite
+image over that ground instead. The jacket, trousers, wings and rocket dress
+*you*, and no provider on Earth publishes a photograph of your character, so
+there is nothing for them to displace; they are drawn in every mode. The
+manifest keeps the two groups in separate blocks and `selftest.mjs` checks that
+the gate on one and the absence of a gate on the other both survive.
+
+The single-file build ships no assets folder at all and falls back to flat
+colour, which is why it looks a little plainer and weighs a lot less.
 
 Above that there is weather — cloud cover and rain or snow for the place and
 month you are in, from the same climate model as the temperature readout. It is
@@ -290,7 +319,7 @@ src/
   camera/           camera rig, freecam, input and mouse modes
   ui/               HUD, minimap, world map, settings, cheats, help, waypoints,
                     exploration, touch controls
-assets/             optional generated scenery textures (+ manifest)
+assets/             optional generated textures — scenery and player kit (+ manifest)
 tools/              check.mjs, selftest.mjs
 vendor/three/       three.js (MIT), vendored so there is nothing to install
 ```

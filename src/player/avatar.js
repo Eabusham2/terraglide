@@ -22,6 +22,17 @@ const TROUSERS = 0x3a4149;
 const BOOTS = 0x23262b;
 const WING = 0x8d9a86;
 const WING_EDGE = 0x5f6a5b;
+const ROCKET = 0xc9a97c;
+
+/**
+ * Your kit — jacket, trousers, wings — can carry a generated texture in every
+ * mode, unlike the scenery. The rule about generated art has always been about
+ * the *world*: nothing invented may stand in where real map data belongs. The
+ * character has no real-world counterpart to fetch, in any provider, so there
+ * is nothing here for a texture to displace. Absent the files it stays flat
+ * colour, which is what the single-file build gets.
+ */
+const CLOTH_TINT = 0xffffff;
 
 export class Avatar {
   constructor(scene) {
@@ -34,11 +45,14 @@ export class Avatar {
     this.root.add(body);
 
     const mat = (colour) => new THREE.MeshLambertMaterial({ color: colour });
+    // Kept so a texture can be dropped onto the right pieces once it arrives.
+    this.cloth = { jacket: [], trousers: [], wing: [], rocket: [] };
 
     // Proportions as fractions of standing height.
     this.torso = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.3, 0.15), mat(JACKET));
     this.torso.position.y = 0.66;
     body.add(this.torso);
+    this.cloth.jacket.push(this.torso.material);
 
     this.head = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.16, 0.15), mat(SKIN));
     this.head.position.y = 0.9;
@@ -53,6 +67,8 @@ export class Avatar {
     this.legL = this.makeLimb(0.09, 0.36, mat(TROUSERS), -0.07, 0.51);
     this.legR = this.makeLimb(0.09, 0.36, mat(TROUSERS), 0.07, 0.51);
     body.add(this.armL.pivot, this.armR.pivot, this.legL.pivot, this.legR.pivot);
+    this.cloth.jacket.push(this.armL.limb.material, this.armR.limb.material);
+    this.cloth.trousers.push(this.legL.limb.material, this.legR.limb.material);
 
     // Toes point forward, which is −Z.
     const bootGeo = new THREE.BoxGeometry(0.1, 0.05, 0.14);
@@ -67,9 +83,21 @@ export class Avatar {
     this.wings = new THREE.Group();
     this.wings.position.set(0, 0.76, 0.08);
     body.add(this.wings);
-    this.wingL = this.makeWing(mat(WING), mat(WING_EDGE), -1);
-    this.wingR = this.makeWing(mat(WING), mat(WING_EDGE), 1);
+    const wingMat = mat(WING);
+    this.wingL = this.makeWing(wingMat, mat(WING_EDGE), -1);
+    this.wingR = this.makeWing(wingMat, mat(WING_EDGE), 1);
     this.wings.add(this.wingL, this.wingR);
+    this.cloth.wing.push(wingMat);
+
+    // The selected rocket, in your right hand — the way Minecraft shows the
+    // firework you are about to use. Visible in first person too, since the
+    // arms are, so the slot you are on is readable without the HUD.
+    const rocketMat = mat(ROCKET);
+    this.rocket = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.13, 8), rocketMat);
+    this.rocket.position.set(0, -0.3, -0.04);
+    this.rocket.rotation.x = -Math.PI / 2;
+    this.armR.limb.add(this.rocket);
+    this.cloth.rocket = [rocketMat];
 
     this.walkPhase = 0;
     this.glideBlend = 0;
@@ -100,6 +128,52 @@ export class Avatar {
 
   setVisible(visible) {
     this.root.visible = visible;
+  }
+
+  /**
+   * Optional kit textures from the assets folder. Same shape as the scenery
+   * loader, and the same manifest, but with no provider gate: see the note by
+   * CLOTH_TINT for why the character is not held to the world's rule. Missing
+   * files are not an error — the flat colours underneath are the fallback, and
+   * they are what the single-file build ships with.
+   */
+  async loadTextures(base = './assets/') {
+    if (typeof document === 'undefined' || typeof fetch !== 'function') return;
+    // The single-file build has no assets folder beside it, and asking for one
+    // over file:// is a CORS error in the console rather than a 404. Don't ask.
+    if (globalThis.__TERRAGLIDE_INLINE_WORKER__) return;
+    let manifest;
+    try {
+      const response = await fetch(`${base}manifest.json`, { cache: 'force-cache' });
+      if (!response.ok) return;
+      manifest = await response.json();
+    } catch {
+      return;
+    }
+    const files = manifest?.kit;
+    if (!files) return;
+
+    const loader = new THREE.TextureLoader();
+    for (const part of ['jacket', 'trousers', 'wing', 'rocket']) {
+      const file = files[part];
+      if (!file || !this.cloth[part].length) continue;
+      loader.load(
+        `${base}${file}`,
+        (texture) => {
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.wrapS = THREE.RepeatWrapping;
+          texture.wrapT = THREE.RepeatWrapping;
+          for (const material of this.cloth[part]) {
+            material.map = texture;
+            // The tint has done the colouring so far; let the weave through.
+            material.color.setHex(CLOTH_TINT);
+            material.needsUpdate = true;
+          }
+        },
+        undefined,
+        () => {},
+      );
+    }
   }
 
   /**

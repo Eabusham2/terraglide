@@ -1,8 +1,16 @@
 {
-  "note": "Optional scenery textures for the served copy. The single-file build has no assets folder and falls back to flat colour, so nothing here is required to play.",
+  "note": "Optional textures for the served copy. The single-file build has no assets folder and falls back to flat colour, so nothing here is required to play.",
   "generatedWith": "Pixa (FLUX 2 Klein), prompted for seamless tileable material",
   "textures": {
+    "note": "Scenery. Generated, so these are only ever drawn on the generated world — with any real imagery provider selected the scenery takes its colour from the imagery instead.",
     "foliage": "foliage.jpg",
     "rock": "rock.jpg"
+  },
+  "kit": {
+    "note": "The character's own gear. Not held to the rule above: there is no real-world counterpart to fetch for a player's jacket, so nothing invented is standing in for real map data.",
+    "jacket": "jacket.jpg",
+    "trousers": "trousers.jpg",
+    "wing": "wing.jpg",
+    "rocket": "rocket.jpg"
   }
 }

@@ -7,6 +7,7 @@
  *   node tools/selftest.mjs
  */
 
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { LocalFrame } from '../src/geo/frame.js';
 import {
   bearing,
@@ -537,6 +538,37 @@ console.log('\nearth-centred coordinates');
   const farAway = screenSpaceError(100, 10000, 900, 1.2);
   ok('closer tiles show more error', closeUp > farAway * 50, `${closeUp.toFixed(0)} vs ${farAway.toFixed(1)}`);
   ok('a perfect tile has no error', screenSpaceError(0, 100, 900, 1.2) === 0);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nGenerated art stays where it belongs');
+{
+  // The rule, stated once so it cannot drift: generated textures may dress the
+  // *generated* world and the player's own kit, and may never stand in for
+  // real map data. The manifest is the contract both loaders read, so the
+  // check is that it keeps saying two different things about the two groups.
+  const manifest = JSON.parse(
+    readFileSync(new URL('../assets/manifest.json', import.meta.url), 'utf8'),
+  );
+  ok('scenery textures are declared', !!manifest.textures?.foliage && !!manifest.textures.rock);
+  ok('kit textures are declared', ['jacket', 'trousers', 'wing', 'rocket']
+    .every((part) => !!manifest.kit?.[part]));
+  ok('the two groups are kept apart', manifest.textures !== manifest.kit);
+
+  const scatter = readFileSync(new URL('../src/world/scatter.js', import.meta.url), 'utf8');
+  ok('scenery textures are gated on the generated world',
+    /imageryProvider'\) === 'offline'/.test(scatter));
+
+  const avatar = readFileSync(new URL('../src/player/avatar.js', import.meta.url), 'utf8');
+  ok('the player kit is not gated on a provider', !/imageryProvider/.test(avatar));
+
+  // Every file the manifest names has to actually be there, or a player gets a
+  // silent fallback and no idea why the world looks flat.
+  for (const file of [...Object.values(manifest.textures), ...Object.values(manifest.kit)]) {
+    if (!file.endsWith('.jpg') && !file.endsWith('.png')) continue;
+    const path = new URL(`../assets/${file}`, import.meta.url);
+    ok(`${file} is present`, existsSync(path) && statSync(path).size > 1024);
+  }
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed\n`);

@@ -43,15 +43,30 @@ policies: they are rate limited in `src/tiles/providers.ts` and
 `src/geo/geocode.ts`, and those limits must not be raised for unattended or
 bulk use.
 
-## Google Photorealistic 3D Tiles
+## Photorealistic 3D tiles
 
-Optional, off by default, and only reachable with your own Google Maps Platform
-key with the Map Tiles API enabled. Requests go straight from your browser to
-Google on your quota, under the Google Maps Platform Terms of Service. Google
-requires the copyright string returned with the tiles to be displayed while they
-are on screen; the game collects it and shows it in the attribution corner, and
-removing it breaks both their terms and this project's licence. Nothing is
-cached to disk.
+Optional, off by default, and reachable two ways — both on your own account.
+
+**Google Photorealistic 3D Tiles** needs a Google Maps Platform key with the
+Map Tiles API enabled. Requests go straight from your browser to Google on your
+quota, under the Google Maps Platform Terms of Service.
+
+**Cesium ion** serves the same photorealistic dataset as asset 2275207 and
+needs a Cesium ion access token. The token is exchanged at
+`api.cesium.com/v1/assets/2275207/endpoint` for a short-lived bearer, the
+tileset URL and a list of attributions; requests then go from your browser to
+Cesium on your quota, under the Cesium ion Terms of Service.
+
+Both providers require the copyright returned with the tiles to be displayed
+while they are on screen. The game collects it — Google's string, or ion's
+attribution list with its HTML stripped — and shows it in the attribution
+corner. Removing it breaks their terms and this project's licence. Nothing is
+cached to disk on either route.
+
+Bing is not an option and cannot be made one: Microsoft Flight Simulator gets
+its Bing photogrammetry through an internal agreement, Bing Maps never
+published a 3D tile API, and the platform is being retired into Azure Maps,
+which does not serve photogrammetry.
 
 three.js's GLTFLoader, DRACOLoader, BufferGeometryUtils and SkeletonUtils
 (`vendor/three/loaders/`, `vendor/three/utils/`) and the Draco decoder
@@ -69,10 +84,28 @@ cached to disk.
 
 ## Generated assets
 
-`assets/foliage.jpg` and `assets/rock.jpg` are AI-generated material textures,
-made for this project through Pixa (FLUX 2 Klein) from prompts asking for
-seamless tileable foliage and granite. They depict no real place, person or
-product, and they are covered by the project licence along with the rest of the
-Work. They are optional: `assets/manifest.json` is fetched at startup and, when
-it is absent — as it is in the single-file build — the scenery falls back to
+Everything in `assets/` is an AI-generated material texture, made for this
+project through Pixa (FLUX 2 Klein) from prompts asking for a seamless tileable
+material. They depict no real place, person or product, and they are covered by
+the project licence along with the rest of the Work.
+
+| File | What it dresses | Drawn when |
+| --- | --- | --- |
+| `foliage.jpg` | trees, scrub | generated world only |
+| `rock.jpg` | boulders, scree | generated world only |
+| `jacket.jpg` | torso and arms | always |
+| `trousers.jpg` | legs | always |
+| `wing.jpg` | the wings | always |
+| `rocket.jpg` | the rocket in your hand | always |
+
+The split is deliberate and is the project's rule about generated art: the
+scenery textures could be mistaken for a statement about what is actually
+growing on that ground, so they are shown only where the ground itself is
+generated — select any real imagery provider and they come off, and the scenery
+takes its colour from the satellite image instead. The player's own kit has no
+real-world counterpart any provider publishes, so it displaces nothing and is
+drawn in every mode.
+
+All of it is optional. `assets/manifest.json` is fetched at startup and, when
+it is absent — as it is in the single-file build — everything falls back to
 flat colour.
