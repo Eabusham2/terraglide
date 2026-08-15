@@ -63,7 +63,10 @@ export function localSolarDate(utc, lon) {
  */
 export function skyDate(mode, customHour, lon, now = new Date()) {
   if (mode === 'live') return now;
-  const hour = mode === 'noon' ? 12 : mode === 'golden' ? 18.2 : mode === 'night' ? 0.5 : customHour;
+  // 'day' is mid-morning: high enough to light the ground properly, low enough
+  // that terrain still has relief instead of looking flat at true noon.
+  const hour =
+    mode === 'day' ? 10.5 : mode === 'golden' ? 18.2 : mode === 'night' ? 0.5 : customHour;
   // Convert a desired *local solar* hour back to UTC at this longitude.
   const utcHour = hour - lon / 15;
   const d = new Date(now.getTime());

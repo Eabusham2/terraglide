@@ -1,13 +1,13 @@
 import { clamp } from '../core/math.js';
 import { settings } from '../core/settings.js';
-import { MAX_LATITUDE, randomLatLon, randomNear } from '../geo/mercator.js';
+import { MAX_LATITUDE, randomLatLon } from '../geo/mercator.js';
 
 /**
  * Random teleport.
  *
  * Points are drawn uniformly over the sphere (by area, not by latitude — a naive
- * uniform latitude draw crowds you into the poles), then filtered against the
- * *explore seas* setting. Water rejection reads one low-zoom imagery tile per
+ * uniform latitude draw crowds you into the poles) and filtered against the
+ * *explore seas* setting. Anywhere on Earth, every time. Water rejection reads one low-zoom imagery tile per
  * region and caches it, so a few dozen attempts cost at most a handful of small
  * requests and usually none at all.
  *
@@ -20,13 +20,11 @@ import { MAX_LATITUDE, randomLatLon, randomNear } from '../geo/mercator.js';
 const MAX_ATTEMPTS = 26;
 const TIME_BUDGET_MS = 2600;
 
-export async function pickRandomDestination({ waterMap, origin, onProgress }) {
+export async function pickRandomDestination({ waterMap, onProgress }) {
   const wantsLand = !settings.get('exploreSeas');
-  const limited = settings.get('rtpRange') === 'radius';
-  const radiusM = clamp(settings.get('rtpRadiusKm'), 1, 20000) * 1000;
   const started = performance.now();
 
-  let candidate = draw(limited, origin, radiusM);
+  let candidate = randomLatLon();
   let attempts = 0;
   let landed = !wantsLand;
 
@@ -44,7 +42,7 @@ export async function pickRandomDestination({ waterMap, origin, onProgress }) {
       break;
     }
     if (performance.now() - started > TIME_BUDGET_MS) break;
-    candidate = draw(limited, origin, radiusM);
+    candidate = randomLatLon();
   }
 
   return {
@@ -52,12 +50,6 @@ export async function pickRandomDestination({ waterMap, origin, onProgress }) {
     lon: candidate.lon,
     attempts,
     onLand: landed,
-    limited,
-    radiusM,
     elapsedMs: performance.now() - started,
   };
-}
-
-function draw(limited, origin, radiusM) {
-  return limited && origin ? randomNear(origin, radiusM) : randomLatLon();
 }

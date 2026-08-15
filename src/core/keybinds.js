@@ -21,7 +21,6 @@ export const ACTIONS = [
   { id: 'thirdPerson', label: 'Third person', group: 'View' },
   { id: 'worldMap', label: 'Open world map', group: 'Map' },
   { id: 'waypoint', label: 'Place waypoint here', group: 'Map' },
-  { id: 'pathTool', label: 'Path tool (start / end)', group: 'Map' },
   { id: 'copyCoords', label: 'Copy coordinates', group: 'Map' },
   { id: 'minimapZoomIn', label: 'Minimap zoom in', group: 'Map' },
   { id: 'minimapZoomOut', label: 'Minimap zoom out', group: 'Map' },
@@ -38,10 +37,6 @@ export const ACTIONS = [
   { id: 'hotbar3', label: 'Hotbar 3', group: 'Hotbar' },
   { id: 'hotbar4', label: 'Hotbar 4', group: 'Hotbar' },
   { id: 'hotbar5', label: 'Hotbar 5', group: 'Hotbar' },
-  { id: 'hotbar6', label: 'Hotbar 6', group: 'Hotbar' },
-  { id: 'hotbar7', label: 'Hotbar 7', group: 'Hotbar' },
-  { id: 'hotbar8', label: 'Hotbar 8', group: 'Hotbar' },
-  { id: 'hotbar9', label: 'Hotbar 9', group: 'Hotbar' },
 ];
 
 export const DEFAULT_BINDS = {
@@ -60,7 +55,6 @@ export const DEFAULT_BINDS = {
   thirdPerson: 'KeyT',
   worldMap: 'KeyG',
   waypoint: 'KeyB',
-  pathTool: 'KeyN',
   copyCoords: 'KeyP',
   minimapZoomIn: 'Equal',
   minimapZoomOut: 'Minus',
@@ -77,10 +71,6 @@ export const DEFAULT_BINDS = {
   hotbar3: 'Digit3',
   hotbar4: 'Digit4',
   hotbar5: 'Digit5',
-  hotbar6: 'Digit6',
-  hotbar7: 'Digit7',
-  hotbar8: 'Digit8',
-  hotbar9: 'Digit9',
 };
 
 const NAMED_KEYS = {

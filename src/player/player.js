@@ -2,7 +2,7 @@ import * as THREE from '../../vendor/three/three.module.js';
 import { Emitter } from '../core/events.js';
 import { clamp } from '../core/math.js';
 import { settings } from '../core/settings.js';
-import { ELYTRA_MAX_DURABILITY, rocketTicks } from './elytra.js';
+import { rocketTicks } from './elytra.js';
 
 /**
  * Player state: where you are, how fast, how big, what is in the hotbar.
@@ -12,16 +12,13 @@ import { ELYTRA_MAX_DURABILITY, rocketTicks } from './elytra.js';
  * the local frame is just a coordinate swap.
  */
 
+/** The hotbar is five rockets, flight duration 1 to 5. Nothing else. */
 export const HOTBAR = [
-  { id: 'rocket1', kind: 'rocket', duration: 1, label: 'Rocket I', hint: 'short burst' },
-  { id: 'rocket2', kind: 'rocket', duration: 2, label: 'Rocket II', hint: 'standard boost' },
-  { id: 'rocket3', kind: 'rocket', duration: 3, label: 'Rocket III', hint: 'long boost' },
-  { id: 'rocket4', kind: 'rocket', duration: 4, label: 'Rocket IV', hint: 'cruise climb' },
-  { id: 'rocket5', kind: 'rocket', duration: 5, label: 'Rocket V', hint: 'full burn' },
-  { id: 'elytra', kind: 'elytra', label: 'Elytra', hint: 'deploy / stow wings' },
-  { id: 'waypoint', kind: 'tool', label: 'Marker', hint: 'drop a pin' },
-  { id: 'path', kind: 'tool', label: 'Path pen', hint: 'draw a route' },
-  { id: 'measure', kind: 'tool', label: 'Tape', hint: 'measure' },
+  { duration: 1, label: 'Rocket I', hint: 'short hop' },
+  { duration: 2, label: 'Rocket II', hint: 'standard' },
+  { duration: 3, label: 'Rocket III', hint: 'long' },
+  { duration: 4, label: 'Rocket IV', hint: 'climb' },
+  { duration: 5, label: 'Rocket V', hint: 'full burn' },
 ];
 
 export class Player extends Emitter {
@@ -41,15 +38,12 @@ export class Player extends Emitter {
     this.lon = 0;
 
     this.elytraDeployed = false;
-    this.elytraDurability = ELYTRA_MAX_DURABILITY;
-    this.elytraBroken = false;
+    this.swimming = false;
 
     this.rocketTicksLeft = 0;
     this.rocketDuration = 0;
     this.rocketCooldown = 0;
     this.rocketsFired = 0;
-    this.rocketStock = 32;
-    this.rocketRegen = 0;
 
     this.speedActive = false;
     this.speedRemaining = 0;
@@ -58,7 +52,6 @@ export class Player extends Emitter {
     this.selectedSlot = 0;
     this.distanceTravelled = 0;
     this.airborneSeconds = 0;
-    this.measureAnchor = null;
   }
 
   get scale() {
@@ -140,7 +133,6 @@ export class Player extends Emitter {
   /** Deploy or stow the wings. Returns the resulting state. */
   toggleElytra(force) {
     const next = force !== undefined ? force : !this.elytraDeployed;
-    if (next && this.elytraBroken) return false;
     this.elytraDeployed = next;
     this.emit('elytra', next);
     return next;
@@ -149,13 +141,9 @@ export class Player extends Emitter {
   /** Fire the selected rocket, if the hotbar has one and the cooldown allows. */
   fireRocket() {
     const item = this.selectedItem;
-    const duration = item && item.kind === 'rocket' ? item.duration : 2;
+    const duration = item ? item.duration : 2;
     if (this.rocketCooldown > 0) return false;
     if (!this.elytraDeployed) return false;
-    if (!settings.get('infiniteRockets')) {
-      if (this.rocketStock < 1) return false;
-      this.rocketStock -= 1;
-    }
     this.rocketTicksLeft = rocketTicks(duration);
     this.rocketDuration = duration;
     this.rocketCooldown = 0.28 + duration * 0.12;
@@ -175,15 +163,6 @@ export class Player extends Emitter {
 
   tickTimers(dt) {
     if (this.rocketCooldown > 0) this.rocketCooldown = Math.max(0, this.rocketCooldown - dt);
-
-    // Limited rockets slowly restock so you are never permanently grounded.
-    if (!settings.get('infiniteRockets') && this.rocketStock < 32) {
-      this.rocketRegen += dt;
-      if (this.rocketRegen >= 6) {
-        this.rocketRegen = 0;
-        this.rocketStock = Math.min(32, this.rocketStock + 1);
-      }
-    }
     if (this.speedActive) {
       this.speedRemaining -= dt;
       if (this.speedRemaining <= 0) {
@@ -197,9 +176,4 @@ export class Player extends Emitter {
     }
   }
 
-  repairElytra() {
-    this.elytraDurability = ELYTRA_MAX_DURABILITY;
-    this.elytraBroken = false;
-    this.emit('elytra', this.elytraDeployed);
-  }
 }

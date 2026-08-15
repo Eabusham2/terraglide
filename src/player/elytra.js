@@ -95,13 +95,6 @@ export function rocketTicks(duration) {
   return 10 * duration + 6;
 }
 
-/** Elytra durability model: one point per second of flight, out of 432. */
-export const ELYTRA_MAX_DURABILITY = 432;
-
-export function wearElytra(durability, seconds) {
-  return Math.max(1, durability - seconds);
-}
-
 /** Terminal glide speed for the HUD's "best glide" readout, metres per second. */
 export function bestGlideSpeed() {
   return 33.5;

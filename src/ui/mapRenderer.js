@@ -66,7 +66,10 @@ export function drawMap(ctx, view, layers) {
       const wrappedX = wrapTileX(tx, zoom);
       const screenX = tx * TILE_PX - centre.x;
       const screenY = ty * TILE_PX - centre.y;
-      const resolved = layers.tiles.resolve(zoom, wrappedX, ty);
+      const explored = !layers.exploration || layers.exploration.isExplored(zoom, wrappedX, ty);
+      // Imagery is only drawn for ground you have actually been to — the map
+      // fills in as you explore instead of handing you the whole planet.
+      const resolved = explored || !options.fog ? layers.tiles.resolve(zoom, wrappedX, ty) : null;
 
       if (resolved) {
         const { bitmap, scale, ox, oy } = resolved;
@@ -84,13 +87,11 @@ export function drawMap(ctx, view, layers) {
           TILE_PX + 0.5,
         );
       } else {
-        ctx.fillStyle = '#181b1f';
+        ctx.fillStyle = explored ? '#1b1f24' : '#141619';
         ctx.fillRect(screenX, screenY, TILE_PX, TILE_PX);
       }
 
-      if (options.fog && layers.exploration && !layers.exploration.isExplored(zoom, wrappedX, ty)) {
-        drawUnexplored(ctx, screenX, screenY, TILE_PX, options.fogAlpha ?? 0.62);
-      }
+      if (!explored && options.fog) drawUnexplored(ctx, screenX, screenY, TILE_PX);
     }
   }
 
@@ -122,8 +123,8 @@ export function drawMap(ctx, view, layers) {
     return { x: dx, y: p.y - centre.y };
   };
 
-  if (options.paths && layers.waypointStore) {
-    drawPaths(ctx, layers.waypointStore, toScreen, options.pathWidth ?? 1.4);
+  if (options.trail && layers.trail) {
+    drawTrail(ctx, layers.trail, toScreen, options.pathWidth ?? 1.4);
   }
 
   if (options.waypoints && layers.waypointStore) {
@@ -139,14 +140,13 @@ export function drawMap(ctx, view, layers) {
   return { centre, toScreen };
 }
 
-function drawUnexplored(ctx, x, y, size, alpha) {
+/** Ground you have not visited: a plain hatched blank, no imagery. */
+function drawUnexplored(ctx, x, y, size) {
   ctx.save();
   ctx.beginPath();
   ctx.rect(x, y, size, size);
   ctx.clip();
-  ctx.fillStyle = `rgba(12,14,18,${alpha})`;
-  ctx.fillRect(x, y, size, size);
-  ctx.strokeStyle = 'rgba(190,200,215,0.07)';
+  ctx.strokeStyle = 'rgba(190,200,215,0.06)';
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let i = -size; i < size * 2; i += 12) {
@@ -157,33 +157,23 @@ function drawUnexplored(ctx, x, y, size, alpha) {
   ctx.restore();
 }
 
-function drawPaths(ctx, store, toScreen, width) {
-  const all = store.activePath ? [...store.paths, store.activePath] : store.paths;
-  for (const path of all) {
-    if (!path.points || path.points.length < 1) continue;
-    ctx.strokeStyle = path.colour ?? '#c8b98f';
+/**
+ * The trail: a thin line of where you have actually been, recorded as you
+ * travel. No tool to fiddle with — you move, it draws.
+ */
+function drawTrail(ctx, trail, toScreen, width) {
+  for (const leg of trail.legs) {
+    if (leg.length < 2) continue;
+    ctx.strokeStyle = 'rgba(214, 206, 178, 0.85)';
     ctx.lineWidth = width;
-    ctx.setLineDash(path === store.activePath ? [5, 4] : []);
+    ctx.lineJoin = 'round';
     ctx.beginPath();
-    path.points.forEach((point, index) => {
+    leg.forEach((point, index) => {
       const p = toScreen(point.lat, point.lon);
       if (index === 0) ctx.moveTo(p.x, p.y);
       else ctx.lineTo(p.x, p.y);
     });
     ctx.stroke();
-    ctx.setLineDash([]);
-
-    // End caps so a two-point line reads as "start -> end".
-    const first = toScreen(path.points[0].lat, path.points[0].lon);
-    ctx.fillStyle = path.colour ?? '#c8b98f';
-    ctx.fillRect(first.x - 2, first.y - 2, 4, 4);
-    if (path.points.length > 1) {
-      const last = path.points[path.points.length - 1];
-      const end = toScreen(last.lat, last.lon);
-      ctx.beginPath();
-      ctx.arc(end.x, end.y, 2.6, 0, Math.PI * 2);
-      ctx.fill();
-    }
   }
 }
 

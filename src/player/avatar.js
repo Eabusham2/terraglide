@@ -106,28 +106,44 @@ export class Avatar {
     const gliding = player.mode === 'glide';
     this.glideBlend = damp(this.glideBlend, gliding ? 1 : 0, 7, dt);
 
-    // Body faces travel direction on foot, look direction in the air.
-    const moving = player.horizontalSpeed > 0.4;
-    const travelYaw = moving
-      ? Math.atan2(player.velocity.x, -player.velocity.z)
-      : player.yaw;
-    const targetYaw = gliding ? player.yaw : travelYaw;
-    this.visibleYaw = dampAngle(this.visibleYaw, targetYaw, 9, dt);
+    // The body always faces where you are looking; strafing swings the legs
+    // sideways rather than spinning the whole character round, which is what
+    // made walking sideways look broken.
+    this.visibleYaw = dampAngle(this.visibleYaw, player.yaw, 12, dt);
     this.root.rotation.set(0, this.visibleYaw, 0);
 
-    // Gliding pitches the whole body forward toward the look direction.
-    this.body.rotation.x = damp(this.body.rotation.x, gliding ? -player.pitch + 1.15 : 0, 8, dt);
-    this.body.position.y = damp(this.body.position.y, gliding ? 0.28 : 0, 8, dt);
+    const forwardSpeed =
+      player.velocity.x * Math.sin(player.yaw) - player.velocity.z * Math.cos(player.yaw);
+    const sideSpeed =
+      player.velocity.x * Math.cos(player.yaw) + player.velocity.z * Math.sin(player.yaw);
+
+    // Gliding lies the body flat along the flight path: face down, feet back.
+    // Pitch is negated because looking up must raise the nose, not roll onto
+    // the character's back.
+    const glidePitch = 1.35 + player.pitch;
+    this.body.rotation.x = damp(this.body.rotation.x, gliding ? glidePitch : 0, 8, dt);
+    this.body.rotation.z = damp(
+      this.body.rotation.z,
+      gliding ? 0 : clamp(-sideSpeed * 0.05, -0.25, 0.25),
+      8,
+      dt,
+    );
+    this.body.position.y = damp(this.body.position.y, gliding ? 0.3 : 0, 8, dt);
 
     const stride = clamp(player.horizontalSpeed / (4.3 * Math.pow(player.scale, 0.75)), 0, 1.8);
+    const strafing = Math.abs(sideSpeed) > Math.abs(forwardSpeed) * 1.2 && stride > 0.15;
     if (player.onGround) this.walkPhase += dt * stride * 9;
     else this.walkPhase = damp(this.walkPhase % (Math.PI * 2), 0, 4, dt);
 
     const swing = Math.sin(this.walkPhase) * 0.7 * stride * (1 - this.glideBlend);
-    this.legL.pivot.rotation.x = swing;
-    this.legR.pivot.rotation.x = -swing;
-    this.armL.pivot.rotation.x = -swing * 0.8;
-    this.armR.pivot.rotation.x = swing * 0.8;
+    const side = strafing ? swing : 0;
+    const fore = strafing ? swing * 0.25 : swing;
+    this.legL.pivot.rotation.x = fore;
+    this.legR.pivot.rotation.x = -fore;
+    this.legL.pivot.rotation.z = side * 0.5;
+    this.legR.pivot.rotation.z = -side * 0.5;
+    this.armL.pivot.rotation.x = -fore * 0.8;
+    this.armR.pivot.rotation.x = fore * 0.8;
 
     // Arms sweep back into the slipstream while gliding.
     const tuck = this.glideBlend;
@@ -135,14 +151,22 @@ export class Avatar {
     this.armR.pivot.rotation.x = this.armR.pivot.rotation.x * (1 - tuck) + 2.5 * tuck;
     this.armL.pivot.rotation.z = 0.25 * tuck;
     this.armR.pivot.rotation.z = -0.25 * tuck;
-    this.legL.pivot.rotation.x += 0.25 * tuck;
-    this.legR.pivot.rotation.x += 0.25 * tuck;
+    this.legL.pivot.rotation.x += 0.2 * tuck;
+    this.legR.pivot.rotation.x += 0.2 * tuck;
+    this.legL.pivot.rotation.z *= 1 - tuck;
+    this.legR.pivot.rotation.z *= 1 - tuck;
 
     const open = player.elytraDeployed ? this.glideBlend : 0;
     this.wings.visible = open > 0.02 || player.elytraDeployed;
     this.wingL.rotation.set(-0.15 * open, 0.35 - 1.5 * (1 - open), -0.2 * open);
     this.wingR.rotation.set(-0.15 * open, -0.35 + 1.5 * (1 - open), 0.2 * open);
 
-    this.head.rotation.x = damp(this.head.rotation.x, gliding ? 0 : clamp(player.pitch, -0.9, 0.9), 10, dt);
+    // Head counter-rotates in a glide so the character looks where you look.
+    this.head.rotation.x = damp(
+      this.head.rotation.x,
+      gliding ? clamp(-glidePitch + 0.5, -1.2, 0.4) : clamp(player.pitch, -0.9, 0.9),
+      10,
+      dt,
+    );
   }
 }

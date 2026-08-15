@@ -7,21 +7,23 @@
  */
 
 :root {
-  --bg: #0d0f12;
-  --panel: rgba(17, 19, 23, 0.86);
-  --panel-solid: #14171c;
-  --panel-raised: #1a1e24;
-  --line: rgba(226, 232, 240, 0.16);
-  --line-strong: rgba(226, 232, 240, 0.3);
-  --text: #e6e9ed;
-  --text-dim: #a4abb5;
-  --text-faint: #767d87;
-  --accent: #c8b98f;
+  /* Warm neutral greys rather than blue-black, so the interface reads as
+     printed labelling next to the imagery instead of a dark-mode dashboard. */
+  --bg: #14140f;
+  --panel: rgba(28, 27, 24, 0.72);
+  --panel-solid: rgba(28, 27, 24, 0.94);
+  --panel-raised: rgba(46, 44, 40, 0.9);
+  --line: rgba(232, 228, 216, 0.14);
+  --line-strong: rgba(232, 228, 216, 0.26);
+  --text: #f0ece2;
+  --text-dim: #b8b2a4;
+  --text-faint: #8a8478;
+  --accent: #d8c48a;
   --accent-dim: #8d8266;
-  --good: #93b382;
-  --warn: #cba86a;
-  --bad: #c98a80;
-  --radius: 3px;
+  --good: #9db884;
+  --warn: #d4ab6a;
+  --bad: #cf8f83;
+  --radius: 2px;
   --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
@@ -120,8 +122,9 @@ button {
   background: var(--panel-raised);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 5px 9px;
+  padding: 5px 10px;
   cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
 
 button:hover {
@@ -134,8 +137,9 @@ button:active {
 }
 
 button.primary {
-  border-color: rgba(200, 185, 143, 0.5);
-  color: #f0e7cf;
+  border-color: rgba(216, 196, 138, 0.55);
+  color: #f4ead0;
+  background: rgba(74, 66, 46, 0.72);
 }
 
 button.mini {
@@ -208,10 +212,11 @@ input[type='checkbox'] {
 
 .panel-block {
   background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 7px 9px;
-  backdrop-filter: blur(3px);
+  border: none;
+  border-left: 2px solid rgba(216, 196, 138, 0.5);
+  border-radius: 0;
+  padding: 6px 10px;
+  backdrop-filter: blur(4px);
 }
 
 /* ---------- hud ---------- */
@@ -279,15 +284,20 @@ input[type='checkbox'] {
 
 .hud-compass {
   position: absolute;
-  top: 12px;
+  top: 10px;
   left: 50%;
   transform: translateX(-50%);
-  width: 260px;
-  height: 22px;
+  width: 300px;
+  height: 20px;
   overflow: hidden;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  background: linear-gradient(
+    to right,
+    rgba(28, 27, 24, 0) 0%,
+    rgba(28, 27, 24, 0.7) 18%,
+    rgba(28, 27, 24, 0.7) 82%,
+    rgba(28, 27, 24, 0) 100%
+  );
+  border: none;
 }
 
 .compass-strip {
@@ -324,7 +334,7 @@ input[type='checkbox'] {
 .compass-needle {
   position: absolute;
   top: 0;
-  left: 130px;
+  left: 150px;
   width: 1px;
   height: 100%;
   background: var(--accent);
@@ -359,9 +369,10 @@ input[type='checkbox'] {
 
 .gauge {
   background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 5px 7px;
+  border: none;
+  border-left: 2px solid var(--line-strong);
+  padding: 4px 8px;
+  backdrop-filter: blur(4px);
 }
 
 .gauge label {
@@ -447,18 +458,20 @@ input[type='checkbox'] {
 
 .hud-hotbar .slot {
   position: relative;
-  width: 74px;
-  height: 48px;
-  padding: 4px 5px;
+  width: 88px;
+  height: 42px;
+  padding: 3px 7px;
   text-align: left;
   background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 2px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  backdrop-filter: blur(4px);
 }
 
 .hud-hotbar .slot.selected {
-  border-color: var(--accent);
-  background: #22262c;
+  border-bottom-color: var(--accent);
+  background: rgba(46, 44, 40, 0.92);
 }
 
 .slot-key {

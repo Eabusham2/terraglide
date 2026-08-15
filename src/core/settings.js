@@ -11,8 +11,7 @@ import { readJSON, removeKey, writeJSON } from './storage.js';
  * graphics:          'low' | 'medium' | 'high' | 'ultra'
  * mouseMode:         'locked' | 'pan'
  * units:             'metric' | 'imperial'
- * rtpRange:          'unlimited' | 'radius'
- * timeMode:          'live' | 'noon' | 'golden' | 'night' | 'custom'
+ * timeMode:          'day' | 'live' | 'golden' | 'night' | 'custom'
  */
 export const DEFAULT_SETTINGS = {
   /* providers */
@@ -29,7 +28,7 @@ export const DEFAULT_SETTINGS = {
 
   /* graphics */
   graphics: 'high',
-  renderDistanceKm: 24,
+  renderDistanceKm: 16,
   fov: 78,
   freecamFov: 85,
   speedFovKick: true,
@@ -51,17 +50,13 @@ export const DEFAULT_SETTINGS = {
   /* player */
   playerHeightM: 1.98, // 6 ft 6 in
   playerScale: 1,
-  elytraDurability: true,
-  infiniteRockets: true,
   speedModeDurationS: 10,
   speedModeCooldownS: 45,
 
   /* world / exploration */
   units: 'metric',
   exploreSeas: false,
-  rtpRange: 'unlimited',
-  rtpRadiusKm: 250,
-  timeMode: 'live',
+  timeMode: 'day',
   customHour: 12,
   fogRevealScale: 1,
 
@@ -71,7 +66,7 @@ export const DEFAULT_SETTINGS = {
   minimapSize: 220,
   minimapZoom: 14,
   minimapRotates: false,
-  minimapShowPaths: true,
+  minimapShowTrail: true,
   minimapShowWaypoints: true,
   minimapFog: true,
 
@@ -88,37 +83,37 @@ export const DEFAULT_SETTINGS = {
  */
 export const GRAPHICS_PRESETS = {
   low: {
-    sseThreshold: 3.4,
-    tileGridSize: 9,
-    maxConcurrentRequests: 4,
-    textureCacheSize: 240,
+    sseThreshold: 2.9,
+    tileGridSize: 13,
+    maxConcurrentRequests: 6,
+    textureCacheSize: 320,
     anisotropy: 1,
     buildingRadiusM: 220,
     pixelRatioCap: 1,
   },
   medium: {
-    sseThreshold: 2.6,
-    tileGridSize: 17,
-    maxConcurrentRequests: 6,
-    textureCacheSize: 420,
+    sseThreshold: 2.1,
+    tileGridSize: 21,
+    maxConcurrentRequests: 10,
+    textureCacheSize: 560,
     anisotropy: 4,
     buildingRadiusM: 380,
     pixelRatioCap: 1.25,
   },
   high: {
-    sseThreshold: 2.0,
-    tileGridSize: 25,
-    maxConcurrentRequests: 10,
-    textureCacheSize: 700,
+    sseThreshold: 1.6,
+    tileGridSize: 27,
+    maxConcurrentRequests: 14,
+    textureCacheSize: 900,
     anisotropy: 8,
     buildingRadiusM: 550,
     pixelRatioCap: 1.5,
   },
   ultra: {
-    sseThreshold: 1.5,
+    sseThreshold: 1.15,
     tileGridSize: 33,
-    maxConcurrentRequests: 14,
-    textureCacheSize: 1100,
+    maxConcurrentRequests: 18,
+    textureCacheSize: 1400,
     anisotropy: 16,
     buildingRadiusM: 800,
     pixelRatioCap: 2,

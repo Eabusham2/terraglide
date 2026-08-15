@@ -11,7 +11,6 @@ import {
   formatSpeed,
   formatTemperature,
 } from '../core/units.js';
-import { ELYTRA_MAX_DURABILITY } from '../player/elytra.js';
 import { HOTBAR } from '../player/player.js';
 import { escapeHtml } from './worldmap.js';
 
@@ -54,11 +53,6 @@ export class HUD {
       <div class="hud-crosshair" data-id="crosshair"><i></i></div>
 
       <div class="hud-rail">
-        <div class="gauge" data-id="elytra-gauge">
-          <label>Elytra</label>
-          <div class="bar"><i data-id="elytra-bar"></i></div>
-          <span data-id="elytra-text">—</span>
-        </div>
         <div class="gauge" data-id="speed-gauge">
           <label>Speed mode</label>
           <div class="bar"><i data-id="speed-bar"></i></div>
@@ -82,6 +76,7 @@ export class HUD {
             <span data-id="speed">—</span>
             <span data-id="heading">—</span>
             <span data-id="mode">—</span>
+            <span data-id="water"></span>
           </div>
         </div>
       </div>
@@ -186,24 +181,11 @@ export class HUD {
     this.setText('speed', formatSpeed(player.speed, units));
     this.setText('heading', formatBearing(player.yaw));
     this.setText('mode', modeLabel(player, state));
+    // Over water, the useful number is how far the nearest land is.
+    this.setText('water', state.landAway || '');
 
     // Compass strip.
     if (settings.get('showCompass')) this.updateCompass(player.yaw);
-
-    // Gauges.
-    const durability = clamp(player.elytraDurability / ELYTRA_MAX_DURABILITY, 0, 1);
-    this.refs['elytra-bar'].style.width = `${(durability * 100).toFixed(1)}%`;
-    this.refs['elytra-gauge'].dataset.state = player.elytraBroken
-      ? 'broken'
-      : player.elytraDeployed
-        ? 'active'
-        : 'idle';
-    this.setText(
-      'elytra-text',
-      player.elytraBroken
-        ? 'broken'
-        : `${Math.round(player.elytraDurability)} / ${ELYTRA_MAX_DURABILITY}${player.elytraDeployed ? ' · deployed' : ''}`,
-    );
 
     const speedRatio = player.speedActive
       ? player.speedRemaining / Math.max(1, settings.get('speedModeDurationS'))
@@ -255,7 +237,7 @@ export class HUD {
       strip.innerHTML = marks.join('');
       this._compassBuilt = true;
     }
-    strip.style.transform = `translateX(${-((degrees + 180) * 2) + 130}px)`;
+    strip.style.transform = `translateX(${-((degrees + 180) * 2) + 150}px)`;
   }
 
   updateHotbar(player) {
@@ -269,14 +251,10 @@ export class HUD {
       const meta = host.querySelector(`[data-slot-meta="${index}"]`);
       if (!meta) return;
       const item = HOTBAR[index];
-      let text = '';
-      if (item.kind === 'rocket') {
-        text = player.rocketCooldown > 0 && selected ? `${player.rocketCooldown.toFixed(1)}s` : `dur ${item.duration}`;
-      } else if (item.kind === 'elytra') {
-        text = player.elytraBroken ? 'broken' : player.elytraDeployed ? 'out' : 'stowed';
-      } else {
-        text = item.hint;
-      }
+      const text =
+        player.rocketCooldown > 0 && selected
+          ? `${player.rocketCooldown.toFixed(1)}s`
+          : item.hint;
       if (meta.textContent !== text) meta.textContent = text;
     });
   }
@@ -297,11 +275,12 @@ export class HUD {
 
 function modeLabel(player, state) {
   if (state.freecam) return 'Freecam';
+  if (player.swimming) return 'Swimming';
   if (player.mode === 'glide') {
     return player.rocketTicksLeft > 0 ? 'Gliding · rocket' : 'Gliding';
   }
   if (player.mode === 'fall') return 'Falling';
   if (player.inBuilding) return 'Indoors';
-  if (state.onWater) return 'Sea level';
-  return player.onGround ? 'On foot' : 'Airborne';
+  if (state.onWater) return 'At sea';
+  return player.onGround ? 'On foot' : 'On foot';
 }

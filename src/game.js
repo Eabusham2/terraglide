@@ -28,6 +28,7 @@ import { HUD } from './ui/hud.js';
 import { mapTiles } from './ui/mapTiles.js';
 import { Minimap } from './ui/minimap.js';
 import { SettingsPanel } from './ui/settingsPanel.js';
+import { trail } from './ui/trail.js';
 import { waypoints } from './ui/waypoints.js';
 import { WorldMap } from './ui/worldmap.js';
 
@@ -41,6 +42,8 @@ import { WorldMap } from './ui/worldmap.js';
 const DEFAULT_SPAWN = { lat: 46.5606, lon: 7.9089 }; // Lauterbrunnen valley
 const POSITION_KEY = 'last-position';
 const SETTLE_MS = 2600;
+/** Random teleports drop you here, high enough to open the wings. */
+const SPAWN_HEIGHT_M = 420;
 
 export class Game {
   constructor({ canvas, ui, onStatus }) {
@@ -105,8 +108,8 @@ export class Game {
 
     this.onStatus('Building interface');
     this.hud = new HUD(ui);
-    this.minimap = new Minimap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints });
-    this.worldmap = new WorldMap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints });
+    this.minimap = new Minimap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints, trail });
+    this.worldmap = new WorldMap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints, trail });
     this.settingsPanel = new SettingsPanel(ui);
     this.help = new HelpCard(ui);
 
@@ -180,6 +183,7 @@ export class Game {
     });
     window.addEventListener('beforeunload', () => {
       exploration.save();
+      trail.save();
       this.savePosition();
     });
   }
@@ -214,6 +218,7 @@ export class Game {
         version: 1,
         settings: settings.values,
         waypoints: waypoints.export(),
+        trail: trail.legs,
         explored: [...exploration.cells],
         position: { lat: this.player.lat, lon: this.player.lon },
       };
@@ -232,6 +237,11 @@ export class Game {
           const data = JSON.parse(text);
           if (data.settings) settings.patch(data.settings);
           if (data.waypoints) waypoints.import(data.waypoints);
+          if (Array.isArray(data.trail)) {
+            trail.legs = data.trail;
+            trail.dirty = true;
+            trail.save();
+          }
           if (Array.isArray(data.explored)) {
             for (const key of data.explored) exploration.cells.add(key);
             exploration.detailCount = exploration.countAt(14);
@@ -247,7 +257,8 @@ export class Game {
       this.toast('Explored areas cleared');
     } else if (name === 'clear-marks') {
       waypoints.clearAll();
-      this.toast('Waypoints and paths deleted');
+      trail.clear();
+      this.toast('Waypoints and trail deleted');
     } else if (name === 'reset-settings') {
       this.applyProviders();
       this.toast('Settings reset');
@@ -356,6 +367,8 @@ export class Game {
 
     exploration.visit(player.lat, player.lon, player.altitudeAboveGround);
     exploration.tick(dt);
+    trail.record(player.lat, player.lon);
+    trail.tick(dt);
 
     this.address = geocoder.lookup(player.lat, player.lon)?.label ?? this.address;
 
@@ -367,6 +380,7 @@ export class Game {
       attribution: this.attributionLine(),
       freecam: this.rig.isFreecam,
       onWater: this.terrain.isWaterAt(player.position.x, player.position.z),
+      landAway: this.landAway,
       debug: this.debugVisible ? this.debugText() : '',
     });
 
@@ -376,11 +390,43 @@ export class Game {
     );
     this.worldmap.update({ lat: player.lat, lon: player.lon, heading: player.yaw });
 
+    this.updateWaterReadout(dt);
+
     this.saveTimer += dt;
     if (this.saveTimer > 8) {
       this.saveTimer = 0;
       this.savePosition();
     }
+  }
+
+  /**
+   * Over open water, work out how far the nearest land is by walking outwards
+   * through the elevation field. Cheap, and only while you are actually at sea.
+   */
+  updateWaterReadout(dt) {
+    this.waterTimer = (this.waterTimer ?? 0) - dt;
+    if (this.waterTimer > 0) return;
+    this.waterTimer = 0.75;
+
+    const player = this.player;
+    if (!this.terrain.isWaterAt(player.position.x, player.position.z)) {
+      this.landAway = '';
+      return;
+    }
+    let nearest = Infinity;
+    for (let ring = 1; ring <= 14; ring++) {
+      const radius = ring * ring * 260;
+      for (let i = 0; i < 12; i++) {
+        const angle = (i / 12) * Math.PI * 2;
+        const x = player.position.x + Math.cos(angle) * radius;
+        const z = player.position.z + Math.sin(angle) * radius;
+        if (!this.terrain.isWaterAt(x, z)) nearest = Math.min(nearest, radius);
+      }
+      if (nearest < Infinity) break;
+    }
+    this.landAway = Number.isFinite(nearest)
+      ? `land ~${formatDistance(nearest, settings.get('units'), 0)}`
+      : 'open ocean';
   }
 
   get settling() {
@@ -440,9 +486,17 @@ export class Game {
     this.elevation.ensureAround(nx, ny, Math.min(13, this.elevation.maxZoom), 1);
 
     const ground = Math.max(0, this.elevation.sampleLatLon(lat, lon));
-    player.teleport(lat, lon, ground, 1.2);
+    // Arrive in the air with the wings out: you are here to look around, and a
+    // teleport that dumps you in a field facing a hedge wastes the trip.
+    const airborne = reason === 'rtp' || reason === 'spawn';
+    player.teleport(lat, lon, ground, airborne ? SPAWN_HEIGHT_M : 1.2);
+    if (airborne) {
+      player.onGround = false;
+      player.toggleElytra(true);
+    }
+    trail.break();
     this.camera.position.set(0, ground + player.eyeHeight, 0);
-    this.settleUntil = performance.now() + SETTLE_MS;
+    this.settleUntil = airborne ? 0 : performance.now() + SETTLE_MS;
     this.address = 'Locating…';
 
     if (!quiet) {
@@ -460,16 +514,13 @@ export class Game {
     this.rtpBusy = true;
     this.toast('Looking for somewhere to land…');
     try {
-      const destination = await pickRandomDestination({
-        waterMap,
-        origin: { lat: this.player.lat, lon: this.player.lon },
-      });
+      const destination = await pickRandomDestination({ waterMap });
       await this.teleportTo(destination.lat, destination.lon, { reason: 'rtp', quiet: true });
       const where = formatLatLon(destination.lat, destination.lon, 4);
       if (!destination.onLand && !settings.get('exploreSeas')) {
         this.toast(`Dropped at ${where} — could not confirm dry land`, 'warn');
       } else {
-        this.toast(`Dropped at ${where}${destination.limited ? ' (within range)' : ''}`);
+        this.toast(`Dropped at ${where}`);
       }
     } catch (err) {
       this.toast(`Teleport failed: ${err.message ?? err}`, 'bad');
@@ -504,10 +555,6 @@ export class Game {
         this.randomTeleport();
         break;
       case 'elytra': {
-        if (player.elytraBroken) {
-          this.toast('The elytra is broken — repair it in Settings → Player', 'warn');
-          break;
-        }
         const out = player.toggleElytra();
         this.toast(out ? 'Wings out' : 'Wings stowed');
         break;
@@ -535,17 +582,6 @@ export class Game {
       case 'waypoint': {
         const waypoint = waypoints.add(player.lat, player.lon, '', player.position.y);
         this.toast(`${waypoint.name} saved`);
-        break;
-      }
-      case 'pathTool': {
-        const result = waypoints.tapPath(player.lat, player.lon);
-        const messages = {
-          started: 'Path started — tap again to add points, twice to finish',
-          point: 'Path point added',
-          finished: 'Path saved',
-          discarded: 'Path discarded',
-        };
-        this.toast(messages[result]);
         break;
       }
       case 'copyCoords':
@@ -597,47 +633,23 @@ export class Game {
     }
   }
 
+  /** Picking a hotbar slot just chooses which rocket you fire next. */
   useSlot(index) {
-    const player = this.player;
-    player.selectSlot(index);
-    const item = HOTBAR[index];
-    if (!item) return;
-    if (item.kind === 'elytra') {
-      const out = player.toggleElytra();
-      this.toast(out ? 'Wings out' : 'Wings stowed');
-    } else if (item.id === 'waypoint') {
-      const waypoint = waypoints.add(player.lat, player.lon, '', player.position.y);
-      this.toast(`${waypoint.name} saved`);
-    } else if (item.id === 'path') {
-      this.onAction('pathTool');
-    } else if (item.id === 'measure') {
-      if (!player.measureAnchor) {
-        player.measureAnchor = { lat: player.lat, lon: player.lon };
-        this.toast('Measuring from here');
-      } else {
-        const distance = haversine(player.measureAnchor, { lat: player.lat, lon: player.lon });
-        this.toast(`${formatDistance(distance, settings.get('units'))} from the mark`);
-        player.measureAnchor = null;
-      }
-    }
+    this.player.selectSlot(index);
   }
 
   fireRocket() {
     const player = this.player;
     if (this.rig.isFreecam) return;
     if (!player.elytraDeployed) {
-      if (!player.onGround && !player.elytraBroken) {
+      if (!player.onGround) {
         player.toggleElytra(true);
       } else {
         this.toast('Jump, then open the wings before boosting', 'warn');
         return;
       }
     }
-    if (player.fireRocket()) {
-      this.rig.kick(0.1 + player.rocketDuration * 0.02);
-    } else if (!settings.get('infiniteRockets') && player.rocketStock < 1) {
-      this.toast('Out of rockets — they restock slowly', 'warn');
-    }
+    if (player.fireRocket()) this.rig.kick(0.1 + player.rocketDuration * 0.02);
   }
 
   land() {

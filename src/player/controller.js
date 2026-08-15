@@ -2,7 +2,7 @@ import * as THREE from '../../vendor/three/three.module.js';
 import { clamp, damp } from '../core/math.js';
 import { FixedStep } from '../core/perf.js';
 import { settings } from '../core/settings.js';
-import { ELYTRA_MAX_DURABILITY, TICK, stepGlide, stepRocket } from './elytra.js';
+import { TICK, stepGlide, stepRocket } from './elytra.js';
 
 /**
  * Movement, collision and the two flight modes.
@@ -21,6 +21,12 @@ const JUMP_SPEED = 8.4;
 const GROUND_ACCEL = 14;
 const AIR_ACCEL = 2.4;
 const CLIMB_SPEED = 3.4;
+const SWIM_SPEED = 2.4;
+const SWIM_SINK = 0.9;
+const SWIM_RISE = 3.2;
+const WATER_DRAG = 5.5;
+/** How far the feet can be lifted per second when walking up a slope. */
+const STEP_SMOOTHING = 12;
 
 export class PlayerController {
   constructor({ player, terrain, buildings }) {
@@ -82,18 +88,6 @@ export class PlayerController {
     stepGlide(player.velocity, this.look, player.pitch);
     player.airborneSeconds += step;
 
-    if (settings.get('elytraDurability')) {
-      player.elytraDurability -= step;
-      if (player.elytraDurability <= 1) {
-        player.elytraDurability = 1;
-        player.elytraBroken = true;
-        player.toggleElytra(false);
-      }
-    } else {
-      player.elytraDurability = ELYTRA_MAX_DURABILITY;
-      player.elytraBroken = false;
-    }
-
     // Crouch pulls the nose down a touch — handy for shedding altitude.
     if (input.crouch) player.velocity.y -= 4 * step;
   }
@@ -101,10 +95,12 @@ export class PlayerController {
   tickGround(step, input, scale) {
     const player = this.player;
     const strideScale = Math.pow(scale, 0.75);
+    const swimming = player.swimming;
 
-    let speed = WALK_SPEED;
-    if (input.sprint) speed = SPRINT_SPEED;
-    if (input.crouch) speed = CROUCH_SPEED;
+    let speed = swimming ? SWIM_SPEED : WALK_SPEED;
+    if (!swimming && input.sprint) speed = SPRINT_SPEED;
+    if (!swimming && input.crouch) speed = CROUCH_SPEED;
+    if (swimming && input.sprint) speed = SWIM_SPEED * 1.7;
     speed *= strideScale;
 
     const forward = (input.forward ? 1 : 0) - (input.back ? 1 : 0);
@@ -123,11 +119,19 @@ export class PlayerController {
       targetZ = (fz + sz) * speed;
     }
 
-    const accel = player.onGround ? GROUND_ACCEL : AIR_ACCEL;
+    const accel = swimming ? WATER_DRAG : player.onGround ? GROUND_ACCEL : AIR_ACCEL;
     player.velocity.x = damp(player.velocity.x, targetX, accel, step);
     player.velocity.z = damp(player.velocity.z, targetZ, accel, step);
 
-    if (this.climbing) {
+    if (swimming) {
+      // Treading water: rise on jump, sink on crouch, otherwise float.
+      const target = input.jump
+        ? SWIM_RISE * strideScale
+        : input.crouch
+          ? -SWIM_RISE * strideScale
+          : -SWIM_SINK;
+      player.velocity.y = damp(player.velocity.y, target, WATER_DRAG, step);
+    } else if (this.climbing) {
       // Stair shaft: hold jump to go up, crouch to come down.
       player.velocity.y = input.jump
         ? CLIMB_SPEED * strideScale
@@ -148,7 +152,7 @@ export class PlayerController {
     } else {
       player.airborneSeconds += step;
       // Falling with jump held snaps the wings open, like the real thing.
-      if (input.jump && player.velocity.y < -2 && !player.elytraBroken && player.airborneSeconds > 0.25) {
+      if (input.jump && player.velocity.y < -2 && player.airborneSeconds > 0.25) {
         player.toggleElytra(true);
       }
     }
@@ -228,8 +232,20 @@ export class PlayerController {
     );
     player.groundHeight = ground;
 
+    // Swimming: the sea sits at height zero, so anything below it is water.
+    const seaDepth = -this.terrain.bedAt(player.position.x, player.position.z);
+    player.swimming = seaDepth > 0.6 && player.position.y < height * 0.55 && !player.elytraDeployed;
+
     if (player.position.y <= ground + 0.001) {
-      player.position.y = ground;
+      // Walking uphill lifts the feet over a step or two rather than snapping,
+      // which is what made short slopes feel like stairs before.
+      const rise = ground - player.position.y;
+      if (player.onGround && rise > 0 && rise < stepUp) {
+        player.position.y = damp(player.position.y, ground, STEP_SMOOTHING, step);
+        if (ground - player.position.y < 0.02) player.position.y = ground;
+      } else {
+        player.position.y = ground;
+      }
       if (player.velocity.y < 0) player.velocity.y = 0;
       if (!player.onGround) this.landedThisFrame = true;
       player.onGround = true;

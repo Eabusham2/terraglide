@@ -70,7 +70,7 @@ const TERRAIN_FRAG = /* glsl */ `
     vec3 n = normalize(vNormalW);
     float lambert = max(dot(n, uSunDir), 0.0);
     // Soft wrap keeps shaded slopes readable instead of crushing them to black.
-    float wrapped = lambert * 0.78 + 0.22;
+    float wrapped = lambert * 0.62 + 0.38;
     vec3 lit = albedo * (uAmbient + uSunColor * wrapped);
 
     // Snow above the seasonal snow line, on ground that is not too steep.
@@ -81,7 +81,7 @@ const TERRAIN_FRAG = /* glsl */ `
     vec3 snowColour = vec3(0.9, 0.92, 0.95) * (uAmbient + uSunColor * wrapped);
     lit = mix(lit, snowColour, snow * 0.62);
 
-    lit = mix(lit, lit * vec3(0.35, 0.42, 0.62), uNight);
+    lit = mix(lit, lit * vec3(0.46, 0.52, 0.7), uNight);
 
     if (uFogEnabled > 0.5) {
       float f = 1.0 - exp(-pow(vDist * uFogDensity, 2.0));

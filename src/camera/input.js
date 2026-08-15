@@ -91,8 +91,20 @@ export class InputManager extends Emitter {
 
   requestPointerLock() {
     if (settings.get('mouseMode') !== 'locked' || this.pointerLocked || this.suspended) return;
-    const promise = this.canvas.requestPointerLock();
-    if (promise && typeof promise.catch === 'function') promise.catch(() => {});
+    // Browsers reject a lock request made too soon after the last exit, so back
+    // off and let the next click try again instead of wedging.
+    const now = performance.now();
+    if (now - (this.lockRejectedAt ?? -Infinity) < 1300) return;
+    try {
+      const promise = this.canvas.requestPointerLock();
+      if (promise && typeof promise.catch === 'function') {
+        promise.catch(() => {
+          this.lockRejectedAt = performance.now();
+        });
+      }
+    } catch {
+      this.lockRejectedAt = now;
+    }
   }
 
   exitPointerLock() {
@@ -100,8 +112,11 @@ export class InputManager extends Emitter {
   }
 
   onPointerLockChange() {
-    this.pointerLocked = document.pointerLockElement === this.canvas;
-    this.emit('pointerlock', this.pointerLocked);
+    const locked = document.pointerLockElement === this.canvas;
+    if (!locked && this.pointerLocked) this.keys.clear();
+    this.pointerLocked = locked;
+    if (locked) this.lockRejectedAt = -Infinity;
+    this.emit('pointerlock', locked);
   }
 
   onBlur() {
@@ -143,11 +158,14 @@ export class InputManager extends Emitter {
 
   onMouseDown(event) {
     if (this.suspended) return;
+    // A click that lands on the HUD, a panel or the minimap belongs to them.
+    if (event.target !== this.canvas) return;
     const mode = settings.get('mouseMode');
     const swap = settings.get('swapMouseButtons');
 
     if (mode === 'locked') {
       if (!this.pointerLocked) {
+        event.preventDefault();
         this.requestPointerLock();
         return;
       }
@@ -159,10 +177,12 @@ export class InputManager extends Emitter {
       return;
     }
 
-    // Pan mode.
+    // Pan mode: drag with one button to look, click the other to boost, and a
+    // plain click (no drag) lands.
     const lookButton = swap ? 2 : 0;
     const boostButton = swap ? 0 : 2;
     if (event.button === lookButton) {
+      event.preventDefault();
       this.dragging = true;
       this.dragMoved = 0;
       this.dragButton = event.button;
@@ -178,6 +198,7 @@ export class InputManager extends Emitter {
   onMouseUp(event) {
     if (!this.dragging || event.button !== this.dragButton) return;
     this.dragging = false;
+    this.dragButton = -1;
     this.canvas.classList.remove('dragging');
     if (this.dragMoved < DRAG_THRESHOLD && !this.suspended) {
       // A click rather than a drag: that is the "land" action in pan mode.
