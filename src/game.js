@@ -530,6 +530,8 @@ export class Game {
       const where = formatLatLon(destination.lat, destination.lon, 4);
       if (!destination.onLand && !settings.get('exploreSeas')) {
         this.toast(`Dropped at ${where} — could not confirm dry land`, 'warn');
+      } else if (destination.place) {
+        this.toast(`Dropped near ${destination.place} · ${where}`);
       } else {
         this.toast(`Dropped at ${where}`);
       }

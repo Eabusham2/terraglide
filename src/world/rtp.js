@@ -1,6 +1,7 @@
 import { clamp } from '../core/math.js';
 import { settings } from '../core/settings.js';
 import { MAX_LATITUDE, randomLatLon } from '../geo/mercator.js';
+import { randomPopulatedPlace } from './places.js';
 
 /**
  * Random teleport.
@@ -21,8 +22,23 @@ const MAX_ATTEMPTS = 26;
 const TIME_BUDGET_MS = 2600;
 
 export async function pickRandomDestination({ waterMap, onProgress }) {
-  const wantsLand = !settings.get('exploreSeas');
+  const populated = settings.get('rtpTarget') === 'populated';
+  // A populated drop is already on land by construction, so the water test —
+  // and its network round trips — is skipped entirely.
+  const wantsLand = !populated && !settings.get('exploreSeas');
   const started = performance.now();
+
+  if (populated) {
+    const place = randomPopulatedPlace();
+    return {
+      lat: clamp(place.lat, -MAX_LATITUDE, MAX_LATITUDE),
+      lon: place.lon,
+      attempts: 0,
+      onLand: true,
+      place: place.name,
+      elapsedMs: performance.now() - started,
+    };
+  }
 
   let candidate = randomLatLon();
   let attempts = 0;

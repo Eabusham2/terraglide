@@ -74,8 +74,20 @@ body {
   pointer-events: none;
 }
 
-#ui > * {
+/*
+ * Overlays must not eat clicks meant for the world. The HUD and the touch layer
+ * cover the whole screen, so they stay transparent to the pointer and only the
+ * pieces you can actually press take events back. Getting this wrong made every
+ * click on the view do nothing at all.
+ */
+#ui > .panel,
+#ui > .minimap {
   pointer-events: auto;
+}
+
+#ui > .hud,
+#ui > .touch {
+  pointer-events: none;
 }
 
 /* ---------- boot ---------- */
@@ -232,8 +244,20 @@ input[type='checkbox'] {
   pointer-events: none;
 }
 
-.hud > * {
+.hud-topleft,
+.hud-rail,
+.hud-bottomleft,
+.hud-hotbar,
+.hud-bottomright,
+.hud-toasts,
+.hud-debug {
   pointer-events: auto;
+}
+
+/* The compass and crosshair are read-only and span the view; never clickable. */
+.hud-compass,
+.hud-crosshair {
+  pointer-events: none;
 }
 
 .hud-topleft {

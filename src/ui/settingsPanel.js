@@ -131,7 +131,20 @@ const SECTIONS = [
           { value: 'imperial', label: 'Imperial (ft, mi, °F)' },
         ],
       },
-      { key: 'exploreSeas', label: 'Random teleport may land at sea', type: 'toggle', help: 'Off keeps you on land. On lets you drop anywhere, oceans included.' },
+      {
+        key: 'rtpTarget',
+        label: 'Random teleport lands',
+        type: 'select',
+        options: () => [
+          { value: 'anywhere', label: 'Anywhere on Earth' },
+          { value: 'populated', label: 'Somewhere with people' },
+        ],
+        help: (value) =>
+          value === 'populated'
+            ? 'Drops you on a city or town, a few kilometres off centre so it is a different spot each time. Works offline.'
+            : 'Uniform over the whole planet, so mostly wilderness — which is rather the point.',
+      },
+      { key: 'exploreSeas', label: 'Anywhere-mode may land at sea', type: 'toggle', help: 'Off keeps you on land. On lets you drop anywhere, oceans included.' },
       {
         key: 'timeMode',
         label: 'Time of day',

@@ -11,6 +11,7 @@ import { readJSON, removeKey, writeJSON } from './storage.js';
  * graphics:          'low' | 'medium' | 'high' | 'ultra'
  * mouseMode:         'locked' | 'pan'
  * units:             'metric' | 'imperial'
+ * rtpTarget:         'anywhere' | 'populated'
  * timeMode:          'day' | 'live' | 'golden' | 'night' | 'custom'
  */
 export const DEFAULT_SETTINGS = {
@@ -56,6 +57,8 @@ export const DEFAULT_SETTINGS = {
   /* world / exploration */
   units: 'metric',
   exploreSeas: false,
+  /** 'anywhere' | 'populated' — where random teleport is allowed to drop you. */
+  rtpTarget: 'anywhere',
   timeMode: 'day',
   customHour: 12,
   fogRevealScale: 1,
