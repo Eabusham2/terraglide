@@ -62,6 +62,8 @@ export class Scatter {
     scene.add(this.group);
 
     this.meshes = {};
+    /** Generated textures, held whether or not they are currently applied. */
+    this.textures = {};
     this.tiles = new Map();
     this.lastBuildAt = null;
     this.dirty = false;
@@ -84,6 +86,25 @@ export class Scatter {
    * single-file build has no assets folder and falls back to flat colour, which
    * is why nothing here depends on them.
    */
+  /**
+   * The generated textures are for the *generated* world only.
+   *
+   * Over real imagery the colour already comes from the aerial photograph, and
+   * a made-up canopy texture on top of real data is exactly the kind of
+   * invented dressing this project keeps out. On the offline world there is no
+   * photograph to take it from, so they earn their place there.
+   */
+  applyTextureMode() {
+    const generated = settings.get('imageryProvider') === 'offline';
+    for (const kind of KINDS) {
+      const mesh = this.meshes[kind];
+      const wanted = generated ? this.textures[kind] ?? null : null;
+      if (mesh.material.map === wanted) continue;
+      mesh.material.map = wanted;
+      mesh.material.needsUpdate = true;
+    }
+  }
+
   async loadTextures(base = './assets/') {
     if (typeof document === 'undefined' || typeof fetch !== 'function') return;
     let manifest;
@@ -106,11 +127,10 @@ export class Scatter {
           texture.wrapS = THREE.RepeatWrapping;
           texture.wrapT = THREE.RepeatWrapping;
           for (const kind of kinds) {
-            const mesh = this.meshes[kind];
-            if (!mesh) continue;
-            mesh.material.map = texture;
-            mesh.material.needsUpdate = true;
+            if (!this.meshes[kind]) continue;
+            this.textures[kind] = texture;
           }
+          this.applyTextureMode();
         },
         undefined,
         () => {},
@@ -182,6 +202,7 @@ export class Scatter {
       return;
     }
 
+    this.applyTextureMode();
     if (player) this.requestAround(player.lat, player.lon);
 
     const x = camera.position.x;
