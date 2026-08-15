@@ -34,10 +34,9 @@ function checkSupport() {
   const probe = document.createElement('canvas');
   const gl = probe.getContext('webgl2');
   if (!gl) return 'WebGL 2 is present but the browser refused to create a context — check hardware acceleration.';
-  if (typeof Worker === 'undefined') return 'Web Workers are unavailable.';
   if (typeof createImageBitmap !== 'function') return 'createImageBitmap is unavailable.';
-  if (location.protocol === 'file:') {
-    return 'Opened straight from the file system. Browsers block ES modules and workers over file://, so serve the folder over HTTP instead (see the README).';
+  if (location.protocol === 'file:' && !globalThis.__TERRAGLIDE_INLINE_WORKER__) {
+    return 'Opened straight from the file system. Browsers block ES modules over file://, so either serve the folder over HTTP or use the single-file build, terraglide.html (see the README).';
   }
   return null;
 }

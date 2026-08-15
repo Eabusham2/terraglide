@@ -68,7 +68,9 @@ export class Buildings {
     const wanted = settings.get('buildings');
     this.group.visible = wanted;
     if (!wanted) return;
-    if (altitudeAboveGround > 900) return;
+    // High enough to keep the skyline honest on approach, low enough that a
+    // cruise at altitude never touches the network.
+    if (altitudeAboveGround > 2200) return;
 
     const n = Math.pow(2, DATA_ZOOM);
     const cx = Math.floor(lonToNormX(lon) * n);

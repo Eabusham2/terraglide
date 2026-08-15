@@ -40,31 +40,49 @@ function vnoise(x, y, period) {
 
 const BASE_CELLS = 10;
 
-/** Continent/ocean mask in [0,1]; low frequency only. */
-function continentField(nx, ny) {
+function fbm(nx, ny, octaves, startFreq = 1, gain = 0.55) {
   let sum = 0;
   let amp = 1;
   let total = 0;
-  let freq = 1;
-  for (let o = 0; o < 5; o++) {
+  let freq = startFreq;
+  for (let o = 0; o < octaves; o++) {
     const cells = BASE_CELLS * freq;
     sum += vnoise(nx * cells, ny * cells, cells) * amp;
     total += amp;
-    amp *= 0.55;
+    amp *= gain;
     freq *= 2;
   }
   return sum / total;
 }
 
-/** Ridged fractal used for mountain chains. */
+/**
+ * Continent/ocean mask in [0,1].
+ *
+ * Plain fractal noise gives blobby islands that read as noise rather than as
+ * geography, so the sample point is warped by a second, coarser noise field
+ * first. That one trick is what bends coastlines into peninsulas and bays
+ * instead of circles.
+ */
+function continentField(nx, ny) {
+  const warpX = (fbm(nx + 0.37, ny + 0.11, 3) - 0.5) * 0.22;
+  const warpY = (fbm(nx + 0.71, ny + 0.53, 3) - 0.5) * 0.22;
+  return fbm(nx + warpX, ny + warpY, 5);
+}
+
+/**
+ * Ridged fractal used for mountain chains. Warped as well, so ranges run in
+ * long arcs the way real orogenic belts do rather than scattering as lumps.
+ */
 function ridgeField(nx, ny, octaves) {
+  const warpX = (fbm(nx + 5.1, ny + 2.3, 2, 2) - 0.5) * 0.06;
+  const warpY = (fbm(nx + 1.7, ny + 8.9, 2, 2) - 0.5) * 0.06;
   let sum = 0;
   let amp = 1;
   let total = 0;
   let freq = 4;
   for (let o = 0; o < octaves; o++) {
     const cells = BASE_CELLS * freq;
-    const n = vnoise(nx * cells, ny * cells, cells);
+    const n = vnoise((nx + warpX) * cells, (ny + warpY) * cells, cells);
     const ridge = 1 - Math.abs(n * 2 - 1);
     sum += ridge * ridge * amp;
     total += amp;
@@ -102,20 +120,28 @@ export function proceduralElevation(nx, ny, detail = 6) {
   const land = continent - SEA_LEVEL;
 
   if (land <= 0) {
-    // Ocean floor: deepen away from the coast, with gentle abyssal relief.
+    // Ocean floor: a shallow shelf near the coast, then a drop to the abyss.
     const depth = Math.min(1, -land / 0.35);
-    const relief = detailField(wrappedX, clampedY, 3, 3) * 260;
-    return -depth * OCEAN_DEPTH * (0.35 + 0.65 * depth) + relief;
+    const shelf = Math.pow(depth, 1.6);
+    const relief = detailField(wrappedX, clampedY, 3, 3) * 220;
+    return -shelf * OCEAN_DEPTH + relief * depth;
   }
 
-  const shore = Math.min(1, land / 0.06);
+  // A wide, gently rising coastal plain instead of a wall at the waterline.
+  const shore = Math.pow(Math.min(1, land / 0.05), 1.4);
   const mountains = ridgeField(wrappedX, clampedY, Math.min(7, 3 + detail));
-  const uplift = Math.pow(Math.min(1, land / 0.28), 1.35);
-  const base = land * 900;
-  const peaks = mountains * mountains * MAX_ELEVATION * uplift;
-  const fine = detailField(wrappedX, clampedY, 6, Math.max(0, detail)) * (60 + 320 * uplift);
+  const uplift = Math.pow(Math.min(1, land / 0.26), 1.5);
+  const base = land * 700;
+  const peaks = Math.pow(mountains, 2.4) * MAX_ELEVATION * uplift;
 
-  return (base + peaks + fine) * shore;
+  // Valleys: subtract a smooth channel field so ranges are cut by drainage
+  // rather than being solid domes.
+  const valley = Math.abs(fbm(wrappedX, clampedY, 3, 6) - 0.5) * 2;
+  const carve = (1 - Math.pow(valley, 0.6)) * 320 * uplift;
+
+  const fine = detailField(wrappedX, clampedY, 6, Math.max(0, detail)) * (45 + 260 * uplift);
+
+  return Math.max(0.5, (base + peaks - carve + fine) * shore);
 }
 
 /** Latitude (deg) from a normalised mercator y, for climate-driven colouring. */

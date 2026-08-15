@@ -5,12 +5,22 @@ import { settings } from '../core/settings.js';
 /**
  * Camera rig: first person, third person, and the freecam.
  *
- * Field of view widens with speed (subtly, and only if you leave the toggle on),
- * the horizon rolls a little when you bank in a glide, and the third-person
- * camera refuses to sink into the ground or into a building floor.
+ * Yaw is a compass bearing — 0 is north, and it grows clockwise, the same
+ * number the HUD, the minimap and the autopilot all use. Forward is therefore
+ * (sin yaw, 0, −cos yaw), and the camera's own Y rotation has to be the
+ * *negative* of it, because three.js measures its Euler the other way round.
+ * Getting that backwards is what used to send you off at an angle to wherever
+ * you were looking.
+ *
+ * The view does not roll. Turning hard in a glide used to bank the horizon,
+ * which reads as the world tilting rather than you turning; it is now flat like
+ * Minecraft's, and the only thing that rolls the camera is a barrel roll you
+ * asked for.
  */
 
 const PITCH_LIMIT = Math.PI / 2 - 0.02;
+/** One barrel roll, in seconds. */
+const ROLL_TIME = 0.8;
 
 export class CameraRig {
   constructor(camera) {
@@ -49,13 +59,21 @@ export class CameraRig {
   }
 
   applyLook(player, dx, dy) {
+    // Mouse right turns you clockwise, which *increases* a compass bearing.
     if (this.freecam.active) {
-      this.freecam.yaw -= dx;
+      this.freecam.yaw += dx;
       this.freecam.pitch = clamp(this.freecam.pitch - dy, -PITCH_LIMIT, PITCH_LIMIT);
       return;
     }
-    player.yaw -= dx;
+    player.yaw += dx;
     player.pitch = clamp(player.pitch - dy, -PITCH_LIMIT, PITCH_LIMIT);
+  }
+
+  /** Start a barrel roll, if the option is on and one is not already running. */
+  startBarrelRoll() {
+    if (!settings.get('barrelRoll') || this.rolling) return false;
+    this.rolling = 0.0001;
+    return true;
   }
 
   adjustFreecamSpeed(delta) {
@@ -101,19 +119,22 @@ export class CameraRig {
 
     if (this.freecam.active) {
       camera.position.copy(this.freecam.position);
-      this._euler.set(this.freecam.pitch, this.freecam.yaw, 0, 'YXZ');
+      this._euler.set(this.freecam.pitch, -this.freecam.yaw, 0, 'YXZ');
       camera.quaternion.setFromEuler(this._euler);
       return;
     }
 
-    // Bank the horizon slightly when turning in a glide.
-    const turning = player.mode === 'glide' ? clamp(-this.yawRate * 2.2, -0.5, 0.5) : 0;
-    this.roll = damp(this.roll, turning, 4, dt);
+    // The only roll is a barrel roll, and only if you asked for one.
+    if (this.rolling) {
+      this.rolling += dt / ROLL_TIME;
+      if (this.rolling >= 1) this.rolling = 0;
+    }
+    this.roll = this.rolling ? this.rolling * Math.PI * 2 : 0;
 
     const eye = player.eyeHeight;
     this._target.set(player.position.x, player.position.y + eye, player.position.z);
 
-    if (settings.get('thirdPerson')) {
+    if (settings.get('perspective') === 'third') {
       const distance = 3.4 * player.height;
       const cosPitch = Math.cos(player.pitch);
       this._offset.set(
@@ -125,12 +146,13 @@ export class CameraRig {
       const desired = this._target.clone().add(this._offset);
       const floor = terrain ? terrain.heightAt(desired.x, desired.z) + player.height * 0.35 : -Infinity;
       desired.y = Math.max(desired.y, floor);
-      camera.position.lerpVectors(camera.position, desired, 1 - Math.exp(-14 * dt));
+      // Tight enough that the view is where you pointed it, not trailing it.
+      camera.position.lerpVectors(camera.position, desired, 1 - Math.exp(-24 * dt));
       camera.lookAt(this._target);
-      camera.rotateZ(this.roll);
+      if (this.roll) camera.rotateZ(this.roll);
     } else {
       camera.position.copy(this._target);
-      this._euler.set(player.pitch, player.yaw, this.roll, 'YXZ');
+      this._euler.set(player.pitch, -player.yaw, this.roll, 'YXZ');
       camera.quaternion.setFromEuler(this._euler);
     }
 
@@ -141,11 +163,6 @@ export class CameraRig {
       camera.position.z += (Math.random() - 0.5) * amount;
       this.shake = damp(this.shake, 0, 5, dt);
     }
-  }
-
-  /** Called by the game each frame so banking knows how fast you are turning. */
-  setYawRate(rate) {
-    this.yawRate = rate;
   }
 
   kick(amount) {

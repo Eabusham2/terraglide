@@ -7,21 +7,23 @@
  */
 
 :root {
-  --bg: #0d0f12;
-  --panel: rgba(17, 19, 23, 0.86);
-  --panel-solid: #14171c;
-  --panel-raised: #1a1e24;
-  --line: rgba(226, 232, 240, 0.16);
-  --line-strong: rgba(226, 232, 240, 0.3);
-  --text: #e6e9ed;
-  --text-dim: #a4abb5;
-  --text-faint: #767d87;
-  --accent: #c8b98f;
+  /* Warm neutral greys rather than blue-black, so the interface reads as
+     printed labelling next to the imagery instead of a dark-mode dashboard. */
+  --bg: #14140f;
+  --panel: rgba(28, 27, 24, 0.72);
+  --panel-solid: rgba(28, 27, 24, 0.94);
+  --panel-raised: rgba(46, 44, 40, 0.9);
+  --line: rgba(232, 228, 216, 0.14);
+  --line-strong: rgba(232, 228, 216, 0.26);
+  --text: #f0ece2;
+  --text-dim: #b8b2a4;
+  --text-faint: #8a8478;
+  --accent: #d8c48a;
   --accent-dim: #8d8266;
-  --good: #93b382;
-  --warn: #cba86a;
-  --bad: #c98a80;
-  --radius: 3px;
+  --good: #9db884;
+  --warn: #d4ab6a;
+  --bad: #cf8f83;
+  --radius: 2px;
   --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
@@ -72,8 +74,20 @@ body {
   pointer-events: none;
 }
 
-#ui > * {
+/*
+ * Overlays must not eat clicks meant for the world. The HUD and the touch layer
+ * cover the whole screen, so they stay transparent to the pointer and only the
+ * pieces you can actually press take events back. Getting this wrong made every
+ * click on the view do nothing at all.
+ */
+#ui > .panel,
+#ui > .minimap {
   pointer-events: auto;
+}
+
+#ui > .hud,
+#ui > .touch {
+  pointer-events: none;
 }
 
 /* ---------- boot ---------- */
@@ -120,8 +134,9 @@ button {
   background: var(--panel-raised);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 5px 9px;
+  padding: 5px 10px;
   cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
 
 button:hover {
@@ -134,8 +149,9 @@ button:active {
 }
 
 button.primary {
-  border-color: rgba(200, 185, 143, 0.5);
-  color: #f0e7cf;
+  border-color: rgba(216, 196, 138, 0.55);
+  color: #f4ead0;
+  background: rgba(74, 66, 46, 0.72);
 }
 
 button.mini {
@@ -208,10 +224,11 @@ input[type='checkbox'] {
 
 .panel-block {
   background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 7px 9px;
-  backdrop-filter: blur(3px);
+  border: none;
+  border-left: 2px solid rgba(216, 196, 138, 0.5);
+  border-radius: 0;
+  padding: 6px 10px;
+  backdrop-filter: blur(4px);
 }
 
 /* ---------- hud ---------- */
@@ -227,8 +244,20 @@ input[type='checkbox'] {
   pointer-events: none;
 }
 
-.hud > * {
+.hud-topleft,
+.hud-rail,
+.hud-bottomleft,
+.hud-hotbar,
+.hud-bottomright,
+.hud-toasts,
+.hud-debug {
   pointer-events: auto;
+}
+
+/* The compass and crosshair are read-only and span the view; never clickable. */
+.hud-compass,
+.hud-crosshair {
+  pointer-events: none;
 }
 
 .hud-topleft {
@@ -270,7 +299,12 @@ input[type='checkbox'] {
 .toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 3px;
+  max-width: 340px;
+}
+
+.toolbar button {
+  padding: 4px 8px;
 }
 
 .toolbar button {
@@ -279,15 +313,20 @@ input[type='checkbox'] {
 
 .hud-compass {
   position: absolute;
-  top: 12px;
+  top: 10px;
   left: 50%;
   transform: translateX(-50%);
-  width: 260px;
-  height: 22px;
+  width: 300px;
+  height: 20px;
   overflow: hidden;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  background: linear-gradient(
+    to right,
+    rgba(28, 27, 24, 0) 0%,
+    rgba(28, 27, 24, 0.7) 18%,
+    rgba(28, 27, 24, 0.7) 82%,
+    rgba(28, 27, 24, 0) 100%
+  );
+  border: none;
 }
 
 .compass-strip {
@@ -324,7 +363,7 @@ input[type='checkbox'] {
 .compass-needle {
   position: absolute;
   top: 0;
-  left: 130px;
+  left: 150px;
   width: 1px;
   height: 100%;
   background: var(--accent);
@@ -359,9 +398,10 @@ input[type='checkbox'] {
 
 .gauge {
   background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 5px 7px;
+  border: none;
+  border-left: 2px solid var(--line-strong);
+  padding: 4px 8px;
+  backdrop-filter: blur(4px);
 }
 
 .gauge label {
@@ -447,18 +487,20 @@ input[type='checkbox'] {
 
 .hud-hotbar .slot {
   position: relative;
-  width: 74px;
-  height: 48px;
-  padding: 4px 5px;
+  width: 104px;
+  height: 50px;
+  padding: 4px 8px 5px;
   text-align: left;
   background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 2px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  backdrop-filter: blur(4px);
 }
 
 .hud-hotbar .slot.selected {
-  border-color: var(--accent);
-  background: #22262c;
+  border-bottom-color: var(--accent);
+  background: rgba(46, 44, 40, 0.92);
 }
 
 .slot-key {
@@ -489,21 +531,25 @@ input[type='checkbox'] {
 
 .hud-bottomright {
   position: absolute;
-  right: 12px;
-  /* Sits above the hotbar row rather than fighting it for the corner. */
-  bottom: 68px;
+  right: 6px;
+  /* Right into the corner, under the hotbar, and small: it is a credit line
+     and a status line, not something you read while flying. */
+  bottom: 4px;
   text-align: right;
-  max-width: 300px;
+  max-width: 260px;
+  opacity: 0.75;
 }
 
 .status-line {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 9px;
+  line-height: 1.35;
   color: var(--text-dim);
 }
 
 .attribution {
-  font-size: 10.5px;
+  font-size: 9px;
+  line-height: 1.35;
   color: var(--text-faint);
 }
 
@@ -641,6 +687,22 @@ input[type='checkbox'] {
   padding: 0;
   line-height: 1;
   font-size: 13px;
+}
+
+.minimap-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -18px;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.minimap-hint kbd {
+  margin-right: 4px;
 }
 
 .minimap-readout {
@@ -1020,6 +1082,15 @@ input[type='checkbox'] {
   vertical-align: -1px;
 }
 
+.worldmap-tick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
 .worldmap-danger {
   margin-top: 16px;
 }
@@ -1082,6 +1153,73 @@ input[type='checkbox'] {
   max-width: 68ch;
 }
 
+/* cheats */
+
+.cheats {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(620px, 94vw);
+  max-height: 88vh;
+  border-left: 2px solid var(--warn);
+}
+
+.cheats-body {
+  padding: 12px 14px;
+  overflow-y: auto;
+}
+
+.cheats .field {
+  grid-template-columns: 190px 1fr;
+}
+
+.cheat-goto {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.cheat-goto input {
+  flex: 1 1 220px;
+}
+
+.cheat-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--warn);
+  padding: 4px 0;
+}
+
+.cheat-flag {
+  background: var(--panel);
+  border-left: 2px solid var(--warn);
+  padding: 4px 8px;
+  backdrop-filter: blur(4px);
+}
+
+.cheat-flag label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.cheat-flag span,
+.cheat-flag em {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-style: normal;
+  color: var(--text-dim);
+  word-break: break-word;
+}
+
+.cheat-flag em:empty {
+  display: none;
+}
+
 @media (max-width: 900px) {
   .hud-rail,
   .hud-compass {
@@ -1099,4 +1237,91 @@ input[type='checkbox'] {
   .settings-body {
     grid-template-columns: 110px 1fr;
   }
+}
+
+/* ---------- touch ---------- */
+
+.touch {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.touch-stick {
+  position: absolute;
+  left: 22px;
+  bottom: 22px;
+  width: 132px;
+  height: 132px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: rgba(28, 27, 24, 0.4);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.touch-stick i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  border-radius: 50%;
+  background: rgba(240, 236, 226, 0.32);
+  border: 1px solid var(--line-strong);
+}
+
+.touch-buttons {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: grid;
+  grid-template-columns: repeat(2, 88px);
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.touch-buttons button {
+  height: 52px;
+  font-size: 13px;
+  background: rgba(28, 27, 24, 0.72);
+  touch-action: none;
+}
+
+.touch-buttons button.down {
+  background: rgba(74, 66, 46, 0.85);
+  border-color: var(--accent);
+}
+
+/* On a touch screen the hotbar and rail would sit under your thumbs. */
+body.touch-active .hud-rail {
+  display: none;
+}
+
+body.touch-active .hud-hotbar {
+  bottom: auto;
+  top: 40px;
+}
+
+/* On a narrow touch screen the hotbar sits across the top, so the temperature
+   and the toolbar move down out from under it. */
+@media (max-width: 900px) {
+  body.touch-active .hud-topleft {
+    top: 104px;
+  }
+
+  body.touch-active .hud-hotbar .slot {
+    width: 74px;
+    height: 44px;
+  }
+}
+
+body.touch-active .hud-bottomleft {
+  bottom: 168px;
+}
+
+body.touch-active .hud-crosshair {
+  display: none;
 }

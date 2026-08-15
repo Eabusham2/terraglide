@@ -19,7 +19,7 @@ import { createTerrainMaterial } from './shaders.js';
  * parent's rather than popping in as a hole.
  */
 
-const MAX_DRAWN_TILES = 420;
+const MAX_DRAWN_TILES = 620;
 const SEA_LEVEL = 0;
 
 export class Terrain {
@@ -42,6 +42,9 @@ export class Terrain {
     this.stats = { drawn: 0, built: 0, nodes: 0, baseZoom: 0, maxZoom: 0 };
 
     this._box = new THREE.Box3();
+    this._ray = new THREE.Raycaster();
+    this._rayOrigin = new THREE.Vector3();
+    this._rayDown = new THREE.Vector3(0, -1, 0);
     this._vecA = new THREE.Vector3();
     this._norm = { nx: 0, ny: 0 };
     this._world = { x: 0, z: 0 };
@@ -67,6 +70,12 @@ export class Terrain {
   heightAt(x, z) {
     this.frame.worldToNorm(x, z, this._norm);
     return this.heightAtNorm(this._norm.nx, this._norm.ny);
+  }
+
+  /** Raw ground height including bathymetry, so water depth can be measured. */
+  bedAt(x, z) {
+    this.frame.worldToNorm(x, z, this._norm);
+    return this.elevation.sampleNorm(this._norm.nx, this._norm.ny);
   }
 
   /** True when this spot is open water (DEM at or below sea level). */
@@ -124,21 +133,25 @@ export class Terrain {
     this.frame.worldToNorm(camX, camZ, this._norm);
     const rootX = Math.floor(this._norm.nx * n);
     const rootY = Math.floor(clamp(this._norm.ny, 0, 0.999999) * n);
-    const span = 1;
+    // Enough root tiles to cover the view circle, however big the distance is.
+    const rootSize = this.frame.worldTileSize(baseZoom);
+    const span = clamp(Math.ceil(renderDistance / rootSize) + 1, 1, 6);
 
+    // Visit nearest first so the closest ground always gets the frame's build
+    // budget. Doing it in fixed quadrant order let distant tiles eat the budget,
+    // which is why the ground under your feet could stay coarse while the
+    // horizon looked fine.
+    const roots = [];
     for (let dy = -span; dy <= span; dy++) {
       const ty = rootY + dy;
       if (ty < 0 || ty >= n) continue;
       for (let dx = -span; dx <= span; dx++) {
-        this.visit(
-          { z: baseZoom, x: wrapTileX(rootX + dx, baseZoom), y: ty },
-          camera,
-          camX,
-          camZ,
-          renderDistance,
-          maxZoom,
-        );
+        roots.push({ z: baseZoom, x: wrapTileX(rootX + dx, baseZoom), y: ty, d: Math.hypot(dx, dy) });
       }
+    }
+    roots.sort((a, b) => a.d - b.d);
+    for (const root of roots) {
+      this.visit(root, camera, camX, camZ, renderDistance, maxZoom);
     }
 
     // Elevation follows the camera: coarse when high up, sharpest on foot.
@@ -169,8 +182,10 @@ export class Terrain {
 
     const dx = Math.max(x0 - camX, 0, camX - x1);
     const dz = Math.max(z0 - camZ, 0, camZ - z1);
+    // Distance to the nearest point of the tile, so the view ends on a circle
+    // rather than a square with corners poking out.
     const flatDist = Math.hypot(dx, dz);
-    if (flatDist > renderDistance + size) return;
+    if (flatDist > renderDistance) return;
 
     // Cheap vertical bounds for culling; refined once the tile is built.
     const cached = this.nodes.get(tileKey(tile.z, tile.x, tile.y));
@@ -184,10 +199,20 @@ export class Terrain {
     const shouldSplit = tile.z < maxZoom && flatDist < size * this.lodFactor;
     if (shouldSplit) {
       const cz = tile.z + 1;
-      this.visit({ z: cz, x: tile.x * 2, y: tile.y * 2 }, camera, camX, camZ, renderDistance, maxZoom);
-      this.visit({ z: cz, x: tile.x * 2 + 1, y: tile.y * 2 }, camera, camX, camZ, renderDistance, maxZoom);
-      this.visit({ z: cz, x: tile.x * 2, y: tile.y * 2 + 1 }, camera, camX, camZ, renderDistance, maxZoom);
-      this.visit({ z: cz, x: tile.x * 2 + 1, y: tile.y * 2 + 1 }, camera, camX, camZ, renderDistance, maxZoom);
+      const half = size / 2;
+      const children = [
+        { z: cz, x: tile.x * 2, y: tile.y * 2, cx: x0 + half * 0.5, cz2: z0 + half * 0.5 },
+        { z: cz, x: tile.x * 2 + 1, y: tile.y * 2, cx: x0 + half * 1.5, cz2: z0 + half * 0.5 },
+        { z: cz, x: tile.x * 2, y: tile.y * 2 + 1, cx: x0 + half * 0.5, cz2: z0 + half * 1.5 },
+        { z: cz, x: tile.x * 2 + 1, y: tile.y * 2 + 1, cx: x0 + half * 1.5, cz2: z0 + half * 1.5 },
+      ];
+      children.sort(
+        (a, b) =>
+          Math.hypot(a.cx - camX, a.cz2 - camZ) - Math.hypot(b.cx - camX, b.cz2 - camZ),
+      );
+      for (const child of children) {
+        this.visit(child, camera, camX, camZ, renderDistance, maxZoom);
+      }
       return;
     }
 
@@ -200,7 +225,9 @@ export class Terrain {
 
     if (!node || node.dirty) {
       const spent = performance.now() - this.budget.start;
-      const affordable = spent < this.budget.ms || this.budget.built === 0;
+      // Always afford the first few tiles of a frame: those are the nearest
+      // ones now that the walk is ordered by distance.
+      const affordable = spent < this.budget.ms || this.budget.built < 3;
       if (!affordable) {
         // Out of build time this frame: show the nearest built ancestor so the
         // ground stays continuous, and try again next frame.
@@ -238,6 +265,11 @@ export class Terrain {
     if (node.shownFrame !== this.streamer.frame) {
       node.shownFrame = this.streamer.frame;
       node.mesh.visible = true;
+      // Draw the ground under your feet before the ground on the horizon: the
+      // near tiles fill the depth buffer first and everything behind them is
+      // rejected cheaply, and a stutter shows up as a far tile arriving late
+      // rather than the one you are standing on.
+      node.mesh.renderOrder = Math.round(distance * 0.01);
       this.drawn.push(node);
     }
 
@@ -375,6 +407,8 @@ export class Terrain {
 
     node.mesh.position.set(x0, 0, z0);
     node.mesh.updateMatrix();
+    node.mesh.updateMatrixWorld(true);
+    node.size = size;
     node.geometry = geometry;
     node.grid = grid;
     node.tile = tile;
@@ -386,6 +420,37 @@ export class Terrain {
 
     this.nodes.set(key, node);
     return node;
+  }
+
+  /**
+   * Height of the *drawn* surface under a point, or null if nothing is drawn
+   * there yet.
+   *
+   * `heightAt` samples the elevation field, but a tile's mesh only carries a
+   * grid of those samples and interpolates between them — so on broken ground
+   * the surface you can see sits a little above the field, and standing at the
+   * field's height leaves you shin-deep in it. Asking the mesh directly is what
+   * keeps your feet on the ground you are actually looking at.
+   */
+  meshHeightAt(x, z) {
+    let best = null;
+    let bestSize = Infinity;
+    for (const node of this.drawn) {
+      // A tile's mesh sits with its corner at the origin, spanning `size`.
+      const dx = x - node.mesh.position.x;
+      const dz = z - node.mesh.position.z;
+      if (dx < 0 || dz < 0 || dx > node.size || dz > node.size) continue;
+      // The smallest tile covering the point is the most detailed one.
+      if (node.size < bestSize) {
+        bestSize = node.size;
+        best = node;
+      }
+    }
+    if (!best) return null;
+
+    this._ray.set(this._rayOrigin.set(x, 60000, z), this._rayDown);
+    const hit = this._ray.intersectObject(best.mesh, false);
+    return hit.length > 0 ? hit[0].point.y : null;
   }
 
   /** Mark nearby tiles for a rebuild when fresh elevation data lands. */

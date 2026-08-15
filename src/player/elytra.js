@@ -15,8 +15,14 @@
 
 export const TICK = 1 / 20;
 const GRAVITY_PER_TICK = 0.08; // blocks / tick^2  (~32 m/s^2)
-const DRAG = { x: 0.99, y: 0.98, z: 0.99 };
-const ROCKET_THRUST = 1.5; // blocks / tick, asymptotic
+const DRAG = { x: 0.99, y: 0.985, z: 0.99 };
+/**
+ * Peak firework thrust, blocks per tick. A rocket kicks hard at ignition and
+ * tapers off across its burn, so it shoves you and then hands you back to the
+ * glide rather than holding one flat speed until it stops.
+ */
+const ROCKET_THRUST = 2.5;
+const ROCKET_TAPER = 0.5; // how much of the kick is left at burnout
 const TO_TICK = TICK; // m/s -> blocks/tick
 const TO_SECOND = 1 / TICK; // blocks/tick -> m/s
 
@@ -52,9 +58,11 @@ export function stepGlide(velocity, look, pitch) {
   }
 
   if (f < 0 && horizontalLook > 0) {
-    // Pulling up: airspeed is spent climbing, and rather efficiently.
+    // Pulling up: airspeed is spent climbing, and rather efficiently. Flown
+    // well — dive, flare, dive again — the exchange very nearly breaks even,
+    // which is what lets a good angle keep you up indefinitely.
     const climb = horizontalSpeed * -Math.sin(f) * 0.04;
-    vy += climb * 3.2;
+    vy += climb * 3.4;
     vx -= (look.x * climb) / horizontalLook;
     vz -= (look.z * climb) / horizontalLook;
   }
@@ -74,9 +82,15 @@ export function stepGlide(velocity, look, pitch) {
   velocity.z = vz * TO_SECOND;
 }
 
-/** One tick of firework-rocket thrust along the look vector. */
-export function stepRocket(velocity, look, power = 1) {
-  const thrust = ROCKET_THRUST * power;
+/**
+ * One tick of firework-rocket thrust along the look vector.
+ *
+ * @param {number} power  strength multiplier (the slot's power, times cheats)
+ * @param {number} spent  0 at ignition, 1 at burnout — the kick fades across it
+ */
+export function stepRocket(velocity, look, power = 1, spent = 0) {
+  const fade = 1 - (1 - ROCKET_TAPER) * Math.min(1, Math.max(0, spent));
+  const thrust = ROCKET_THRUST * power * fade;
   const vx = velocity.x * TO_TICK;
   const vy = velocity.y * TO_TICK;
   const vz = velocity.z * TO_TICK;
@@ -95,11 +109,9 @@ export function rocketTicks(duration) {
   return 10 * duration + 6;
 }
 
-/** Elytra durability model: one point per second of flight, out of 432. */
-export const ELYTRA_MAX_DURABILITY = 432;
-
-export function wearElytra(durability, seconds) {
-  return Math.max(1, durability - seconds);
+/** Thrust multiplier for a slot: bigger rockets carry more powder. */
+export function rocketPowerFor(duration) {
+  return 0.6 + duration * 0.28;
 }
 
 /** Terminal glide speed for the HUD's "best glide" readout, metres per second. */

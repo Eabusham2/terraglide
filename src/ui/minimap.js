@@ -1,3 +1,4 @@
+import { keybinds } from '../core/keybinds.js';
 import { clamp } from '../core/math.js';
 import { settings } from '../core/settings.js';
 import { formatDistance } from '../core/units.js';
@@ -6,19 +7,21 @@ import { drawMap, metresPerPixel } from './mapRenderer.js';
 /**
  * Minimap.
  *
- * Shows satellite imagery for ground you have explored and a dimmed, hatched
- * version of everything you have not, so the map fills in behind you as you
- * travel. Zoom with the hotkeys or the wheel, click it to open the big map.
+ * Shows satellite imagery for ground you have explored and a flat map view of
+ * everything you have not, so the world is always legible and the photography
+ * fills in behind you as you travel. Zoom with the hotkeys or the wheel, click
+ * it to open the big map — the key for which is printed underneath.
  * Redraws at 20 Hz rather than every frame — it is a map, not a viewport.
  */
 
 const REDRAW_INTERVAL = 1 / 20;
 
 export class Minimap {
-  constructor(root, { tiles, exploration, waypointStore }) {
+  constructor(root, { tiles, exploration, waypointStore, trail }) {
     this.tiles = tiles;
     this.exploration = exploration;
     this.waypointStore = waypointStore;
+    this.trail = trail;
     this.timer = 0;
     this.onOpenMap = null;
 
@@ -40,6 +43,7 @@ export class Minimap {
         <button type="button" data-zoom="-1" title="Zoom out">−</button>
       </div>
       <div class="minimap-readout"><span class="minimap-z">z14</span></div>
+      <div class="minimap-hint"><kbd data-key="worldMap"></kbd>map</div>
     `;
     this.element.appendChild(this.overlay);
     root.appendChild(this.element);
@@ -48,6 +52,12 @@ export class Minimap {
     this.scaleBar = this.overlay.querySelector('.minimap-scale i');
     this.zoomLabel = this.overlay.querySelector('.minimap-z');
     this.northLabel = this.overlay.querySelector('.minimap-north');
+    this.hintKey = this.overlay.querySelector('.minimap-hint kbd');
+    const refreshHint = () => {
+      this.hintKey.textContent = keybinds.labelFor('worldMap');
+    };
+    refreshHint();
+    keybinds.on('change', refreshHint);
 
     this.overlay.querySelectorAll('[data-zoom]').forEach((button) => {
       button.addEventListener('click', (event) => {
@@ -131,10 +141,11 @@ export class Minimap {
         tiles: this.tiles,
         exploration: this.exploration,
         waypointStore: this.waypointStore,
+        trail: this.trail,
         player: { lat: player.lat, lon: player.lon, heading: player.heading },
         options: {
           fog: settings.get('minimapFog'),
-          paths: settings.get('minimapShowPaths'),
+          trail: settings.get('showTrail'),
           waypoints: settings.get('minimapShowWaypoints'),
           labels: this.size >= 200,
           playerSize: 7,

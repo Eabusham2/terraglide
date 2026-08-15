@@ -1,8 +1,9 @@
 import * as THREE from '../../vendor/three/three.module.js';
+import { cheats } from '../core/cheats.js';
 import { Emitter } from '../core/events.js';
 import { clamp } from '../core/math.js';
 import { settings } from '../core/settings.js';
-import { ELYTRA_MAX_DURABILITY, rocketTicks } from './elytra.js';
+import { rocketPowerFor, rocketTicks } from './elytra.js';
 
 /**
  * Player state: where you are, how fast, how big, what is in the hotbar.
@@ -12,17 +13,17 @@ import { ELYTRA_MAX_DURABILITY, rocketTicks } from './elytra.js';
  * the local frame is just a coordinate swap.
  */
 
-export const HOTBAR = [
-  { id: 'rocket1', kind: 'rocket', duration: 1, label: 'Rocket I', hint: 'short burst' },
-  { id: 'rocket2', kind: 'rocket', duration: 2, label: 'Rocket II', hint: 'standard boost' },
-  { id: 'rocket3', kind: 'rocket', duration: 3, label: 'Rocket III', hint: 'long boost' },
-  { id: 'rocket4', kind: 'rocket', duration: 4, label: 'Rocket IV', hint: 'cruise climb' },
-  { id: 'rocket5', kind: 'rocket', duration: 5, label: 'Rocket V', hint: 'full burn' },
-  { id: 'elytra', kind: 'elytra', label: 'Elytra', hint: 'deploy / stow wings' },
-  { id: 'waypoint', kind: 'tool', label: 'Marker', hint: 'drop a pin' },
-  { id: 'path', kind: 'tool', label: 'Path pen', hint: 'draw a route' },
-  { id: 'measure', kind: 'tool', label: 'Tape', hint: 'measure' },
-];
+/**
+ * The hotbar is five rockets and nothing else. As in Minecraft, the number is
+ * the flight duration *and* the powder behind it: a Rocket V burns five times
+ * as long as a Rocket I and shoves about twice as hard.
+ */
+export const HOTBAR = [1, 2, 3, 4, 5].map((duration) => ({
+  duration,
+  power: rocketPowerFor(duration),
+  label: `Rocket ${'I II III IV V'.split(' ')[duration - 1]}`,
+  hint: `dur ${duration} · pwr ${duration}`,
+}));
 
 export class Player extends Emitter {
   constructor(frame) {
@@ -41,15 +42,12 @@ export class Player extends Emitter {
     this.lon = 0;
 
     this.elytraDeployed = false;
-    this.elytraDurability = ELYTRA_MAX_DURABILITY;
-    this.elytraBroken = false;
+    this.swimming = false;
 
     this.rocketTicksLeft = 0;
+    this.rocketTotalTicks = 0;
     this.rocketDuration = 0;
-    this.rocketCooldown = 0;
     this.rocketsFired = 0;
-    this.rocketStock = 32;
-    this.rocketRegen = 0;
 
     this.speedActive = false;
     this.speedRemaining = 0;
@@ -58,7 +56,6 @@ export class Player extends Emitter {
     this.selectedSlot = 0;
     this.distanceTravelled = 0;
     this.airborneSeconds = 0;
-    this.measureAnchor = null;
   }
 
   get scale() {
@@ -94,8 +91,21 @@ export class Player extends Emitter {
     return HOTBAR[this.selectedSlot];
   }
 
+  /** How far a second of movement carries you. Speed mode, then any cheat. */
   get speedMultiplier() {
-    return this.speedActive ? 2 : 1;
+    return (this.speedActive ? 2 : 1) * cheats.playerSpeed;
+  }
+
+  /** Firework thrust: the slot's powder, speed mode, and any cheat on top. */
+  get rocketPower() {
+    const slot = this.selectedItem;
+    return (slot ? slot.power : 1) * (this.speedActive ? 2 : 1) * cheats.rocketPower;
+  }
+
+  /** How far through the current burn we are, 0 at ignition and 1 at burnout. */
+  get rocketSpent() {
+    if (this.rocketTicksLeft <= 0 || this.rocketTotalTicks <= 0) return 1;
+    return 1 - this.rocketTicksLeft / this.rocketTotalTicks;
   }
 
   /** Unit vector the player is looking along. */
@@ -140,25 +150,23 @@ export class Player extends Emitter {
   /** Deploy or stow the wings. Returns the resulting state. */
   toggleElytra(force) {
     const next = force !== undefined ? force : !this.elytraDeployed;
-    if (next && this.elytraBroken) return false;
     this.elytraDeployed = next;
     this.emit('elytra', next);
     return next;
   }
 
-  /** Fire the selected rocket, if the hotbar has one and the cooldown allows. */
+  /**
+   * Fire the selected rocket. No cooldown and no timer: like the real thing,
+   * you can light another one whenever you want, and lighting one mid-burn
+   * simply restarts the burn.
+   */
   fireRocket() {
     const item = this.selectedItem;
-    const duration = item && item.kind === 'rocket' ? item.duration : 2;
-    if (this.rocketCooldown > 0) return false;
+    const duration = item ? item.duration : 2;
     if (!this.elytraDeployed) return false;
-    if (!settings.get('infiniteRockets')) {
-      if (this.rocketStock < 1) return false;
-      this.rocketStock -= 1;
-    }
     this.rocketTicksLeft = rocketTicks(duration);
+    this.rocketTotalTicks = this.rocketTicksLeft;
     this.rocketDuration = duration;
-    this.rocketCooldown = 0.28 + duration * 0.12;
     this.rocketsFired++;
     this.emit('rocket', duration);
     return true;
@@ -166,25 +174,29 @@ export class Player extends Emitter {
 
   /** Start the 2x burst, if it is off cooldown. */
   startSpeedMode() {
-    if (this.speedActive || this.speedCooldown > 0) return false;
+    if (this.speedActive) return false;
+    if (this.speedCooldown > 0 && !cheats.speedFree) return false;
     this.speedActive = true;
     this.speedRemaining = settings.get('speedModeDurationS');
     this.emit('speed', true);
     return true;
   }
 
-  tickTimers(dt) {
-    if (this.rocketCooldown > 0) this.rocketCooldown = Math.max(0, this.rocketCooldown - dt);
+  /** End the burst early. Only reachable with unlimited speed mode on. */
+  stopSpeedMode() {
+    if (!this.speedActive) return false;
+    this.speedActive = false;
+    this.speedRemaining = 0;
+    if (!cheats.speedFree) this.speedCooldown = settings.get('speedModeCooldownS');
+    this.emit('speed', false);
+    return true;
+  }
 
-    // Limited rockets slowly restock so you are never permanently grounded.
-    if (!settings.get('infiniteRockets') && this.rocketStock < 32) {
-      this.rocketRegen += dt;
-      if (this.rocketRegen >= 6) {
-        this.rocketRegen = 0;
-        this.rocketStock = Math.min(32, this.rocketStock + 1);
-      }
-    }
-    if (this.speedActive) {
+  tickTimers(dt) {
+    if (this.speedActive && cheats.speedFree) {
+      // Unlimited: hold the gauge full rather than counting down.
+      this.speedRemaining = settings.get('speedModeDurationS');
+    } else if (this.speedActive) {
       this.speedRemaining -= dt;
       if (this.speedRemaining <= 0) {
         this.speedActive = false;
@@ -197,9 +209,4 @@ export class Player extends Emitter {
     }
   }
 
-  repairElytra() {
-    this.elytraDurability = ELYTRA_MAX_DURABILITY;
-    this.elytraBroken = false;
-    this.emit('elytra', this.elytraDeployed);
-  }
 }

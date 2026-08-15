@@ -1,3 +1,4 @@
+import { cheats } from '../core/cheats.js';
 import { clamp } from '../core/math.js';
 import { settings } from '../core/settings.js';
 import { formatDistance, formatLatLon } from '../core/units.js';
@@ -12,10 +13,11 @@ import { drawMap, metresPerPixel, project, unproject, worldPixelSize } from './m
  */
 
 export class WorldMap {
-  constructor(root, { tiles, exploration, waypointStore }) {
+  constructor(root, { tiles, exploration, waypointStore, trail }) {
     this.tiles = tiles;
     this.exploration = exploration;
     this.waypointStore = waypointStore;
+    this.trail = trail;
     this.open = false;
     this.zoom = 6;
     this.centre = { lat: 0, lon: 0 };
@@ -53,17 +55,15 @@ export class WorldMap {
         </div>
         <aside class="worldmap-side">
           <div class="worldmap-actions">
-            <button type="button" data-action="teleport">Travel to centre</button>
             <button type="button" data-action="rtp">Random teleport</button>
             <button type="button" data-action="waypoint">Waypoint at centre</button>
             <button type="button" data-action="copy">Copy centre</button>
-            <button type="button" data-action="finish-path">Finish path</button>
+            <button type="button" data-action="teleport" data-directed hidden>Travel to centre</button>
           </div>
+          <label class="worldmap-tick"><input type="checkbox" data-trail /> Show my trail</label>
           <div class="worldmap-stats"></div>
           <h3>Waypoints</h3>
           <ul class="worldmap-list" data-list="waypoints"></ul>
-          <h3>Paths</h3>
-          <ul class="worldmap-list" data-list="paths"></ul>
           <div class="worldmap-danger">
             <button type="button" data-action="clear-explored">Clear explored areas</button>
           </div>
@@ -96,7 +96,7 @@ export class WorldMap {
       const target = event.target.closest('[data-action], [data-zoom], [data-id]');
       if (!target) return;
       if (target.dataset.zoom) {
-        this.setZoom(this.zoom + Number(target.dataset.zoom));
+        this.setZoom(this.zoom + Number(target.dataset.zoom) * 0.5);
         return;
       }
       if (target.dataset.action) this.handleAction(target.dataset.action, target);
@@ -133,14 +133,21 @@ export class WorldMap {
       'wheel',
       (event) => {
         event.preventDefault();
-        this.setZoom(this.zoom + (event.deltaY > 0 ? -1 : 1));
+        // A quarter of a level per notch. Anything faster flies past the scale
+        // you were looking for before you can let go of the wheel.
+        this.setZoom(this.zoom + (event.deltaY > 0 ? -0.25 : 0.25));
       },
       { passive: false },
     );
     canvas.addEventListener('dblclick', (event) => {
+      if (!cheats.unlocked) return;
       const point = this.pointAt(event);
       if (point && this.onTeleport) this.onTeleport(point.lat, point.lon);
     });
+
+    const trailTick = this.element.querySelector('[data-trail]');
+    trailTick.addEventListener('change', () => settings.set('showTrail', trailTick.checked));
+    cheats.on('unlock', () => this.applyPermissions());
   }
 
   pointAt(event) {
@@ -173,11 +180,6 @@ export class WorldMap {
       case 'copy':
         this.copy(formatLatLon(this.centre.lat, this.centre.lon, 6));
         break;
-      case 'finish-path': {
-        const result = this.waypointStore.finishPath();
-        this.notify(result === 'finished' ? 'Path saved' : 'No path in progress');
-        break;
-      }
       case 'clear-explored':
         this.exploration.clear();
         this.dirty = true;
@@ -195,9 +197,6 @@ export class WorldMap {
         break;
       case 'delete-waypoint':
         this.waypointStore.remove(Number(target.dataset.id));
-        break;
-      case 'delete-path':
-        this.waypointStore.removePath(Number(target.dataset.id));
         break;
       default:
         break;
@@ -240,8 +239,18 @@ export class WorldMap {
   }
 
   setZoom(zoom) {
-    this.zoom = clamp(Math.round(zoom), 2, 19);
+    this.zoom = clamp(Math.round(zoom * 2) / 2, 2, 19);
     this.dirty = true;
+  }
+
+  /** Directed teleports are not part of the game; they only exist with cheats. */
+  applyPermissions() {
+    this.element.querySelectorAll('[data-directed]').forEach((node) => {
+      node.hidden = !cheats.unlocked;
+    });
+    this.element.querySelectorAll('[data-action="travel"]').forEach((node) => {
+      node.hidden = !cheats.unlocked;
+    });
   }
 
   show(player) {
@@ -252,6 +261,8 @@ export class WorldMap {
     this.dirty = true;
     this.resize();
     this.renderLists();
+    this.element.querySelector('[data-trail]').checked = settings.get('showTrail');
+    this.applyPermissions();
   }
 
   close() {
@@ -302,13 +313,11 @@ export class WorldMap {
         tiles: this.tiles,
         exploration: this.exploration,
         waypointStore: this.waypointStore,
+        trail: this.trail,
         player,
         options: {
           fog: settings.get('minimapFog'),
-          // Zoomed out, a heavy fog would hide the whole planet; keep it light
-          // enough to still read coastlines while showing where you have been.
-          fogAlpha: this.zoom <= 6 ? 0.4 : 0.58,
-          paths: true,
+          trail: settings.get('showTrail'),
           waypoints: true,
           labels: true,
           grid: this.zoom >= 12,
@@ -329,7 +338,7 @@ export class WorldMap {
     this.statsBox.innerHTML = `
       <div><span>Explored</span><strong>${area < 10 ? area.toFixed(1) : Math.round(area).toLocaleString()} km²</strong></div>
       <div><span>Waypoints</span><strong>${this.waypointStore.waypoints.length}</strong></div>
-      <div><span>Paths</span><strong>${this.waypointStore.paths.length}</strong></div>
+      <div><span>Trail</span><strong>${formatDistance(this.trail.length, units)}</strong></div>
     `;
   }
 
@@ -350,21 +359,7 @@ export class WorldMap {
         </li>`,
         )
         .join('') || '<li class="muted">None yet — press the waypoint key to drop one.</li>';
-
-    const pathList = this.element.querySelector('[data-list="paths"]');
-    pathList.innerHTML =
-      this.waypointStore.paths
-        .map(
-          (p) => `
-        <li>
-          <button type="button" class="link" data-action="goto" data-lat="${p.points[0].lat}" data-lon="${p.points[0].lon}">
-            <i style="background:${p.colour}"></i>${escapeHtml(p.name)}
-          </button>
-          <span class="muted">${p.points.length} pts · ${formatDistance(this.waypointStore.pathLength(p), units)}</span>
-          <button type="button" class="mini" data-action="delete-path" data-id="${p.id}">×</button>
-        </li>`,
-        )
-        .join('') || '<li class="muted">None yet — tap the path key to start drawing.</li>';
+    this.applyPermissions();
   }
 }
 

@@ -2,10 +2,15 @@ import * as THREE from '../../vendor/three/three.module.js';
 import { clamp, damp, dampAngle } from '../core/math.js';
 
 /**
- * The character you can see in third person and freecam: a plain figure with a
- * pair of elytra on its back. Deliberately simple — the world is the thing worth
- * looking at — but it animates enough to read what you are doing: legs swing
- * when you walk, arms sweep back and the wings open when you glide.
+ * The character.
+ *
+ * You see it in third person and in freecam, and — with the head hidden — you
+ * see your own body in first person too: legs below you, arms out in front when
+ * the wings are open, which is what makes strafing and flying read as yours.
+ *
+ * The model faces −Z, the direction three.js treats as forward, so the root
+ * yaw is simply the negative of the compass bearing. Getting that wrong is what
+ * used to lay the character out backwards in a glide and look upside down.
  *
  * Built at 1 metre tall and scaled to the player's height, so growing works for
  * free.
@@ -49,16 +54,18 @@ export class Avatar {
     this.legR = this.makeLimb(0.09, 0.36, mat(TROUSERS), 0.07, 0.51);
     body.add(this.armL.pivot, this.armR.pivot, this.legL.pivot, this.legR.pivot);
 
+    // Toes point forward, which is −Z.
     const bootGeo = new THREE.BoxGeometry(0.1, 0.05, 0.14);
     this.bootL = new THREE.Mesh(bootGeo, mat(BOOTS));
-    this.bootL.position.set(0, -0.34, 0.02);
+    this.bootL.position.set(0, -0.34, -0.02);
     this.legL.limb.add(this.bootL);
     this.bootR = new THREE.Mesh(bootGeo, mat(BOOTS));
-    this.bootR.position.set(0, -0.34, 0.02);
+    this.bootR.position.set(0, -0.34, -0.02);
     this.legR.limb.add(this.bootR);
 
+    // Wings sit on the back, which is +Z.
     this.wings = new THREE.Group();
-    this.wings.position.set(0, 0.76, -0.08);
+    this.wings.position.set(0, 0.76, 0.08);
     body.add(this.wings);
     this.wingL = this.makeWing(mat(WING), mat(WING_EDGE), -1);
     this.wingR = this.makeWing(mat(WING), mat(WING_EDGE), 1);
@@ -67,6 +74,7 @@ export class Avatar {
     this.walkPhase = 0;
     this.glideBlend = 0;
     this.visibleYaw = 0;
+    this.firstPerson = false;
     this.root.visible = false;
   }
 
@@ -95,6 +103,17 @@ export class Avatar {
   }
 
   /**
+   * First person shows the same body with the head taken off, so looking down
+   * shows your legs instead of the inside of your own skull.
+   */
+  setFirstPerson(firstPerson) {
+    if (this.firstPerson === firstPerson) return;
+    this.firstPerson = firstPerson;
+    this.head.visible = !firstPerson;
+    this.hair.visible = !firstPerson;
+  }
+
+  /**
    * @param {object} player
    * @param {number} dt
    */
@@ -104,45 +123,76 @@ export class Avatar {
     this.root.position.copy(player.position);
 
     const gliding = player.mode === 'glide';
-    this.glideBlend = damp(this.glideBlend, gliding ? 1 : 0, 7, dt);
+    const flying = player.mode === 'fly';
+    this.glideBlend = damp(this.glideBlend, gliding || flying ? 1 : 0, 7, dt);
 
-    // Body faces travel direction on foot, look direction in the air.
-    const moving = player.horizontalSpeed > 0.4;
-    const travelYaw = moving
-      ? Math.atan2(player.velocity.x, -player.velocity.z)
-      : player.yaw;
-    const targetYaw = gliding ? player.yaw : travelYaw;
-    this.visibleYaw = dampAngle(this.visibleYaw, targetYaw, 9, dt);
+    // The model faces −Z, so the root turns by the negative of the bearing. In
+    // first person the body must not lag the view at all or it swims about.
+    this.visibleYaw = this.firstPerson
+      ? -player.yaw
+      : dampAngle(this.visibleYaw, -player.yaw, 14, dt);
     this.root.rotation.set(0, this.visibleYaw, 0);
 
-    // Gliding pitches the whole body forward toward the look direction.
-    this.body.rotation.x = damp(this.body.rotation.x, gliding ? -player.pitch + 1.15 : 0, 8, dt);
-    this.body.position.y = damp(this.body.position.y, gliding ? 0.28 : 0, 8, dt);
+    const forwardSpeed =
+      player.velocity.x * Math.sin(player.yaw) - player.velocity.z * Math.cos(player.yaw);
+    const sideSpeed =
+      player.velocity.x * Math.cos(player.yaw) + player.velocity.z * Math.sin(player.yaw);
+
+    // Gliding lays the body along the flight path. The head points where you
+    // look: level flight is face down, a dive is head down, a climb stands up.
+    const glidePitch = player.pitch - Math.PI / 2;
+    this.body.rotation.x = damp(this.body.rotation.x, gliding || flying ? glidePitch : 0, 9, dt);
+    this.body.rotation.z = damp(
+      this.body.rotation.z,
+      gliding || flying ? 0 : clamp(sideSpeed * 0.05, -0.25, 0.25),
+      8,
+      dt,
+    );
+    this.body.position.y = damp(this.body.position.y, gliding || flying ? 0.3 : 0, 8, dt);
 
     const stride = clamp(player.horizontalSpeed / (4.3 * Math.pow(player.scale, 0.75)), 0, 1.8);
-    if (player.onGround) this.walkPhase += dt * stride * 9;
+    const strafing = Math.abs(sideSpeed) > Math.abs(forwardSpeed) * 1.2 && stride > 0.15;
+    if (player.onGround || player.swimming) this.walkPhase += dt * stride * 9;
     else this.walkPhase = damp(this.walkPhase % (Math.PI * 2), 0, 4, dt);
 
     const swing = Math.sin(this.walkPhase) * 0.7 * stride * (1 - this.glideBlend);
-    this.legL.pivot.rotation.x = swing;
-    this.legR.pivot.rotation.x = -swing;
-    this.armL.pivot.rotation.x = -swing * 0.8;
-    this.armR.pivot.rotation.x = swing * 0.8;
+    // Strafing swings the legs sideways instead of marching on the spot.
+    const side = strafing ? swing : 0;
+    const fore = strafing ? swing * 0.25 : swing;
+    this.legL.pivot.rotation.x = fore;
+    this.legR.pivot.rotation.x = -fore;
+    this.legL.pivot.rotation.z = side * 0.5;
+    this.legR.pivot.rotation.z = -side * 0.5;
+    this.armL.pivot.rotation.x = -fore * 0.8;
+    this.armR.pivot.rotation.x = fore * 0.8;
 
-    // Arms sweep back into the slipstream while gliding.
+    // Arms reach out in front in the air — which is what you see of yourself.
     const tuck = this.glideBlend;
-    this.armL.pivot.rotation.x = this.armL.pivot.rotation.x * (1 - tuck) + 2.5 * tuck;
-    this.armR.pivot.rotation.x = this.armR.pivot.rotation.x * (1 - tuck) + 2.5 * tuck;
-    this.armL.pivot.rotation.z = 0.25 * tuck;
-    this.armR.pivot.rotation.z = -0.25 * tuck;
-    this.legL.pivot.rotation.x += 0.25 * tuck;
-    this.legR.pivot.rotation.x += 0.25 * tuck;
+    this.armL.pivot.rotation.x = this.armL.pivot.rotation.x * (1 - tuck) - 2.5 * tuck;
+    this.armR.pivot.rotation.x = this.armR.pivot.rotation.x * (1 - tuck) - 2.5 * tuck;
+    // In first person the arms are swept wider so they frame the view instead
+    // of filling it — you should see the world, with your arms at the edges.
+    const spread = this.firstPerson ? 0.62 : 0.25;
+    this.armL.pivot.rotation.z = spread * tuck;
+    this.armR.pivot.rotation.z = -spread * tuck;
+    this.legL.pivot.rotation.x -= 0.2 * tuck;
+    this.legR.pivot.rotation.x -= 0.2 * tuck;
+    this.legL.pivot.rotation.z *= 1 - tuck;
+    this.legR.pivot.rotation.z *= 1 - tuck;
 
-    const open = player.elytraDeployed ? this.glideBlend : 0;
-    this.wings.visible = open > 0.02 || player.elytraDeployed;
-    this.wingL.rotation.set(-0.15 * open, 0.35 - 1.5 * (1 - open), -0.2 * open);
-    this.wingR.rotation.set(-0.15 * open, -0.35 + 1.5 * (1 - open), 0.2 * open);
+    const open = player.elytraDeployed ? Math.max(this.glideBlend, 0.6) : 0;
+    this.wings.visible = player.elytraDeployed;
+    this.wingL.rotation.set(0.15 * open, -0.35 + 1.5 * (1 - open), 0.2 * open);
+    this.wingR.rotation.set(0.15 * open, 0.35 - 1.5 * (1 - open), -0.2 * open);
 
-    this.head.rotation.x = damp(this.head.rotation.x, gliding ? 0 : clamp(player.pitch, -0.9, 0.9), 10, dt);
+    // The head counter-rotates so the character keeps looking where you look.
+    if (!this.firstPerson) {
+      this.head.rotation.x = damp(
+        this.head.rotation.x,
+        gliding || flying ? clamp(-glidePitch - 1.1, -1.2, 0.6) : clamp(-player.pitch, -0.9, 0.9),
+        10,
+        dt,
+      );
+    }
   }
 }

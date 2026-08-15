@@ -32,11 +32,12 @@ const TWILIGHT = {
   sun: new THREE.Color(0.5, 0.4, 0.42),
   ambient: new THREE.Color(0.15, 0.16, 0.22),
 };
+// Night is dim but never pitch black — you should still be able to explore.
 const NIGHT = {
-  zenith: new THREE.Color(0.02, 0.03, 0.08),
-  horizon: new THREE.Color(0.07, 0.09, 0.16),
-  sun: new THREE.Color(0.16, 0.18, 0.26),
-  ambient: new THREE.Color(0.07, 0.08, 0.13),
+  zenith: new THREE.Color(0.05, 0.07, 0.13),
+  horizon: new THREE.Color(0.13, 0.16, 0.24),
+  sun: new THREE.Color(0.3, 0.33, 0.42),
+  ambient: new THREE.Color(0.16, 0.18, 0.24),
 };
 
 function blend(a, b, t, out) {
@@ -108,17 +109,18 @@ export class Sky {
     this.sunLight.target.position.copy(camera.position);
     this.sunLight.target.updateMatrixWorld();
     this.sunLight.color.copy(this.current.sun);
-    this.sunLight.intensity = clamp(0.25 + Math.max(0, Math.sin(this.solar.altitude)) * 2.1, 0.2, 2.4);
+    this.sunLight.intensity = clamp(0.5 + Math.max(0, Math.sin(this.solar.altitude)) * 2.0, 0.45, 2.5);
     this.ambientLight.color.copy(this.current.horizon);
     this.ambientLight.groundColor.copy(this.current.ambient);
-    this.ambientLight.intensity = clamp(0.35 + Math.max(0, this.solar.altitude) * 0.8, 0.3, 1.2);
+    this.ambientLight.intensity = clamp(0.75 + Math.max(0, this.solar.altitude) * 0.7, 0.65, 1.5);
 
     const shared = this.shared;
     shared.uSunDir.value.copy(sunDir);
     shared.uSunColor.value.copy(this.current.sun);
     shared.uAmbient.value.copy(this.current.ambient);
     shared.uFogColor.value.copy(this.current.horizon);
-    shared.uNight.value = clamp(smoothstep(2, -8, alt), 0, 1);
+    // Cap the night tint: a dim blue cast, not a blackout.
+    shared.uNight.value = clamp(smoothstep(2, -8, alt), 0, 1) * 0.7;
     shared.uFogEnabled.value = settings.get('fog') ? 1 : 0;
 
     const renderDistance = settings.get('renderDistanceKm') * 1000;

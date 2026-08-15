@@ -11,8 +11,9 @@ import { readJSON, removeKey, writeJSON } from './storage.js';
  * graphics:          'low' | 'medium' | 'high' | 'ultra'
  * mouseMode:         'locked' | 'pan'
  * units:             'metric' | 'imperial'
- * rtpRange:          'unlimited' | 'radius'
- * timeMode:          'live' | 'noon' | 'golden' | 'night' | 'custom'
+ * perspective:       'first' | 'third'
+ * rtpTarget:         'anywhere' | 'populated'
+ * timeMode:          'day' | 'live' | 'golden' | 'night' | 'custom'
  */
 export const DEFAULT_SETTINGS = {
   /* providers */
@@ -29,7 +30,7 @@ export const DEFAULT_SETTINGS = {
 
   /* graphics */
   graphics: 'high',
-  renderDistanceKm: 24,
+  renderDistanceKm: 16,
   fov: 78,
   freecamFov: 85,
   speedFovKick: true,
@@ -37,8 +38,9 @@ export const DEFAULT_SETTINGS = {
   adaptiveResolution: true,
   fpsTarget: 60,
   fog: true,
-  maxTileZoom: 18,
-  meshDetail: 1,
+  weather: true,
+  maxTileZoom: 20,
+  meshDetail: 1.2,
   showFps: false,
 
   /* controls */
@@ -46,24 +48,31 @@ export const DEFAULT_SETTINGS = {
   swapMouseButtons: false,
   sensitivity: 1,
   invertY: false,
-  thirdPerson: false,
+  /** 'first' | 'third' — F5 cycles it, the same key Minecraft uses. */
+  perspective: 'first',
+  showBody: true,
+  barrelRoll: false,
 
   /* player */
   playerHeightM: 1.98, // 6 ft 6 in
   playerScale: 1,
-  elytraDurability: true,
-  infiniteRockets: true,
   speedModeDurationS: 10,
   speedModeCooldownS: 45,
 
   /* world / exploration */
   units: 'metric',
   exploreSeas: false,
-  rtpRange: 'unlimited',
-  rtpRadiusKm: 250,
-  timeMode: 'live',
+  /** How far from land a sea drop may be, in km. At the top of the range: no limit. */
+  seaDistanceKm: 40,
+  /** Random teleport arrives high with the wings out. */
+  rtpSkySpawn: true,
+  /** Prefer arriving where there is street-level imagery, and inside a building. */
+  spawnStreetLevel: true,
+  spawnInBuilding: true,
+  /** 'anywhere' | 'populated' — where random teleport is allowed to drop you. */
+  rtpTarget: 'anywhere',
+  timeMode: 'day',
   customHour: 12,
-  fogRevealScale: 1,
 
   /* minimap */
   minimapVisible: true,
@@ -71,7 +80,7 @@ export const DEFAULT_SETTINGS = {
   minimapSize: 220,
   minimapZoom: 14,
   minimapRotates: false,
-  minimapShowPaths: true,
+  showTrail: true,
   minimapShowWaypoints: true,
   minimapFog: true,
 
@@ -88,39 +97,39 @@ export const DEFAULT_SETTINGS = {
  */
 export const GRAPHICS_PRESETS = {
   low: {
-    sseThreshold: 3.4,
-    tileGridSize: 9,
-    maxConcurrentRequests: 4,
-    textureCacheSize: 240,
+    sseThreshold: 2.4,
+    tileGridSize: 17,
+    maxConcurrentRequests: 6,
+    textureCacheSize: 320,
     anisotropy: 1,
-    buildingRadiusM: 220,
+    buildingRadiusM: 420,
     pixelRatioCap: 1,
   },
   medium: {
-    sseThreshold: 2.6,
-    tileGridSize: 17,
-    maxConcurrentRequests: 6,
-    textureCacheSize: 420,
+    sseThreshold: 1.7,
+    tileGridSize: 25,
+    maxConcurrentRequests: 10,
+    textureCacheSize: 560,
     anisotropy: 4,
-    buildingRadiusM: 380,
+    buildingRadiusM: 750,
     pixelRatioCap: 1.25,
   },
   high: {
-    sseThreshold: 2.0,
-    tileGridSize: 25,
-    maxConcurrentRequests: 10,
-    textureCacheSize: 700,
+    sseThreshold: 1.25,
+    tileGridSize: 33,
+    maxConcurrentRequests: 14,
+    textureCacheSize: 900,
     anisotropy: 8,
-    buildingRadiusM: 550,
+    buildingRadiusM: 1200,
     pixelRatioCap: 1.5,
   },
   ultra: {
-    sseThreshold: 1.5,
-    tileGridSize: 33,
-    maxConcurrentRequests: 14,
-    textureCacheSize: 1100,
+    sseThreshold: 0.85,
+    tileGridSize: 41,
+    maxConcurrentRequests: 18,
+    textureCacheSize: 1400,
     anisotropy: 16,
-    buildingRadiusM: 800,
+    buildingRadiusM: 1800,
     pixelRatioCap: 2,
   },
 };

@@ -1,4 +1,5 @@
 import * as THREE from '../vendor/three/three.module.js';
+import { cheats } from './core/cheats.js';
 import { clamp } from './core/math.js';
 import { PerfGovernor } from './core/perf.js';
 import { settings } from './core/settings.js';
@@ -10,24 +11,31 @@ import { LocalFrame } from './geo/frame.js';
 import { geocoder } from './geo/geocode.js';
 import { haversine, latToNormY, lonToNormX } from './geo/mercator.js';
 import { waterMap } from './geo/water.js';
+import { weatherAt } from './geo/weather.js';
+import { Autopilot } from './player/autopilot.js';
 import { Avatar } from './player/avatar.js';
 import { PlayerController } from './player/controller.js';
-import { HOTBAR, Player } from './player/player.js';
+import { Player } from './player/player.js';
 import { ElevationField } from './tiles/elevation.js';
 import { createElevationSource, createImagerySource } from './tiles/providers.js';
 import { ImageryStreamer } from './tiles/streamer.js';
+import { createTileWorker } from './tiles/workerHost.js';
 import { Buildings } from './world/buildings.js';
 import { Panorama } from './world/panorama.js';
 import { pickRandomDestination } from './world/rtp.js';
 import { createSharedUniforms } from './world/shaders.js';
 import { Sky } from './world/sky.js';
 import { Terrain } from './world/terrain.js';
+import { Weather } from './world/weather.js';
+import { CheatPanel } from './ui/cheatPanel.js';
 import { exploration } from './ui/exploration.js';
 import { HelpCard } from './ui/help.js';
 import { HUD } from './ui/hud.js';
 import { mapTiles } from './ui/mapTiles.js';
 import { Minimap } from './ui/minimap.js';
 import { SettingsPanel } from './ui/settingsPanel.js';
+import { TouchControls } from './ui/touch.js';
+import { trail } from './ui/trail.js';
 import { waypoints } from './ui/waypoints.js';
 import { WorldMap } from './ui/worldmap.js';
 
@@ -41,6 +49,8 @@ import { WorldMap } from './ui/worldmap.js';
 const DEFAULT_SPAWN = { lat: 46.5606, lon: 7.9089 }; // Lauterbrunnen valley
 const POSITION_KEY = 'last-position';
 const SETTLE_MS = 2600;
+/** Random teleports drop you here, high enough to open the wings. */
+const SPAWN_HEIGHT_M = 420;
 
 export class Game {
   constructor({ canvas, ui, onStatus }) {
@@ -72,11 +82,12 @@ export class Game {
 
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.FogExp2(0xaebccd, 1 / 26000);
-    this.camera = new THREE.PerspectiveCamera(settings.get('fov'), 1, 0.4, 260000);
+    // A near plane close enough to see your own legs when you look down.
+    this.camera = new THREE.PerspectiveCamera(settings.get('fov'), 1, 0.15, 260000);
     this.scene.add(this.camera);
 
     this.onStatus('Starting tile worker');
-    this.worker = new Worker(new URL('./tiles/tileWorker.js', import.meta.url), { type: 'module' });
+    this.worker = createTileWorker();
 
     this.frame = new LocalFrame(DEFAULT_SPAWN.lat, DEFAULT_SPAWN.lon);
     this.shared = createSharedUniforms();
@@ -90,6 +101,7 @@ export class Game {
       shared: this.shared,
     });
     this.sky = new Sky(this.scene, this.shared);
+    this.weather = new Weather(this.scene);
     this.buildings = new Buildings({ scene: this.scene, frame: this.frame, terrain: this.terrain });
     this.panorama = new Panorama({ scene: this.scene, frame: this.frame, worker: this.worker });
 
@@ -102,13 +114,22 @@ export class Game {
     this.avatar = new Avatar(this.scene);
     this.rig = new CameraRig(this.camera);
     this.input = new InputManager(canvas);
+    this.autopilot = new Autopilot({
+      player: this.player,
+      terrain: this.terrain,
+      fireRocket: () => this.fireRocket(),
+      onNotice: (message) => this.toast(message),
+    });
 
     this.onStatus('Building interface');
     this.hud = new HUD(ui);
-    this.minimap = new Minimap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints });
-    this.worldmap = new WorldMap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints });
+    this.minimap = new Minimap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints, trail });
+    this.worldmap = new WorldMap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints, trail });
     this.settingsPanel = new SettingsPanel(ui);
     this.help = new HelpCard(ui);
+    this.cheatPanel = new CheatPanel(ui);
+    this.touch = new TouchControls(ui);
+    this.input.attachTouch(this.touch);
 
     this.bindEvents();
     this.applyProviders();
@@ -147,6 +168,15 @@ export class Game {
       if (map[action]) this.onAction(map[action]);
     };
 
+    this.touch.onAction = (id) => {
+      if (id === 'boost') this.fireRocket();
+      else if (id === 'cheats') this.cheatPanel.toggle();
+      else if (id === 'cheatsUnlocked') this.onCheatsUnlocked();
+      else this.onAction(id);
+    };
+    this.touch.onLook = (dx, dy) => this.rig.applyLook(this.player, dx, dy);
+    this.touch.watchForTouch();
+
     // Clicking the minimap opens the big map centred where you are.
     this.minimap.onOpenMap = () => {
       this.worldmap.show({ lat: this.player.lat, lon: this.player.lon, heading: this.player.yaw });
@@ -165,6 +195,23 @@ export class Game {
     this.settingsPanel.onChange = (key) => this.onSettingChanged(key);
     this.settingsPanel.onDataAction = (name, payload) => this.onDataAction(name, payload);
 
+    this.cheatPanel.onNotice = (message) => this.toast(message);
+    this.cheatPanel.onTeleport = (lat, lon, label) => {
+      this.autopilot.disengage();
+      this.teleportTo(lat, lon, { reason: 'cheat', quiet: true });
+      this.toast(`Teleported to ${label}`);
+    };
+    this.cheatPanel.onTravel = (lat, lon, label) => {
+      this.cheatPanel.close();
+      this.autopilot.engage(lat, lon, label);
+    };
+    this.cheatPanel.onStopTravel = () => this.autopilot.disengage('Auto-travel stopped');
+
+    // The cheat code. Its own listener, in the capture phase so the letters of
+    // the code never reach the game's own bindings on the way past.
+    window.addEventListener('keydown', (event) => this.onCheatKey(event), true);
+    cheats.on('change', () => this.onCheatChanged());
+
     geocoder.on('address', (place) => {
       this.address = place.label;
     });
@@ -180,11 +227,51 @@ export class Game {
     });
     window.addEventListener('beforeunload', () => {
       exploration.save();
+      trail.save();
       this.savePosition();
     });
   }
 
-  applyProviders() {
+  /* ----------------------------------------------------------------- cheats */
+
+  onCheatKey(event) {
+    const target = event.target;
+    if (target instanceof HTMLElement) {
+      const tag = target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
+    }
+    const result = cheats.offerKey(event);
+    if (!result) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (result === 'unlock') this.onCheatsUnlocked();
+    else if (result === 'panel') this.cheatPanel.toggle();
+  }
+
+  onCheatsUnlocked() {
+    this.toast('Cheats unlocked — press ` for the panel', 'warn');
+    this.cheatPanel.show();
+  }
+
+  /** A dial moved: some of them need the rest of the game told. */
+  onCheatChanged() {
+    // Lifting the fog changes what both maps should be drawing right now.
+    this.minimap.timer = 1e6;
+    this.worldmap.dirty = true;
+    if (cheats.fly) {
+      this.player.toggleElytra(false);
+      this.player.onGround = false;
+    }
+    if (!cheats.unlocked) this.autopilot.disengage();
+  }
+
+  /**
+   * @param {boolean} rebuild throw away the terrain meshes as well. Only an
+   *   elevation change needs that; swapping imagery keeps the geometry and just
+   *   re-resolves textures, which is the difference between a seamless swap and
+   *   a second of blank ground you cannot move on.
+   */
+  applyProviders({ rebuild = true } = {}) {
     this.imagerySource = createImagerySource(settings.values);
     this.elevationSource = createElevationSource(settings.values);
     this.streamer.setSource(this.imagerySource);
@@ -192,14 +279,14 @@ export class Game {
     mapTiles.setSource(this.imagerySource);
     mapTiles.setDegraded(false);
     waterMap.setSource(this.imagerySource);
-    this.terrain.rebase();
+    if (rebuild) this.terrain.rebase();
     this.imagerySource.prepare();
     this.elevationSource.prepare();
   }
 
   onSettingChanged(key) {
     if (['imageryProvider', 'elevationProvider', 'googleKey', 'bingKey', 'mapboxKey'].includes(key)) {
-      this.applyProviders();
+      this.applyProviders({ rebuild: key === 'elevationProvider' });
       this.toast('Provider updated');
     }
     if (key === 'panoramaProvider' || key === 'mapillaryToken') this.panorama.clear();
@@ -214,6 +301,7 @@ export class Game {
         version: 1,
         settings: settings.values,
         waypoints: waypoints.export(),
+        trail: trail.legs,
         explored: [...exploration.cells],
         position: { lat: this.player.lat, lon: this.player.lon },
       };
@@ -232,6 +320,11 @@ export class Game {
           const data = JSON.parse(text);
           if (data.settings) settings.patch(data.settings);
           if (data.waypoints) waypoints.import(data.waypoints);
+          if (Array.isArray(data.trail)) {
+            trail.legs = data.trail;
+            trail.dirty = true;
+            trail.save();
+          }
           if (Array.isArray(data.explored)) {
             for (const key of data.explored) exploration.cells.add(key);
             exploration.detailCount = exploration.countAt(14);
@@ -247,7 +340,8 @@ export class Game {
       this.toast('Explored areas cleared');
     } else if (name === 'clear-marks') {
       waypoints.clearAll();
-      this.toast('Waypoints and paths deleted');
+      trail.clear();
+      this.toast('Waypoints and trail deleted');
     } else if (name === 'reset-settings') {
       this.applyProviders();
       this.toast('Settings reset');
@@ -285,12 +379,21 @@ export class Game {
     if (!this.running) return;
     requestAnimationFrame((t) => this.loop(t));
 
-    const dt = clamp((now - this.lastTime) / 1000, 0, 0.25);
+    const elapsed = clamp((now - this.lastTime) / 1000, 0, 0.25);
     this.lastTime = now;
     if (document.hidden) return;
 
-    this.perf.update(dt);
-    this.update(dt);
+    // The frame-rate governor wants real seconds; everything else runs on the
+    // game clock, which the game-speed cheat is allowed to stretch.
+    this.perf.update(elapsed);
+    // The governor only decides a scale — something has to act on it. Applied
+    // in steps, and only when it has really moved, so it never oscillates a
+    // few percent per frame and turns into the stutter it exists to prevent.
+    if (Math.abs(this.perf.scale - (this.appliedScale ?? 1)) > 0.04) {
+      this.appliedScale = this.perf.scale;
+      this.resize();
+    }
+    this.update(elapsed * cheats.gameSpeed);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -298,14 +401,18 @@ export class Game {
 
   update(dt) {
     const player = this.player;
-    const panelOpen = this.settingsPanel.open || this.worldmap.open || this.help.open;
+    const panelOpen =
+      this.settingsPanel.open || this.worldmap.open || this.help.open || this.cheatPanel.open;
     if (panelOpen !== this.uiSuspended) {
       this.uiSuspended = panelOpen;
       this.input.setSuspended(panelOpen);
     }
     this.canvas.classList.toggle('pan', settings.get('mouseMode') === 'pan');
 
-    const movement = this.input.movement();
+    let movement = this.input.movement();
+    if (this.autopilot.active && !this.rig.isFreecam) {
+      movement = this.autopilot.step(dt, movement);
+    }
 
     if (this.rig.isFreecam) {
       const ground = this.terrain.heightAt(this.rig.freecam.position.x, this.rig.freecam.position.z);
@@ -321,9 +428,6 @@ export class Game {
     if (this.frame.needsRebase(player.position.x, player.position.z)) this.rebase();
     player.syncGeo();
 
-    const yawRate = (player.yaw - this.lastYaw) / Math.max(dt, 0.001);
-    this.lastYaw = player.yaw;
-    this.rig.setYawRate(yawRate);
     this.rig.update(player, dt, this.terrain);
 
     const budget = this.perf.budgetMs();
@@ -336,6 +440,18 @@ export class Game {
     this.scene.fog.color.copy(this.sky.horizonColor);
     this.scene.fog.density = this.shared.uFogDensity.value;
     this.renderer.setClearColor(this.sky.horizonColor, 1);
+
+    // Weather for where and when you are, from the same climate model as the
+    // temperature readout — no forecast service, no key.
+    this.weatherState = weatherAt({
+      lat: player.lat,
+      lon: player.lon,
+      date: this.sky.date,
+      avgC: this.sky.climate ? this.sky.climate.avgC : 12,
+      landFraction: this.landFraction,
+    });
+    this.weather.setState(this.weatherState);
+    this.weather.update(this.camera, dt, this.sky);
 
     this.buildings.update(player.lat, player.lon, player.altitudeAboveGround);
 
@@ -350,25 +466,37 @@ export class Game {
       dt,
     );
 
-    const showAvatar = settings.get('thirdPerson') || this.rig.isFreecam;
+    // The body is drawn in first person too, minus the head, so you can see
+    // your own legs and the wings you are flying on.
+    const thirdPerson = settings.get('perspective') === 'third' || this.rig.isFreecam;
+    const showAvatar = thirdPerson || settings.get('showBody');
     this.avatar.setVisible(showAvatar);
+    this.avatar.setFirstPerson(!thirdPerson);
     if (showAvatar) this.avatar.update(player, dt);
 
     exploration.visit(player.lat, player.lon, player.altitudeAboveGround);
     exploration.tick(dt);
+    trail.record(player.lat, player.lon);
+    trail.tick(dt);
 
     this.address = geocoder.lookup(player.lat, player.lon)?.label ?? this.address;
 
     this.hud.update({
       player,
       climate: this.sky.climate,
+      weather: this.weatherState,
       address: this.address,
       status: this.statusLine(),
       attribution: this.attributionLine(),
       freecam: this.rig.isFreecam,
       onWater: this.terrain.isWaterAt(player.position.x, player.position.z),
+      landAway: this.landAway,
+      cheats: cheats.active ? cheats.labels.join(' · ') : '',
+      autopilot: this.autopilot.status(),
       debug: this.debugVisible ? this.debugText() : '',
     });
+
+    this.cheatPanel.setStatus(this.autopilot.status());
 
     this.minimap.update(
       { lat: player.lat, lon: player.lon, heading: player.yaw },
@@ -376,11 +504,43 @@ export class Game {
     );
     this.worldmap.update({ lat: player.lat, lon: player.lon, heading: player.yaw });
 
+    this.updateWaterReadout(dt);
+
     this.saveTimer += dt;
     if (this.saveTimer > 8) {
       this.saveTimer = 0;
       this.savePosition();
     }
+  }
+
+  /**
+   * Over open water, work out how far the nearest land is by walking outwards
+   * through the elevation field. Cheap, and only while you are actually at sea.
+   */
+  updateWaterReadout(dt) {
+    this.waterTimer = (this.waterTimer ?? 0) - dt;
+    if (this.waterTimer > 0) return;
+    this.waterTimer = 0.75;
+
+    const player = this.player;
+    if (!this.terrain.isWaterAt(player.position.x, player.position.z)) {
+      this.landAway = '';
+      return;
+    }
+    let nearest = Infinity;
+    for (let ring = 1; ring <= 14; ring++) {
+      const radius = ring * ring * 260;
+      for (let i = 0; i < 12; i++) {
+        const angle = (i / 12) * Math.PI * 2;
+        const x = player.position.x + Math.cos(angle) * radius;
+        const z = player.position.z + Math.sin(angle) * radius;
+        if (!this.terrain.isWaterAt(x, z)) nearest = Math.min(nearest, radius);
+      }
+      if (nearest < Infinity) break;
+    }
+    this.landAway = Number.isFinite(nearest)
+      ? `land ~${formatDistance(nearest, settings.get('units'), 0)}`
+      : 'open ocean';
   }
 
   get settling() {
@@ -395,16 +555,54 @@ export class Game {
   settle(dt) {
     const player = this.player;
     const ground = this.terrain.heightAt(player.position.x, player.position.z);
-    player.position.y = ground + 1.2;
     player.groundHeight = ground;
     player.velocity.set(0, 0, 0);
-    player.onGround = true;
     player.tickTimers(dt);
 
-    // Release early once real elevation has landed and had a moment to settle.
+    if (this.holdInAir) {
+      // Hang at spawn height with the wings out while the world builds under
+      // you, so the first second of a teleport is not a slideshow.
+      player.position.y = ground + SPAWN_HEIGHT_M;
+      player.onGround = false;
+    } else {
+      player.position.y = ground + 1.2;
+      player.onGround = true;
+    }
+
+    // Release once real elevation has landed, the tiles under you have been
+    // built, and it has had a moment to settle.
     const waited = performance.now() - (this.settleUntil - SETTLE_MS);
     const norm = this.frame.worldToNorm(player.position.x, player.position.z);
-    if (waited > 650 && this.elevation.hasData(norm.nx, norm.ny)) this.settleUntil = 0;
+    const ready = this.elevation.hasData(norm.nx, norm.ny) && this.terrain.stats.drawn > 6;
+    if (waited > 650 && ready) this.settleUntil = 0;
+    if (!this.settling && this.arrivalPending) this.finishArrival();
+  }
+
+  /**
+   * Once the ground is real, put the arrival where the settings asked for:
+   * inside a building if there is one, and with street-level photography on if
+   * the provider has any.
+   */
+  finishArrival() {
+    this.arrivalPending = false;
+    const player = this.player;
+
+    if (settings.get('spawnInBuilding') && settings.get('buildings')) {
+      const near = this.buildings.collidersNear(player.position.x, player.position.z, 90);
+      const inside = near.find((collider) => collider.floors && collider.floors.length > 0);
+      if (inside) {
+        const centre = polygonCentre(inside.polygon);
+        player.position.x = centre.x;
+        player.position.z = centre.z;
+        player.position.y = (inside.floors[0] ?? player.groundHeight) + 0.1;
+        player.velocity.set(0, 0, 0);
+        this.toast('Arrived indoors');
+      }
+    }
+
+    if (settings.get('spawnStreetLevel') && settings.get('panoramaProvider') !== 'none') {
+      settings.set('streetLevel', true);
+    }
   }
 
   rebase() {
@@ -423,6 +621,8 @@ export class Game {
 
   async teleportTo(lat, lon, { reason = 'manual', quiet = false } = {}) {
     this.teleporting = true;
+    // Being somewhere else makes the old destination somebody else's problem.
+    this.autopilot.disengage();
     const player = this.player;
     const previous = { lat: player.lat, lon: player.lon };
 
@@ -440,9 +640,23 @@ export class Game {
     this.elevation.ensureAround(nx, ny, Math.min(13, this.elevation.maxZoom), 1);
 
     const ground = Math.max(0, this.elevation.sampleLatLon(lat, lon));
-    player.teleport(lat, lon, ground, 1.2);
+    // Arrive in the air with the wings out: you are here to look around, and a
+    // teleport that dumps you in a field facing a hedge wastes the trip. Turn
+    // "arrives in the sky" off in Settings → World to land on your feet instead.
+    const airborne = (reason === 'rtp' || reason === 'spawn') && settings.get('rtpSkySpawn');
+    player.teleport(lat, lon, ground, airborne ? SPAWN_HEIGHT_M : 1.2);
+    if (airborne) {
+      player.onGround = false;
+      player.toggleElytra(true);
+    }
+    trail.break();
     this.camera.position.set(0, ground + player.eyeHeight, 0);
+    // Hold still either way until the ground under you actually exists. Being
+    // dropped into a hole while the tiles stream in is what made an arrival
+    // feel like a stutter, and what left the ground invisible underfoot.
+    this.holdInAir = airborne;
     this.settleUntil = performance.now() + SETTLE_MS;
+    this.arrivalPending = !airborne;
     this.address = 'Locating…';
 
     if (!quiet) {
@@ -460,16 +674,15 @@ export class Game {
     this.rtpBusy = true;
     this.toast('Looking for somewhere to land…');
     try {
-      const destination = await pickRandomDestination({
-        waterMap,
-        origin: { lat: this.player.lat, lon: this.player.lon },
-      });
+      const destination = await pickRandomDestination({ waterMap });
       await this.teleportTo(destination.lat, destination.lon, { reason: 'rtp', quiet: true });
       const where = formatLatLon(destination.lat, destination.lon, 4);
       if (!destination.onLand && !settings.get('exploreSeas')) {
         this.toast(`Dropped at ${where} — could not confirm dry land`, 'warn');
+      } else if (destination.place) {
+        this.toast(`Dropped near ${destination.place} · ${where}`);
       } else {
-        this.toast(`Dropped at ${where}${destination.limited ? ' (within range)' : ''}`);
+        this.toast(`Dropped at ${where}`);
       }
     } catch (err) {
       this.toast(`Teleport failed: ${err.message ?? err}`, 'bad');
@@ -503,20 +716,16 @@ export class Game {
       case 'rtp':
         this.randomTeleport();
         break;
-      case 'elytra': {
-        if (player.elytraBroken) {
-          this.toast('The elytra is broken — repair it in Settings → Player', 'warn');
-          break;
-        }
-        const out = player.toggleElytra();
-        this.toast(out ? 'Wings out' : 'Wings stowed');
-        break;
-      }
       case 'rocket':
         this.fireRocket();
         break;
       case 'speedMode':
-        if (player.startSpeedMode()) this.toast('Speed mode — 2x');
+        // With unlimited speed mode on there is no timer to wait out, so the
+        // key has to be able to switch it back off again.
+        if (cheats.speedFree && player.speedActive) {
+          player.stopSpeedMode();
+          this.toast('Speed mode off');
+        } else if (player.startSpeedMode()) this.toast('Speed mode — 2x');
         else if (player.speedCooldown > 0) {
           this.toast(`Speed mode recharging (${Math.ceil(player.speedCooldown)}s)`, 'warn');
         }
@@ -526,8 +735,14 @@ export class Game {
         this.toast(active ? 'Freecam on — wheel changes speed' : 'Freecam off');
         break;
       }
-      case 'thirdPerson':
-        settings.set('thirdPerson', !settings.get('thirdPerson'));
+      case 'perspective': {
+        const next = settings.get('perspective') === 'first' ? 'third' : 'first';
+        settings.set('perspective', next);
+        this.toast(next === 'third' ? 'Third person' : 'First person');
+        break;
+      }
+      case 'barrelRoll':
+        if (this.rig.startBarrelRoll()) this.toast('Barrel roll');
         break;
       case 'worldMap':
         this.worldmap.toggle({ lat: player.lat, lon: player.lon, heading: player.yaw });
@@ -535,17 +750,6 @@ export class Game {
       case 'waypoint': {
         const waypoint = waypoints.add(player.lat, player.lon, '', player.position.y);
         this.toast(`${waypoint.name} saved`);
-        break;
-      }
-      case 'pathTool': {
-        const result = waypoints.tapPath(player.lat, player.lon);
-        const messages = {
-          started: 'Path started — tap again to add points, twice to finish',
-          point: 'Path point added',
-          finished: 'Path saved',
-          discarded: 'Path discarded',
-        };
-        this.toast(messages[result]);
         break;
       }
       case 'copyCoords':
@@ -580,6 +784,7 @@ export class Game {
       case 'settings':
         if (this.worldmap.open) this.worldmap.close();
         else if (this.help.open) this.help.close();
+        else if (this.cheatPanel.open) this.cheatPanel.close();
         else this.settingsPanel.toggle();
         break;
       case 'help':
@@ -597,47 +802,27 @@ export class Game {
     }
   }
 
+  /**
+   * Picking a hotbar slot chooses which rocket you fire next — and pressing the
+   * number you are already on fires it, so a rocket is one key, not two.
+   */
   useSlot(index) {
-    const player = this.player;
-    player.selectSlot(index);
-    const item = HOTBAR[index];
-    if (!item) return;
-    if (item.kind === 'elytra') {
-      const out = player.toggleElytra();
-      this.toast(out ? 'Wings out' : 'Wings stowed');
-    } else if (item.id === 'waypoint') {
-      const waypoint = waypoints.add(player.lat, player.lon, '', player.position.y);
-      this.toast(`${waypoint.name} saved`);
-    } else if (item.id === 'path') {
-      this.onAction('pathTool');
-    } else if (item.id === 'measure') {
-      if (!player.measureAnchor) {
-        player.measureAnchor = { lat: player.lat, lon: player.lon };
-        this.toast('Measuring from here');
-      } else {
-        const distance = haversine(player.measureAnchor, { lat: player.lat, lon: player.lon });
-        this.toast(`${formatDistance(distance, settings.get('units'))} from the mark`);
-        player.measureAnchor = null;
-      }
-    }
+    if (index === this.player.selectedSlot) this.fireRocket();
+    else this.player.selectSlot(index);
   }
 
   fireRocket() {
     const player = this.player;
     if (this.rig.isFreecam) return;
     if (!player.elytraDeployed) {
-      if (!player.onGround && !player.elytraBroken) {
+      if (!player.onGround) {
         player.toggleElytra(true);
       } else {
         this.toast('Jump, then open the wings before boosting', 'warn');
         return;
       }
     }
-    if (player.fireRocket()) {
-      this.rig.kick(0.1 + player.rocketDuration * 0.02);
-    } else if (!settings.get('infiniteRockets') && player.rocketStock < 1) {
-      this.toast('Out of rockets — they restock slowly', 'warn');
-    }
+    if (player.fireRocket()) this.rig.kick(0.1 + player.rocketDuration * 0.02);
   }
 
   land() {
@@ -676,7 +861,14 @@ export class Game {
       else parts.push(source.descriptor.label);
     }
     if (this.elevation.unreachable) parts.push('elevation unavailable — flat terrain');
-    if (this.panorama.status && this.panorama.status !== 'off') parts.push(`street: ${this.panorama.status}`);
+    // Only say something about street level when it is actually doing
+    // something. Announcing "no coverage here" every time you walk about is
+    // noise: most of the planet has no street-level photography, and the game
+    // does not need it.
+    const street = this.panorama.status;
+    if (street === 'loading' || street === 'showing ground imagery') {
+      parts.push(`street level: ${street === 'loading' ? 'loading' : 'on'}`);
+    }
     if (settings.get('showFps')) parts.push(`${Math.round(this.perf.fps)} fps`);
     return parts.join(' · ');
   }
@@ -704,4 +896,16 @@ export class Game {
       `mode ${player.mode}  vel ${player.velocity.length().toFixed(1)} m/s  land ${(this.landFraction * 100).toFixed(0)}%`,
     ].join('\n');
   }
+}
+
+/** Centre of a building footprint, in world XZ. */
+function polygonCentre(polygon) {
+  let x = 0;
+  let z = 0;
+  for (const point of polygon) {
+    x += point[0];
+    z += point[1];
+  }
+  const n = Math.max(1, polygon.length);
+  return { x: x / n, z: z / n };
 }

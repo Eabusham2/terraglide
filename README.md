@@ -1,5 +1,7 @@
 # TerraGlide
 
+**Play it: <https://eabusham2.github.io/terraglide/>**
+
 A first-person world exploration game that runs in a browser. Press one key and
 you are dropped somewhere random on Earth. Open a pair of elytra, dive to build
 speed, flare to trade it back for height, fire a rocket when you run out of
@@ -13,8 +15,17 @@ install, no framework. The only dependency is three.js, which is vendored into
 
 ## Run it
 
-Browsers refuse to load ES modules and web workers from `file://`, so the folder
-has to be served over HTTP. Any static server works; one is included:
+The published build is at <https://eabusham2.github.io/terraglide/> — nothing to
+install, it runs in the tab.
+
+**No internet at all?** Download
+[terraglide.html](https://eabusham2.github.io/terraglide/terraglide.html) — the
+whole game in one file. Save it anywhere and double-click it; no server, no
+install, works on a Chromebook, and the generated world runs entirely offline.
+
+To run the source copy: browsers refuse to load ES modules from `file://`, so
+the folder has to be served over HTTP. Any static server works; one is
+included:
 
 ```sh
 node serve.mjs          # http://127.0.0.1:8080
@@ -30,7 +41,12 @@ python3 -m http.server 8080
 Then open the address it prints. Needs a browser with WebGL 2 (anything current).
 
 There is nothing to install — `npm install` does nothing, because there are no
-runtime dependencies.
+runtime dependencies. `node tools/bundle.mjs` rebuilds the single-file version.
+
+**Touch screens** — on a phone, tablet or a Chromebook used as a tablet, an
+on-screen stick and buttons appear by themselves: left thumb moves, drag the
+right side to look, buttons for wings, boost, jump, dive, 2x, teleport and the
+map. Dive is held: it drops the nose in the air and takes you under in water.
 
 ---
 
@@ -39,23 +55,23 @@ runtime dependencies.
 | | |
 | --- | --- |
 | `W A S D` | walk |
-| `Shift` / `Ctrl` | sprint / crouch |
+| `Shift` / `C` | sprint / crouch — `C` also dives when you are swimming |
 | `Space` | jump — **hold it while falling** to snap the wings open |
-| `F` | deploy or stow the elytra |
-| mouse buttons | fire a rocket (see mouse modes below) |
-| `1`–`5` | rockets, flight duration I to V |
-| `6` | elytra · `7` waypoint · `8` path pen · `9` tape measure |
+| mouse buttons | fire a rocket, which opens the wings for you (see mouse modes below) |
+| `1`–`5` | rockets — the number is the flight duration *and* the power |
 | `V` | speed mode — everything at 2x for a while, then a cooldown |
 | `R` | random teleport |
 | `G` | world map · `M` minimap on/off · `=` / `-` minimap zoom |
-| `B` | drop a waypoint · `N` path tool · `P` copy coordinates |
-| `C` | freecam · `T` third person · `[` / `]` shrink / grow |
+| `B` | drop a waypoint · `P` copy coordinates |
+| `Q` | freecam · `F5` perspective · `X` barrel roll (off by default) · `[` / `]` shrink / grow |
 | `L` | swap mouse mode · `F1` hide HUD · `F2` controls · `F3` debug · `Esc` settings |
 
 Every one of those is rebindable in **Settings → Controls**.
 
 You are 6 ft 6 in (1.98 m) by default and can grow to about 40x, which changes
-your stride, your jump and how the world reads underfoot.
+your stride, your jump and how the world reads underfoot. Deep water holds you
+up — jump to rise, crouch to dive, and the sea floor is where the bottom
+actually is, so you can swim down to it.
 
 ### Flying
 
@@ -66,10 +82,13 @@ climb at a little over 3x, and your horizontal velocity is continuously steered
 toward wherever you are looking. In practice: point the nose down to build to
 about 120 km/h, then flare and you will climb most of it back. Rockets add thrust
 along your look vector for 10·duration + 6 ticks, so a Rocket V burns for nearly
-three seconds.
+three seconds — and as in Minecraft the slot number is the powder as well as the
+duration, so a V shoves about twice as hard as a I. The kick is strongest at
+ignition and tapers off across the burn. There is no cooldown: light another
+whenever you like.
 
-The elytra wears out at one point a second out of 432, like the real item. Turn
-that off in **Settings → Player** if you would rather not think about it.
+Flown well the exchange very nearly breaks even, so a dive-flare-dive rhythm at
+the right angle will keep you up more or less indefinitely.
 
 Speed mode multiplies *displacement*, not forces — you cover twice the ground
 without the aircraft handling like a different machine.
@@ -93,14 +112,16 @@ without the aircraft handling like a different machine.
 - **Seasonal temperature**, top left: the average temperature for the season you
   are standing in, from latitude, elevation, time of year and how much land
   surrounds you. It is a climate model, not a weather feed, and says so.
-- **Minimap**, top right: satellite imagery for ground you have explored, dimmed
-  and hatched for ground you have not. It fills in behind you as you travel.
-  Zoom with `=`/`-` or the wheel, click it to open the big map.
+- **Minimap**, top right: satellite imagery for ground you have explored and a
+  flat map view for ground you have not, so the whole world is legible but only
+  the parts you have been to are photographic. It fills in behind you as you
+  travel. Zoom with `=`/`-` or the wheel, click it to open the big map.
 - **World map** (`G`): the same thing at any zoom, plus search, your waypoints,
   your drawn paths, and how much of the world you have covered. Drag to pan,
-  wheel to zoom, double-click to travel there.
-- **Paths**: tap `N` to drop a point, tap it twice quickly to finish the line.
-  Thin lines from start to end, drawn on both maps, saved between sessions.
+  wheel to zoom.
+- **Your trail**: a thin line of everywhere you have been, recorded as you go
+  and drawn on both maps. A teleport starts a new leg, so it never draws a line
+  across an ocean you did not cross.
 
 ---
 
@@ -182,12 +203,13 @@ exports and imports all of it as a JSON file, and clears any of it.
 
 ```sh
 node tools/check.mjs      # parse every module, verify every import resolves
-node tools/selftest.mjs   # 45 checks: projection, frame, flight model, climate, water
+node tools/selftest.mjs   # 78 checks: projection, frame, flight, climate, water, cheats
 ```
 
 `tools/selftest.mjs` runs the pure maths headlessly — mercator round-trips, the
 local frame's tile geometry, the glide and rocket integrators, the seasonal
-temperature curve, the water classifier and the world generator.
+temperature curve, the water classifier, the world generator, the cheat code and
+the auto-travel steering laws.
 
 ---
 
@@ -200,14 +222,15 @@ serve.mjs           dependency-free static server
 src/
   main.js           entry point and browser capability check
   game.js           wiring, frame loop, teleports, re-anchoring
-  core/             settings, key bindings, units, storage, maths, perf governor
+  core/             settings, key bindings, units, storage, maths, perf, cheats
   geo/              mercator, the local world frame, sun, climate, geocoding, water
   tiles/            provider registry, worker, imagery streamer, elevation field,
                     the offline world generator
   world/            terrain quadtree, shaders, sky, buildings, panorama, teleport
-  player/           state, walking and collision, elytra physics, avatar
+  player/           state, walking and collision, elytra physics, autopilot, avatar
   camera/           camera rig, freecam, input and mouse modes
-  ui/               HUD, minimap, world map, settings, help, waypoints, exploration
+  ui/               HUD, minimap, world map, settings, cheats, help, waypoints,
+                    exploration, touch controls
 tools/              check.mjs, selftest.mjs
 vendor/three/       three.js (MIT), vendored so there is nothing to install
 ```
