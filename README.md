@@ -239,11 +239,16 @@ vendor/three/       three.js (MIT), vendored so there is nothing to install
 
 ## Licence
 
-**Not open source.** TerraGlide is under the TerraGlide Restricted Source
-Licence — source-available for reading and private use only, no redistribution,
-no commercial use, no hosting where anyone else can reach it, and no using it to
-scrape or re-publish anybody's map data. Read `LICENSE` in full; ask first if you
-want anything beyond it.
+**Not open source**, but you may publish it. TerraGlide is under the TerraGlide
+Restricted Source Licence: source-available for reading and private use, and you
+are free to host it, put it on a game site or mirror the repository **as long as
+the credit "TerraGlide by Eabusham2" is visible with it**. If the publication
+makes money in any way — ads, sponsorship, donations, a paywall — a clickable
+link to <https://github.com/Eabusham2/terraglide> has to sit next to that credit.
+
+Selling it, licensing it on, or bundling it into another product still needs
+written permission, and none of it grants you any rights to anybody's map data.
+Read `LICENSE` in full.
 
 three.js keeps its own MIT licence (`vendor/three/LICENSE`), and every map
 provider keeps theirs (`THIRD-PARTY.md`).

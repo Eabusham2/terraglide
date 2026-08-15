@@ -1,0 +1,8 @@
+{
+  "note": "Optional scenery textures for the served copy. The single-file build has no assets folder and falls back to flat colour, so nothing here is required to play.",
+  "generatedWith": "Pixa (FLUX 2 Klein), prompted for seamless tileable material",
+  "textures": {
+    "foliage": "foliage.jpg",
+    "rock": "rock.jpg"
+  }
+}

@@ -24,6 +24,7 @@ import { Buildings } from './world/buildings.js';
 import { Panorama } from './world/panorama.js';
 import { pickRandomDestination } from './world/rtp.js';
 import { createSharedUniforms } from './world/shaders.js';
+import { Scatter } from './world/scatter.js';
 import { Sky } from './world/sky.js';
 import { Terrain } from './world/terrain.js';
 import { Weather } from './world/weather.js';
@@ -102,6 +103,8 @@ export class Game {
     });
     this.sky = new Sky(this.scene, this.shared);
     this.weather = new Weather(this.scene);
+    this.scatter = new Scatter({ scene: this.scene, terrain: this.terrain });
+    this.scatter.loadTextures();
     this.buildings = new Buildings({ scene: this.scene, frame: this.frame, terrain: this.terrain });
     this.panorama = new Panorama({ scene: this.scene, frame: this.frame, worker: this.worker });
 
@@ -453,6 +456,12 @@ export class Game {
     this.weather.setState(this.weatherState);
     this.weather.update(this.camera, dt, this.sky);
 
+    // Trees, bushes and rocks standing on the ground, from the climate you are
+    // actually in — nothing below the waterline, nothing on the cliffs, and
+    // conifers taking over as you climb toward the snow line.
+    this.scatter.setClimate(this.sky.climate);
+    this.scatter.update(this.camera, player);
+
     this.buildings.update(player.lat, player.lon, player.altitudeAboveGround);
 
     this.panorama.update(
@@ -612,6 +621,7 @@ export class Game {
     this.player.position.set(0, y, 0);
     this.terrain.rebase();
     this.buildings.rebase();
+    this.scatter.rebase();
     this.panorama.rebase();
     this.camera.position.set(0, y + this.player.eyeHeight, 0);
     if (this.rig.isFreecam) this.rig.freecam.position.set(0, y + 40, 0);
@@ -629,6 +639,7 @@ export class Game {
     this.frame.setAnchor(lat, lon);
     this.terrain.rebase();
     this.buildings.rebase();
+    this.scatter.rebase();
     this.panorama.clear();
     this.streamer.clear();
 
@@ -890,7 +901,7 @@ export class Game {
       `draws ${this.renderer.info.render.calls}  tris ${(this.renderer.info.render.triangles / 1000).toFixed(0)}k`,
       `tiles drawn ${t.drawn}  nodes ${t.nodes}  z ${t.baseZoom}-${t.maxZoom}`,
       `imagery cache ${this.streamer.entries.size}  loading ${this.streamer.stats.pending}  failed ${this.streamer.stats.failed}`,
-      `elevation tiles ${this.elevation.tiles.size}  buildings ${this.buildings.stats.buildings}`,
+      `elevation tiles ${this.elevation.tiles.size}  buildings ${this.buildings.stats.buildings}  scenery ${this.scatter.stats.placed}`,
       `pos ${player.position.x.toFixed(1)}, ${player.position.y.toFixed(1)}, ${player.position.z.toFixed(1)}`,
       `geo ${player.lat.toFixed(5)}, ${player.lon.toFixed(5)}  ground ${player.groundHeight.toFixed(1)}m`,
       `mode ${player.mode}  vel ${player.velocity.length().toFixed(1)} m/s  land ${(this.landFraction * 100).toFixed(0)}%`,

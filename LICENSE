@@ -1,7 +1,7 @@
 TerraGlide Restricted Source License
-Version 1.0 — 2026
+Version 1.1 — 2026
 
-Copyright (c) 2026 the TerraGlide authors. All rights reserved.
+Copyright (c) 2026 Eabusham2. All rights reserved.
 
 This is NOT an open source license. The source code of this project is made
 visible for reading and for private evaluation only. Every right that is not
@@ -23,6 +23,21 @@ written down below as granted is withheld.
    result is not shown, sold, hosted, streamed or otherwise made available to
    anyone else.
 
+   "Publication" means making the Work playable or downloadable by other people
+   — hosting it on a website, listing it on a game portal, or mirroring the
+   repository.
+
+   "Required credit" means, wherever the Work is published, a clearly visible
+   and legible credit reading "TerraGlide by Eabusham2" placed where a visitor
+   will actually see it: on the page carrying the game, in its description, or
+   in the game's own interface. The credit must not be hidden behind a menu the
+   visitor has no reason to open, rendered in a colour that cannot be read, or
+   presented so as to suggest the publisher wrote the Work.
+
+   "Required link" means, in addition to the required credit, a working and
+   clickable link to the Work's home at
+   <https://github.com/Eabusham2/terraglide>, in the same place as the credit.
+
 2. WHAT YOU MAY DO
 
    Subject to every condition in this licence, the Licensor grants You a
@@ -33,20 +48,37 @@ written down below as granted is withheld.
    b. read and study the Work;
    c. build and run the Work for Private use;
    d. modify the Work locally for Private use, for the sole purposes of
-      evaluation, learning, security review and interoperability testing.
+      evaluation, learning, security review and interoperability testing;
+   e. PUBLISH the Work — host it on Your own site, put it on a game site or
+      portal, or mirror the repository — provided that:
+        i.   the required credit appears with it, unaltered;
+        ii.  every copyright notice, licence notice and provider attribution
+             already in the Work stays exactly where it is;
+        iii. this licence travels with any copy You publish, and the people who
+             receive it get no more rights than You have;
+        iv.  You do not claim authorship of the Work or present it as Your own;
+        v.   if the publication earns money in any way — advertising on or
+             around it, sponsorship, subscription, donations tied to it, paid
+             placement, or a paywall of any kind — the required link is shown
+             alongside the required credit; and
+        vi.  You obey section 4 about third-party map data, which is not Yours
+             to publish and which the Work does not include.
+      Selling the Work itself, licensing it on, or charging for access to it as
+      a product is not covered by this permission and still needs separate
+      written permission.
 
 3. WHAT YOU MAY NOT DO
 
    Without prior written permission signed by the Licensor, You may not:
 
-   a. distribute, publish, host, mirror, sell, rent, lend, sublicense or
-      otherwise make available the Work or any part of it, modified or not, to
-      any other person or system;
-   b. use the Work, or anything derived from it, in the course of any business,
-      commercial offering, paid service, advertising, or revenue-generating
-      activity of any kind;
-   c. deploy the Work on a network, server or service that anyone other than You
-      can reach;
+   a. sell, rent, lend or sublicense the Work, or charge for access to it as a
+      product, or distribute it other than as permitted by section 2(e);
+   b. use the Work, or anything derived from it, as part of a paid product or
+      paid service, beyond the advertising and donations expressly allowed by
+      section 2(e)(v);
+   c. publish the Work without the required credit — or, where money is
+      involved, without the required link — or in a way that hides, shrinks
+      past legibility, or contradicts either of them;
    d. incorporate the Work, in whole or in part, into another product, project,
       library, model, dataset or corpus, including any dataset used to train,
       fine-tune, evaluate or ground a machine learning system;
@@ -122,5 +154,6 @@ written down below as granted is withheld.
    in force. Any permission that expands this licence is valid only in a writing
    signed by the Licensor.
 
-To ask for rights beyond this licence — commercial use, redistribution, hosting
-or bundling — contact the Licensor and obtain written permission first.
+Publishing the Work with credit is allowed and welcome; see section 2(e). To ask
+for anything beyond it — selling the Work, licensing it on, or bundling it into
+another product — contact the Licensor and obtain written permission first.

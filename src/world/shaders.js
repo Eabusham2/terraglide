@@ -21,11 +21,13 @@ const TERRAIN_VERT = /* glsl */ `
   varying vec3 vNormalW;
   varying float vDist;
   varying float vHeight;
+  varying vec3 vWorld;
 
   void main() {
     vUv = uv;
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vHeight = worldPos.y;
+    vWorld = worldPos.xyz;
     // "flat" is a reserved interpolation qualifier in GLSL ES 3, hence the name.
     vec2 groundOffset = worldPos.xz - cameraPosition.xz;
     float d = length(groundOffset);
@@ -61,11 +63,38 @@ const TERRAIN_FRAG = /* glsl */ `
   varying vec3 vNormalW;
   varying float vDist;
   varying float vHeight;
+  varying vec3 vWorld;
+
+  float detailHash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
+
+  float detailNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(detailHash(i), detailHash(i + vec2(1.0, 0.0)), u.x),
+               mix(detailHash(i + vec2(0.0, 1.0)), detailHash(i + vec2(1.0, 1.0)), u.x), u.y);
+  }
 
   void main() {
     #include <logdepthbuf_fragment>
     vec2 uv = uUvOffset + clamp(vUv, 0.0, 1.0) * uUvScale;
     vec3 albedo = mix(uFallbackColor, texture2D(uMap, uv).rgb, uHasTexture);
+
+    // Ground detail.
+    //
+    // Up close there is nothing left in the imagery: either the provider has
+    // no tile at this zoom and we are stretching its parent, or the pixel is
+    // simply a flat expanse of snow or sand. Either way it reads as a blank
+    // white or grey wash. Two octaves of ground-locked noise, faded in over the
+    // last couple of hundred metres, give the surface something to hold on to
+    // without inventing features that are not there.
+    float near = 1.0 - smoothstep(30.0, 260.0, vDist);
+    if (near > 0.001) {
+      float grain = detailNoise(vWorld.xz * 0.9) * 0.6 + detailNoise(vWorld.xz * 3.7) * 0.4;
+      albedo *= 1.0 + (grain - 0.5) * 0.3 * near;
+    }
 
     vec3 n = normalize(vNormalW);
     float lambert = max(dot(n, uSunDir), 0.0);
@@ -74,12 +103,19 @@ const TERRAIN_FRAG = /* glsl */ `
     vec3 lit = albedo * (uAmbient + uSunColor * wrapped);
 
     // Snow above the seasonal snow line, on ground that is not too steep.
-    float flatness = smoothstep(0.55, 0.9, n.y);
-    float snow = smoothstep(uSnowLine, uSnowLine + 600.0, vHeight) * flatness;
-    // Tint toward snow but keep the shading underneath, or high ground turns
-    // into a flat white sheet with no readable relief.
-    vec3 snowColour = vec3(0.9, 0.92, 0.95) * (uAmbient + uSunColor * wrapped);
-    lit = mix(lit, snowColour, snow * 0.62);
+    //
+    // Deliberately weak and deliberately gradual. Snow used to arrive as a
+    // switch — one flat tile crossed the line and turned into a white
+    // rectangle while its neighbour stayed green. It now fades in over a full
+    // kilometre of height, drifts about with the ground so the line is never
+    // straight, sheds off any real slope, and only ever tints what is already
+    // there rather than painting over it.
+    float flatness = smoothstep(0.30, 0.92, n.y);
+    float drift = (detailNoise(vWorld.xz * 0.0035) - 0.5) * 460.0
+                + (detailNoise(vWorld.xz * 0.02) - 0.5) * 90.0;
+    float snow = smoothstep(uSnowLine + drift, uSnowLine + drift + 1000.0, vHeight) * flatness;
+    vec3 snowColour = vec3(0.86, 0.88, 0.92) * (uAmbient + uSunColor * wrapped);
+    lit = mix(lit, snowColour, snow * 0.45);
 
     lit = mix(lit, lit * vec3(0.46, 0.52, 0.7), uNight);
 

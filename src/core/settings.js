@@ -39,6 +39,7 @@ export const DEFAULT_SETTINGS = {
   fpsTarget: 60,
   fog: true,
   weather: true,
+  scenery: true,
   maxTileZoom: 20,
   meshDetail: 1.2,
   showFps: false,
@@ -62,8 +63,8 @@ export const DEFAULT_SETTINGS = {
   /* world / exploration */
   units: 'metric',
   exploreSeas: false,
-  /** How far from land a sea drop may be, in km. At the top of the range: no limit. */
-  seaDistanceKm: 40,
+  /** How far out to sea a random teleport may drop you, in km. Default: no limit. */
+  seaDistanceKm: 501,
   /** Random teleport arrives high with the wings out. */
   rtpSkySpawn: true,
   /** Prefer arriving where there is street-level imagery, and inside a building. */
@@ -103,6 +104,7 @@ export const GRAPHICS_PRESETS = {
     textureCacheSize: 320,
     anisotropy: 1,
     buildingRadiusM: 420,
+    sceneryRadiusM: 260,
     pixelRatioCap: 1,
   },
   medium: {
@@ -112,6 +114,7 @@ export const GRAPHICS_PRESETS = {
     textureCacheSize: 560,
     anisotropy: 4,
     buildingRadiusM: 750,
+    sceneryRadiusM: 420,
     pixelRatioCap: 1.25,
   },
   high: {
@@ -121,6 +124,7 @@ export const GRAPHICS_PRESETS = {
     textureCacheSize: 900,
     anisotropy: 8,
     buildingRadiusM: 1200,
+    sceneryRadiusM: 620,
     pixelRatioCap: 1.5,
   },
   ultra: {
@@ -130,6 +134,7 @@ export const GRAPHICS_PRESETS = {
     textureCacheSize: 1400,
     anisotropy: 16,
     buildingRadiusM: 1800,
+    sceneryRadiusM: 900,
     pixelRatioCap: 2,
   },
 };
