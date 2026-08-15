@@ -28,6 +28,15 @@ import { UNLOCK_CODE, cheats } from '../src/core/cheats.js';
 import { resolvePlace } from '../src/ui/cheatPanel.js';
 import { proceduralElevation } from '../src/tiles/procedural.js';
 import { classify, parseFeatures, pointInRing } from '../src/world/landcover.js';
+import {
+  applyMatrix,
+  boundingSphereOf,
+  ecefToGeodetic,
+  ecefToLocalMatrix,
+  enuBasis,
+  geodeticToEcef,
+  screenSpaceError,
+} from '../src/geo/ecef.js';
 
 let failures = 0;
 let checks = 0;
@@ -448,6 +457,86 @@ console.log('\nOpenStreetMap land cover');
   ok('inside the arm of the L', pointInRing(ell, 20, 80));
   ok('in the notch of the L is outside', !pointInRing(ell, 80, 80), 'the bit an axis-aligned test gets wrong');
   ok('inside the base of the L', pointInRing(ell, 80, 20));
+}
+
+console.log('\nearth-centred coordinates');
+{
+  // Known values: the equator on the prime meridian sits on the semi-major axis.
+  const equator = geodeticToEcef(0, 0, 0);
+  ok('0,0 is on the X axis at the equatorial radius',
+    near(equator.x, 6378137, 0.5) && near(equator.y, 0, 1e-6) && near(equator.z, 0, 1e-6),
+    `${equator.x.toFixed(0)} m`);
+
+  const pole = geodeticToEcef(90, 0, 0);
+  ok('the north pole is on Z at the polar radius', near(pole.z, 6356752.3, 1) && near(pole.x, 0, 1e-3),
+    `${pole.z.toFixed(0)} m`);
+
+  const east = geodeticToEcef(0, 90, 0);
+  ok('90 east is on the Y axis', near(east.y, 6378137, 0.5) && near(east.x, 0, 1e-3));
+
+  // Round trips, including somewhere with height.
+  for (const [lat, lon, height] of [[51.5074, -0.1278, 0], [-33.8688, 151.2093, 120], [46.56, 7.91, 3400]]) {
+    const ecef = geodeticToEcef(lat, lon, height);
+    const back = ecefToGeodetic(ecef.x, ecef.y, ecef.z);
+    ok(`ECEF round trip ${lat},${lon}`,
+      near(back.lat, lat, 1e-7) && near(back.lon, lon, 1e-7) && near(back.height, height, 1e-3));
+  }
+
+  // The local basis has to be orthonormal or everything placed with it shears.
+  const { east: e, north: n, up: u } = enuBasis(46.56, 7.91);
+  const dot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
+  const len = (a) => Math.hypot(a.x, a.y, a.z);
+  ok('the local basis is unit length', near(len(e), 1, 1e-12) && near(len(n), 1, 1e-12) && near(len(u), 1, 1e-12));
+  ok('the local basis is orthogonal',
+    near(dot(e, n), 0, 1e-12) && near(dot(e, u), 0, 1e-12) && near(dot(n, u), 0, 1e-12));
+
+  // The matrix that moves real 3D tiles into the game's frame.
+  const lat = 46.56;
+  const lon = 7.91;
+  const m = ecefToLocalMatrix(lat, lon, 0);
+  const anchor = geodeticToEcef(lat, lon, 0);
+  const atOrigin = applyMatrix(m, anchor.x, anchor.y, anchor.z);
+  ok('the anchor lands on the origin',
+    near(atOrigin.x, 0, 1e-6) && near(atOrigin.y, 0, 1e-6) && near(atOrigin.z, 0, 1e-6));
+
+  const up = geodeticToEcef(lat, lon, 1000);
+  const above = applyMatrix(m, up.x, up.y, up.z);
+  ok('1 km of height maps to +1000 on Y', near(above.y, 1000, 1e-3), `${above.y.toFixed(3)}`);
+
+  const northOf = geodeticToEcef(lat + 0.01, lon, 0);
+  const northLocal = applyMatrix(m, northOf.x, northOf.y, northOf.z);
+  ok('north maps to -Z, as the game expects', northLocal.z < -1000 && northLocal.z > -1200,
+    `z=${northLocal.z.toFixed(0)}`);
+
+  const eastOf = geodeticToEcef(lat, lon + 0.01, 0);
+  const eastLocal = applyMatrix(m, eastOf.x, eastOf.y, eastOf.z);
+  ok('east maps to +X', eastLocal.x > 700 && eastLocal.x < 800, `x=${eastLocal.x.toFixed(0)}`);
+
+  // Distances have to survive the move, or tiles land in the wrong place.
+  const a = geodeticToEcef(46.56, 7.91, 0);
+  const b = geodeticToEcef(46.57, 7.92, 250);
+  const ecefDistance = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+  const la = applyMatrix(m, a.x, a.y, a.z);
+  const lb = applyMatrix(m, b.x, b.y, b.z);
+  const localDistance = Math.hypot(la.x - lb.x, la.y - lb.y, la.z - lb.z);
+  ok('the transform is rigid — distances are preserved', near(ecefDistance, localDistance, 1e-6),
+    `${ecefDistance.toFixed(3)} vs ${localDistance.toFixed(3)}`);
+
+  // Bounding volumes, in all three shapes the 3D Tiles spec allows.
+  const sphere = boundingSphereOf({ sphere: [1, 2, 3, 40] });
+  ok('a sphere volume is read', sphere.radius === 40 && sphere.x === 1);
+  const box = boundingSphereOf({ box: [0, 0, 0, 10, 0, 0, 0, 20, 0, 0, 0, 30] });
+  ok('a box volume encloses its diagonal', near(box.radius, Math.hypot(10, 20, 30), 1e-9));
+  const region = boundingSphereOf({ region: [0.1, 0.8, 0.11, 0.81, 0, 200] });
+  ok('a region volume gets a centre and radius', region !== null && region.radius > 0);
+  ok('an unknown volume is refused', boundingSphereOf({ nonsense: true }) === null);
+  ok('a missing volume is refused', boundingSphereOf(undefined) === null);
+
+  // Screen-space error: the number the tile tree refines on.
+  const closeUp = screenSpaceError(100, 100, 900, 1.2);
+  const farAway = screenSpaceError(100, 10000, 900, 1.2);
+  ok('closer tiles show more error', closeUp > farAway * 50, `${closeUp.toFixed(0)} vs ${farAway.toFixed(1)}`);
+  ok('a perfect tile has no error', screenSpaceError(0, 100, 900, 1.2) === 0);
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed\n`);

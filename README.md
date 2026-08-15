@@ -146,6 +146,7 @@ Open **Settings → Providers** to point it at the real thing:
 
 | Slot | Options |
 | --- | --- |
+| Photorealistic 3D | Google Photorealistic 3D Tiles (needs a key), or off |
 | Imagery | Esri World Imagery (keyless), Google Maps, Bing Maps, Mapbox Satellite, OpenStreetMap, or the generated world |
 | Elevation | AWS Terrain Tiles (keyless, the default), Mapbox Terrain-RGB, or generated relief |
 | Street level | Google Street View, Mapillary, or off |
@@ -161,6 +162,23 @@ must not be removed.
 
 If a provider cannot be reached, the world falls back to generated terrain and
 the status line says so rather than leaving you on blank ground.
+
+### Three tiers, most real first
+
+1. **With a Google Maps Platform key** — switch on **Settings → Providers →
+   Photorealistic 3D** and you get Google's Photorealistic 3D Tiles: the actual
+   scanned world, built from oblique aerial photogrammetry. The buildings, the
+   trees and the bridges are *in the mesh*. Nothing is placed, filled in or
+   invented, and the game's own terrain, scenery and footprints step aside
+   wherever those tiles are drawn. The copyright that comes back with the tiles
+   is shown in the corner, because Google requires it.
+2. **With no key** — everything below: real satellite imagery, real elevation,
+   real OpenStreetMap buildings and land cover. None of it needs an account.
+3. **With no network at all** — a generated world, so it still runs.
+
+The 3D loaders are about a megabyte of glTF and Draco decoding, so they are
+fetched only when you turn the option on, and the single-file build leaves them
+out entirely and says so if you ask for them.
 
 ### What is standing on the ground
 

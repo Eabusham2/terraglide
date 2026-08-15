@@ -43,6 +43,21 @@ policies: they are rate limited in `src/tiles/providers.ts` and
 `src/geo/geocode.ts`, and those limits must not be raised for unattended or
 bulk use.
 
+## Google Photorealistic 3D Tiles
+
+Optional, off by default, and only reachable with your own Google Maps Platform
+key with the Map Tiles API enabled. Requests go straight from your browser to
+Google on your quota, under the Google Maps Platform Terms of Service. Google
+requires the copyright string returned with the tiles to be displayed while they
+are on screen; the game collects it and shows it in the attribution corner, and
+removing it breaks both their terms and this project's licence. Nothing is
+cached to disk.
+
+three.js's GLTFLoader, DRACOLoader, BufferGeometryUtils and SkeletonUtils
+(`vendor/three/loaders/`, `vendor/three/utils/`) and the Draco decoder
+(`vendor/draco/`) are vendored to read those tiles. three.js is MIT; Draco is
+Apache 2.0, Copyright Google LLC.
+
 ## OpenStreetMap land cover
 
 The scenery reads `natural=wood|scrub|heath|bare_rock|scree|shingle`,

@@ -11,6 +11,7 @@ import { readJSON, removeKey, writeJSON } from './storage.js';
  * graphics:          'low' | 'medium' | 'high' | 'ultra'
  * mouseMode:         'locked' | 'pan'
  * units:             'metric' | 'imperial'
+ * world3d:           'off' | 'google'
  * perspective:       'first' | 'third'
  * rtpTarget:         'anywhere' | 'populated'
  * timeMode:          'day' | 'live' | 'golden' | 'night' | 'custom'
@@ -20,6 +21,14 @@ export const DEFAULT_SETTINGS = {
   imageryProvider: 'esri',
   elevationProvider: 'terrarium',
   panoramaProvider: 'none',
+  /**
+   * 'off'    — real imagery, real elevation, real OSM footprints and land cover,
+   *            none of which need an account. What you get with no key.
+   * 'google' — Google Photorealistic 3D Tiles: the actual scanned world,
+   *            buildings and trees included, from oblique aerial photogrammetry.
+   *            Needs a Google Maps Platform key.
+   */
+  world3d: 'off',
   googleKey: '',
   bingKey: '',
   mapboxKey: '',

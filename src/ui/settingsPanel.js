@@ -40,7 +40,20 @@ const SECTIONS = [
         options: () => PANORAMA_PROVIDERS.map((p) => ({ value: p.id, label: p.label })),
         help: (value) => providerNote(PANORAMA_PROVIDERS, value),
       },
-      { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Street View Static and Geocoding APIs.' },
+      {
+        key: 'world3d',
+        label: 'Photorealistic 3D',
+        type: 'select',
+        options: () => [
+          { value: 'off', label: 'Off — imagery, elevation and OpenStreetMap' },
+          { value: 'google', label: 'Google Photorealistic 3D Tiles (needs a key)' },
+        ],
+        help: (value) =>
+          value === 'google'
+            ? 'The actual scanned world: buildings, trees and bridges are in the mesh, built from aerial photogrammetry. Needs a Google Maps Platform key with the Map Tiles API enabled, and it is not cheap to run. Terrain and scenery step aside where it loads.'
+            : 'Real satellite imagery, real elevation and real OpenStreetMap buildings and woodland — all of it keyless. Falls back to a generated world with no network at all.',
+      },
+      { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Photorealistic 3D Tiles, Street View Static and Geocoding APIs.' },
       { key: 'bingKey', label: 'Bing Maps key', type: 'secret' },
       { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation.' },
       { key: 'mapillaryToken', label: 'Mapillary token', type: 'secret' },

@@ -105,6 +105,8 @@ export class Game {
     this.weather = new Weather(this.scene);
     this.scatter = new Scatter({ scene: this.scene, terrain: this.terrain, frame: this.frame });
     this.scatter.loadTextures();
+    /** Real photogrammetry, loaded on demand — see loadWorld3D(). */
+    this.tiles3d = null;
     this.buildings = new Buildings({ scene: this.scene, frame: this.frame, terrain: this.terrain });
     this.panorama = new Panorama({ scene: this.scene, frame: this.frame, worker: this.worker });
 
@@ -287,12 +289,59 @@ export class Game {
     this.elevationSource.prepare();
   }
 
+  /**
+   * Photorealistic 3D is a big optional dependency — the glTF and Draco
+   * decoders — so it is fetched only when it is switched on and there is a key
+   * to use it with. The single-file build has no module loader to fetch it
+   * with, and says so instead of failing quietly.
+   */
+  async loadWorld3D() {
+    if (this.tiles3d || this.loading3d) return this.tiles3d;
+    if (settings.get('world3d') === 'off') return null;
+    if (!settings.get('googleKey').trim()) {
+      this.notice3d = 'Photorealistic 3D needs a Google Maps Platform key';
+      return null;
+    }
+    if (globalThis.__TERRAGLIDE_INLINE_WORKER__) {
+      this.notice3d = 'Photorealistic 3D is not in the single-file build — use the served copy';
+      this.toast(this.notice3d, 'warn');
+      return null;
+    }
+
+    this.loading3d = true;
+    try {
+      const module = await import('./world/tiles3d.js');
+      this.tiles3d = new module.Tiles3D({
+        scene: this.scene,
+        frame: this.frame,
+        camera: this.camera,
+        renderer: this.renderer,
+      });
+      await this.tiles3d.start();
+      this.notice3d = '';
+      this.toast('Photorealistic 3D connected');
+    } catch (error) {
+      this.notice3d = `Photorealistic 3D unavailable: ${error.message ?? error}`;
+      this.toast(this.notice3d, 'bad');
+    } finally {
+      this.loading3d = false;
+    }
+    return this.tiles3d;
+  }
+
   onSettingChanged(key) {
     if (['imageryProvider', 'elevationProvider', 'googleKey', 'bingKey', 'mapboxKey'].includes(key)) {
       this.applyProviders({ rebuild: key === 'elevationProvider' });
       this.toast('Provider updated');
     }
     if (key === 'panoramaProvider' || key === 'mapillaryToken') this.panorama.clear();
+    if (key === 'world3d' || key === 'googleKey') {
+      if (settings.get('world3d') === 'off') {
+        if (this.tiles3d) this.tiles3d.clear();
+      } else {
+        this.loadWorld3D();
+      }
+    }
     if (key === 'resolutionScale' || key === 'graphics') this.resize();
     if (key === 'meshDetail') this.terrain.rebase();
     if (key === 'mouseMode' && settings.get('mouseMode') === 'locked') this.input.requestPointerLock();
@@ -456,9 +505,19 @@ export class Game {
     this.weather.setState(this.weatherState);
     this.weather.update(this.camera, dt, this.sky);
 
+    // Real photogrammetry first, where it is switched on and reaching Google.
+    // Where its tiles are drawn, our own terrain, scenery and extruded
+    // footprints step aside rather than fighting them for the same ground.
+    if (settings.get('world3d') !== 'off' && !this.tiles3d) this.loadWorld3D();
+    if (this.tiles3d) this.tiles3d.update(this.camera, player);
+    const photoreal = this.tiles3d ? this.tiles3d.stats.drawn > 0 : false;
+    this.terrain.group.visible = !photoreal;
+    this.buildings.setVisible(!photoreal && settings.get('buildings'));
+
     // Trees, scrub and rock, in the places OpenStreetMap says they are. Where
     // it has nothing mapped, nothing is drawn.
-    this.scatter.update(this.camera, player);
+    if (!photoreal) this.scatter.update(this.camera, player);
+    else this.scatter.group.visible = false;
 
     this.buildings.update(player.lat, player.lon, player.altitudeAboveGround);
 
@@ -869,6 +928,12 @@ export class Game {
       else if (this.streamer.degraded) parts.push(`${source.descriptor.label}: unreachable, generated terrain`);
       else parts.push(source.descriptor.label);
     }
+    if (this.tiles3d) {
+      const line = this.tiles3d.status();
+      if (line) parts.push(line);
+    } else if (this.notice3d) {
+      parts.push(this.notice3d);
+    }
     if (this.elevation.unreachable) parts.push('elevation unavailable — flat terrain');
     // Only say something about street level when it is actually doing
     // something. Announcing "no coverage here" every time you walk about is
@@ -884,6 +949,9 @@ export class Game {
 
   attributionLine() {
     const parts = [];
+    // Google requires the copyright that comes back with the 3D tiles to be
+    // shown. It goes first, because when it is on it is what you are looking at.
+    if (this.tiles3d?.attribution) parts.push(this.tiles3d.attribution);
     if (this.imagerySource?.attribution) parts.push(this.imagerySource.attribution);
     if (this.elevationSource?.attribution) parts.push(this.elevationSource.attribution);
     if (settings.get('buildings')) parts.push('Buildings © OpenStreetMap contributors');
@@ -900,6 +968,7 @@ export class Game {
       `tiles drawn ${t.drawn}  nodes ${t.nodes}  z ${t.baseZoom}-${t.maxZoom}`,
       `imagery cache ${this.streamer.entries.size}  loading ${this.streamer.stats.pending}  failed ${this.streamer.stats.failed}`,
       `elevation tiles ${this.elevation.tiles.size}  buildings ${this.buildings.stats.buildings}  scenery ${this.scatter.stats.placed} from ${this.scatter.stats.areas} areas / ${this.scatter.stats.points} trees`,
+      this.tiles3d ? `3d tiles ${this.tiles3d.stats.drawn} drawn / ${this.tiles3d.stats.loaded} loaded / ${this.tiles3d.stats.failed} failed` : '3d tiles off',
       `pos ${player.position.x.toFixed(1)}, ${player.position.y.toFixed(1)}, ${player.position.z.toFixed(1)}`,
       `geo ${player.lat.toFixed(5)}, ${player.lon.toFixed(5)}  ground ${player.groundHeight.toFixed(1)}m`,
       `mode ${player.mode}  vel ${player.velocity.length().toFixed(1)} m/s  land ${(this.landFraction * 100).toFixed(0)}%`,

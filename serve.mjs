@@ -32,6 +32,11 @@ const TYPES = {
   '.webp': 'image/webp',
   '.ico': 'image/x-icon',
   '.md': 'text/markdown; charset=utf-8',
+  // WebAssembly has to arrive as application/wasm or the browser refuses to
+  // stream-compile it, which is how the Draco decoder is loaded.
+  '.wasm': 'application/wasm',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
   '.txt': 'text/plain; charset=utf-8',
 };
 
