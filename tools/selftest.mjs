@@ -541,6 +541,107 @@ console.log('\nearth-centred coordinates');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe body you can see');
+{
+  // The avatar is the one piece of three.js code worth checking without a
+  // browser: its orientation bugs are the ones that got shipped twice — facing
+  // backwards, and gliding upside down — and they are pure arithmetic.
+  const THREE = await import('../vendor/three/three.module.js');
+  const { Avatar } = await import('../src/player/avatar.js');
+
+  const scene = new THREE.Scene();
+  const avatar = new Avatar(scene);
+  avatar.setVisible(true);
+
+  /** A stand-in player. Nothing here needs the real one. */
+  const makePlayer = (over = {}) => ({
+    position: new THREE.Vector3(),
+    velocity: new THREE.Vector3(),
+    height: 1.7, scale: 1, pitch: 0, yaw: 0,
+    mode: 'walk', onGround: true, swimming: false,
+    elytraDeployed: false, horizontalSpeed: 0,
+    ...over,
+  });
+  /** Run the avatar to a steady state. */
+  const settle = (player, frames = 240) => {
+    for (let i = 0; i < frames; i++) avatar.update(player, 1 / 60);
+    scene.updateMatrixWorld(true);
+  };
+  const worldDir = (object, local) =>
+    local.clone().applyQuaternion(object.getWorldQuaternion(new THREE.Quaternion()));
+  const lookVector = (yaw, pitch) =>
+    new THREE.Vector3(
+      Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch),
+    );
+
+  // The head/body split: shoulders lag, then stop at the limit.
+  {
+    const player = makePlayer({ yaw: 0 });
+    settle(player);
+    player.yaw = Math.PI / 2;
+    avatar.update(player, 1 / 60);
+    ok('the shoulders lag a sharp turn rather than snapping', Math.abs(avatar.bodyYaw) < 0.2,
+      `${avatar.bodyYaw.toFixed(3)} rad after one frame`);
+    settle(player);
+    const twist = Math.abs(Math.PI / 2 - avatar.bodyYaw);
+    ok('and settle exactly one neck-twist behind', near(twist, 0.87, 0.05), `${twist.toFixed(3)} rad`);
+  }
+
+  // Walking leads with the direction of travel; reversing must not spin you.
+  {
+    const walk = (vx, vz) => {
+      const player = makePlayer({ yaw: 0, velocity: new THREE.Vector3(vx, 0, vz) });
+      player.horizontalSpeed = Math.hypot(vx, vz);
+      avatar.bodyYaw = 0;
+      settle(player);
+      return (avatar.bodyYaw * 180) / Math.PI;
+    };
+    ok('walking forward keeps the shoulders square', near(walk(0, -5), 0, 1));
+    ok('strafing right turns them right', near(walk(5, 0), 50, 2), `${walk(5, 0).toFixed(0)}°`);
+    ok('strafing left turns them left', near(walk(-5, 0), -50, 2));
+    ok('walking backwards does not spin you round', near(walk(0, 5), 0, 1), `${walk(0, 5).toFixed(0)}°`);
+  }
+
+  // The head faces where you look, whatever the shoulders are doing.
+  {
+    let worst = 1;
+    for (const yaw of [0, 1.1, 2.4, -2.0, 3.0]) {
+      const player = makePlayer({ yaw });
+      avatar.bodyYaw = 0;
+      settle(player);
+      worst = Math.min(worst, worldDir(avatar.head, new THREE.Vector3(0, 0, -1)).dot(lookVector(yaw, 0)));
+    }
+    ok('the head always faces where you look', worst > 0.99, `worst alignment ${worst.toFixed(3)}`);
+  }
+
+  // Upright on the ground, along the flight path in the air, never inverted.
+  {
+    let worstUp = 1;
+    for (const pitch of [-0.8, -0.3, 0, 0.3, 0.8]) {
+      const player = makePlayer({ yaw: 0.6, pitch });
+      settle(player);
+      worstUp = Math.min(worstUp, worldDir(avatar.body, new THREE.Vector3(0, 1, 0)).y);
+    }
+    ok('standing, the body stays the right way up', worstUp > 0.9, `worst up.y ${worstUp.toFixed(2)}`);
+
+    let worstAlign = 1;
+    for (const pitch of [-0.9, -0.4, 0, 0.4, 0.9]) {
+      const player = makePlayer({
+        yaw: 0.6, pitch, mode: 'glide', onGround: false,
+        velocity: new THREE.Vector3(0, -8, -20), elytraDeployed: true,
+      });
+      settle(player);
+      // The body's own long axis must lie along the flight path — that is the
+      // check that would have caught the character gliding upside down.
+      const axis = worldDir(avatar.body, new THREE.Vector3(0, 1, 0));
+      worstAlign = Math.min(worstAlign, axis.dot(lookVector(0.6, pitch)));
+    }
+    ok('gliding, the body lies along the flight path and never inverts',
+      worstAlign > 0.99, `worst alignment ${worstAlign.toFixed(3)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nGenerated art stays where it belongs');
 {
   // The rule, stated once so it cannot drift: generated textures may dress the

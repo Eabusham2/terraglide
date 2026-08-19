@@ -141,10 +141,13 @@ export class HUD {
     host.innerHTML = HOTBAR.map((item, index) => {
       const key = keybinds.labelFor(`hotbar${index + 1}`);
       return `
-        <button type="button" class="slot" data-slot="${index}">
-          <span class="slot-key">${escapeHtml(key)}</span>
-          <span class="slot-label">${escapeHtml(item.label)}</span>
-          <span class="slot-meta" data-slot-meta="${index}"></span>
+        <button type="button" class="slot" data-slot="${index}" style="--rocket:${item.colour}">
+          ${rocketIcon(item.colour)}
+          <span class="slot-text">
+            <span class="slot-key">${escapeHtml(key)}</span>
+            <span class="slot-label">${escapeHtml(item.label)}</span>
+            <span class="slot-meta" data-slot-meta="${index}"></span>
+          </span>
         </button>`;
     }).join('');
     host.querySelectorAll('.slot').forEach((slot) => {
@@ -293,4 +296,25 @@ function modeLabel(player, state) {
   if (player.inBuilding) return 'Indoors';
   if (state.onWater) return 'At sea';
   return player.onGround ? 'On foot' : 'On foot';
+}
+
+/**
+ * The rocket, drawn rather than modelled.
+ *
+ * Every 3D route available here either had no credits left or returned a
+ * fifty-thousand-triangle blob with no UVs, so the hotbar gets a hand-drawn
+ * icon instead — and at twenty-two pixels that is the better answer anyway.
+ * Inline SVG rather than a file: it scales, it takes the strength colour as a
+ * parameter, and it survives into the single-file build with nothing to fetch.
+ */
+function rocketIcon(colour) {
+  return `
+    <svg class="slot-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 2.5 L16 9.5 H8 Z" fill="${colour}" />
+      <rect x="8" y="9.5" width="8" height="8.5" fill="#c9a97c" />
+      <path d="M8 12.4 L16 15.2 M8 14.9 L16 17.7" stroke="#b4553f"
+            stroke-width="1.1" fill="none" opacity="0.7" />
+      <path d="M8 18 L5.6 21.4 H8 Z M16 18 L18.4 21.4 H16 Z" fill="${colour}" opacity="0.75" />
+      <line x1="12" y1="18" x2="12" y2="22.6" stroke="#6b5334" stroke-width="1.2" />
+    </svg>`;
 }

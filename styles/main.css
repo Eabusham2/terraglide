@@ -487,7 +487,10 @@ input[type='checkbox'] {
 
 .hud-hotbar .slot {
   position: relative;
-  width: 104px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 118px;
   height: 50px;
   padding: 4px 8px 5px;
   text-align: left;
@@ -498,9 +501,28 @@ input[type='checkbox'] {
   backdrop-filter: blur(4px);
 }
 
+/* The underline takes the rocket's own colour rather than the generic accent,
+   so the lit slot, its icon and the thing in your hand all agree. */
 .hud-hotbar .slot.selected {
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--rocket, var(--accent));
   background: rgba(46, 44, 40, 0.92);
+}
+
+.slot-icon {
+  flex: none;
+  width: 21px;
+  height: 21px;
+  opacity: 0.55;
+  transition: opacity 120ms linear;
+}
+
+.hud-hotbar .slot.selected .slot-icon {
+  opacity: 1;
+}
+
+.slot-text {
+  flex: 1;
+  min-width: 0;
 }
 
 .slot-key {

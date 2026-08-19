@@ -1,5 +1,6 @@
 import * as THREE from '../../vendor/three/three.module.js';
-import { clamp, damp, dampAngle } from '../core/math.js';
+import { clamp, damp, dampAngle, wrapAngle } from '../core/math.js';
+import { ROCKET_COLOURS } from './player.js';
 
 /**
  * The character.
@@ -23,6 +24,17 @@ const BOOTS = 0x23262b;
 const WING = 0x8d9a86;
 const WING_EDGE = 0x5f6a5b;
 const ROCKET = 0xc9a97c;
+
+/**
+ * How far the head may twist before the body gives up and turns to follow.
+ * Minecraft uses fifty degrees and it is the single detail that makes a
+ * first-person body read as a body rather than a pair of floating arms: you
+ * glance sideways and your shoulders stay put, you keep turning and they come
+ * round after you.
+ */
+const BODY_LIMIT = 0.87;
+/** How briskly the body catches up, in damp-per-second. */
+const BODY_TURN = 8;
 
 /**
  * Your kit — jacket, trousers, wings — can carry a generated texture in every
@@ -93,18 +105,21 @@ export class Avatar {
     // firework you are about to use. Visible in first person too, since the
     // arms are, so the slot you are on is readable without the HUD.
     const rocketMat = mat(ROCKET);
-    this.rocket = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.13, 8), rocketMat);
+    this.noseMat = mat(0xffffff);
+    this.rocket = this.makeRocket(rocketMat, this.noseMat, mat(0x6b5334));
     // The limb mesh is a box of its own length centred on its origin, so the
     // hand is at −length/2. Sit the rocket just past the fingers, pointing the
-    // way the arm does: the cylinder's +Y axis is turned onto −Z, forward.
+    // way the arm does: the group's +Y axis is turned onto −Z, forward.
     this.rocket.position.set(0, -this.armR.length / 2 + 0.01, -0.03);
     this.rocket.rotation.x = -Math.PI / 2;
     this.armR.limb.add(this.rocket);
     this.cloth.rocket = [rocketMat];
+    this.rocketColour = -1;
 
     this.walkPhase = 0;
     this.glideBlend = 0;
-    this.visibleYaw = 0;
+    /** Where the shoulders point. Its own value, not a copy of the camera's. */
+    this.bodyYaw = 0;
     this.firstPerson = false;
     this.root.visible = false;
   }
@@ -116,6 +131,29 @@ export class Avatar {
     limb.position.y = -length / 2;
     pivot.add(limb);
     return { pivot, limb, length };
+  }
+
+  /**
+   * A firework: paper tube, cone nose, guide stick. Built by hand rather than
+   * generated — a text-to-3D pass on this came back at fifty thousand
+   * triangles with no UVs and no material, for a prop that is thirteen
+   * centimetres long and covered by a hand at arm's length. This is about a
+   * hundred triangles, takes the paper texture properly, and the nose is a
+   * flat colour so the strength can be read off it.
+   *
+   * Points along +Y, so the caller turns it onto whatever axis it wants.
+   */
+  makeRocket(paper, nose, stick) {
+    const group = new THREE.Group();
+
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.095, 10), paper);
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.034, 10), nose);
+    cone.position.y = 0.0645;
+    const guide = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, 0.1, 5), stick);
+    guide.position.y = -0.095;
+
+    group.add(tube, cone, guide);
+    return group;
   }
 
   makeWing(material, edgeMaterial, side) {
@@ -203,17 +241,42 @@ export class Avatar {
     const flying = player.mode === 'fly';
     this.glideBlend = damp(this.glideBlend, gliding || flying ? 1 : 0, 7, dt);
 
-    // The model faces −Z, so the root turns by the negative of the bearing. In
-    // first person the body must not lag the view at all or it swims about.
-    this.visibleYaw = this.firstPerson
-      ? -player.yaw
-      : dampAngle(this.visibleYaw, -player.yaw, 14, dt);
-    this.root.rotation.set(0, this.visibleYaw, 0);
-
     const forwardSpeed =
       player.velocity.x * Math.sin(player.yaw) - player.velocity.z * Math.cos(player.yaw);
     const sideSpeed =
       player.velocity.x * Math.cos(player.yaw) + player.velocity.z * Math.sin(player.yaw);
+
+    // Where the shoulders want to point.
+    //
+    // Standing still they stay where they are, and only come round once the
+    // neck has twisted further than it likes. Walking, they lead with the
+    // direction of travel — strafing turns you side-on, the way it does in
+    // Minecraft. Flying, the body *is* the flight path, so it locks to the
+    // look direction and the split goes away.
+    //
+    // Taking the absolute of the forward component is what stops the body
+    // spinning through 180° when you walk backwards: reversing keeps your
+    // shoulders where they were and runs the legs the other way instead.
+    const lookYaw = player.yaw;
+    let target = this.bodyYaw;
+    if (gliding || flying) {
+      target = lookYaw;
+    } else if (player.horizontalSpeed > 0.6) {
+      target = lookYaw + clamp(
+        Math.atan2(sideSpeed, Math.abs(forwardSpeed)), -BODY_LIMIT, BODY_LIMIT,
+      );
+    } else {
+      const twist = wrapAngle(lookYaw - this.bodyYaw);
+      if (Math.abs(twist) > BODY_LIMIT) {
+        target = lookYaw - Math.sign(twist) * BODY_LIMIT;
+      }
+    }
+    this.bodyYaw = dampAngle(this.bodyYaw, target, BODY_TURN, dt);
+
+    // The model faces −Z, so the root turns by the negative of the bearing.
+    this.root.rotation.set(0, -this.bodyYaw, 0);
+    // Whatever the shoulders did not turn, the neck does.
+    const neck = wrapAngle(lookYaw - this.bodyYaw);
 
     // Gliding lays the body along the flight path. The head points where you
     // look: level flight is face down, a dive is head down, a climb stands up.
@@ -257,12 +320,22 @@ export class Avatar {
     this.legL.pivot.rotation.z *= 1 - tuck;
     this.legR.pivot.rotation.z *= 1 - tuck;
 
+    // The nose takes the colour of the slot you are on, so what is in your
+    // hand and what is lit in the hotbar are visibly the same rocket.
+    const slot = player.selectedSlot ?? 0;
+    if (slot !== this.rocketColour) {
+      this.rocketColour = slot;
+      this.noseMat.color.set(ROCKET_COLOURS[clamp(slot, 0, ROCKET_COLOURS.length - 1)]);
+    }
+
     const open = player.elytraDeployed ? Math.max(this.glideBlend, 0.6) : 0;
     this.wings.visible = player.elytraDeployed;
     this.wingL.rotation.set(0.15 * open, -0.35 + 1.5 * (1 - open), 0.2 * open);
     this.wingR.rotation.set(0.15 * open, 0.35 - 1.5 * (1 - open), -0.2 * open);
 
-    // The head counter-rotates so the character keeps looking where you look.
+    // The head keeps looking where you look, whatever the shoulders are doing.
+    this.head.rotation.y = -neck;
+    this.hair.rotation.y = -neck;
     if (!this.firstPerson) {
       this.head.rotation.x = damp(
         this.head.rotation.x,

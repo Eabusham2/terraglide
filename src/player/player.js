@@ -18,9 +18,18 @@ import { rocketPowerFor, rocketTicks } from './elytra.js';
  * the flight duration *and* the powder behind it: a Rocket V burns five times
  * as long as a Rocket I and shoves about twice as hard.
  */
+/**
+ * One colour per strength, cool to hot, so a glance tells you what you are
+ * holding. The same five are used by the rocket in your hand, the hotbar icon
+ * and the icon's glow, which is the point: the thing in the world and the
+ * thing in the HUD have to be recognisably the same object.
+ */
+export const ROCKET_COLOURS = ['#8fb8d8', '#74c47a', '#e8c54a', '#e08a35', '#d23f2f'];
+
 export const HOTBAR = [1, 2, 3, 4, 5].map((duration) => ({
   duration,
   power: rocketPowerFor(duration),
+  colour: ROCKET_COLOURS[duration - 1],
   label: `Rocket ${'I II III IV V'.split(' ')[duration - 1]}`,
   hint: `dur ${duration} · pwr ${duration}`,
 }));
