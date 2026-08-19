@@ -171,11 +171,17 @@ export class Avatar {
 
   makeWing(material, edgeMaterial, side) {
     const group = new THREE.Group();
-    const shape = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.24, 0.015), material);
-    shape.position.set(side * 0.22, -0.06, 0);
-    const spar = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.03, 0.03), edgeMaterial);
-    spar.position.set(side * 0.22, 0.05, 0);
-    group.add(shape, spar);
+    // Wider and deeper than they were. Open elytra are roughly as broad as the
+    // player is tall, and at any distance the wings *are* the silhouette — the
+    // old stubs left a gliding figure looking like a thrown box.
+    const shape = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.34, 0.016), material);
+    shape.position.set(side * 0.29, -0.09, 0);
+    // A taper at the tip, so the outline is a wing rather than a plank.
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.2, 0.014), material);
+    tip.position.set(side * 0.63, -0.15, 0);
+    const spar = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.035, 0.035), edgeMaterial);
+    spar.position.set(side * 0.37, 0.06, 0);
+    group.add(shape, tip, spar);
     group.userData.side = side;
     return group;
   }
@@ -327,13 +333,19 @@ export class Avatar {
     this.armR.pivot.rotation.x = this.armR.pivot.rotation.x * (1 - tuck) - 2.5 * tuck;
     // In first person the arms are swept wider so they frame the view instead
     // of filling it — you should see the world, with your arms at the edges.
-    const spread = this.firstPerson ? 0.62 : 0.25;
+    // From outside they go wider still: a glider seen from behind is mostly
+    // silhouette, and arms tight to the body turn it into a blob.
+    const spread = this.firstPerson ? 0.62 : 0.85;
     this.armL.pivot.rotation.z = spread * tuck;
     this.armR.pivot.rotation.z = -spread * tuck;
-    this.legL.pivot.rotation.x -= 0.2 * tuck;
-    this.legR.pivot.rotation.x -= 0.2 * tuck;
-    this.legL.pivot.rotation.z *= 1 - tuck;
-    this.legR.pivot.rotation.z *= 1 - tuck;
+
+    // Legs together and trailing along the body, with a little bend at the
+    // hip. Splayed straight legs read as two blocks end-on from behind, which
+    // is exactly the angle you see yourself from in third person.
+    this.legL.pivot.rotation.x -= 0.34 * tuck;
+    this.legR.pivot.rotation.x -= 0.34 * tuck;
+    this.legL.pivot.rotation.z = this.legL.pivot.rotation.z * (1 - tuck) + 0.06 * tuck;
+    this.legR.pivot.rotation.z = this.legR.pivot.rotation.z * (1 - tuck) - 0.06 * tuck;
 
     // The nose takes the colour of the slot you are on, so what is in your
     // hand and what is lit in the hotbar are visibly the same rocket.

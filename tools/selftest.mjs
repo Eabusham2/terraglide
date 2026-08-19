@@ -694,6 +694,28 @@ console.log('\nThe body you can see');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nInfrastructure from OpenStreetMap');
+{
+  const source = readFileSync(new URL('../src/world/buildings.js', import.meta.url), 'utf8');
+  // Structures are what make a skyline read: bridges, masts, chimneys,
+  // turbines. Google Earth's 3D is convincing largely because it has them.
+  for (const kind of ['bridge', 'chimney', 'water_tower', 'silo', 'gasometer']) {
+    ok(`${kind} is asked for`, source.includes(kind));
+  }
+  ok('pylons and turbines are asked for', /power.*tower|generator/.test(source));
+
+  // Nodes are both way vertices and structures in their own right. Collecting
+  // them with an `else` made the mast branch unreachable and silently dropped
+  // every one of them, so the loop must not be an if/else chain over type.
+  ok('a tagged node can be both a vertex and a structure',
+    !/if \(element\.type === 'node'\) nodes\.set[\s\S]{0,80}else if \(element\.type === 'node'/.test(source));
+
+  // A height in the data must win over the default for its kind.
+  ok('mapped heights are preferred to defaults',
+    /Number\(tags\.height\)[\s\S]{0,120}MAST_HEIGHT_M/.test(source));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nProviders and detail budgets');
 {
   const { IMAGERY_PROVIDERS } = await import('../src/tiles/providers.js');

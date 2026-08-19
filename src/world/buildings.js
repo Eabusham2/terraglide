@@ -24,6 +24,64 @@ const DOOR_WIDTH = 1.4;
 const DOOR_HEIGHT = 2.3;
 const WALL_COLOUR = new THREE.Color(0.72, 0.70, 0.67);
 const ROOF_COLOUR = new THREE.Color(0.42, 0.42, 0.44);
+/** Galvanised steel, near enough, for masts and pylons. */
+const MAST_COLOUR = new THREE.Color(0.55, 0.57, 0.60);
+
+/**
+ * Default heights for point-mapped structures, metres, where OSM does not
+ * record one. Rough but not invented: these are typical builds for each kind.
+ */
+const MAST_HEIGHT_M = {
+  tower: 40,
+  communications_tower: 90,
+  mast: 60,
+  chimney: 70,
+  water_tower: 32,
+  storage_tank: 14,
+  silo: 22,
+  power_tower: 32,
+  wind_turbine: 105,
+};
+
+/** Which of those, if any, a node is. */
+function mastKind(tags = {}) {
+  if (tags.power === 'tower') return 'power_tower';
+  if (tags.power === 'generator') {
+    return tags['generator:source'] === 'wind' ? 'wind_turbine' : '';
+  }
+  return tags.man_made ?? '';
+}
+
+/** Does this way describe something worth standing up in the world? */
+function isStructure(tags = {}) {
+  if (tags.building || tags['building:part']) return true;
+  if (tags.bridge === 'yes') return true;
+  return /^(bridge|tower|chimney|storage_tank|silo|gasometer|water_tower|cooling_tower|pier)$/.test(
+    tags.man_made ?? '',
+  );
+}
+
+/** Four corners to two triangles, flat-shaded. */
+function pushQuad(positions, normals, colors, a, b, c, d, colour) {
+  const ux = b.x - a.x;
+  const uy = b.y - a.y;
+  const uz = b.z - a.z;
+  const vx = d.x - a.x;
+  const vy = d.y - a.y;
+  const vz = d.z - a.z;
+  let nx = uy * vz - uz * vy;
+  let ny = uz * vx - ux * vz;
+  let nz = ux * vy - uy * vx;
+  const len = Math.hypot(nx, ny, nz) || 1;
+  nx /= len;
+  ny /= len;
+  nz /= len;
+  for (const v of [a, b, c, a, c, d]) {
+    positions.push(v.x, v.y, v.z);
+    normals.push(nx, ny, nz);
+    colors.push(colour.r, colour.g, colour.b);
+  }
+}
 
 export class Buildings {
   constructor({ scene, frame, terrain }) {
@@ -105,10 +163,20 @@ export class Buildings {
     const east = normXToLon((tile.x + 1) / n);
     const north = normYToLat(tile.y / n);
     const south = normYToLat((tile.y + 1) / n);
+    // Buildings, plus the infrastructure that makes a place look like a place
+    // from the air. This is the layer Google Earth is really showing you when
+    // its 3D looks convincing — bridges, masts, towers, chimneys, turbines,
+    // gasometers — and OpenStreetMap has all of it, keyless, with heights.
+    const bbox = `${south},${west},${north},${east}`;
     const query =
-      `[out:json][timeout:25];` +
-      `way["building"](${south},${west},${north},${east});` +
-      `(._;>;);out body;`;
+      `[out:json][timeout:25];(` +
+      `way["building"](${bbox});` +
+      `way["building:part"](${bbox});` +
+      `way["man_made"~"^(bridge|tower|chimney|storage_tank|silo|gasometer|water_tower|cooling_tower|pier)$"](${bbox});` +
+      `way["bridge"="yes"]["layer"](${bbox});` +
+      `node["man_made"~"^(tower|mast|chimney|water_tower|communications_tower|storage_tank|silo)$"](${bbox});` +
+      `node["power"~"^(tower|generator)$"](${bbox});` +
+      `);(._;>;);out body;`;
 
     try {
       const data = await overpass.query(query);
@@ -129,11 +197,19 @@ export class Buildings {
   buildTile(record, data) {
     const nodes = new Map();
     const ways = [];
+    const masts = [];
     for (const element of data.elements ?? []) {
-      if (element.type === 'node') nodes.set(element.id, element);
-      else if (element.type === 'way' && element.tags && element.tags.building) ways.push(element);
+      if (element.type === 'node') {
+        nodes.set(element.id, element);
+        // A node is both a vertex of some way *and* possibly a structure in
+        // its own right, so this is not an else — every way needs its
+        // coordinates regardless of what the node itself is tagged as.
+        if (element.tags && MAST_HEIGHT_M[mastKind(element.tags)]) masts.push(element);
+      } else if (element.type === 'way' && element.tags && isStructure(element.tags)) {
+        ways.push(element);
+      }
     }
-    if (ways.length === 0) return;
+    if (ways.length === 0 && masts.length === 0) return;
 
     const positions = [];
     const normals = [];
@@ -160,6 +236,14 @@ export class Buildings {
       if (collider) colliders.push(collider);
     }
 
+    // Vertical structures mapped as single points — masts, pylons, chimneys,
+    // turbines. A footprint cannot describe these, but their *height* is the
+    // whole point of them, so they are raised parametrically from the tag.
+    for (const node of masts.slice(0, 240)) {
+      this.frame.toWorld(node.lat, node.lon, world);
+      this.emitMast(node, world.x, world.z, positions, normals, colors);
+    }
+
     if (positions.length === 0) return;
 
     const geometry = new THREE.BufferGeometry();
@@ -175,6 +259,48 @@ export class Buildings {
     record.mesh = mesh;
     record.colliders = colliders;
     this.stats.buildings += colliders.length;
+  }
+
+  /**
+   * A slender vertical structure from a single OSM node: a lattice pylon, a
+   * radio mast, a chimney, a wind turbine. Drawn as a tapered column, which at
+   * any distance you would actually see one from is the honest amount of
+   * detail — the height and the position are the real data, and those are what
+   * make a skyline read correctly.
+   */
+  emitMast(node, x, z, positions, normals, colors) {
+    const tags = node.tags ?? {};
+    const kind = mastKind(tags);
+    const height = clamp(
+      Number(tags.height) || Number(tags['tower:height']) || MAST_HEIGHT_M[kind] || 30,
+      4,
+      640,
+    );
+    const base = this.terrain.heightAt(x, z);
+    if (!Number.isFinite(base)) return;
+
+    const seed = Math.abs(node.id | 0);
+    const width = clamp(height * 0.055, 0.7, 9);
+    const colour = MAST_COLOUR.clone().multiplyScalar(0.88 + rand3(seed, 3, 9) * 0.24);
+    // A square tapered shaft: four walls, narrower at the top.
+    const half = width / 2;
+    const tip = half * 0.35;
+    const corners = [
+      [-half, -half, -tip, -tip], [half, -half, tip, -tip],
+      [half, half, tip, tip], [-half, half, -tip, tip],
+    ];
+    for (let i = 0; i < 4; i++) {
+      const [ax, az, atx, atz] = corners[i];
+      const [bx, bz, btx, btz] = corners[(i + 1) % 4];
+      pushQuad(
+        positions, normals, colors,
+        { x: x + ax, y: base, z: z + az }, { x: x + bx, y: base, z: z + bz },
+        { x: x + btx, y: base + height, z: z + btz },
+        { x: x + atx, y: base + height, z: z + atz },
+        colour,
+      );
+    }
+    this.stats.masts = (this.stats.masts ?? 0) + 1;
   }
 
   emitBuilding(way, ring, positions, normals, colors) {
