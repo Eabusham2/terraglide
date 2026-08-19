@@ -614,6 +614,28 @@ console.log('\nThe body you can see');
     ok('the head always faces where you look', worst > 0.99, `worst alignment ${worst.toFixed(3)}`);
   }
 
+  // In first person the model steps back so you look over your chest, not
+  // into it. The invariant: the front face of the torso must not sit in front
+  // of the eye. Get this wrong and glancing down fills the screen with jacket.
+  {
+    const player = makePlayer();
+    avatar.setFirstPerson(true);
+    settle(player);
+    const torsoHalfDepth = 0.15 / 2;
+    const chestFront = avatar.body.position.z - torsoHalfDepth;
+    ok('first person keeps the chest behind the eye', chestFront > -0.02,
+      `chest front at z=${chestFront.toFixed(3)}, forward is -Z`);
+    // ...but only just. Push it further and the legs leave the view entirely
+    // when you look down, which loses the point of drawing a body at all.
+    ok('and not so far back that the legs vanish', avatar.body.position.z < 0.11,
+      `offset ${avatar.body.position.z.toFixed(3)} of height`);
+
+    avatar.setFirstPerson(false);
+    settle(player);
+    ok('third person puts the model back on the spot',
+      Math.abs(avatar.body.position.z) < 0.01, avatar.body.position.z.toFixed(3));
+  }
+
   // Upright on the ground, along the flight path in the air, never inverted.
   {
     let worstUp = 1;

@@ -35,6 +35,19 @@ const ROCKET = 0xc9a97c;
 const BODY_LIMIT = 0.87;
 /** How briskly the body catches up, in damp-per-second. */
 const BODY_TURN = 8;
+/**
+ * How far back the model sits in first person, as a fraction of height.
+ *
+ * The eye is at 0.94 and the chest tops out at 0.81, so without this you are
+ * looking straight into your own jacket the moment you glance down — it fills
+ * the screen at the near plane. Real proportions have the same gap; what they
+ * also have is eyes set forward of the spine, which is what this restores.
+ * Roughly ten centimetres on a person, so a fifteenth of standing height.
+ *
+ * Enough to look *over* your chest, and no more: push it further and glancing
+ * down shows the ground where your legs ought to be.
+ */
+const BODY_BACK = 0.07;
 
 /**
  * Your kit — jacket, trousers, wings — can carry a generated texture in every
@@ -289,6 +302,8 @@ export class Avatar {
       dt,
     );
     this.body.position.y = damp(this.body.position.y, gliding || flying ? 0.3 : 0, 8, dt);
+    // +Z is behind you, so this walks the model backwards out of the view.
+    this.body.position.z = damp(this.body.position.z, this.firstPerson ? BODY_BACK : 0, 10, dt);
 
     const stride = clamp(player.horizontalSpeed / (4.3 * Math.pow(player.scale, 0.75)), 0, 1.8);
     const strafing = Math.abs(sideSpeed) > Math.abs(forwardSpeed) * 1.2 && stride > 0.15;
