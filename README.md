@@ -63,7 +63,8 @@ map. Dive is held: it drops the nose in the air and takes you under in water.
 | `R` | random teleport |
 | `G` | world map · `M` minimap on/off · `=` / `-` minimap zoom |
 | `B` | drop a waypoint · `P` copy coordinates |
-| `Q` | freecam · `F5` perspective · `X` barrel roll (off by default) · `[` / `]` shrink / grow |
+| `F` | fold the wings away and fall |
+| `Q` | freecam · `F5` perspective (first / third / second) · `X` barrel roll (off by default) · `[` / `]` shrink / grow |
 | `L` | swap mouse mode · `F1` hide HUD · `F2` controls · `F3` debug · `Esc` settings |
 
 Every one of those is rebindable in **Settings → Controls**.
@@ -97,9 +98,15 @@ obvious version of this model — the one Minecraft uses, discounting gravity wh
 you are level and crediting a pull-up several times what it costs — lets a
 patient player porpoise upward forever on nothing at all.
 
-Rockets are the only way to add energy. The slot number is the flight duration
-*and* the powder behind it, the kick is strongest at ignition and tapers across
-the burn, and there is no cooldown: light another whenever you like.
+Rockets are the only way to add energy. **The slot number is the burn in
+seconds** — a Rocket V pushes for five of them — and it is also the powder
+behind it, though the power ramp is gentle so the seconds are the main thing
+you buy. The push itself is Minecraft's: it accelerates you toward 1.5 blocks
+per tick, which is 30 m/s, and then drag takes it back once the burn is spent.
+There is no cooldown; light another whenever you like.
+
+Fold the wings away with `F` to drop out of a glide deliberately, rather than
+having to fly all the way down to something solid.
 
 Speed mode multiplies *displacement*, not forces — you cover twice the ground
 without the aircraft handling like a different machine.
@@ -123,10 +130,11 @@ without the aircraft handling like a different machine.
 - **Seasonal temperature**, top left: the average temperature for the season you
   are standing in, from latitude, elevation, time of year and how much land
   surrounds you. It is a climate model, not a weather feed, and says so.
-- **Minimap**, top right: satellite imagery for ground you have explored and a
-  flat map view for ground you have not, so the whole world is legible but only
-  the parts you have been to are photographic. It fills in behind you as you
-  travel. Zoom with `=`/`-` or the wheel, click it to open the big map.
+- **Minimap**, top right: satellite imagery for ground you have explored, and
+  the drawn OpenStreetMap street map for ground you have not — so the whole
+  world is legible, with named roads and coastlines where you have not been,
+  and photography where you have. It fills in behind you as you travel. Zoom
+  with `=`/`-` or the wheel, click it to open the big map.
 - **World map** (`G`): the same thing at any zoom, plus search, your waypoints,
   your drawn paths, and how much of the world you have covered. Drag to pan,
   wheel to zoom.
@@ -147,7 +155,7 @@ Open **Settings → Providers** to point it at the real thing:
 | Slot | Options |
 | --- | --- |
 | Photorealistic 3D | Google Photorealistic 3D Tiles (needs a key), the same via Cesium ion (needs a token), or off — with a four-step detail dial |
-| Imagery | Esri World Imagery (keyless), Google Maps, Bing Maps, Azure Maps, Mapbox Satellite, OpenStreetMap, or the generated world |
+| Imagery | Esri World Imagery (keyless), Google Maps, Azure Maps, Mapbox Satellite, or the generated world |
 | Elevation | AWS Terrain Tiles (keyless, the default), Mapbox Terrain-RGB, or generated relief |
 | Street level | Google Street View, Mapillary, or off |
 | Buildings | OpenStreetMap footprints via Overpass, on by default |
@@ -221,7 +229,14 @@ survey put them.
 
 Land cover comes down the same Overpass queue as the buildings, one request at
 a time with a gap and a backoff, because it is a donated service.
-**Settings → Graphics** turns the scenery off and sets how far it fills in.
+**Settings → Graphics** turns the scenery off and sets how far it fills in —
+420 m to 1.9 km depending on the preset. Beyond about 400 m the trunks thin
+out with distance, so the far edge costs a fraction of the near field while
+the wood still reads as a wood. Alongside them stand the things OSM maps that
+are not buildings: bridges, piers, towers, masts, chimneys, water towers,
+silos, gasometers, cooling towers, pylons and wind turbines, each at its
+mapped height where the data records one. That layer is most of what makes a
+skyline read correctly from the air, and none of it needs a key.
 
 #### Where generated art is allowed
 
@@ -297,7 +312,7 @@ exports and imports all of it as a JSON file, and clears any of it.
 
 ```sh
 node tools/check.mjs      # parse every module, verify every import resolves
-node tools/selftest.mjs   # 78 checks: projection, frame, flight, climate, water, cheats
+node tools/selftest.mjs   # 173 checks: projection, frame, flight, the avatar, climate, water, providers
 ```
 
 `tools/selftest.mjs` runs the pure maths headlessly — mercator round-trips, the

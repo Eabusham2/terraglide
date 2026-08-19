@@ -26,13 +26,12 @@ your own quota. Read them before you turn a provider on.
 | Provider | Used for | Key required | Terms |
 | --- | --- | --- | --- |
 | Google Maps Platform (Map Tiles API, Street View Static API, Geocoding API) | satellite tiles, street-level panoramas, addresses | yes | <https://cloud.google.com/maps-platform/terms> |
-| Microsoft Bing Maps | satellite tiles | yes | <https://www.microsoft.com/maps/product/terms> |
 | Azure Maps (Render) | satellite tiles | yes | <https://azure.microsoft.com/support/legal/> |
 | Mapbox (Satellite, Terrain-RGB) | satellite tiles, elevation | yes | <https://www.mapbox.com/legal/tos> |
 | Esri World Imagery | satellite tiles | no | <https://www.esri.com/en-us/legal/terms/full-master-agreement> |
 | OpenStreetMap standard tiles | reference map layer | no | <https://operations.osmfoundation.org/policies/tiles/> |
 | Nominatim | reverse geocoding (address readout) | no | <https://operations.osmfoundation.org/policies/nominatim/> |
-| Overpass API | OpenStreetMap building footprints | no | <https://dev.overpass-api.de/overpass-doc/en/preface/commons.html> |
+| Overpass API | OpenStreetMap buildings, infrastructure and land cover | no | <https://dev.overpass-api.de/overpass-doc/en/preface/commons.html> |
 | Mapillary | street-level panoramas | yes (token) | <https://www.mapillary.com/terms> |
 | AWS Terrain Tiles (Terrarium) | elevation | no | <https://registry.opendata.aws/terrain-tiles/> |
 
@@ -74,11 +73,15 @@ three.js's GLTFLoader, DRACOLoader, BufferGeometryUtils and SkeletonUtils
 (`vendor/draco/`) are vendored to read those tiles. three.js is MIT; Draco is
 Apache 2.0, Copyright Google LLC.
 
-## OpenStreetMap land cover
+## OpenStreetMap land cover and infrastructure
 
 The scenery reads `natural=wood|scrub|heath|bare_rock|scree|shingle`,
-`landuse=forest|orchard|vineyard|meadow` and `natural=tree` from the same
-Overpass API the buildings use, under the Open Database Licence. Attribution
+`landuse=forest|orchard|vineyard|meadow` and `natural=tree`. The structures
+layer reads `building`, `building:part`, `bridge`, and
+`man_made=tower|mast|chimney|water_tower|cooling_tower|storage_tank|silo|gasometer|pier`
+plus `power=tower|generator`, standing each one at its mapped height where the
+data records one. All of it comes from the same Overpass API, under the Open
+Database Licence. Attribution
 for it is already in the corner of the screen alongside the buildings credit.
 Requests are queued one at a time with a gap and a long backoff, and nothing is
 cached to disk.
