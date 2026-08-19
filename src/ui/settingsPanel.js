@@ -23,7 +23,7 @@ const SECTIONS = [
         key: 'imageryProvider',
         label: 'Imagery',
         type: 'select',
-        options: () => IMAGERY_PROVIDERS.map((p) => ({ value: p.id, label: p.label })),
+        options: () => IMAGERY_PROVIDERS.filter((p) => !p.hidden).map((p) => ({ value: p.id, label: p.label })),
         help: (value) => providerNote(IMAGERY_PROVIDERS, value),
       },
       {
@@ -69,7 +69,6 @@ const SECTIONS = [
         help: 'How deep to walk the tile tree, and so how many triangles arrive. Photogrammetry is far heavier than the ordinary world, so drop this before turning 3D off entirely.',
       },
       { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Photorealistic 3D Tiles, Street View Static and Geocoding APIs.' },
-      { key: 'bingKey', label: 'Bing Maps key', type: 'secret' },
       { key: 'azureKey', label: 'Azure Maps key', type: 'secret', help: 'Azure Maps subscription key, for Microsoft satellite imagery. Azure serves no 3D data.' },
       { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation.' },
       { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'Only for the Cesium route into photorealistic 3D.' },
@@ -127,16 +126,6 @@ const SECTIONS = [
       { key: 'swapMouseButtons', label: 'Swap mouse buttons in pan mode', type: 'toggle', help: 'Normally: drag with left to look, right click to boost, click to land.' },
       { key: 'sensitivity', label: 'Look sensitivity', type: 'range', min: 0.2, max: 3, step: 0.05, format: (v) => `${v.toFixed(2)}x` },
       { key: 'invertY', label: 'Invert vertical look', type: 'toggle' },
-      {
-        key: 'perspective',
-        label: 'Perspective',
-        type: 'select',
-        options: () => [
-          { value: 'first', label: 'First person' },
-          { value: 'third', label: 'Third person' },
-        ],
-      },
-      { key: 'showBody', label: 'Show your body in first person', type: 'toggle', help: 'Legs below you, arms out in front when the wings are open.' },
       { key: 'barrelRoll', label: 'Barrel roll', type: 'toggle', help: 'Off by default. Turns the roll key on.' },
     ],
     keybinds: true,
@@ -145,6 +134,18 @@ const SECTIONS = [
     id: 'player',
     label: 'Player',
     fields: [
+      {
+        key: 'perspective',
+        label: 'Perspective',
+        type: 'select',
+        options: () => [
+          { value: 'first', label: 'First person' },
+          { value: 'third', label: 'Third person — behind you' },
+          { value: 'second', label: 'Second person — in front, looking back' },
+        ],
+        help: 'Cycles with the perspective key, listed under Controls.',
+      },
+      { key: 'showBody', label: 'Show your body in first person', type: 'toggle', help: 'Legs below you, arms out in front when the wings are open.' },
       {
         key: 'playerHeightM',
         label: 'Standing height',
@@ -189,13 +190,15 @@ const SECTIONS = [
       { key: 'exploreSeas', label: 'Anywhere-mode may land at sea', type: 'toggle', help: 'Off keeps you on land. On lets you drop anywhere, oceans included.' },
       {
         key: 'seaDistanceKm',
+        // Meaningless unless sea landings are on, so it stays out of the way.
+        showWhen: () => settings.get('exploreSeas'),
         label: 'Furthest out to sea a drop may be',
         type: 'range',
         min: 1,
         max: 501,
         step: 10,
         format: (v) => (v > 500 ? 'unlimited' : `${Math.round(v)} km`),
-        help: 'Only applies when sea landings are allowed. Unlimited by default, so mid-ocean is fair game; wind it down to stay within reach of a coast.',
+        help: 'Unlimited by default, so mid-ocean is fair game; wind it down to stay within reach of a coast.',
       },
       { key: 'rtpSkySpawn', label: 'Random teleport arrives in the sky', type: 'toggle', help: 'On: you arrive high with the wings out. Off: you arrive standing on the ground.' },
       { key: 'spawnStreetLevel', label: 'Arrive where there is street-level imagery', type: 'toggle', help: 'Street-level photography is switched on for the arrival if the provider has any.' },
@@ -349,7 +352,12 @@ export class SettingsPanel {
     const section = SECTIONS.find((s) => s.id === this.activeSection) ?? SECTIONS[0];
     const parts = [];
     if (section.intro) parts.push(`<p class="settings-intro">${escapeHtml(section.intro)}</p>`);
-    for (const field of section.fields) parts.push(this.renderField(field));
+    // A field may declare showWhen(); a control that cannot do anything yet is
+    // clutter, so it simply is not drawn until its precondition is met.
+    for (const field of section.fields) {
+      if (field.showWhen && !field.showWhen()) continue;
+      parts.push(this.renderField(field));
+    }
     if (section.keybinds) parts.push(this.renderKeybinds());
     this.content.innerHTML = parts.join('');
     this.bindFields(section);

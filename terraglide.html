@@ -82318,7 +82318,7 @@ const { readJSON, removeKey, writeJSON } = __tg_require("src/core/storage.js");
  * units:             'metric' | 'imperial'
  * world3d:           'off' | 'google' | 'cesium'
  * world3dDetail:     'low' | 'medium' | 'high' | 'ultra' — triangle budget
- * perspective:       'first' | 'third'
+ * perspective:       'first' | 'third' | 'second'
  * rtpTarget:         'anywhere' | 'populated'
  * timeMode:          'day' | 'live' | 'golden' | 'night' | 'custom'
  */
@@ -82340,7 +82340,6 @@ const DEFAULT_SETTINGS = {
   cesiumToken: '',
   azureKey: '',
   googleKey: '',
-  bingKey: '',
   mapboxKey: '',
   mapillaryToken: '',
   addressLookup: true,
@@ -82708,6 +82707,7 @@ const ACTIONS = [
   { id: 'freecam', label: 'Freecam', group: 'View' },
   { id: 'perspective', label: 'Change perspective', group: 'View' },
   { id: 'barrelRoll', label: 'Barrel roll', group: 'Flight' },
+  { id: 'stowWings', label: 'Stow wings — drop out of a glide', group: 'Flight' },
   { id: 'worldMap', label: 'Open world map', group: 'Map' },
   { id: 'waypoint', label: 'Place waypoint here', group: 'Map' },
   { id: 'copyCoords', label: 'Copy coordinates', group: 'Map' },
@@ -82742,6 +82742,7 @@ const DEFAULT_BINDS = {
   freecam: 'KeyQ',
   perspective: 'F5',
   barrelRoll: 'KeyX',
+  stowWings: 'KeyF',
   worldMap: 'KeyG',
   waypoint: 'KeyB',
   copyCoords: 'KeyP',
@@ -83156,6 +83157,8 @@ const { settings } = __tg_require("src/core/settings.js");
 const PITCH_LIMIT = Math.PI / 2 - 0.02;
 /** One barrel roll, in seconds. */
 const ROLL_TIME = 0.8;
+/** Frequency of the rocket shove, in hertz. Low enough to read as a push. */
+const SHAKE_HZ = 7;
 
 class CameraRig {
   constructor(camera) {
@@ -83164,6 +83167,9 @@ class CameraRig {
     this.roll = 0;
     this.thirdPersonDistance = 1;
     this.shake = 0;
+    this.shakeTime = 0;
+    /** Damped ground clamp for the chase camera. */
+    this._floor = NaN;
     this.freecam = {
       active: false,
       position: new THREE.Vector3(),
@@ -83269,18 +83275,26 @@ class CameraRig {
     const eye = player.eyeHeight;
     this._target.set(player.position.x, player.position.y + eye, player.position.z);
 
-    if (settings.get('perspective') === 'third') {
+    const perspective = settings.get('perspective');
+    if (perspective === 'third' || perspective === 'second') {
+      // Second person is the same rig turned around: the camera sits in front
+      // of you looking back, so you fly toward it and can see your own face.
+      const behind = perspective === 'third' ? 1 : -1;
       const distance = 3.4 * player.height;
       const cosPitch = Math.cos(player.pitch);
       this._offset.set(
-        -Math.sin(player.yaw) * cosPitch,
-        -Math.sin(player.pitch) + 0.28,
-        Math.cos(player.yaw) * cosPitch,
+        -Math.sin(player.yaw) * cosPitch * behind,
+        (-Math.sin(player.pitch) + 0.28) * behind,
+        Math.cos(player.yaw) * cosPitch * behind,
       );
       this._offset.normalize().multiplyScalar(distance);
       const desired = this._target.clone().add(this._offset);
+      // Damp the ground clamp rather than applying it raw: heightAt steps as
+      // terrain LOD swaps under the camera, and a raw clamp turns every one of
+      // those steps into a visible jolt.
       const floor = terrain ? terrain.heightAt(desired.x, desired.z) + player.height * 0.35 : -Infinity;
-      desired.y = Math.max(desired.y, floor);
+      this._floor = Number.isFinite(this._floor) ? damp(this._floor, floor, 6, dt) : floor;
+      desired.y = Math.max(desired.y, this._floor);
       // Tight enough that the view is where you pointed it, not trailing it.
       camera.position.lerpVectors(camera.position, desired, 1 - Math.exp(-24 * dt));
       camera.lookAt(this._target);
@@ -83291,12 +83305,19 @@ class CameraRig {
       camera.quaternion.setFromEuler(this._euler);
     }
 
+    // The rocket kick used to be a fresh random offset every frame, which is
+    // the definition of jitter — and third person compounded it, because the
+    // camera is also chasing a lerp target that the shake keeps moving. It is
+    // now a smooth decaying oscillation: continuous frame to frame, so it
+    // reads as a shove rather than a glitch.
     if (this.shake > 0.001) {
+      this.shakeTime += dt;
       const amount = this.shake;
-      camera.position.x += (Math.random() - 0.5) * amount;
-      camera.position.y += (Math.random() - 0.5) * amount;
-      camera.position.z += (Math.random() - 0.5) * amount;
-      this.shake = damp(this.shake, 0, 5, dt);
+      const t = this.shakeTime * SHAKE_HZ * Math.PI * 2;
+      camera.position.x += Math.sin(t * 1.0) * amount * 0.5;
+      camera.position.y += Math.sin(t * 1.7 + 1.1) * amount * 0.5;
+      camera.position.z += Math.sin(t * 1.3 + 2.3) * amount * 0.5;
+      this.shake = damp(this.shake, 0, 6, dt);
     }
   }
 
@@ -84471,8 +84492,19 @@ const DRAG_SPEED = 0.0022;
  * tapers off across its burn, so it shoves you and then hands you back to the
  * glide rather than holding one flat speed until it stops.
  */
-const ROCKET_THRUST = 2.5;
-const ROCKET_TAPER = 0.5; // how much of the kick is left at burnout
+/**
+ * Minecraft's own number: a rocket accelerates you toward 1.5 blocks per tick
+ * along the look vector, which is 30 m/s. Taken verbatim rather than tuned,
+ * because matching the feel is the point.
+ */
+const ROCKET_THRUST = 1.5;
+/**
+ * How much of the kick is left at burnout. Minecraft holds the push flat for
+ * the whole burn and lets drag do the slowing down afterwards; this keeps a
+ * light fade so a five-second burn is not a flat line, but the ignition peak
+ * is Minecraft's, and most of the decay you feel is drag once it is spent.
+ */
+const ROCKET_TAPER = 0.85;
 /** Airspeed at which the wings give their full support, blocks per tick. */
 const STALL_SPEED = 1.55;
 /** How much of the velocity the wing turns toward your look each tick. */
@@ -84559,14 +84591,29 @@ function stepRocket(velocity, look, power = 1, spent = 0) {
   velocity.z = nz * TO_SECOND;
 }
 
-/** Ticks of thrust a rocket of the given flight duration provides. */
+/**
+ * Ticks of thrust a rocket of the given flight duration provides.
+ *
+ * The slot number is the burn in *seconds*, which is what the label has always
+ * claimed and what a Minecraft player expects "flight duration 3" to mean.
+ * The old formula was Minecraft's raw entity lifetime (10n + 6 ticks), which
+ * made a Rocket V burn for 2.8 seconds while the HUD read "dur 5" — the number
+ * was simply lying.
+ */
 function rocketTicks(duration) {
-  return 10 * duration + 6;
+  return Math.round(duration / TICK);
 }
 
-/** Thrust multiplier for a slot: bigger rockets carry more powder. */
+/**
+ * Thrust multiplier for a slot: bigger rockets carry more powder.
+ *
+ * Minecraft gives every rocket the same push and varies only the burn. Here
+ * the number means both, so the ramp is deliberately gentle — a Rocket V is
+ * about sixty per cent harder than a Rocket I, not twice, so that the extra
+ * seconds stay the main thing you are buying.
+ */
 function rocketPowerFor(duration) {
-  return 0.6 + duration * 0.28;
+  return 1 + (duration - 1) * 0.15;
 }
 
 /** Terminal glide speed for the HUD's "best glide" readout, metres per second. */
@@ -85806,15 +85853,6 @@ const IMAGERY_PROVIDERS = [
     note: 'Needs a Map Tiles API key. A session token is created on first use.',
   },
   {
-    id: 'bing',
-    label: 'Bing Maps (aerial)',
-    kind: 'bing',
-    needsKey: 'bingKey',
-    maxZoom: 20,
-    attribution: 'Imagery © Microsoft, Maxar',
-    note: 'Needs a Bing Maps key. Tile URLs come from the imagery metadata service.',
-  },
-  {
     id: 'azure',
     label: 'Azure Maps (satellite)',
     kind: 'xyz',
@@ -85846,7 +85884,11 @@ const IMAGERY_PROVIDERS = [
     maxZoom: 19,
     template: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
     attribution: '© OpenStreetMap contributors',
-    note: 'Drawn map rather than photography. Handy for reading street layouts.',
+    // Not offered as flight imagery: a drawn map draped over terrain looks
+    // like a mistake. It is still used, though — it is the layer the maps
+    // draw unexplored ground with, which is what a street map is good for.
+    hidden: true,
+    note: 'Drawn map rather than photography. Used for unexplored ground on the maps.',
   },
 ];
 
@@ -85913,7 +85955,7 @@ function fillTemplate(template, tile, key) {
 
 /**
  * Resolves a provider descriptor plus the current keys into something that can
- * hand out tile URLs. Providers needing a handshake (Google sessions, Bing
+ * hand out tile URLs. Providers needing a handshake (Google session
  * metadata) do it once, lazily, and cache the result.
  */
 class TileSource {
@@ -85922,7 +85964,6 @@ class TileSource {
     this.keys = keys;
     this.state = 'idle'; // idle | preparing | ready | needs-key | error
     this.error = '';
-    this.bingTemplate = null;
     this.googleSession = null;
     this.preparing = null;
   }
@@ -85970,8 +86011,7 @@ class TileSource {
     this.state = 'preparing';
     this.preparing = (async () => {
       try {
-        if (this.descriptor.kind === 'bing') await this.prepareBing();
-        else if (this.descriptor.kind === 'google') await this.prepareGoogle();
+        if (this.descriptor.kind === 'google') await this.prepareGoogle();
         this.state = 'ready';
         this.error = '';
       } catch (err) {
@@ -85984,16 +86024,6 @@ class TileSource {
     return this.preparing;
   }
 
-  async prepareBing() {
-    const url = `https://dev.virtualearth.net/REST/v1/Imagery/Metadata/Aerial?output=json&include=ImageryProviders&uriScheme=https&key=${encodeURIComponent(this.key)}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Bing metadata failed (${res.status})`);
-    const data = await res.json();
-    const resource = data?.resourceSets?.[0]?.resources?.[0];
-    if (!resource?.imageUrl) throw new Error('Bing metadata had no imageUrl');
-    this.bingTemplate = resource.imageUrl;
-    this.bingSubdomains = resource.imageUrlSubdomains ?? [''];
-  }
 
   async prepareGoogle() {
     const res = await fetch(
@@ -86014,15 +86044,6 @@ class TileSource {
   urlFor(tile) {
     const d = this.descriptor;
     if (d.kind === 'synthetic') return null;
-    if (d.kind === 'bing') {
-      if (!this.bingTemplate) return null;
-      const subs = this.bingSubdomains ?? [''];
-      const sub = subs[(tile.x + tile.y) % subs.length];
-      return this.bingTemplate
-        .replace('{subdomain}', sub)
-        .replace('{quadkey}', quadKey(tile))
-        .replace('{culture}', 'en-US');
-    }
     if (d.kind === 'google') {
       if (!this.googleSession) return null;
       return `https://tile.googleapis.com/v1/2dtiles/${tile.z}/${tile.x}/${tile.y}?session=${encodeURIComponent(this.googleSession)}&key=${encodeURIComponent(this.key)}`;
@@ -88049,8 +88070,23 @@ class MapTileCache {
 
 const mapTiles = new MapTileCache();
 
+/**
+ * A second cache, holding the drawn street map.
+ *
+ * Ground you have not visited is shown as a *map* rather than a photograph,
+ * and it used to get there by running the satellite tile through a greyscale
+ * filter — which produced a washed-out photo, not a map. Roads, coastlines and
+ * place names were exactly as unreadable as before, only paler.
+ *
+ * This fetches the real OpenStreetMap raster instead, so unexplored ground
+ * reads the way a map is supposed to: named roads, rivers, borders. Keyless,
+ * and only requested for tiles actually on screen and actually unexplored.
+ */
+const streetTiles = new MapTileCache();
+
 __tg_exports["MapTileCache"] = MapTileCache;
 __tg_exports["mapTiles"] = mapTiles;
+__tg_exports["streetTiles"] = streetTiles;
 };
 __tg_modules["src/world/landcover.js"] = function (__tg_exports) {
 /**
@@ -90262,17 +90298,26 @@ function drawMap(ctx, view, layers) {
       const screenY = ty * TILE_PX - centre.y;
       const explored = !layers.exploration || layers.exploration.isExplored(zoom, wrappedX, ty);
       const asMap = !explored && options.fog !== false;
-      // Always load the tile: the map has to be readable when you zoom out,
-      // whether or not you have been there.
-      const resolved = layers.tiles.resolve(zoom, wrappedX, ty);
+      // Explored ground gets the photograph; unexplored gets the drawn street
+      // map, which is a genuinely different tile rather than the same photo
+      // with the colour taken out. Always load something: the map has to be
+      // readable when you zoom out, whether or not you have been there.
+      const source = asMap && layers.streetTiles ? layers.streetTiles : layers.tiles;
+      let resolved = source.resolve(zoom, wrappedX, ty);
+      // The street tile may not have arrived yet. Rather than leave a hole,
+      // fall back to the photo — dimmed, so it still reads as unvisited.
+      let fellBack = false;
+      if (!resolved && source !== layers.tiles) {
+        resolved = layers.tiles.resolve(zoom, wrappedX, ty);
+        fellBack = true;
+      }
 
       if (resolved) {
         const { bitmap, scale, ox, oy } = resolved;
         const sw = bitmap.width * scale;
         const sh = bitmap.height * scale;
         ctx.save();
-        // Unvisited ground is drawn as a map rather than a photograph.
-        if (asMap) ctx.filter = 'grayscale(1) brightness(1.45) contrast(0.45)';
+        if (asMap && fellBack) ctx.filter = 'grayscale(1) brightness(1.4) contrast(0.5)';
         ctx.drawImage(
           bitmap,
           ox * bitmap.width,
@@ -90286,7 +90331,10 @@ function drawMap(ctx, view, layers) {
         );
         ctx.restore();
         if (asMap) {
-          ctx.fillStyle = 'rgba(24, 28, 34, 0.34)';
+          // A light wash so explored ground still reads as the brighter half
+          // of the map. Gentler on a real street tile than it was on a photo,
+          // because the street tile is already pale.
+          ctx.fillStyle = fellBack ? 'rgba(24, 28, 34, 0.34)' : 'rgba(24, 28, 34, 0.16)';
           ctx.fillRect(screenX, screenY, TILE_PX + 0.5, TILE_PX + 0.5);
         }
       } else {
@@ -90453,8 +90501,9 @@ const { drawMap, metresPerPixel, project, unproject, worldPixelSize } = __tg_req
  */
 
 class WorldMap {
-  constructor(root, { tiles, exploration, waypointStore, trail }) {
+  constructor(root, { tiles, streetTiles, exploration, waypointStore, trail }) {
     this.tiles = tiles;
+    this.streetTiles = streetTiles;
     this.exploration = exploration;
     this.waypointStore = waypointStore;
     this.trail = trail;
@@ -90524,6 +90573,10 @@ class WorldMap {
     this.bindEvents();
     this.waypointStore.on('change', () => {
       this.renderLists();
+      this.dirty = true;
+    });
+    // A street tile arriving changes unexplored ground, so redraw for it too.
+    this.streetTiles?.onTileLoaded(() => {
       this.dirty = true;
     });
     this.tiles.onTileLoaded(() => {
@@ -90751,6 +90804,7 @@ class WorldMap {
       },
       {
         tiles: this.tiles,
+        streetTiles: this.streetTiles,
         exploration: this.exploration,
         waypointStore: this.waypointStore,
         trail: this.trail,
@@ -90897,7 +90951,7 @@ class HelpCard {
         </div>
         <p class="help-note">
           Satellite imagery and elevation work with no account at all. <strong>Settings → Providers</strong>
-          swaps in Google, Bing or Mapbox if you have a key, or falls back to a generated world offline.
+          swaps in Google, Azure or Mapbox if you have a key, or falls back to a generated world offline.
         </p>
         <p class="help-note">
           On a touch screen the on-screen stick and buttons appear by themselves. To play with no internet
@@ -91268,8 +91322,9 @@ const { drawMap, metresPerPixel } = __tg_require("src/ui/mapRenderer.js");
 const REDRAW_INTERVAL = 1 / 20;
 
 class Minimap {
-  constructor(root, { tiles, exploration, waypointStore, trail }) {
+  constructor(root, { tiles, streetTiles, exploration, waypointStore, trail }) {
     this.tiles = tiles;
+    this.streetTiles = streetTiles;
     this.exploration = exploration;
     this.waypointStore = waypointStore;
     this.trail = trail;
@@ -91330,6 +91385,10 @@ class Minimap {
       { passive: false },
     );
 
+    // A street tile arriving changes unexplored ground, so redraw for it too.
+    this.streetTiles?.onTileLoaded(() => {
+      this.timer = REDRAW_INTERVAL;
+    });
     this.tiles.onTileLoaded(() => {
       this.timer = REDRAW_INTERVAL;
     });
@@ -91390,6 +91449,7 @@ class Minimap {
       },
       {
         tiles: this.tiles,
+        streetTiles: this.streetTiles,
         exploration: this.exploration,
         waypointStore: this.waypointStore,
         trail: this.trail,
@@ -91442,7 +91502,7 @@ const SECTIONS = [
         key: 'imageryProvider',
         label: 'Imagery',
         type: 'select',
-        options: () => IMAGERY_PROVIDERS.map((p) => ({ value: p.id, label: p.label })),
+        options: () => IMAGERY_PROVIDERS.filter((p) => !p.hidden).map((p) => ({ value: p.id, label: p.label })),
         help: (value) => providerNote(IMAGERY_PROVIDERS, value),
       },
       {
@@ -91488,7 +91548,6 @@ const SECTIONS = [
         help: 'How deep to walk the tile tree, and so how many triangles arrive. Photogrammetry is far heavier than the ordinary world, so drop this before turning 3D off entirely.',
       },
       { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Photorealistic 3D Tiles, Street View Static and Geocoding APIs.' },
-      { key: 'bingKey', label: 'Bing Maps key', type: 'secret' },
       { key: 'azureKey', label: 'Azure Maps key', type: 'secret', help: 'Azure Maps subscription key, for Microsoft satellite imagery. Azure serves no 3D data.' },
       { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation.' },
       { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'Only for the Cesium route into photorealistic 3D.' },
@@ -91546,16 +91605,6 @@ const SECTIONS = [
       { key: 'swapMouseButtons', label: 'Swap mouse buttons in pan mode', type: 'toggle', help: 'Normally: drag with left to look, right click to boost, click to land.' },
       { key: 'sensitivity', label: 'Look sensitivity', type: 'range', min: 0.2, max: 3, step: 0.05, format: (v) => `${v.toFixed(2)}x` },
       { key: 'invertY', label: 'Invert vertical look', type: 'toggle' },
-      {
-        key: 'perspective',
-        label: 'Perspective',
-        type: 'select',
-        options: () => [
-          { value: 'first', label: 'First person' },
-          { value: 'third', label: 'Third person' },
-        ],
-      },
-      { key: 'showBody', label: 'Show your body in first person', type: 'toggle', help: 'Legs below you, arms out in front when the wings are open.' },
       { key: 'barrelRoll', label: 'Barrel roll', type: 'toggle', help: 'Off by default. Turns the roll key on.' },
     ],
     keybinds: true,
@@ -91564,6 +91613,18 @@ const SECTIONS = [
     id: 'player',
     label: 'Player',
     fields: [
+      {
+        key: 'perspective',
+        label: 'Perspective',
+        type: 'select',
+        options: () => [
+          { value: 'first', label: 'First person' },
+          { value: 'third', label: 'Third person — behind you' },
+          { value: 'second', label: 'Second person — in front, looking back' },
+        ],
+        help: 'Cycles with the perspective key, listed under Controls.',
+      },
+      { key: 'showBody', label: 'Show your body in first person', type: 'toggle', help: 'Legs below you, arms out in front when the wings are open.' },
       {
         key: 'playerHeightM',
         label: 'Standing height',
@@ -91608,13 +91669,15 @@ const SECTIONS = [
       { key: 'exploreSeas', label: 'Anywhere-mode may land at sea', type: 'toggle', help: 'Off keeps you on land. On lets you drop anywhere, oceans included.' },
       {
         key: 'seaDistanceKm',
+        // Meaningless unless sea landings are on, so it stays out of the way.
+        showWhen: () => settings.get('exploreSeas'),
         label: 'Furthest out to sea a drop may be',
         type: 'range',
         min: 1,
         max: 501,
         step: 10,
         format: (v) => (v > 500 ? 'unlimited' : `${Math.round(v)} km`),
-        help: 'Only applies when sea landings are allowed. Unlimited by default, so mid-ocean is fair game; wind it down to stay within reach of a coast.',
+        help: 'Unlimited by default, so mid-ocean is fair game; wind it down to stay within reach of a coast.',
       },
       { key: 'rtpSkySpawn', label: 'Random teleport arrives in the sky', type: 'toggle', help: 'On: you arrive high with the wings out. Off: you arrive standing on the ground.' },
       { key: 'spawnStreetLevel', label: 'Arrive where there is street-level imagery', type: 'toggle', help: 'Street-level photography is switched on for the arrival if the provider has any.' },
@@ -91768,7 +91831,12 @@ class SettingsPanel {
     const section = SECTIONS.find((s) => s.id === this.activeSection) ?? SECTIONS[0];
     const parts = [];
     if (section.intro) parts.push(`<p class="settings-intro">${escapeHtml(section.intro)}</p>`);
-    for (const field of section.fields) parts.push(this.renderField(field));
+    // A field may declare showWhen(); a control that cannot do anything yet is
+    // clutter, so it simply is not drawn until its precondition is met.
+    for (const field of section.fields) {
+      if (field.showWhen && !field.showWhen()) continue;
+      parts.push(this.renderField(field));
+    }
     if (section.keybinds) parts.push(this.renderKeybinds());
     this.content.innerHTML = parts.join('');
     this.bindFields(section);
@@ -92361,7 +92429,7 @@ const { CheatPanel } = __tg_require("src/ui/cheatPanel.js");
 const { exploration } = __tg_require("src/ui/exploration.js");
 const { HelpCard } = __tg_require("src/ui/help.js");
 const { HUD } = __tg_require("src/ui/hud.js");
-const { mapTiles } = __tg_require("src/ui/mapTiles.js");
+const { mapTiles, streetTiles } = __tg_require("src/ui/mapTiles.js");
 const { Minimap } = __tg_require("src/ui/minimap.js");
 const { SettingsPanel } = __tg_require("src/ui/settingsPanel.js");
 const { TouchControls } = __tg_require("src/ui/touch.js");
@@ -92458,8 +92526,8 @@ class Game {
 
     this.onStatus('Building interface');
     this.hud = new HUD(ui);
-    this.minimap = new Minimap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints, trail });
-    this.worldmap = new WorldMap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints, trail });
+    this.minimap = new Minimap(ui, { tiles: mapTiles, streetTiles, exploration, waypointStore: waypoints, trail });
+    this.worldmap = new WorldMap(ui, { tiles: mapTiles, streetTiles, exploration, waypointStore: waypoints, trail });
     this.settingsPanel = new SettingsPanel(ui);
     this.help = new HelpCard(ui);
     this.cheatPanel = new CheatPanel(ui);
@@ -92613,6 +92681,13 @@ class Game {
     this.elevation.setSource(this.elevationSource);
     mapTiles.setSource(this.imagerySource);
     mapTiles.setDegraded(false);
+    // The unexplored-ground layer is always the drawn OSM map, whatever the
+    // satellite provider is — it is a different question from which imagery
+    // you fly over, and OSM needs no key.
+    if (!this.streetSource) {
+      this.streetSource = createImagerySource({ ...settings.values, imageryProvider: 'osm' });
+      streetTiles.setSource(this.streetSource);
+    }
     waterMap.setSource(this.imagerySource);
     if (rebuild) this.terrain.rebase();
     this.imagerySource.prepare();
@@ -92666,7 +92741,7 @@ class Game {
   }
 
   onSettingChanged(key) {
-    const providerKeys = ['imageryProvider', 'elevationProvider', 'googleKey', 'bingKey', 'mapboxKey', 'azureKey'];
+    const providerKeys = ['imageryProvider', 'elevationProvider', 'googleKey', 'mapboxKey', 'azureKey'];
     if (providerKeys.includes(key)) {
       this.applyProviders({ rebuild: key === 'elevationProvider' });
       this.toast('Provider updated');
@@ -92876,7 +92951,12 @@ class Game {
 
     // The body is drawn in first person too, minus the head, so you can see
     // your own legs and the wings you are flying on.
-    const thirdPerson = settings.get('perspective') === 'third' || this.rig.isFreecam;
+    // Second person is an outside view too: the body is drawn in full and the
+    // camera is not behind your eyes, so it wants exactly the third-person
+    // treatment — full head, no first-person offset.
+    const outside =
+      settings.get('perspective') !== 'first' || this.rig.isFreecam;
+    const thirdPerson = outside;
     const showAvatar = thirdPerson || settings.get('showBody');
     this.avatar.setVisible(showAvatar);
     this.avatar.setFirstPerson(!thirdPerson);
@@ -93146,9 +93226,11 @@ class Game {
         break;
       }
       case 'perspective': {
-        const next = settings.get('perspective') === 'first' ? 'third' : 'first';
+        const order = ['first', 'third', 'second'];
+        const label = { first: 'First person', third: 'Third person', second: 'Second person' };
+        const next = order[(order.indexOf(settings.get('perspective')) + 1) % order.length];
         settings.set('perspective', next);
-        this.toast(next === 'third' ? 'Third person' : 'First person');
+        this.toast(label[next]);
         break;
       }
       case 'barrelRoll':
@@ -93197,6 +93279,9 @@ class Game {
         else if (this.cheatPanel.open) this.cheatPanel.close();
         else this.settingsPanel.toggle();
         break;
+      case 'stowWings':
+        this.land();
+        break;
       case 'help':
         this.help.toggle();
         break;
@@ -93235,13 +93320,18 @@ class Game {
     if (player.fireRocket()) this.rig.kick(0.1 + player.rocketDuration * 0.02);
   }
 
+  /**
+   * Fold the wings away. In the air that means you stop gliding and start
+   * falling, which is the point — you can drop out of a glide deliberately
+   * instead of having to fly all the way down to something solid.
+   */
   land() {
     const player = this.player;
     if (player.elytraDeployed) {
       player.toggleElytra(false);
-      this.toast('Wings stowed');
+      this.toast(player.onGround ? 'Wings stowed' : 'Wings stowed — falling');
     } else if (!player.onGround) {
-      this.toast('Falling — open the wings to glide', 'warn');
+      this.toast('Falling — hold jump to open the wings', 'warn');
     }
   }
 

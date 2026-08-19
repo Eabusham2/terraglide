@@ -13,7 +13,7 @@ import { readJSON, removeKey, writeJSON } from './storage.js';
  * units:             'metric' | 'imperial'
  * world3d:           'off' | 'google' | 'cesium'
  * world3dDetail:     'low' | 'medium' | 'high' | 'ultra' — triangle budget
- * perspective:       'first' | 'third'
+ * perspective:       'first' | 'third' | 'second'
  * rtpTarget:         'anywhere' | 'populated'
  * timeMode:          'day' | 'live' | 'golden' | 'night' | 'custom'
  */
@@ -35,7 +35,6 @@ export const DEFAULT_SETTINGS = {
   cesiumToken: '',
   azureKey: '',
   googleKey: '',
-  bingKey: '',
   mapboxKey: '',
   mapillaryToken: '',
   addressLookup: true,

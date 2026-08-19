@@ -21,6 +21,8 @@ import { settings } from '../core/settings.js';
 const PITCH_LIMIT = Math.PI / 2 - 0.02;
 /** One barrel roll, in seconds. */
 const ROLL_TIME = 0.8;
+/** Frequency of the rocket shove, in hertz. Low enough to read as a push. */
+const SHAKE_HZ = 7;
 
 export class CameraRig {
   constructor(camera) {
@@ -29,6 +31,9 @@ export class CameraRig {
     this.roll = 0;
     this.thirdPersonDistance = 1;
     this.shake = 0;
+    this.shakeTime = 0;
+    /** Damped ground clamp for the chase camera. */
+    this._floor = NaN;
     this.freecam = {
       active: false,
       position: new THREE.Vector3(),
@@ -134,18 +139,26 @@ export class CameraRig {
     const eye = player.eyeHeight;
     this._target.set(player.position.x, player.position.y + eye, player.position.z);
 
-    if (settings.get('perspective') === 'third') {
+    const perspective = settings.get('perspective');
+    if (perspective === 'third' || perspective === 'second') {
+      // Second person is the same rig turned around: the camera sits in front
+      // of you looking back, so you fly toward it and can see your own face.
+      const behind = perspective === 'third' ? 1 : -1;
       const distance = 3.4 * player.height;
       const cosPitch = Math.cos(player.pitch);
       this._offset.set(
-        -Math.sin(player.yaw) * cosPitch,
-        -Math.sin(player.pitch) + 0.28,
-        Math.cos(player.yaw) * cosPitch,
+        -Math.sin(player.yaw) * cosPitch * behind,
+        (-Math.sin(player.pitch) + 0.28) * behind,
+        Math.cos(player.yaw) * cosPitch * behind,
       );
       this._offset.normalize().multiplyScalar(distance);
       const desired = this._target.clone().add(this._offset);
+      // Damp the ground clamp rather than applying it raw: heightAt steps as
+      // terrain LOD swaps under the camera, and a raw clamp turns every one of
+      // those steps into a visible jolt.
       const floor = terrain ? terrain.heightAt(desired.x, desired.z) + player.height * 0.35 : -Infinity;
-      desired.y = Math.max(desired.y, floor);
+      this._floor = Number.isFinite(this._floor) ? damp(this._floor, floor, 6, dt) : floor;
+      desired.y = Math.max(desired.y, this._floor);
       // Tight enough that the view is where you pointed it, not trailing it.
       camera.position.lerpVectors(camera.position, desired, 1 - Math.exp(-24 * dt));
       camera.lookAt(this._target);
@@ -156,12 +169,19 @@ export class CameraRig {
       camera.quaternion.setFromEuler(this._euler);
     }
 
+    // The rocket kick used to be a fresh random offset every frame, which is
+    // the definition of jitter — and third person compounded it, because the
+    // camera is also chasing a lerp target that the shake keeps moving. It is
+    // now a smooth decaying oscillation: continuous frame to frame, so it
+    // reads as a shove rather than a glitch.
     if (this.shake > 0.001) {
+      this.shakeTime += dt;
       const amount = this.shake;
-      camera.position.x += (Math.random() - 0.5) * amount;
-      camera.position.y += (Math.random() - 0.5) * amount;
-      camera.position.z += (Math.random() - 0.5) * amount;
-      this.shake = damp(this.shake, 0, 5, dt);
+      const t = this.shakeTime * SHAKE_HZ * Math.PI * 2;
+      camera.position.x += Math.sin(t * 1.0) * amount * 0.5;
+      camera.position.y += Math.sin(t * 1.7 + 1.1) * amount * 0.5;
+      camera.position.z += Math.sin(t * 1.3 + 2.3) * amount * 0.5;
+      this.shake = damp(this.shake, 0, 6, dt);
     }
   }
 

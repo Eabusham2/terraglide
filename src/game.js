@@ -32,7 +32,7 @@ import { CheatPanel } from './ui/cheatPanel.js';
 import { exploration } from './ui/exploration.js';
 import { HelpCard } from './ui/help.js';
 import { HUD } from './ui/hud.js';
-import { mapTiles } from './ui/mapTiles.js';
+import { mapTiles, streetTiles } from './ui/mapTiles.js';
 import { Minimap } from './ui/minimap.js';
 import { SettingsPanel } from './ui/settingsPanel.js';
 import { TouchControls } from './ui/touch.js';
@@ -129,8 +129,8 @@ export class Game {
 
     this.onStatus('Building interface');
     this.hud = new HUD(ui);
-    this.minimap = new Minimap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints, trail });
-    this.worldmap = new WorldMap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints, trail });
+    this.minimap = new Minimap(ui, { tiles: mapTiles, streetTiles, exploration, waypointStore: waypoints, trail });
+    this.worldmap = new WorldMap(ui, { tiles: mapTiles, streetTiles, exploration, waypointStore: waypoints, trail });
     this.settingsPanel = new SettingsPanel(ui);
     this.help = new HelpCard(ui);
     this.cheatPanel = new CheatPanel(ui);
@@ -284,6 +284,13 @@ export class Game {
     this.elevation.setSource(this.elevationSource);
     mapTiles.setSource(this.imagerySource);
     mapTiles.setDegraded(false);
+    // The unexplored-ground layer is always the drawn OSM map, whatever the
+    // satellite provider is — it is a different question from which imagery
+    // you fly over, and OSM needs no key.
+    if (!this.streetSource) {
+      this.streetSource = createImagerySource({ ...settings.values, imageryProvider: 'osm' });
+      streetTiles.setSource(this.streetSource);
+    }
     waterMap.setSource(this.imagerySource);
     if (rebuild) this.terrain.rebase();
     this.imagerySource.prepare();
@@ -337,7 +344,7 @@ export class Game {
   }
 
   onSettingChanged(key) {
-    const providerKeys = ['imageryProvider', 'elevationProvider', 'googleKey', 'bingKey', 'mapboxKey', 'azureKey'];
+    const providerKeys = ['imageryProvider', 'elevationProvider', 'googleKey', 'mapboxKey', 'azureKey'];
     if (providerKeys.includes(key)) {
       this.applyProviders({ rebuild: key === 'elevationProvider' });
       this.toast('Provider updated');
@@ -547,7 +554,12 @@ export class Game {
 
     // The body is drawn in first person too, minus the head, so you can see
     // your own legs and the wings you are flying on.
-    const thirdPerson = settings.get('perspective') === 'third' || this.rig.isFreecam;
+    // Second person is an outside view too: the body is drawn in full and the
+    // camera is not behind your eyes, so it wants exactly the third-person
+    // treatment — full head, no first-person offset.
+    const outside =
+      settings.get('perspective') !== 'first' || this.rig.isFreecam;
+    const thirdPerson = outside;
     const showAvatar = thirdPerson || settings.get('showBody');
     this.avatar.setVisible(showAvatar);
     this.avatar.setFirstPerson(!thirdPerson);
@@ -817,9 +829,11 @@ export class Game {
         break;
       }
       case 'perspective': {
-        const next = settings.get('perspective') === 'first' ? 'third' : 'first';
+        const order = ['first', 'third', 'second'];
+        const label = { first: 'First person', third: 'Third person', second: 'Second person' };
+        const next = order[(order.indexOf(settings.get('perspective')) + 1) % order.length];
         settings.set('perspective', next);
-        this.toast(next === 'third' ? 'Third person' : 'First person');
+        this.toast(label[next]);
         break;
       }
       case 'barrelRoll':
@@ -868,6 +882,9 @@ export class Game {
         else if (this.cheatPanel.open) this.cheatPanel.close();
         else this.settingsPanel.toggle();
         break;
+      case 'stowWings':
+        this.land();
+        break;
       case 'help':
         this.help.toggle();
         break;
@@ -906,13 +923,18 @@ export class Game {
     if (player.fireRocket()) this.rig.kick(0.1 + player.rocketDuration * 0.02);
   }
 
+  /**
+   * Fold the wings away. In the air that means you stop gliding and start
+   * falling, which is the point — you can drop out of a glide deliberately
+   * instead of having to fly all the way down to something solid.
+   */
   land() {
     const player = this.player;
     if (player.elytraDeployed) {
       player.toggleElytra(false);
-      this.toast('Wings stowed');
+      this.toast(player.onGround ? 'Wings stowed' : 'Wings stowed — falling');
     } else if (!player.onGround) {
-      this.toast('Falling — open the wings to glide', 'warn');
+      this.toast('Falling — hold jump to open the wings', 'warn');
     }
   }
 

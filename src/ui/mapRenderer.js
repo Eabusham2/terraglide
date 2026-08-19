@@ -73,17 +73,26 @@ export function drawMap(ctx, view, layers) {
       const screenY = ty * TILE_PX - centre.y;
       const explored = !layers.exploration || layers.exploration.isExplored(zoom, wrappedX, ty);
       const asMap = !explored && options.fog !== false;
-      // Always load the tile: the map has to be readable when you zoom out,
-      // whether or not you have been there.
-      const resolved = layers.tiles.resolve(zoom, wrappedX, ty);
+      // Explored ground gets the photograph; unexplored gets the drawn street
+      // map, which is a genuinely different tile rather than the same photo
+      // with the colour taken out. Always load something: the map has to be
+      // readable when you zoom out, whether or not you have been there.
+      const source = asMap && layers.streetTiles ? layers.streetTiles : layers.tiles;
+      let resolved = source.resolve(zoom, wrappedX, ty);
+      // The street tile may not have arrived yet. Rather than leave a hole,
+      // fall back to the photo — dimmed, so it still reads as unvisited.
+      let fellBack = false;
+      if (!resolved && source !== layers.tiles) {
+        resolved = layers.tiles.resolve(zoom, wrappedX, ty);
+        fellBack = true;
+      }
 
       if (resolved) {
         const { bitmap, scale, ox, oy } = resolved;
         const sw = bitmap.width * scale;
         const sh = bitmap.height * scale;
         ctx.save();
-        // Unvisited ground is drawn as a map rather than a photograph.
-        if (asMap) ctx.filter = 'grayscale(1) brightness(1.45) contrast(0.45)';
+        if (asMap && fellBack) ctx.filter = 'grayscale(1) brightness(1.4) contrast(0.5)';
         ctx.drawImage(
           bitmap,
           ox * bitmap.width,
@@ -97,7 +106,10 @@ export function drawMap(ctx, view, layers) {
         );
         ctx.restore();
         if (asMap) {
-          ctx.fillStyle = 'rgba(24, 28, 34, 0.34)';
+          // A light wash so explored ground still reads as the brighter half
+          // of the map. Gentler on a real street tile than it was on a photo,
+          // because the street tile is already pale.
+          ctx.fillStyle = fellBack ? 'rgba(24, 28, 34, 0.34)' : 'rgba(24, 28, 34, 0.16)';
           ctx.fillRect(screenX, screenY, TILE_PX + 0.5, TILE_PX + 0.5);
         }
       } else {

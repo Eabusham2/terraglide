@@ -8,6 +8,7 @@
  *   node tools/check.mjs
  */
 
+import { spawnSync } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, extname, join, relative, resolve } from 'node:path';
@@ -66,11 +67,17 @@ const files = await walk(SRC);
 for (const file of files) {
   const source = await readFile(file, 'utf8');
   exportsByFile.set(file, collectExports(source));
-  try {
-    // Instantiating the module graph would need a DOM; parsing is enough here.
-    new Function(`return import(${JSON.stringify(pathToFileURL(file).href)})`);
-  } catch (err) {
-    problems.push(`${relative(ROOT, file)}: ${err.message}`);
+  // Actually parse it. This used to build a `new Function` wrapping a dynamic
+  // import, which only ever checked that the *wrapper* was valid JavaScript —
+  // the import was never awaited, so the module itself was never read. It
+  // reported 56 modules clean over a file with a stray `else`.
+  //
+  // `node --check` parses without executing, which is what we want: no DOM
+  // needed, and the package is type: module so these are read as ESM.
+  const parse = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
+  if (parse.status !== 0) {
+    const detail = (parse.stderr || '').split('\n').find((l) => l.includes('Error')) ?? 'parse failed';
+    problems.push(`${relative(ROOT, file)}: ${detail.trim()}`);
   }
 }
 

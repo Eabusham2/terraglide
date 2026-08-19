@@ -37,8 +37,19 @@ const DRAG_SPEED = 0.0022;
  * tapers off across its burn, so it shoves you and then hands you back to the
  * glide rather than holding one flat speed until it stops.
  */
-const ROCKET_THRUST = 2.5;
-const ROCKET_TAPER = 0.5; // how much of the kick is left at burnout
+/**
+ * Minecraft's own number: a rocket accelerates you toward 1.5 blocks per tick
+ * along the look vector, which is 30 m/s. Taken verbatim rather than tuned,
+ * because matching the feel is the point.
+ */
+const ROCKET_THRUST = 1.5;
+/**
+ * How much of the kick is left at burnout. Minecraft holds the push flat for
+ * the whole burn and lets drag do the slowing down afterwards; this keeps a
+ * light fade so a five-second burn is not a flat line, but the ignition peak
+ * is Minecraft's, and most of the decay you feel is drag once it is spent.
+ */
+const ROCKET_TAPER = 0.85;
 /** Airspeed at which the wings give their full support, blocks per tick. */
 const STALL_SPEED = 1.55;
 /** How much of the velocity the wing turns toward your look each tick. */
@@ -125,14 +136,29 @@ export function stepRocket(velocity, look, power = 1, spent = 0) {
   velocity.z = nz * TO_SECOND;
 }
 
-/** Ticks of thrust a rocket of the given flight duration provides. */
+/**
+ * Ticks of thrust a rocket of the given flight duration provides.
+ *
+ * The slot number is the burn in *seconds*, which is what the label has always
+ * claimed and what a Minecraft player expects "flight duration 3" to mean.
+ * The old formula was Minecraft's raw entity lifetime (10n + 6 ticks), which
+ * made a Rocket V burn for 2.8 seconds while the HUD read "dur 5" — the number
+ * was simply lying.
+ */
 export function rocketTicks(duration) {
-  return 10 * duration + 6;
+  return Math.round(duration / TICK);
 }
 
-/** Thrust multiplier for a slot: bigger rockets carry more powder. */
+/**
+ * Thrust multiplier for a slot: bigger rockets carry more powder.
+ *
+ * Minecraft gives every rocket the same push and varies only the burn. Here
+ * the number means both, so the ramp is deliberately gentle — a Rocket V is
+ * about sixty per cent harder than a Rocket I, not twice, so that the extra
+ * seconds stay the main thing you are buying.
+ */
 export function rocketPowerFor(duration) {
-  return 0.6 + duration * 0.28;
+  return 1 + (duration - 1) * 0.15;
 }
 
 /** Terminal glide speed for the HUD's "best glide" readout, metres per second. */

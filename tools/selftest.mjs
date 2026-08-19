@@ -205,9 +205,39 @@ console.log('\nelytra flight model');
   for (let tick = 0; tick < rocketTicks(3); tick++) stepRocket(boosted, levelLook, 1, tick / rocketTicks(3));
   ok('rocket boosts toward look direction', Math.hypot(boosted.x, boosted.y, boosted.z) > 25,
     `${Math.hypot(boosted.x, boosted.y, boosted.z).toFixed(1)} m/s`);
-  ok('rocket III burns for ~1.8 s', near(rocketTicks(3) * TICK, 1.8, 0.05));
-  ok('rocket I is shorter than rocket V', rocketTicks(1) < rocketTicks(5));
-  ok('a bigger rocket carries more powder', rocketPowerFor(5) > rocketPowerFor(1) * 1.8);
+  // The slot number is the burn in seconds. It used to be Minecraft's raw
+  // entity lifetime, which made "dur 5" last 2.8 s — the label was lying.
+  for (const duration of [1, 2, 3, 4, 5]) {
+    ok(`rocket ${duration} burns for exactly ${duration} s`,
+      near(rocketTicks(duration) * TICK, duration, 0.001));
+  }
+  ok('a bigger rocket carries more powder', rocketPowerFor(5) > rocketPowerFor(1));
+  ok('but duration is the main thing you buy — power ramps gently',
+    rocketPowerFor(5) < rocketPowerFor(1) * 1.8,
+    `${rocketPowerFor(1).toFixed(2)} to ${rocketPowerFor(5).toFixed(2)}`);
+
+  // Minecraft accelerates you toward 1.5 blocks/tick, which is 30 m/s. A
+  // plain rocket fired from a standstill should land right about there.
+  {
+    const fromRest = { x: 0, y: 0, z: 0 };
+    const ticks = rocketTicks(1);
+    for (let tick = 0; tick < ticks; tick++) stepRocket(fromRest, levelLook, rocketPowerFor(1), tick / ticks);
+    const reached = Math.hypot(fromRest.x, fromRest.y, fromRest.z);
+    ok('a rocket I reaches Minecraft\'s ~30 m/s', near(reached, 30, 4), `${reached.toFixed(1)} m/s`);
+  }
+
+  // And what slows you afterwards is drag, not the rocket fading — which is
+  // how Minecraft behaves and what "slows down over time" actually means.
+  {
+    const boosted2 = { x: 0, y: 0, z: -20 };
+    const ticks = rocketTicks(3);
+    for (let tick = 0; tick < ticks; tick++) stepRocket(boosted2, levelLook, rocketPowerFor(3), tick / ticks);
+    const atBurnout = Math.hypot(boosted2.x, boosted2.y, boosted2.z);
+    for (let tick = 0; tick < 60; tick++) stepGlide(boosted2, levelLook, 0);
+    const later = Math.hypot(boosted2.x, boosted2.y, boosted2.z);
+    ok('speed bleeds off after burnout', later < atBurnout - 3,
+      `${atBurnout.toFixed(1)} to ${later.toFixed(1)} m/s over 3 s`);
+  }
 
   // The kick fades across the burn rather than holding flat.
   const early = { x: 0, y: 0, z: -20 };

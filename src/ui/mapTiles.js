@@ -206,3 +206,17 @@ export class MapTileCache {
 }
 
 export const mapTiles = new MapTileCache();
+
+/**
+ * A second cache, holding the drawn street map.
+ *
+ * Ground you have not visited is shown as a *map* rather than a photograph,
+ * and it used to get there by running the satellite tile through a greyscale
+ * filter — which produced a washed-out photo, not a map. Roads, coastlines and
+ * place names were exactly as unreadable as before, only paler.
+ *
+ * This fetches the real OpenStreetMap raster instead, so unexplored ground
+ * reads the way a map is supposed to: named roads, rivers, borders. Keyless,
+ * and only requested for tiles actually on screen and actually unexplored.
+ */
+export const streetTiles = new MapTileCache();
