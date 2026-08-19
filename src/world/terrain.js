@@ -78,6 +78,12 @@ export class Terrain {
     return this.elevation.sampleNorm(this._norm.nx, this._norm.ny);
   }
 
+  /** True when real elevation has arrived for this spot. */
+  hasElevationAt(x, z) {
+    this.frame.worldToNorm(x, z, this._norm);
+    return this.elevation.hasDataAt(this._norm.nx, this._norm.ny);
+  }
+
   /** True when this spot is open water (DEM at or below sea level). */
   isWaterAt(x, z) {
     this.frame.worldToNorm(x, z, this._norm);

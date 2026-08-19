@@ -35,14 +35,36 @@ import { overpass } from './overpass.js';
 /** Imagery zoom to sample colour from — close enough to be the right field. */
 const COLOUR_ZOOM = 16;
 
-/** Tiles of OSM land cover, at this zoom. ~2.4 km across at the equator. */
-const DATA_ZOOM = 14;
+/**
+ * Tiles of OSM land cover, at this zoom. ~4.9 km across at the equator.
+ *
+ * This was z14 (~2.4 km), which meant the nine tiles around you covered barely
+ * seven kilometres of ground — and Overpass is a donated service queried one
+ * request at a time with a gap between them, so filling even that took most of
+ * half a minute after a teleport. Dropping one zoom level quadruples the
+ * ground each request buys, which is the cheapest possible fix: same number of
+ * requests, four times the world with trees on it.
+ */
+const DATA_ZOOM = 13;
 /** Metres between generated trunks inside a mapped area, by kind. */
 const SPACING = { conifer: 13, broadleaf: 15, bush: 9, rock: 17 };
 /** Ceiling per kind, so a city-sized forest cannot melt the frame. */
-const KIND_LIMITS = { conifer: 3200, broadleaf: 3200, bush: 2400, rock: 1600 };
+const KIND_LIMITS = { conifer: 6000, broadleaf: 6000, bush: 3600, rock: 2600 };
+
+/**
+ * Spacing grows with distance, so the near field stays dense while the far
+ * field costs a fraction of the instances. Beyond this the spacing has
+ * doubled, which is a quarter of the trees per hectare.
+ */
+const THIN_FROM_M = 420;
 
 const KINDS = ['conifer', 'broadleaf', 'bush', 'rock'];
+
+/** What fraction of the trunks to keep at this distance from the camera. */
+function densityAt(distance) {
+  if (distance <= THIN_FROM_M) return 1;
+  return clamp(Math.pow(THIN_FROM_M / distance, 1.6), 0.18, 1);
+}
 
 /** Deterministic 0..1 from a pair of integers and a salt. */
 function hash2(x, y, salt) {
@@ -199,7 +221,10 @@ export class Scatter {
     if (!on) return;
 
     const altitude = player ? player.altitudeAboveGround : 0;
-    // Same rule as buildings: nothing is fetched or filled while you cruise.
+    // Same rule as buildings: nothing is filled in while you cruise far above
+    // it. The *data* stays — polygons are a few kilobytes and re-fetching them
+    // means another wait on a rate-limited donated service every time you come
+    // back down. Only the instances go.
     if (altitude > 2200) {
       if (this.stats.placed > 0) this.clearInstances();
       return;
@@ -210,9 +235,15 @@ export class Scatter {
 
     const x = camera.position.x;
     const z = camera.position.z;
+    // Rebuilding walks every mapped polygon in range, so the trigger distance
+    // scales with the radius rather than being a flat 220 m. At a 1.9 km
+    // radius that was a full rebuild every couple of seconds at glide speed,
+    // which is a hitch you can feel; a quarter of the radius keeps the same
+    // visual continuity for a fraction of the work.
+    const step = Math.max(180, this.radius * 0.25);
     const moved =
       !this.lastBuildAt ||
-      Math.hypot(this.lastBuildAt.x - x, this.lastBuildAt.z - z) > 220 ||
+      Math.hypot(this.lastBuildAt.x - x, this.lastBuildAt.z - z) > step ||
       this.lastBuildAt.radius !== this.radius;
     if (!moved && !this.dirty) return;
 
@@ -240,9 +271,12 @@ export class Scatter {
       }
     }
 
-    if (this.tiles.size > 14) {
+    // Hold on to everything still within reach. Tiles are cheap to keep and
+    // expensive to re-request, so nothing in range is ever thrown away —
+    // fly out and back and the wood is still there, immediately.
+    if (this.tiles.size > 30) {
       for (const [key, record] of this.tiles) {
-        if (Math.abs(record.tile.x - cx) > 2 || Math.abs(record.tile.y - cy) > 2) {
+        if (Math.abs(record.tile.x - cx) > 3 || Math.abs(record.tile.y - cy) > 3) {
           this.tiles.delete(key);
           this.dirty = true;
         }
@@ -288,6 +322,25 @@ export class Scatter {
         if (this.tiles.get(key) === record) this.tiles.delete(key);
       }, 60000);
     }
+  }
+
+  /**
+   * One line for the status readout, and only when it is worth saying.
+   *
+   * Scenery going missing used to be silent: no trees looked identical whether
+   * the land really is bare, the data had not arrived, or Overpass had refused
+   * us. Those want different reactions from the player, so they get different
+   * words.
+   */
+  status() {
+    if (!settings.get('scenery')) return '';
+    const loading = [...this.tiles.values()].some((r) => r.state === 'loading');
+    if (this.stats.placed > 0) return '';
+    if (loading) return 'scenery: loading land cover';
+    const ready = [...this.tiles.values()].filter((r) => r.state === 'ready');
+    if (ready.length > 0 && !this.hasData) return 'scenery: nothing mapped here';
+    if (this.stats.failed > 0 && ready.length === 0) return 'scenery: land cover unavailable';
+    return '';
   }
 
   /** Is there any real land-cover data to draw right now? */
@@ -367,10 +420,16 @@ export class Scatter {
         // Jitter off the grid, deterministically, so a wood is not an orchard.
         const x = (gx + hash2(gx, gz, 1) - 0.5) * spacing;
         const z = (gz + hash2(gx, gz, 2) - 0.5) * spacing;
-        if (Math.hypot(x - centreX, z - centreZ) > radius) continue;
+        const distance = Math.hypot(x - centreX, z - centreZ);
+        if (distance > radius) continue;
         if (!pointInRing(ring.points, x, z)) continue;
         // A few gaps: clearings, tracks, and the edge of a wood being ragged.
         if (hash2(gx, gz, 3) > 0.86) continue;
+        // Thin with distance so the radius can be wide without the instance
+        // count following it. The draw is hashed from the grid cell, so a tree
+        // that survives the thinning is the *same* tree every frame — it fades
+        // in once as you approach and then stays put, rather than flickering.
+        if (distance > THIN_FROM_M && hash2(gx, gz, 6) > densityAt(distance)) continue;
 
         const kind = mixed ? (hash2(gx, gz, 4) < 0.5 ? 'conifer' : 'broadleaf') : baseKind;
         this.place(kind, counts, x, z, 0.7 + hash2(gx, gz, 5) * 0.8);
@@ -407,9 +466,14 @@ export class Scatter {
     const index = counts[kind];
     if (index >= KIND_LIMITS[kind]) return;
 
+    // Nothing grows in the sea, whatever the map says about the shoreline —
+    // but "no elevation data yet" also reads back as exactly sea level, and
+    // treating that as sea meant no trees at all until the DEM arrived, and
+    // none ever over genuinely low-lying ground like the Netherlands. Ask
+    // whether the data is actually there before believing the zero.
+    if (!this.terrain.hasElevationAt(x, z)) return;
     const ground = this.terrain.heightAt(x, z);
-    // Nothing grows in the sea, whatever the map says about the shoreline.
-    if (ground <= 0.2) return;
+    if (this.terrain.isWaterAt(x, z)) return;
 
     const key = Math.round(x * 7) ^ Math.round(z * 13);
     const spin = hash2(key, index, 6) * Math.PI * 2;

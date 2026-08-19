@@ -117,7 +117,7 @@ export const GRAPHICS_PRESETS = {
     textureCacheSize: 320,
     anisotropy: 1,
     buildingRadiusM: 420,
-    sceneryRadiusM: 260,
+    sceneryRadiusM: 420,
     pixelRatioCap: 1,
   },
   medium: {
@@ -127,7 +127,7 @@ export const GRAPHICS_PRESETS = {
     textureCacheSize: 560,
     anisotropy: 4,
     buildingRadiusM: 750,
-    sceneryRadiusM: 420,
+    sceneryRadiusM: 700,
     pixelRatioCap: 1.25,
   },
   high: {
@@ -137,7 +137,7 @@ export const GRAPHICS_PRESETS = {
     textureCacheSize: 900,
     anisotropy: 8,
     buildingRadiusM: 1200,
-    sceneryRadiusM: 620,
+    sceneryRadiusM: 1200,
     pixelRatioCap: 1.5,
   },
   ultra: {
@@ -147,7 +147,7 @@ export const GRAPHICS_PRESETS = {
     textureCacheSize: 1400,
     anisotropy: 16,
     buildingRadiusM: 1800,
-    sceneryRadiusM: 900,
+    sceneryRadiusM: 1900,
     pixelRatioCap: 2,
   },
 };
