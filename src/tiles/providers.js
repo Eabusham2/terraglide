@@ -46,6 +46,21 @@ export const IMAGERY_PROVIDERS = [
     note: 'Needs a Bing Maps key. Tile URLs come from the imagery metadata service.',
   },
   {
+    id: 'azure',
+    label: 'Azure Maps (satellite)',
+    kind: 'xyz',
+    needsKey: 'azureKey',
+    maxZoom: 19,
+    template:
+      'https://atlas.microsoft.com/map/tile?api-version=2024-04-01' +
+      '&tilesetId=microsoft.imagery&zoom={z}&x={x}&y={y}&subscription-key={key}',
+    attribution: 'Imagery © Microsoft, Airbus DS, Maxar',
+    note:
+      'Microsoft\u2019s current satellite imagery, on an Azure Maps subscription key. ' +
+      'This is where Bing Maps is being retired to. Imagery only \u2014 Azure serves no ' +
+      'photogrammetry, so it cannot drive the 3D option.',
+  },
+  {
     id: 'mapbox',
     label: 'Mapbox Satellite',
     kind: 'xyz',

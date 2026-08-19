@@ -642,6 +642,45 @@ console.log('\nThe body you can see');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nProviders and detail budgets');
+{
+  const { IMAGERY_PROVIDERS } = await import('../src/tiles/providers.js');
+  const { DEFAULT_SETTINGS: DEFAULTS } = await import('../src/core/settings.js');
+
+  // Azure is Microsoft's current imagery, and the place Bing is being retired
+  // to. It is imagery only — the 3D option deliberately does not offer it.
+  const azure = IMAGERY_PROVIDERS.find((p) => p.id === 'azure');
+  ok('Azure Maps is offered for imagery', !!azure);
+  ok('and it is keyed', azure?.needsKey === 'azureKey');
+  ok('and it carries attribution', /Microsoft/.test(azure?.attribution ?? ''));
+  ok('a key setting exists for it', 'azureKey' in DEFAULTS);
+
+  // Every keyed provider must name a setting that actually exists, or the
+  // panel offers a provider nobody can ever supply a key for.
+  const missing = IMAGERY_PROVIDERS
+    .filter((p) => p.needsKey && !(p.needsKey in DEFAULTS))
+    .map((p) => p.id);
+  ok('every keyed provider names a real setting', missing.length === 0, missing.join(', '));
+
+  // The detail dial has to be monotonic or the labels lie: lower detail must
+  // mean a looser error target and a smaller memory ceiling, every step.
+  const source = readFileSync(new URL('../src/world/tiles3d.js', import.meta.url), 'utf8');
+  ok('the 3D detail budgets are wired to the setting', /world3dDetail/.test(source));
+  ok('and nothing still reads a fixed budget', !/MAX_SSE|MAX_LOADED|MAX_ACTIVE/.test(source));
+  const tiers = [...source.matchAll(/(low|medium|high|ultra): \{ sse: (\d+), loaded: (\d+)/g)]
+    .map(([, name, sse, loaded]) => ({ name, sse: +sse, loaded: +loaded }));
+  ok('all four detail tiers are defined', tiers.length === 4, tiers.map((t) => t.name).join(', '));
+  let monotonic = true;
+  for (let i = 1; i < tiers.length; i++) {
+    if (tiers[i].sse >= tiers[i - 1].sse || tiers[i].loaded <= tiers[i - 1].loaded) monotonic = false;
+  }
+  ok('and they get steadily heavier', monotonic,
+    tiers.map((t) => `${t.name} sse${t.sse}/${t.loaded}`).join(' '));
+  ok('the default detail is a real tier',
+    tiers.some((t) => t.name === DEFAULTS.world3dDetail));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nGenerated art stays where it belongs');
 {
   // The rule, stated once so it cannot drift: generated textures may dress the

@@ -47,12 +47,23 @@ const GOOGLE_ROOT = 'https://tile.googleapis.com/v1/3dtiles/root.json';
  */
 const ION_ASSET = 2275207;
 const ION_ENDPOINT = 'https://api.cesium.com/v1/assets';
-/** Refine while a tile would show more error than this many pixels. */
-const MAX_SSE = 24;
-/** How many tile requests may be in flight at once. */
-const MAX_ACTIVE = 6;
-/** Hard ceiling on loaded content, so a city cannot exhaust memory. */
-const MAX_LOADED = 220;
+/**
+ * How hard to push the tile tree, by detail setting.
+ *
+ * `sse` is the screen-space error to refine down to — the smaller it is, the
+ * deeper the tree is walked and the more triangles arrive. `loaded` caps how
+ * much content is held at once, which is the memory ceiling. Photogrammetry is
+ * heavy, and a machine that can fly the ordinary world happily will crawl
+ * through a photorealistic city, so this is worth having a dial for rather
+ * than one hard-coded compromise.
+ */
+const DETAIL = {
+  low: { sse: 48, loaded: 90, active: 4 },
+  medium: { sse: 32, loaded: 160, active: 6 },
+  high: { sse: 24, loaded: 220, active: 6 },
+  ultra: { sse: 16, loaded: 340, active: 8 },
+};
+const DEFAULT_DETAIL = 'high';
 /**
  * How long to wait on the handshake before calling it dead. A request that
  * never answers is worse than one that fails: the status line would sit on
@@ -121,6 +132,11 @@ export class Tiles3D {
     return this.provider === 'cesium'
       ? settings.get('cesiumToken').trim()
       : settings.get('googleKey').trim();
+  }
+
+  /** The active detail tier's budgets. */
+  get budget() {
+    return DETAIL[settings.get('world3dDetail')] ?? DETAIL[DEFAULT_DETAIL];
   }
 
   get attribution() {
@@ -248,9 +264,10 @@ export class Tiles3D {
     this.traverse(this.root, new THREE.Matrix4(), cameraEcef, screenHeight, fov, 0);
 
     // Anything not wanted this frame goes, oldest first.
-    if (this.loaded.size > MAX_LOADED) {
+    const maxLoaded = this.budget.loaded;
+    if (this.loaded.size > maxLoaded) {
       for (const [uri, entry] of this.loaded) {
-        if (this.loaded.size <= MAX_LOADED) break;
+        if (this.loaded.size <= maxLoaded) break;
         if (this.visible.has(uri)) continue;
         this.dispose(uri, entry);
       }
@@ -287,7 +304,7 @@ export class Tiles3D {
     if (distance > reach) return;
 
     const error = screenSpaceError(tile.geometricError ?? 0, distance, screenHeight, fov);
-    const wantsChildren = error > MAX_SSE && Array.isArray(tile.children) && tile.children.length > 0;
+    const wantsChildren = error > this.budget.sse && Array.isArray(tile.children) && tile.children.length > 0;
 
     const uri = tile.content?.uri ?? tile.content?.url;
     const isTileset = uri && /\.json(\?|$)/i.test(uri);
@@ -317,7 +334,7 @@ export class Tiles3D {
   }
 
   requestTileset(uri) {
-    if (this.pending.has(uri) || this.active >= MAX_ACTIVE) return;
+    if (this.pending.has(uri) || this.active >= this.budget.active) return;
     this.pending.add(uri);
     this.active++;
     fetch(this.absolute(uri), { headers: this.headers() })
@@ -339,7 +356,7 @@ export class Tiles3D {
   }
 
   requestContent(uri, transform) {
-    if (this.pending.has(uri) || this.active >= MAX_ACTIVE) return;
+    if (this.pending.has(uri) || this.active >= this.budget.active) return;
     this.pending.add(uri);
     this.active++;
 

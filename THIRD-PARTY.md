@@ -27,6 +27,7 @@ your own quota. Read them before you turn a provider on.
 | --- | --- | --- | --- |
 | Google Maps Platform (Map Tiles API, Street View Static API, Geocoding API) | satellite tiles, street-level panoramas, addresses | yes | <https://cloud.google.com/maps-platform/terms> |
 | Microsoft Bing Maps | satellite tiles | yes | <https://www.microsoft.com/maps/product/terms> |
+| Azure Maps (Render) | satellite tiles | yes | <https://azure.microsoft.com/support/legal/> |
 | Mapbox (Satellite, Terrain-RGB) | satellite tiles, elevation | yes | <https://www.mapbox.com/legal/tos> |
 | Esri World Imagery | satellite tiles | no | <https://www.esri.com/en-us/legal/terms/full-master-agreement> |
 | OpenStreetMap standard tiles | reference map layer | no | <https://operations.osmfoundation.org/policies/tiles/> |

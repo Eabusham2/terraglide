@@ -337,7 +337,8 @@ export class Game {
   }
 
   onSettingChanged(key) {
-    if (['imageryProvider', 'elevationProvider', 'googleKey', 'bingKey', 'mapboxKey'].includes(key)) {
+    const providerKeys = ['imageryProvider', 'elevationProvider', 'googleKey', 'bingKey', 'mapboxKey', 'azureKey'];
+    if (providerKeys.includes(key)) {
       this.applyProviders({ rebuild: key === 'elevationProvider' });
       this.toast('Provider updated');
     }

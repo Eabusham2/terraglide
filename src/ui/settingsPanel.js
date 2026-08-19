@@ -56,8 +56,21 @@ const SECTIONS = [
               ? 'The same scanned world as the Google option, served through Cesium ion on an ion access token — a different account and a different quota. Terrain and scenery step aside where it loads.'
               : 'The actual scanned world: buildings, trees and bridges are in the mesh, built from aerial photogrammetry. Needs a Google Maps Platform key with the Map Tiles API enabled, and it is not cheap to run. Terrain and scenery step aside where it loads.',
       },
+      {
+        key: 'world3dDetail',
+        label: '3D detail',
+        type: 'select',
+        options: () => [
+          { value: 'low', label: 'Low — fewest triangles' },
+          { value: 'medium', label: 'Medium' },
+          { value: 'high', label: 'High (default)' },
+          { value: 'ultra', label: 'Ultra — everything the tiles have' },
+        ],
+        help: 'How deep to walk the tile tree, and so how many triangles arrive. Photogrammetry is far heavier than the ordinary world, so drop this before turning 3D off entirely.',
+      },
       { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Photorealistic 3D Tiles, Street View Static and Geocoding APIs.' },
       { key: 'bingKey', label: 'Bing Maps key', type: 'secret' },
+      { key: 'azureKey', label: 'Azure Maps key', type: 'secret', help: 'Azure Maps subscription key, for Microsoft satellite imagery. Azure serves no 3D data.' },
       { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation.' },
       { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'Only for the Cesium route into photorealistic 3D.' },
       { key: 'mapillaryToken', label: 'Mapillary token', type: 'secret' },

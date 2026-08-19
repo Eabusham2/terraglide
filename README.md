@@ -146,8 +146,8 @@ Open **Settings → Providers** to point it at the real thing:
 
 | Slot | Options |
 | --- | --- |
-| Photorealistic 3D | Google Photorealistic 3D Tiles (needs a key), the same via Cesium ion (needs a token), or off |
-| Imagery | Esri World Imagery (keyless), Google Maps, Bing Maps, Mapbox Satellite, OpenStreetMap, or the generated world |
+| Photorealistic 3D | Google Photorealistic 3D Tiles (needs a key), the same via Cesium ion (needs a token), or off — with a four-step detail dial |
+| Imagery | Esri World Imagery (keyless), Google Maps, Bing Maps, Azure Maps, Mapbox Satellite, OpenStreetMap, or the generated world |
 | Elevation | AWS Terrain Tiles (keyless, the default), Mapbox Terrain-RGB, or generated relief |
 | Street level | Google Street View, Mapillary, or off |
 | Buildings | OpenStreetMap footprints via Overpass, on by default |
@@ -183,7 +183,14 @@ the status line says so rather than leaving you on blank ground.
    Simulator gets its Bing photogrammetry through an internal agreement, Bing
    Maps never published a 3D tile API, and the platform is being retired into
    Azure Maps, which does not serve photogrammetry either. Cesium ion is the
-   real equivalent, carrying the same scanned data.
+   real equivalent, carrying the same scanned data. Azure *is* wired up for
+   satellite imagery, which is the part of it that does exist — see the
+   providers table above.
+
+   Photogrammetry is far heavier than the ordinary world, so **3D detail** has
+   four steps. It sets how deep the tile tree is walked, and so how many
+   triangles arrive and how much is held in memory: drop it before giving up
+   on 3D altogether.
 2. **With no key** — everything below: real satellite imagery, real elevation,
    real OpenStreetMap buildings and land cover. None of it needs an account.
 3. **With no network at all** — a generated world, so it still runs.

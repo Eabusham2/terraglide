@@ -12,6 +12,7 @@ import { readJSON, removeKey, writeJSON } from './storage.js';
  * mouseMode:         'locked' | 'pan'
  * units:             'metric' | 'imperial'
  * world3d:           'off' | 'google' | 'cesium'
+ * world3dDetail:     'low' | 'medium' | 'high' | 'ultra' — triangle budget
  * perspective:       'first' | 'third'
  * rtpTarget:         'anywhere' | 'populated'
  * timeMode:          'day' | 'live' | 'golden' | 'night' | 'custom'
@@ -30,7 +31,9 @@ export const DEFAULT_SETTINGS = {
    * 'cesium' — the same dataset through Cesium ion, on an ion token instead.
    */
   world3d: 'off',
+  world3dDetail: 'high',
   cesiumToken: '',
+  azureKey: '',
   googleKey: '',
   bingKey: '',
   mapboxKey: '',
