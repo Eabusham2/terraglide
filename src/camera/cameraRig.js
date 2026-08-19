@@ -176,7 +176,10 @@ export class CameraRig {
     // reads as a shove rather than a glitch.
     if (this.shake > 0.001) {
       this.shakeTime += dt;
-      const amount = this.shake;
+      // The chase camera is already easing toward a moving target, so a shove
+      // applied on top of that reads as twice the disturbance it does from
+      // inside your own head. Third and second person get a third of it.
+      const amount = this.shake * (perspective === 'first' ? 1 : 0.34);
       const t = this.shakeTime * SHAKE_HZ * Math.PI * 2;
       camera.position.x += Math.sin(t * 1.0) * amount * 0.5;
       camera.position.y += Math.sin(t * 1.7 + 1.1) * amount * 0.5;

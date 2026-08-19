@@ -4,6 +4,12 @@ import { settings } from '../core/settings.js';
 import { tileKey, wrapTileX } from '../geo/mercator.js';
 
 /**
+ * How many frames a tile stays safe from eviction after it was last drawn.
+ * About four seconds at 60 fps — long enough to cover turning round.
+ */
+const KEEP_FRAMES = 240;
+
+/**
  * Imagery streamer: a priority queue in front of the tile worker, plus an LRU
  * of GPU textures.
  *
@@ -208,7 +214,15 @@ export class ImageryStreamer extends Emitter {
     this.emit('tile', entry);
   }
 
-  /** Drop textures that have not been asked for in a while. */
+  /**
+   * Drop textures that have not been asked for in a while.
+   *
+   * "A while" used to mean one frame: anything not drawn *this* frame was fair
+   * game. Turn around, or let a ridge occlude a valley for a moment, and the
+   * tiles behind you were gone and had to come down the wire again. Holding
+   * them for a few seconds costs nothing but the cache slot and means staying
+   * within range of somewhere keeps it loaded, which is the point.
+   */
   evict() {
     const limit = settings.preset().textureCacheSize;
     if (this.entries.size <= limit) return;
@@ -216,7 +230,7 @@ export class ImageryStreamer extends Emitter {
     let excess = this.entries.size - limit;
     for (const entry of sorted) {
       if (excess <= 0) break;
-      if (entry.used >= this.frame - 1 || entry.state === STATE_PENDING) continue;
+      if (entry.used >= this.frame - KEEP_FRAMES || entry.state === STATE_PENDING) continue;
       if (entry.texture) entry.texture.dispose();
       this.entries.delete(entry.key);
       excess--;

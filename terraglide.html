@@ -83312,7 +83312,10 @@ class CameraRig {
     // reads as a shove rather than a glitch.
     if (this.shake > 0.001) {
       this.shakeTime += dt;
-      const amount = this.shake;
+      // The chase camera is already easing toward a moving target, so a shove
+      // applied on top of that reads as twice the disturbance it does from
+      // inside your own head. Third and second person get a third of it.
+      const amount = this.shake * (perspective === 'first' ? 1 : 0.34);
       const t = this.shakeTime * SHAKE_HZ * Math.PI * 2;
       camera.position.x += Math.sin(t * 1.0) * amount * 0.5;
       camera.position.y += Math.sin(t * 1.7 + 1.1) * amount * 0.5;
@@ -86116,6 +86119,12 @@ const { settings } = __tg_require("src/core/settings.js");
 const { tileKey, wrapTileX } = __tg_require("src/geo/mercator.js");
 
 /**
+ * How many frames a tile stays safe from eviction after it was last drawn.
+ * About four seconds at 60 fps — long enough to cover turning round.
+ */
+const KEEP_FRAMES = 240;
+
+/**
  * Imagery streamer: a priority queue in front of the tile worker, plus an LRU
  * of GPU textures.
  *
@@ -86320,7 +86329,15 @@ class ImageryStreamer extends Emitter {
     this.emit('tile', entry);
   }
 
-  /** Drop textures that have not been asked for in a while. */
+  /**
+   * Drop textures that have not been asked for in a while.
+   *
+   * "A while" used to mean one frame: anything not drawn *this* frame was fair
+   * game. Turn around, or let a ridge occlude a valley for a moment, and the
+   * tiles behind you were gone and had to come down the wire again. Holding
+   * them for a few seconds costs nothing but the cache slot and means staying
+   * within range of somewhere keeps it loaded, which is the point.
+   */
   evict() {
     const limit = settings.preset().textureCacheSize;
     if (this.entries.size <= limit) return;
@@ -86328,7 +86345,7 @@ class ImageryStreamer extends Emitter {
     let excess = this.entries.size - limit;
     for (const entry of sorted) {
       if (excess <= 0) break;
-      if (entry.used >= this.frame - 1 || entry.state === STATE_PENDING) continue;
+      if (entry.used >= this.frame - KEEP_FRAMES || entry.state === STATE_PENDING) continue;
       if (entry.texture) entry.texture.dispose();
       this.entries.delete(entry.key);
       excess--;
