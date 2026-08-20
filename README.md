@@ -58,7 +58,7 @@ map. Dive is held: it drops the nose in the air and takes you under in water.
 | `Shift` / `C` | sprint / crouch — `C` also dives when you are swimming |
 | `Space` | jump — **hold it while falling** to snap the wings open |
 | mouse buttons | fire a rocket, which opens the wings for you (see mouse modes below) |
-| `1`–`5` | rockets — the number is the flight duration *and* the power |
+| `1`–`5` | rockets — the number is the burn in seconds, and the power |
 | `V` | speed mode — everything at 2x for a while, then a cooldown |
 | `R` | random teleport |
 | `G` | world map · `M` minimap on/off · `=` / `-` minimap zoom |
@@ -155,10 +155,10 @@ Open **Settings → Providers** to point it at the real thing:
 | Slot | Options |
 | --- | --- |
 | Photorealistic 3D | Google Photorealistic 3D Tiles (needs a key), the same via Cesium ion (needs a token), or off — with a four-step detail dial |
-| Imagery | Esri World Imagery (keyless), Google Maps, Azure Maps, Mapbox Satellite, or the generated world |
+| Imagery | Esri World Imagery (keyless), Google Maps, Bing Maps, Azure Maps, Mapbox Satellite, or the generated world |
 | Elevation | AWS Terrain Tiles (keyless, the default), Mapbox Terrain-RGB, or generated relief |
 | Street level | Google Street View, Mapillary, or off |
-| Buildings | OpenStreetMap footprints via Overpass, on by default |
+| Buildings | OpenStreetMap footprints and infrastructure via Overpass, on by default |
 | Addresses | Google Geocoding if a key is set, otherwise Nominatim |
 
 Requests go straight from your browser to that provider, on your quota and under
