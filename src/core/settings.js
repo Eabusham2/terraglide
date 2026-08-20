@@ -40,6 +40,7 @@ export const DEFAULT_SETTINGS = {
   mapillaryToken: '',
   addressLookup: true,
   buildings: true,
+  structuresNeedHeight: false,
   streetLevel: true,
 
   /* graphics */

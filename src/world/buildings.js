@@ -62,8 +62,16 @@ const DECK_THICKNESS_M = 0.9;
 const LAYER_HEIGHT_M = 5.5;
 
 /**
- * Default heights for point-mapped structures, metres, where OSM does not
- * record one. Rough but not invented: these are typical builds for each kind.
+ * Estimated heights for point-mapped structures, metres, where OSM records
+ * none. These are typical builds for each kind — an estimate of a real thing,
+ * not an invention of one: the survey says a mast stands here, and a mast that
+ * exists has a height whether or not anyone tagged it.
+ *
+ * The distinction that matters, and the one that got roads deleted: a road at
+ * ground level is already *shown* by the imagery, so geometry adds nothing. A
+ * mast is not shown by a flat photograph at all — its existence is surveyed
+ * and only its measurement is estimated. Turn on `structuresNeedHeight` to
+ * refuse the estimate and draw only what is measured.
  */
 const MAST_HEIGHT_M = {
   tower: 40,
@@ -230,6 +238,19 @@ export class Buildings {
     } finally {
       this.stats.tiles = this.tiles.size;
     }
+  }
+
+  /** One line for the status readout: how much of this is measured. */
+  status() {
+    const measured = this.stats.measured ?? 0;
+    const estimated = this.stats.estimated ?? 0;
+    if (measured + estimated === 0) return '';
+    if (settings.get('structuresNeedHeight')) {
+      return `structures: ${measured} measured, ${estimated} skipped`;
+    }
+    if (estimated === 0) return '';
+    const share = Math.round((measured / (measured + estimated)) * 100);
+    return `structures: ${share}% measured, rest estimated`;
   }
 
   buildTile(record, data) {
@@ -402,11 +423,13 @@ export class Buildings {
   emitMast(node, x, z, positions, normals, colors) {
     const tags = node.tags ?? {};
     const kind = mastKind(tags);
-    const height = clamp(
-      Number(tags.height) || Number(tags['tower:height']) || MAST_HEIGHT_M[kind] || 30,
-      4,
-      640,
-    );
+    const measured = Number(tags.height) || Number(tags['tower:height']) || 0;
+    // Count it either way: a readout that says "0 skipped" while quietly
+    // dropping things is worse than no readout.
+    if (measured) this.stats.measured = (this.stats.measured ?? 0) + 1;
+    else this.stats.estimated = (this.stats.estimated ?? 0) + 1;
+    if (!measured && settings.get('structuresNeedHeight')) return;
+    const height = clamp(measured || MAST_HEIGHT_M[kind] || 30, 4, 640);
     const base = this.terrain.heightAt(x, z);
     if (!Number.isFinite(base)) return;
 
@@ -439,12 +462,19 @@ export class Buildings {
 
   emitBuilding(way, ring, positions, normals, colors) {
     const tags = way.tags ?? {};
-    const levels = clamp(
-      Number(tags['building:levels']) || Math.round((Number(tags.height) || 0) / STOREY_M) || 3,
-      1,
-      120,
-    );
-    const height = clamp(Number(tags.height) || levels * STOREY_M, 2.5, 460);
+    // Measured means OSM actually recorded a height or a storey count for this
+    // building. Everything else is an estimate of a real building's real
+    // height — see the note by MAST_HEIGHT_M for why that is a different thing
+    // from inventing a road that the photograph already shows.
+    const taggedHeight = Number(tags.height) || 0;
+    const taggedLevels = Number(tags['building:levels']) || 0;
+    const measured = taggedHeight > 0 || taggedLevels > 0;
+    if (measured) this.stats.measured = (this.stats.measured ?? 0) + 1;
+    else this.stats.estimated = (this.stats.estimated ?? 0) + 1;
+    if (!measured && settings.get('structuresNeedHeight')) return null;
+
+    const levels = clamp(taggedLevels || Math.round(taggedHeight / STOREY_M) || 3, 1, 120);
+    const height = clamp(taggedHeight || levels * STOREY_M, 2.5, 460);
 
     // Sit the building on the lowest ground under its footprint so it does not
     // float on a slope.

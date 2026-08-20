@@ -808,9 +808,19 @@ console.log('\nInfrastructure from OpenStreetMap');
   ok('a tagged node can be both a vertex and a structure',
     !/if \(element\.type === 'node'\) nodes\.set[\s\S]{0,80}else if \(element\.type === 'node'/.test(source));
 
-  // A height in the data must win over the default for its kind.
-  ok('mapped heights are preferred to defaults',
-    /Number\(tags\.height\)[\s\S]{0,120}MAST_HEIGHT_M/.test(source));
+  // A measured height must win over the estimate for its kind, and the two
+  // must be distinguishable — an estimated height is an estimate of a real
+  // structure's real height, but the player is entitled to know which is which.
+  ok('a measured height wins over the estimate',
+    /const measured = Number\(tags\.height\)/.test(source)
+      && /clamp\(measured \|\| MAST_HEIGHT_M/.test(source));
+  ok('buildings distinguish measured from estimated',
+    /const measured = taggedHeight > 0 \|\| taggedLevels > 0/.test(source));
+  ok('and the split is counted', /stats\.measured/.test(source) && /stats\.estimated/.test(source));
+  ok('strict mode refuses to estimate at all',
+    (source.match(/structuresNeedHeight/g) ?? []).length >= 2);
+  ok('and the readout says how much was measured',
+    /status\(\) \{[\s\S]{0,600}% measured/.test(source));
 }
 
 // ---------------------------------------------------------------------------

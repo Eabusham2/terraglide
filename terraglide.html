@@ -82345,6 +82345,7 @@ const DEFAULT_SETTINGS = {
   mapillaryToken: '',
   addressLookup: true,
   buildings: true,
+  structuresNeedHeight: false,
   streetLevel: true,
 
   /* graphics */
@@ -87120,8 +87121,16 @@ const DECK_THICKNESS_M = 0.9;
 const LAYER_HEIGHT_M = 5.5;
 
 /**
- * Default heights for point-mapped structures, metres, where OSM does not
- * record one. Rough but not invented: these are typical builds for each kind.
+ * Estimated heights for point-mapped structures, metres, where OSM records
+ * none. These are typical builds for each kind — an estimate of a real thing,
+ * not an invention of one: the survey says a mast stands here, and a mast that
+ * exists has a height whether or not anyone tagged it.
+ *
+ * The distinction that matters, and the one that got roads deleted: a road at
+ * ground level is already *shown* by the imagery, so geometry adds nothing. A
+ * mast is not shown by a flat photograph at all — its existence is surveyed
+ * and only its measurement is estimated. Turn on `structuresNeedHeight` to
+ * refuse the estimate and draw only what is measured.
  */
 const MAST_HEIGHT_M = {
   tower: 40,
@@ -87288,6 +87297,19 @@ class Buildings {
     } finally {
       this.stats.tiles = this.tiles.size;
     }
+  }
+
+  /** One line for the status readout: how much of this is measured. */
+  status() {
+    const measured = this.stats.measured ?? 0;
+    const estimated = this.stats.estimated ?? 0;
+    if (measured + estimated === 0) return '';
+    if (settings.get('structuresNeedHeight')) {
+      return `structures: ${measured} measured, ${estimated} skipped`;
+    }
+    if (estimated === 0) return '';
+    const share = Math.round((measured / (measured + estimated)) * 100);
+    return `structures: ${share}% measured, rest estimated`;
   }
 
   buildTile(record, data) {
@@ -87460,11 +87482,13 @@ class Buildings {
   emitMast(node, x, z, positions, normals, colors) {
     const tags = node.tags ?? {};
     const kind = mastKind(tags);
-    const height = clamp(
-      Number(tags.height) || Number(tags['tower:height']) || MAST_HEIGHT_M[kind] || 30,
-      4,
-      640,
-    );
+    const measured = Number(tags.height) || Number(tags['tower:height']) || 0;
+    // Count it either way: a readout that says "0 skipped" while quietly
+    // dropping things is worse than no readout.
+    if (measured) this.stats.measured = (this.stats.measured ?? 0) + 1;
+    else this.stats.estimated = (this.stats.estimated ?? 0) + 1;
+    if (!measured && settings.get('structuresNeedHeight')) return;
+    const height = clamp(measured || MAST_HEIGHT_M[kind] || 30, 4, 640);
     const base = this.terrain.heightAt(x, z);
     if (!Number.isFinite(base)) return;
 
@@ -87497,12 +87521,19 @@ class Buildings {
 
   emitBuilding(way, ring, positions, normals, colors) {
     const tags = way.tags ?? {};
-    const levels = clamp(
-      Number(tags['building:levels']) || Math.round((Number(tags.height) || 0) / STOREY_M) || 3,
-      1,
-      120,
-    );
-    const height = clamp(Number(tags.height) || levels * STOREY_M, 2.5, 460);
+    // Measured means OSM actually recorded a height or a storey count for this
+    // building. Everything else is an estimate of a real building's real
+    // height — see the note by MAST_HEIGHT_M for why that is a different thing
+    // from inventing a road that the photograph already shows.
+    const taggedHeight = Number(tags.height) || 0;
+    const taggedLevels = Number(tags['building:levels']) || 0;
+    const measured = taggedHeight > 0 || taggedLevels > 0;
+    if (measured) this.stats.measured = (this.stats.measured ?? 0) + 1;
+    else this.stats.estimated = (this.stats.estimated ?? 0) + 1;
+    if (!measured && settings.get('structuresNeedHeight')) return null;
+
+    const levels = clamp(taggedLevels || Math.round(taggedHeight / STOREY_M) || 3, 1, 120);
+    const height = clamp(taggedHeight || levels * STOREY_M, 2.5, 460);
 
     // Sit the building on the lowest ground under its footprint so it does not
     // float on a slope.
@@ -92187,6 +92218,12 @@ const SECTIONS = [
       { key: 'mapillaryToken', label: 'Mapillary token', type: 'secret' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },
       { key: 'buildings', label: 'OpenStreetMap buildings', type: 'toggle', help: 'Extrudes real footprints near the ground. Interiors are generated.' },
+      {
+        key: 'structuresNeedHeight',
+        label: 'Only build what the data measures',
+        type: 'toggle',
+        help: 'OpenStreetMap records a height or a storey count for a minority of buildings. On, only those are raised — everything else is left flat, and cities will look sparse. Off, the rest are estimated from their class, which is what a flight simulator does outside its photogrammetry cities. Either way nothing is drawn where the survey says there is nothing.',
+      },
       { key: 'streetLevel', label: 'Blend street-level photos', type: 'toggle', help: 'Fades ground photography in when you stand still. Needs a key.' },
     ],
   },
@@ -94019,6 +94056,10 @@ class Game {
     if (this.elevation.unreachable) parts.push('elevation unavailable — flat terrain');
     const scenery = this.scatter.status();
     if (scenery) parts.push(scenery);
+    if (this.debugVisible) {
+      const structures = this.buildings.status();
+      if (structures) parts.push(structures);
+    }
     // Only say something about street level when it is actually doing
     // something. Announcing "no coverage here" every time you walk about is
     // noise: most of the planet has no street-level photography, and the game

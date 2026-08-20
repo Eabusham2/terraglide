@@ -76,6 +76,12 @@ const SECTIONS = [
       { key: 'mapillaryToken', label: 'Mapillary token', type: 'secret' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },
       { key: 'buildings', label: 'OpenStreetMap buildings', type: 'toggle', help: 'Extrudes real footprints near the ground. Interiors are generated.' },
+      {
+        key: 'structuresNeedHeight',
+        label: 'Only build what the data measures',
+        type: 'toggle',
+        help: 'OpenStreetMap records a height or a storey count for a minority of buildings. On, only those are raised — everything else is left flat, and cities will look sparse. Off, the rest are estimated from their class, which is what a flight simulator does outside its photogrammetry cities. Either way nothing is drawn where the survey says there is nothing.',
+      },
       { key: 'streetLevel', label: 'Blend street-level photos', type: 'toggle', help: 'Fades ground photography in when you stand still. Needs a key.' },
     ],
   },

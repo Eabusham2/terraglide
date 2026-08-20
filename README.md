@@ -250,6 +250,15 @@ One rule, applied in one order, everywhere:
    ground. A mapped wood has a real boundary; a chimney tagged 180 m is 180 m
    tall.
 
+   Where OSM records a `height` or a storey count, that is what gets built.
+   Where it does not — most buildings, globally — the height is *estimated*
+   from the class. That is a different thing from inventing a road: the survey
+   says a building stands here and a building has height whether or not anyone
+   tagged it, so only the measurement is estimated, never the existence.
+   **Settings → World → Only build what the data measures** refuses the
+   estimate and raises only what is measured; expect sparse cities. The status
+   readout says what share was measured either way.
+
    Roads at ground level are deliberately **not** drawn. They are already in
    the satellite image draped over the terrain, so a ribbon on top would only
    re-draw what is there — and OSM's centreline never lines up exactly with the

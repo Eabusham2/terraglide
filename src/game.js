@@ -983,6 +983,10 @@ export class Game {
     if (this.elevation.unreachable) parts.push('elevation unavailable — flat terrain');
     const scenery = this.scatter.status();
     if (scenery) parts.push(scenery);
+    if (this.debugVisible) {
+      const structures = this.buildings.status();
+      if (structures) parts.push(structures);
+    }
     // Only say something about street level when it is actually doing
     // something. Announcing "no coverage here" every time you walk about is
     // noise: most of the planet has no street-level photography, and the game
