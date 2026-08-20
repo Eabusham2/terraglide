@@ -779,17 +779,28 @@ console.log('\nInfrastructure from OpenStreetMap');
   }
   ok('pylons and turbines are asked for', /power.*tower|generator/.test(source));
 
-  // Roads are surveyed geometry too, and they come down the same request —
-  // Overpass is rate limited, so a second query would cost real time.
-  ok('roads are asked for', /way\["highway"/.test(source));
+  // Only things with height get geometry. A road at ground level is already in
+  // the satellite image draped on the terrain, so drawing a ribbon on top
+  // re-draws it — and OSM's centreline never lines up exactly with the road in
+  // the photograph, so you would see two roads slightly apart.
+  ok('ordinary roads are left to the imagery',
+    !/highway.*motorway\|trunk|highway"~/.test(source));
+  ok('only bridges are asked for', /way\["highway"\]\["bridge"\]/.test(source));
+  ok('and only bridges are collected',
+    /element\.tags\.highway && element\.tags\.bridge/.test(source));
   ok('in the same Overpass request as the buildings',
     (source.match(/overpass\.query/g) ?? []).length === 1);
   ok('a tagged width beats the class default',
     /Number\(tags\.width\)[\s\S]{0,80}ROAD_WIDTH_M/.test(source));
   ok('lane count is used where width is not', /lanes \* 3\.1/.test(source));
-  ok('unpaved classes are drawn differently', /UNPAVED/.test(source));
-  ok('road surface colour comes from the photograph',
-    /emitRoad[\s\S]{0,900}sampleImageryAt/.test(source));
+  ok('the deck is lifted by its OSM layer', /Number\(tags\.layer\)[\s\S]{0,60}LAYER_HEIGHT_M/.test(source));
+  ok('and has an underside', /DECK_THICKNESS_M/.test(source));
+  // isStructure() claimed anything tagged `bridge`, and ran first — so every
+  // viaduct was extruded as a block of flats and the deck path never saw it.
+  ok('a highway on a bridge is a deck, not a building',
+    /function isStructure[\s\S]{0,400}tags\.highway\) return false/.test(source));
+  ok('deck colour comes from the photograph',
+    /emitBridgeDeck[\s\S]{0,900}sampleImageryAt/.test(source));
 
   // Nodes are both way vertices and structures in their own right. Collecting
   // them with an `else` made the mast branch unreachable and silently dropped

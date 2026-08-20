@@ -87111,8 +87111,13 @@ const UNPAVED = new Set(['track', 'path']);
 /** Tarmac, and the pale gravel of an unsurfaced track. */
 const ROAD_COLOUR = new THREE.Color(0.24, 0.24, 0.25);
 const TRACK_COLOUR = new THREE.Color(0.46, 0.42, 0.36);
-/** Lift the ribbon this far off the ground so it does not fight the terrain. */
-const ROAD_LIFT_M = 0.12;
+/** Depth of a bridge deck, so it has an underside. */
+const DECK_THICKNESS_M = 0.9;
+/**
+ * How high one `layer` step lifts a deck. OSM records relative level, not
+ * metres; this is the usual clearance under a road bridge.
+ */
+const LAYER_HEIGHT_M = 5.5;
 
 /**
  * Default heights for point-mapped structures, metres, where OSM does not
@@ -87141,6 +87146,10 @@ function mastKind(tags = {}) {
 
 /** Does this way describe something worth standing up in the world? */
 function isStructure(tags = {}) {
+  // A highway that happens to be on a bridge is a *deck*, not a building.
+  // Claiming it here extruded viaducts as blocks of flats — and, because this
+  // branch ran first, the deck path never got to see them at all.
+  if (tags.highway) return false;
   if (tags.building || tags['building:part']) return true;
   if (tags.bridge === 'yes') return true;
   return /^(bridge|tower|chimney|storage_tank|silo|gasometer|water_tower|cooling_tower|pier)$/.test(
@@ -87260,10 +87269,9 @@ class Buildings {
       `way["building"](${bbox});` +
       `way["building:part"](${bbox});` +
       `way["man_made"~"^(bridge|tower|chimney|storage_tank|silo|gasometer|water_tower|cooling_tower|pier)$"](${bbox});` +
-      `way["bridge"="yes"]["layer"](${bbox});` +
       `node["man_made"~"^(tower|mast|chimney|water_tower|communications_tower|storage_tank|silo)$"](${bbox});` +
       `node["power"~"^(tower|generator)$"](${bbox});` +
-      `way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|service|living_street|track|pedestrian|footway|path|cycleway)$"](${bbox});` +
+      `way["highway"]["bridge"](${bbox});` +
       `);(._;>;);out body;`;
 
     try {
@@ -87296,7 +87304,7 @@ class Buildings {
         if (element.tags && MAST_HEIGHT_M[mastKind(element.tags)]) masts.push(element);
       } else if (element.type === 'way' && element.tags) {
         if (isStructure(element.tags)) ways.push(element);
-        else if (element.tags.highway) roads.push(element);
+        else if (element.tags.highway && element.tags.bridge) roads.push(element);
       }
     }
     if (ways.length === 0 && masts.length === 0 && roads.length === 0) return;
@@ -87326,9 +87334,9 @@ class Buildings {
       if (collider) colliders.push(collider);
     }
 
-    // Roads, drawn as ribbons following the ground. Real geometry from the
-    // survey: OSM knows where every carriageway runs and, often, how wide.
-    for (const way of roads.slice(0, 700)) {
+    // Bridge decks only — see emitBridgeDeck for why ordinary roads are left
+    // to the imagery that already shows them.
+    for (const way of roads.slice(0, 200)) {
       const line = [];
       for (const id of way.nodes ?? []) {
         const node = nodes.get(id);
@@ -87336,7 +87344,7 @@ class Buildings {
         this.frame.toWorld(node.lat, node.lon, world);
         line.push({ x: world.x, z: world.z });
       }
-      if (line.length >= 2) this.emitRoad(way, line, positions, normals, colors);
+      if (line.length >= 2) this.emitBridgeDeck(way, line, positions, normals, colors);
     }
 
     // Vertical structures mapped as single points — masts, pylons, chimneys,
@@ -87365,16 +87373,21 @@ class Buildings {
   }
 
   /**
-   * A road, as a ribbon of quads following the carriageway and draped over the
-   * ground.
+   * A bridge deck: the road surface, held above the ground it crosses.
    *
-   * Every vertex of the centreline is surveyed — OSM knows where the road
-   * runs. The width comes from the data too where it is tagged, and from the
-   * ordinary width of that road class where it is not. The surface colour is
-   * sampled from the aerial photograph, which sees roads better than it sees
-   * anything else, so a red-sand track in Australia is not grey tarmac.
+   * Ordinary roads are deliberately *not* drawn. They are already in the
+   * satellite image draped over the terrain — a road at ground level has no
+   * height for geometry to add, so a ribbon on top would only re-draw what is
+   * already there, and OSM's centreline never lines up perfectly with the road
+   * in the photograph, so the result is two roads slightly apart. Grass, car
+   * parks and fields are the same: surface, not structure.
+   *
+   * A bridge is the exception, and the reason the distinction is worth making.
+   * The imagery is projected flat onto the terrain, so a viaduct appears
+   * painted onto the valley floor it is supposed to be spanning. That deck is
+   * real height the picture cannot express, so it gets real geometry.
    */
-  emitRoad(way, line, positions, normals, colors) {
+  emitBridgeDeck(way, line, positions, normals, colors) {
     const tags = way.tags ?? {};
     const kind = tags.highway;
     const lanes = Number(tags.lanes);
@@ -87384,6 +87397,8 @@ class Buildings {
       40,
     );
     const half = width / 2;
+    // OSM layer is relative, not metric: layer=1 is one level up.
+    const lift = Math.max(1, Number(tags.layer) || 1) * LAYER_HEIGHT_M;
 
     const sampled = sampleImageryAt(this.frame, line[0].x, line[0].z);
     const base = UNPAVED.has(kind) ? TRACK_COLOUR : ROAD_COLOUR;
@@ -87405,19 +87420,33 @@ class Buildings {
       const nx = (-dz / length) * half;
       const nz = (dx / length) * half;
 
-      const ay = this.terrain.heightAt(a.x, a.z);
-      const by = this.terrain.heightAt(b.x, b.z);
+      // A bridge's ends sit on the ground it leaves and rejoins; its middle is
+      // held up. Interpolating the two endpoint ground heights, rather than
+      // following the terrain beneath, is what keeps the deck level across a
+      // valley instead of sagging into it.
+      const ay = this.terrain.heightAt(a.x, a.z) + lift;
+      const by = this.terrain.heightAt(b.x, b.z) + lift;
       if (!Number.isFinite(ay) || !Number.isFinite(by)) continue;
 
       pushQuad(
         positions, normals, colors,
-        { x: a.x - nx, y: ay + ROAD_LIFT_M, z: a.z - nz },
-        { x: a.x + nx, y: ay + ROAD_LIFT_M, z: a.z + nz },
-        { x: b.x + nx, y: by + ROAD_LIFT_M, z: b.z + nz },
-        { x: b.x - nx, y: by + ROAD_LIFT_M, z: b.z - nz },
+        { x: a.x - nx, y: ay, z: a.z - nz },
+        { x: a.x + nx, y: ay, z: a.z + nz },
+        { x: b.x + nx, y: by, z: b.z + nz },
+        { x: b.x - nx, y: by, z: b.z - nz },
         colour,
       );
-      this.stats.roadSegments = (this.stats.roadSegments ?? 0) + 1;
+      // The underside, so it is a deck rather than a floating sheet.
+      const soffit = colour.clone().multiplyScalar(0.55);
+      pushQuad(
+        positions, normals, colors,
+        { x: b.x - nx, y: by - DECK_THICKNESS_M, z: b.z - nz },
+        { x: b.x + nx, y: by - DECK_THICKNESS_M, z: b.z + nz },
+        { x: a.x + nx, y: ay - DECK_THICKNESS_M, z: a.z + nz },
+        { x: a.x - nx, y: ay - DECK_THICKNESS_M, z: a.z - nz },
+        soffit,
+      );
+      this.stats.bridgeSegments = (this.stats.bridgeSegments ?? 0) + 1;
     }
   }
 

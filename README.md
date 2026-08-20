@@ -158,7 +158,7 @@ Open **Settings → Providers** to point it at the real thing:
 | Imagery | Esri World Imagery (keyless), Google Maps, Bing Maps, Azure Maps, Mapbox Satellite, or the generated world |
 | Elevation | AWS Terrain Tiles (keyless, the default), Mapbox Terrain-RGB, or generated relief |
 | Street level | Google Street View, Mapillary, or off |
-| Buildings | OpenStreetMap footprints, roads and infrastructure via Overpass, on by default |
+| Buildings | OpenStreetMap footprints, infrastructure and bridge decks via Overpass, on by default |
 | Addresses | Google Geocoding if a key is set, otherwise Nominatim |
 
 Requests go straight from your browser to that provider, on your quota and under
@@ -245,10 +245,20 @@ One rule, applied in one order, everywhere:
 1. **Photogrammetry**, if you have a key for it. The buildings and the trees
    are in the mesh because somebody flew over them. Everything below stands
    aside where it draws.
-2. **Surveyed data.** OpenStreetMap for buildings, infrastructure, roads and
-   land cover; real elevation for the ground. A mapped wood has a real
-   boundary; a chimney tagged 180 m is 180 m tall; a road tagged 22 m wide is
-   22 m wide, and one tagged with four lanes works out to 12.4.
+2. **Surveyed data**, but only for things that *have height*. OpenStreetMap
+   for buildings, infrastructure and land cover; real elevation for the
+   ground. A mapped wood has a real boundary; a chimney tagged 180 m is 180 m
+   tall.
+
+   Roads at ground level are deliberately **not** drawn. They are already in
+   the satellite image draped over the terrain, so a ribbon on top would only
+   re-draw what is there — and OSM's centreline never lines up exactly with the
+   road in the photograph, so you would get two roads slightly apart. Grass,
+   car parks and fields are the same: surface, not structure. Bridges are the
+   exception and the reason the distinction matters: the imagery is projected
+   flat, so a viaduct appears painted onto the valley floor it is meant to be
+   spanning. That deck is real height the picture cannot express, so it gets
+   real geometry — lifted by its OSM `layer`, with an underside.
 3. **The aerial photograph**, where the survey is silent. Green is vegetation,
    grey and rough is rock — and roofs take their actual colour from the picture
    of that exact roof, so terracotta in Tuscany is terracotta. A photograph of

@@ -32,7 +32,7 @@ your own quota. Read them before you turn a provider on.
 | Esri World Imagery | satellite tiles | no | <https://www.esri.com/en-us/legal/terms/full-master-agreement> |
 | OpenStreetMap standard tiles | reference map layer | no | <https://operations.osmfoundation.org/policies/tiles/> |
 | Nominatim | reverse geocoding (address readout) | no | <https://operations.osmfoundation.org/policies/nominatim/> |
-| Overpass API | OpenStreetMap buildings, roads, infrastructure and land cover | no | <https://dev.overpass-api.de/overpass-doc/en/preface/commons.html> |
+| Overpass API | OpenStreetMap buildings, bridges, infrastructure and land cover | no | <https://dev.overpass-api.de/overpass-doc/en/preface/commons.html> |
 | Mapillary | street-level panoramas | yes (token) | <https://www.mapillary.com/terms> |
 | AWS Terrain Tiles (Terrarium) | elevation | no | <https://registry.opendata.aws/terrain-tiles/> |
 
@@ -84,9 +84,10 @@ layer reads `building`, `building:part`, `bridge`, and
 and `power=tower|generator`, standing each one at its mapped height where the
 data records one.
 
-The road network reads `highway=*` for the ordinary classes and draws each way
-at its surveyed width: a tagged `width` first, then `lanes` at 3.1 m a lane,
-and only then the usual width for that class.
+Bridge decks read `highway` ways carrying a `bridge` tag, at their surveyed
+width — a tagged `width` first, then `lanes` at 3.1 m a lane, and only then the
+usual width for that class. Roads at ground level are not read at all: they are
+already in the imagery.
 
 All of it comes from the same Overpass API, under the Open Database Licence,
 in one request per tile. Attribution is already in the corner of the screen
