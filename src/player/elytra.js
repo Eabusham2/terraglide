@@ -150,6 +150,66 @@ export function stepRocket(velocity, look, power = 1, spent = 0) {
 }
 
 /**
+ * Minecraft's elytra, tick for tick.
+ *
+ * Everything above is built so that it cannot cheat. This is the other one:
+ * the real thing, transcribed, free energy and all. Gravity is discounted by
+ * up to three quarters whenever you are level; a sinking glide is credited a
+ * tenth of its own sink back as forward speed; and a pull-up is paid three and
+ * a fifth times the horizontal speed it costs. Those three terms together are
+ * why a patient Minecraft player can porpoise upward for ever on nothing, and
+ * they are the reason the honest model exists.
+ *
+ * It is offered because "like Minecraft" is a perfectly good thing to want,
+ * and because endless flight is a feature if you asked for it and a bug if you
+ * did not. Choosing it is the asking.
+ *
+ * Minecraft measures pitch positive downward; ours is positive up, so the
+ * transcription negates it wherever the original reads xRot.
+ */
+export function stepGlideMinecraft(velocity, look, pitch) {
+  let vx = velocity.x * TO_TICK;
+  let vy = velocity.y * TO_TICK;
+  let vz = velocity.z * TO_TICK;
+
+  const horizLook = Math.hypot(look.x, look.z);
+  const horizSpeed = Math.hypot(vx, vz);
+  // cos(pitch)^2: one when level, nothing when pointing straight up or down.
+  const level = Math.min(1, Math.cos(pitch) * Math.cos(pitch));
+
+  vy += GRAVITY_PER_TICK * (-1 + level * 0.75);
+
+  if (vy < 0 && horizLook > 0) {
+    const lift = vy * -0.1 * level;
+    vy += lift;
+    vx += (look.x * lift) / horizLook;
+    vz += (look.z * lift) / horizLook;
+  }
+
+  // Looking up trades horizontal speed for height, at a rate no wing has.
+  if (pitch > 0 && horizLook > 0) {
+    const trade = horizSpeed * Math.sin(pitch) * 0.04;
+    vy += trade * 3.2;
+    vx -= (look.x * trade) / horizLook;
+    vz -= (look.z * trade) / horizLook;
+  }
+
+  // Swing the horizontal component round toward where you are looking.
+  if (horizLook > 0) {
+    vx += ((look.x / horizLook) * horizSpeed - vx) * 0.1;
+    vz += ((look.z / horizLook) * horizSpeed - vz) * 0.1;
+  }
+
+  vx *= 0.99;
+  vy *= 0.98;
+  vz *= 0.99;
+
+  velocity.x = vx * TO_SECOND;
+  velocity.y = vy * TO_SECOND;
+  velocity.z = vz * TO_SECOND;
+}
+
+/**
  * Ticks of thrust a rocket of the given flight duration provides.
  *
  * The slot number is the burn in *seconds*, which is what the label has always

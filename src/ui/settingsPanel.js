@@ -1,7 +1,7 @@
 import { ACTIONS, keyLabel, keybinds } from '../core/keybinds.js';
 import { settings } from '../core/settings.js';
 import { formatHeight } from '../core/units.js';
-import { ELEVATION_PROVIDERS, IMAGERY_PROVIDERS, PANORAMA_PROVIDERS } from '../tiles/providers.js';
+import { ELEVATION_PROVIDERS, IMAGERY_PROVIDERS, PANORAMA_PROVIDERS, providerLabel } from '../tiles/providers.js';
 import { escapeHtml } from './worldmap.js';
 
 /**
@@ -23,21 +23,21 @@ const SECTIONS = [
         key: 'imageryProvider',
         label: 'Imagery',
         type: 'select',
-        options: () => IMAGERY_PROVIDERS.filter((p) => !p.hidden).map((p) => ({ value: p.id, label: p.label })),
+        options: () => IMAGERY_PROVIDERS.filter((p) => !p.hidden).map((p) => ({ value: p.id, label: providerLabel(p) })),
         help: (value) => providerNote(IMAGERY_PROVIDERS, value),
       },
       {
         key: 'elevationProvider',
         label: 'Elevation',
         type: 'select',
-        options: () => ELEVATION_PROVIDERS.map((p) => ({ value: p.id, label: p.label })),
+        options: () => ELEVATION_PROVIDERS.map((p) => ({ value: p.id, label: providerLabel(p) })),
         help: (value) => providerNote(ELEVATION_PROVIDERS, value),
       },
       {
         key: 'panoramaProvider',
         label: 'Street-level imagery',
         type: 'select',
-        options: () => PANORAMA_PROVIDERS.map((p) => ({ value: p.id, label: p.label })),
+        options: () => PANORAMA_PROVIDERS.map((p) => ({ value: p.id, label: providerLabel(p) })),
         help: (value) => providerNote(PANORAMA_PROVIDERS, value),
       },
       {
@@ -101,7 +101,21 @@ const SECTIONS = [
         ],
         help: 'Sets terrain detail, texture cache and how many tiles load at once.',
       },
-      { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 32, step: 1, unit: ' km' },
+      {
+        key: 'glideModel',
+        label: 'Glide model',
+        type: 'select',
+        options: () => [
+          { value: 'honest', label: 'Energy-honest (recommended)' },
+          { value: 'minecraft', label: "Minecraft's own — climbing for free" },
+        ],
+        help: (value) =>
+          value === 'minecraft'
+            ? "Minecraft's elytra, transcribed tick for tick: gravity discounted while you are level, a sinking glide credited part of its own sink, and a pull-up paid over three times the speed it costs. One dive and zoom flown well ends about twenty metres higher than it began \u2014 so with no rocket at all you can keep climbing, for as long as you keep flying it right."
+            : 'Gravity in full every tick, and a wing that can only ever turn the speed gravity gave you. Seven metres forward per metre down, and never a metre for free.',
+      },
+      { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 1024, step: 4, unit: ' km', help: 'How far the ground is drawn. Far tiles stay coarse, so the cost grows far more slowly than the number does \u2014 but it does grow.' },
+      { key: 'distantMode', label: 'Draw twice as far over country you have seen', type: 'toggle', help: 'Past the render distance the ground keeps going, but only where the explored map says you have already been. Somewhere new still stops at the edge, so this never doubles what an unflown world costs to stream.' },
       { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 12, max: 21, step: 1, help: 'How close the ground can get before it stops sharpening. Higher is sharper underfoot and costs more to stream.' },
       { key: 'meshDetail', label: 'Terrain mesh detail', type: 'range', min: 0.5, max: 1.6, step: 0.1, format: (v) => `${v.toFixed(1)}x` },
       { key: 'fov', label: 'Field of view', type: 'range', min: 55, max: 118, step: 1, unit: '°' },

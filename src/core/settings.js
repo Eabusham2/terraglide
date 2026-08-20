@@ -46,6 +46,8 @@ export const DEFAULT_SETTINGS = {
   /* graphics */
   graphics: 'high',
   renderDistanceKm: 16,
+  distantMode: false,
+  glideModel: 'honest',
   fov: 78,
   freecamFov: 85,
   speedFovKick: true,

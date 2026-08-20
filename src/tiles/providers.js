@@ -22,6 +22,7 @@ export const IMAGERY_PROVIDERS = [
     label: 'Esri World Imagery',
     kind: 'xyz',
     needsKey: null,
+    recommended: true,
     maxZoom: 19,
     template: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
@@ -112,6 +113,7 @@ export const ELEVATION_PROVIDERS = [
     label: 'AWS Terrain Tiles (Terrarium)',
     kind: 'terrarium',
     needsKey: null,
+    recommended: true,
     maxZoom: 14,
     template: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
     attribution: 'Elevation: AWS Terrain Tiles, SRTM/GMTED',
@@ -125,6 +127,7 @@ export const PANORAMA_PROVIDERS = [
     id: 'google',
     label: 'Google Street View',
     needsKey: 'googleKey',
+    recommended: true,
     attribution: 'Street-level imagery © Google',
     note: 'Uses the Street View Static API; six faces are stitched into a cube.',
   },
@@ -139,6 +142,25 @@ export const PANORAMA_PROVIDERS = [
 
 export function findProvider(list, id) {
   return list.find((p) => p.id === id) ?? list[0];
+}
+
+/**
+ * The one to pick if you have not got a key for anything.
+ *
+ * Marked on the descriptor rather than worked out here, so the answer lives
+ * next to the reasons for it. Esri and Terrarium are the picks: both are open,
+ * both cover the whole planet, and neither asks you for an account before you
+ * can fly anywhere.
+ */
+export function recommendedProvider(list) {
+  return list.find((p) => p.recommended && !p.needsKey) ?? null;
+}
+
+/**
+ * Label for a provider in a menu, with the recommendation on the end.
+ */
+export function providerLabel(descriptor) {
+  return descriptor.recommended ? `${descriptor.label} (recommended)` : descriptor.label;
 }
 
 function fillTemplate(template, tile, key) {
@@ -158,6 +180,8 @@ export class TileSource {
   constructor(descriptor, keys) {
     this.descriptor = descriptor;
     this.keys = keys;
+    /** Set when this provider is standing in for one that had no key. */
+    this.substitutedFor = null;
     this.bingTemplate = null;
     this.state = 'idle'; // idle | preparing | ready | needs-key | error
     this.error = '';
@@ -280,12 +304,30 @@ export class TileSource {
   }
 }
 
+/**
+ * Resolve a chosen provider to one that can actually serve tiles.
+ *
+ * Picking a provider and leaving its key blank used to mean no map at all: the
+ * source sat in `needs-key` and the world fell back to generated terrain, even
+ * though there is a perfectly good keyless provider sitting in the same list.
+ * It substitutes now, and says so — the status line names both, so nobody is
+ * left thinking they are looking at Google's imagery when they are not.
+ */
+function withKeylessFallback(list, descriptor, values) {
+  if (!descriptor.needsKey || values[descriptor.needsKey]) return new TileSource(descriptor, values);
+  const fallback = recommendedProvider(list);
+  if (!fallback || fallback.id === descriptor.id) return new TileSource(descriptor, values);
+  const source = new TileSource(fallback, values);
+  source.substitutedFor = descriptor;
+  return source;
+}
+
 export function createImagerySource(settingsValues) {
   const descriptor = findProvider(IMAGERY_PROVIDERS, settingsValues.imageryProvider);
-  return new TileSource(descriptor, settingsValues);
+  return withKeylessFallback(IMAGERY_PROVIDERS, descriptor, settingsValues);
 }
 
 export function createElevationSource(settingsValues) {
   const descriptor = findProvider(ELEVATION_PROVIDERS, settingsValues.elevationProvider);
-  return new TileSource(descriptor, settingsValues);
+  return withKeylessFallback(ELEVATION_PROVIDERS, descriptor, settingsValues);
 }

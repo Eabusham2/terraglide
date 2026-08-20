@@ -102,6 +102,9 @@ export class Game {
       elevation: this.elevation,
       shared: this.shared,
     });
+    // Distant mode asks the explored map whether a far tile is worth drawing.
+    // The terrain does not know about the UI, so it is handed the question.
+    this.terrain.explored = (tile) => exploration.isExplored(tile.z, tile.x, tile.y);
     this.sky = new Sky(this.scene, this.shared);
     this.weather = new Weather(this.scene);
     this.scatter = new Scatter({ scene: this.scene, terrain: this.terrain, frame: this.frame });
@@ -592,7 +595,7 @@ export class Game {
     // that has a first-person body still draws the thing in your hand.
     this.avatar.update(player, dt, this.camera);
 
-    exploration.visit(player.lat, player.lon, player.altitudeAboveGround);
+    exploration.visit(player.lat, player.lon, player.altitudeAboveGround, this.seenRadius());
     exploration.tick(dt);
     trail.record(player.lat, player.lon);
     trail.tick(dt);
@@ -659,6 +662,20 @@ export class Game {
     this.landAway = Number.isFinite(nearest)
       ? `land ~${formatDistance(nearest, settings.get('units'), 0)}`
       : 'open ocean';
+  }
+
+  /**
+   * How far you can actually see, in metres.
+   *
+   * The geometric horizon at your height — sqrt(2Rh) — capped by how far the
+   * terrain is being drawn, because ground beyond the render distance is not
+   * on the screen however high you are. This is what the explored map reveals,
+   * so the map says you have seen what you have seen.
+   */
+  seenRadius() {
+    const alt = Math.max(2, this.player.altitudeAboveGround);
+    const horizon = Math.sqrt(2 * 6378137 * alt);
+    return Math.max(240, Math.min(horizon, this.terrain.renderDistance));
   }
 
   get settling() {
@@ -1040,10 +1057,24 @@ export class Game {
     const parts = [];
     const source = this.imagerySource;
     if (source) {
-      if (source.state === 'needs-key') parts.push(`${source.descriptor.label}: key required`);
-      else if (source.state === 'error') parts.push(`${source.descriptor.label}: ${source.error}`);
-      else if (this.streamer.degraded) parts.push(`${source.descriptor.label}: unreachable, generated terrain`);
-      else parts.push(source.descriptor.label);
+      const name = source.substitutedFor
+        ? `${source.descriptor.label} (no key for ${source.substitutedFor.label})`
+        : source.descriptor.label;
+      if (source.state === 'needs-key') parts.push(`${name}: key required`);
+      else if (source.state === 'error') parts.push(`${name}: ${source.error}`);
+      else if (this.streamer.degraded) parts.push(`${name}: unreachable`);
+      else parts.push(name);
+      // What is on the ground right now, which is not the same question as
+      // whether the provider is up: a tile past the provider's deepest zoom is
+      // still that provider's photograph, stretched, and saying "unavailable"
+      // about it was simply wrong.
+      if (!this.elevation.hasRelief) parts.push('elevation loading — flat for now');
+      else if (this.elevation.invented && !this.elevation.source?.synthetic) {
+        parts.push('elevation unreachable — generated relief');
+      }
+      if (!this.streamer.mayGenerate && this.streamer.degraded) {
+        parts.push('no imagery here — ground coloured from the elevation');
+      }
     }
     if (this.tiles3d) {
       const line = this.tiles3d.status();
@@ -1051,7 +1082,6 @@ export class Game {
     } else if (this.notice3d) {
       parts.push(this.notice3d);
     }
-    if (this.elevation.unreachable) parts.push('elevation unavailable — flat terrain');
     const scenery = this.scatter.status();
     if (scenery) parts.push(scenery);
     if (this.debugVisible) {

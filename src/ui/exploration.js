@@ -46,12 +46,19 @@ export class Exploration extends Emitter {
     return n;
   }
 
-  /** Record a visit. Reveal radius grows with altitude. */
-  visit(lat, lon, altitudeAboveGround) {
-    // Deliberately short: altitude widens what you uncover, but only up to a
-    // few kilometres. A single high pass used to reveal half a country, which
-    // made the explored map meaningless.
-    const radius = Math.min(6000, Math.max(220, altitudeAboveGround * 0.45 + 220));
+  /**
+   * Record a visit.
+   *
+   * The caller says how far you can actually see — the geometric horizon at
+   * your height, capped by how far the terrain is being drawn — because that
+   * is the honest answer to "have I seen this". Guessing from altitude alone
+   * either revealed ground that was never on screen or hid ground that filled
+   * it. Without one, altitude is the fallback it always was.
+   */
+  visit(lat, lon, altitudeAboveGround, seenRadius) {
+    const radius = Number.isFinite(seenRadius) && seenRadius > 0
+      ? Math.min(60000, Math.max(220, seenRadius))
+      : Math.min(6000, Math.max(220, altitudeAboveGround * 0.45 + 220));
     const nx = lonToNormX(lon);
     const ny = latToNormY(lat);
     // Tile space is mercator, which stretches away from the equator, so the

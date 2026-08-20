@@ -23,7 +23,7 @@ import {
 import { annualMeanC, climateAt } from '../src/geo/climate.js';
 import { solarPosition } from '../src/geo/sun.js';
 import { isWaterPixel } from '../src/geo/water.js';
-import { stepGlide, stepRocket, rocketTicks, rocketPowerFor, TICK } from '../src/player/elytra.js';
+import { stepGlide, stepGlideMinecraft, stepRocket, rocketTicks, rocketPowerFor, TICK } from '../src/player/elytra.js';
 import { Autopilot } from '../src/player/autopilot.js';
 import { UNLOCK_CODE, cheats } from '../src/core/cheats.js';
 import { resolvePlace } from '../src/ui/cheatPanel.js';
@@ -953,6 +953,48 @@ console.log('\nGenerated art stays where it belongs');
     const path = new URL(`../assets/${file}`, import.meta.url);
     ok(`${file} is present`, existsSync(path) && statSync(path).size > 1024);
   }
+}
+
+console.log('\nTwo wings: one honest, one Minecraft\u2019s');
+{
+  const look = (pitch) => ({ x: 0, y: Math.sin(pitch), z: -Math.cos(pitch) });
+  // Dive to build speed, then flare. The honest model can never end higher
+  // than it started; Minecraft's can, and that is the whole difference.
+  const zoom = (step, dive, climb, target) => {
+    const v = { x: 0, y: 0, z: -30 };
+    let y = 0;
+    let peak = 0;
+    for (let i = 0; i < 400 && Math.hypot(v.x, v.y, v.z) < target; i++) {
+      step(v, look(dive), dive);
+      y += v.y * TICK;
+    }
+    for (let i = 0; i < 400; i++) {
+      step(v, look(climb), climb);
+      y += v.y * TICK;
+      peak = Math.max(peak, y);
+      if (v.y < 0 && i > 6) break;
+    }
+    return peak;
+  };
+  const bestNet = (step) => {
+    let best = -Infinity;
+    for (const dive of [-0.3, -0.5, -0.7, -0.9, -1.2]) {
+      for (const climb of [0.2, 0.35, 0.5, 0.7, 0.9, 1.2]) {
+        for (const target of [40, 55, 70, 85]) best = Math.max(best, zoom(step, dive, climb, target));
+      }
+    }
+    return best;
+  };
+  const honest = bestNet(stepGlide);
+  const minecraft = bestNet(stepGlideMinecraft);
+  ok('the honest wing cannot end a dive and zoom higher than it started',
+    honest < 3, `${honest.toFixed(1)} m at best`);
+  ok("and Minecraft's can, by a lot", minecraft > 10,
+    `${minecraft.toFixed(1)} m, which is what makes endless climbing possible`);
+  ok('the two are actually different models',
+    /settings\.get\('glideModel'\) === 'minecraft' \? stepGlideMinecraft/.test(
+      readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8'),
+    ));
 }
 
 console.log('\nWalking, jumping and falling like Minecraft');

@@ -36,6 +36,8 @@ const SEA_LEVEL = 0;
  * still there when you come back to it.
  */
 const KEEP_FACTOR = 1.5;
+/** How much further distant mode reaches than the render distance proper. */
+const DISTANT_FACTOR = 2;
 
 export class Terrain {
   constructor({ scene, frame, streamer, elevation, shared }) {
@@ -64,6 +66,11 @@ export class Terrain {
     this._norm = { nx: 0, ny: 0 };
     this._world = { x: 0, z: 0 };
     this._geo = { lat: 0, lon: 0 };
+    /**
+     * Optional test for "have I been here before", used by distant mode. Set by
+     * the game; left null the quadtree simply stops at the render distance.
+     */
+    this.explored = null;
   }
 
   get gridSize() {
@@ -129,7 +136,13 @@ export class Terrain {
       this.streamer.source ? this.streamer.source.maxZoom : 19,
     );
     const renderDistance = this.renderDistance;
-    this.keepDistance = renderDistance * KEEP_FACTOR;
+    // Distant mode: keep drawing past the render distance, but only over
+    // country you have already flown across. Ground you have never seen stops
+    // at the edge as it always did, so the setting cannot quietly double what
+    // an unexplored world costs to stream.
+    this.farDistance =
+      this.explored && settings.get('distantMode') ? renderDistance * DISTANT_FACTOR : renderDistance;
+    this.keepDistance = this.farDistance * KEEP_FACTOR;
     this.maxDrawn = MAX_DRAWN_TILES[settings.get('graphics')] ?? MAX_DRAWN_TILES.high;
     // Which way you are facing, flattened. Ground in front of you is what you
     // are about to look at, so it is what gets built first.
@@ -152,7 +165,7 @@ export class Terrain {
     // Root zoom: the coarsest level whose tiles still comfortably cover the
     // view distance, so the recursion starts with only a few tiles.
     const worldSpan = 2 * Math.PI * this.frame.scale;
-    let baseZoom = Math.floor(Math.log2(worldSpan / Math.max(renderDistance * 2, 1000)));
+    let baseZoom = Math.floor(Math.log2(worldSpan / Math.max(this.farDistance * 2, 1000)));
     baseZoom = clamp(baseZoom, 1, Math.max(1, maxZoom - 1));
 
     for (const node of this.drawn) node.mesh.visible = false;
@@ -166,7 +179,7 @@ export class Terrain {
     const rootY = Math.floor(clamp(this._norm.ny, 0, 0.999999) * n);
     // Enough root tiles to cover the view circle, however big the distance is.
     const rootSize = this.frame.worldTileSize(baseZoom);
-    const span = clamp(Math.ceil(renderDistance / rootSize) + 1, 1, 6);
+    const span = clamp(Math.ceil(this.farDistance / rootSize) + 1, 1, 6);
 
     // Visit nearest first so the closest ground always gets the frame's build
     // budget. Doing it in fixed quadrant order let distant tiles eat the budget,
@@ -248,7 +261,10 @@ export class Terrain {
     // Distance to the nearest point of the tile, so the view ends on a circle
     // rather than a square with corners poking out.
     const flatDist = Math.hypot(dx, dz);
-    if (flatDist > renderDistance) return;
+    if (flatDist > renderDistance) {
+      if (flatDist > this.farDistance) return;
+      if (!this.explored || !this.explored(tile)) return;
+    }
 
     // Cheap vertical bounds for culling; refined once the tile is built.
     const cached = this.nodes.get(tileKey(tile.z, tile.x, tile.y));

@@ -79,6 +79,7 @@ export class HUD {
           <div class="location-figures">
             <span data-id="altitude">—</span>
             <span data-id="speed">—</span>
+            <span data-id="glide">—</span>
             <span data-id="heading">—</span>
             <span data-id="mode">—</span>
             <span data-id="water"></span>
@@ -195,6 +196,14 @@ export class HUD {
     this.setText('coords', formatLatLon(player.lat, player.lon, 5));
     this.setText('altitude', `${formatAltitude(player.position.y, units)} · ${formatDistance(player.altitudeAboveGround, units, 0)} AGL`);
     this.setText('speed', formatSpeed(player.speed, units));
+    // The flight path angle, which is the number a glider pilot actually flies
+    // to: how many degrees below the horizon you are travelling, as opposed to
+    // where you happen to be looking. Level is 0, a dive is negative.
+    const horizontal = player.horizontalSpeed;
+    const angle = horizontal > 0.6 || Math.abs(player.velocity.y) > 0.6
+      ? (Math.atan2(player.velocity.y, horizontal) * 180) / Math.PI
+      : 0;
+    this.setText('glide', `${angle >= 0 ? '+' : '\u2212'}${Math.abs(angle).toFixed(1)}\u00b0`);
     this.setText('heading', formatBearing(player.yaw));
     this.setText('mode', modeLabel(player, state));
     // Over water, the useful number is how far the nearest land is.
