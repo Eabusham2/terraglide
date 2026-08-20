@@ -26,12 +26,13 @@ your own quota. Read them before you turn a provider on.
 | Provider | Used for | Key required | Terms |
 | --- | --- | --- | --- |
 | Google Maps Platform (Map Tiles API, Street View Static API, Geocoding API) | satellite tiles, street-level panoramas, addresses | yes | <https://cloud.google.com/maps-platform/terms> |
+| Microsoft Bing Maps | satellite tiles | yes | <https://www.microsoft.com/maps/product/terms> |
 | Azure Maps (Render) | satellite tiles | yes | <https://azure.microsoft.com/support/legal/> |
 | Mapbox (Satellite, Terrain-RGB) | satellite tiles, elevation | yes | <https://www.mapbox.com/legal/tos> |
 | Esri World Imagery | satellite tiles | no | <https://www.esri.com/en-us/legal/terms/full-master-agreement> |
 | OpenStreetMap standard tiles | reference map layer | no | <https://operations.osmfoundation.org/policies/tiles/> |
 | Nominatim | reverse geocoding (address readout) | no | <https://operations.osmfoundation.org/policies/nominatim/> |
-| Overpass API | OpenStreetMap buildings, infrastructure and land cover | no | <https://dev.overpass-api.de/overpass-doc/en/preface/commons.html> |
+| Overpass API | OpenStreetMap buildings, roads, infrastructure and land cover | no | <https://dev.overpass-api.de/overpass-doc/en/preface/commons.html> |
 | Mapillary | street-level panoramas | yes (token) | <https://www.mapillary.com/terms> |
 | AWS Terrain Tiles (Terrarium) | elevation | no | <https://registry.opendata.aws/terrain-tiles/> |
 
@@ -63,10 +64,11 @@ attribution list with its HTML stripped — and shows it in the attribution
 corner. Removing it breaks their terms and this project's licence. Nothing is
 cached to disk on either route.
 
-Bing is not an option and cannot be made one: Microsoft Flight Simulator gets
-its Bing photogrammetry through an internal agreement, Bing Maps never
-published a 3D tile API, and the platform is being retired into Azure Maps,
-which does not serve photogrammetry.
+Bing is not an option *for 3D* and cannot be made one: Microsoft Flight
+Simulator gets its Bing photogrammetry through an internal agreement, Bing
+Maps never published a 3D tile API, and the platform is being retired into
+Azure Maps, which does not serve photogrammetry either. Bing's flat aerial
+imagery is a separate thing and is offered in the table above.
 
 three.js's GLTFLoader, DRACOLoader, BufferGeometryUtils and SkeletonUtils
 (`vendor/three/loaders/`, `vendor/three/utils/`) and the Draco decoder
@@ -78,11 +80,17 @@ Apache 2.0, Copyright Google LLC.
 The scenery reads `natural=wood|scrub|heath|bare_rock|scree|shingle`,
 `landuse=forest|orchard|vineyard|meadow` and `natural=tree`. The structures
 layer reads `building`, `building:part`, `bridge`, and
-`man_made=tower|mast|chimney|water_tower|cooling_tower|storage_tank|silo|gasometer|pier`,
-`power=tower|generator` and `highway=*` for the road network, standing each one at its mapped height where the
-data records one. All of it comes from the same Overpass API, under the Open
-Database Licence. Attribution
-for it is already in the corner of the screen alongside the buildings credit.
+`man_made=tower|mast|chimney|water_tower|cooling_tower|storage_tank|silo|gasometer|pier`
+and `power=tower|generator`, standing each one at its mapped height where the
+data records one.
+
+The road network reads `highway=*` for the ordinary classes and draws each way
+at its surveyed width: a tagged `width` first, then `lanes` at 3.1 m a lane,
+and only then the usual width for that class.
+
+All of it comes from the same Overpass API, under the Open Database Licence,
+in one request per tile. Attribution is already in the corner of the screen
+alongside the buildings credit.
 Requests are queued one at a time with a gap and a long backoff, and nothing is
 cached to disk.
 
