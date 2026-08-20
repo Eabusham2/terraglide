@@ -14,9 +14,10 @@ import { rocketPowerFor, rocketTicks } from './elytra.js';
  */
 
 /**
- * The hotbar is five rockets and nothing else. As in Minecraft, the number is
- * the flight duration *and* the powder behind it: a Rocket V burns five times
- * as long as a Rocket I and shoves about twice as hard.
+ * The hotbar is five rockets and nothing else. The number is the burn in
+ * seconds — a Rocket V pushes for five of them — and it is the powder behind
+ * it too, though that ramp is deliberately gentle so the seconds stay the main
+ * thing you are choosing between.
  */
 /**
  * One colour per strength, cool to hot, so a glance tells you what you are
@@ -31,7 +32,11 @@ export const HOTBAR = [1, 2, 3, 4, 5].map((duration) => ({
   power: rocketPowerFor(duration),
   colour: ROCKET_COLOURS[duration - 1],
   label: `Rocket ${'I II III IV V'.split(' ')[duration - 1]}`,
-  hint: `dur ${duration} · pwr ${duration}`,
+  // Seconds of burn and the thrust multiplier, both true. This used to read
+  // "dur 5 · pwr 5", which was two errors in nine characters: the burn was not
+  // five of anything, and the power was never the slot number. Kept short
+  // enough that the slot does not ellipsise it away.
+  hint: `${duration}s · ×${rocketPowerFor(duration).toFixed(2)}`,
 }));
 
 export class Player extends Emitter {

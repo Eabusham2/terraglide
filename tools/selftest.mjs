@@ -824,6 +824,27 @@ console.log('\nInfrastructure from OpenStreetMap');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe HUD fits the window');
+{
+  // Five 118px slots plus gaps is a shade over 600px, centred, with the
+  // location panel and the attribution in the bottom corners on the same row.
+  // Below about 1180px those three collide and the hotbar's panel background
+  // covers the text under it — measured at 900x620, which is an ordinary
+  // Chromebook split window, not a corner case.
+  const css = readFileSync(new URL('../styles/main.css', import.meta.url), 'utf8');
+  ok('the corners step above the hotbar on a narrow window',
+    /@media \(max-width: 1180px\)[\s\S]{0,220}hud-bottomright[\s\S]{0,80}bottom:/.test(css));
+  ok('and the hotbar itself sheds width before it overflows',
+    /@media \(max-width: 660px\)[\s\S]{0,260}slot-label[\s\S]{0,60}display: none/.test(css));
+
+  // The slot hint has to fit the slot, and has to be true. It read
+  // "dur 5 - pwr 5", which was neither.
+  const player = readFileSync(new URL('../src/player/player.js', import.meta.url), 'utf8');
+  ok('the slot hint states seconds and the real multiplier',
+    /hint: `\$\{duration\}s[\s\S]{0,60}rocketPowerFor\(duration\)\.toFixed/.test(player));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nProviders and detail budgets');
 {
   const { IMAGERY_PROVIDERS } = await import('../src/tiles/providers.js');

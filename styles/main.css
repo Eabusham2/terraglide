@@ -554,8 +554,8 @@ input[type='checkbox'] {
 .hud-bottomright {
   position: absolute;
   right: 6px;
-  /* Right into the corner, under the hotbar, and small: it is a credit line
-     and a status line, not something you read while flying. */
+  /* Right into the corner and small: it is a credit line and a status line,
+     not something you read while flying. */
   bottom: 4px;
   text-align: right;
   max-width: 260px;
@@ -1346,4 +1346,43 @@ body.touch-active .hud-bottomleft {
 
 body.touch-active .hud-crosshair {
   display: none;
+}
+
+
+/* ---------------------------------------------------------------- narrow windows
+
+   The hotbar is five 118px slots plus gaps — a shade over 600px — and it is
+   centred. The location panel and the attribution live in the bottom corners
+   on the same row, so once the window drops below about 1180px the three
+   collide and the hotbar's panel background covers the text underneath.
+
+   That is a real case, not a corner one: a Chromebook in a split window, a
+   small laptop, a phone in landscape. Below the threshold the two corner
+   blocks step up above the hotbar rather than sliding under it.
+*/
+@media (max-width: 1180px) {
+  .hud-bottomleft,
+  .hud-bottomright {
+    bottom: 68px;
+  }
+}
+
+/* Narrower still and the hotbar itself will not fit across the window, so the
+   slots shed their padding and then their labels rather than overflowing. */
+@media (max-width: 660px) {
+  .hud-hotbar .slot {
+    width: 62px;
+    padding: 4px 5px 5px;
+    gap: 4px;
+  }
+
+  .hud-hotbar .slot .slot-label,
+  .hud-hotbar .slot .slot-meta {
+    display: none;
+  }
+
+  .slot-icon {
+    width: 18px;
+    height: 18px;
+  }
 }
