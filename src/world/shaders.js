@@ -17,14 +17,20 @@ const TERRAIN_VERT = /* glsl */ `
 
   uniform float uEarthRadius;
   uniform float uCurvature;
+  attribute float bed;
   varying vec2 vUv;
   varying vec3 vNormalW;
   varying float vDist;
   varying float vHeight;
+  varying float vBed;
   varying vec3 vWorld;
 
   void main() {
     vUv = uv;
+    // The unclamped ground height, sea floor included. The surface is clamped
+    // to sea level so the ocean is a flat plane; without the real depth
+    // underneath it, nothing downstream can tell a beach from a bay.
+    vBed = bed;
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vHeight = worldPos.y;
     vWorld = worldPos.xyz;
@@ -56,13 +62,15 @@ const TERRAIN_FRAG = /* glsl */ `
   uniform float uFogEnabled;
   uniform float uSnowLine;
   uniform float uHasTexture;
-  uniform vec3 uFallbackColor;
+  uniform float uLatitude;
+  uniform float uHasRelief;
   uniform float uNight;
 
   varying vec2 vUv;
   varying vec3 vNormalW;
   varying float vDist;
   varying float vHeight;
+  varying float vBed;
   varying vec3 vWorld;
 
   float detailHash(vec2 p) {
@@ -77,10 +85,64 @@ const TERRAIN_FRAG = /* glsl */ `
                mix(detailHash(i + vec2(0.0, 1.0)), detailHash(i + vec2(1.0, 1.0)), u.x), u.y);
   }
 
+  /**
+   * What the ground looks like when there is no photograph of it.
+   *
+   * Everything here comes off the real elevation tile and the real latitude:
+   * how high the surface is, how far the sea floor is below it, how steep the
+   * slope is, how warm and how dry that band of the planet runs. Nothing is
+   * invented — it is the same reasoning a relief map uses, done per pixel.
+   *
+   * It replaces one flat olive fill, which is what made unphotographed ground
+   * read as a tan sheet, and it is why the sea is blue and the land is not:
+   * the depth under the surface decides, not a guess from the height alone.
+   */
+  vec3 groundWithoutImagery(float surface, float depth, float flatness) {
+    float lat = abs(uLatitude);
+    float warmth = clamp(1.0 - lat / 62.0, 0.0, 1.0);
+    float dryness = clamp(1.0 - abs(lat - 25.0) / 22.0, 0.0, 1.0);
+    // Slow noise so neighbouring ground is not all one colour and one biome
+    // fades into the next instead of meeting it at a tile edge.
+    float blend = detailNoise(vWorld.xz * 0.00008) - 0.5;
+
+    if (depth < -0.5) {
+      vec3 deep = vec3(0.05, 0.13, 0.24);
+      vec3 shallow = vec3(0.16, 0.35, 0.46);
+      return mix(shallow, deep, clamp(-depth / 900.0, 0.0, 1.0));
+    }
+
+    vec3 grass = vec3(0.33, 0.42, 0.25);
+    vec3 forest = vec3(0.20, 0.29, 0.19);
+    vec3 arid = vec3(0.58, 0.49, 0.35);
+    vec3 sand = vec3(0.70, 0.65, 0.52);
+    vec3 rock = vec3(0.42, 0.40, 0.38);
+
+    vec3 green = mix(grass, forest, clamp(warmth * 0.85 + blend * 0.6, 0.0, 1.0));
+    vec3 vegetation = mix(green, arid, clamp(dryness * 0.8 + blend * 0.5, 0.0, 1.0));
+    // Sand along the waterline, bare rock on anything steep or high. Both are
+    // statements about relief, so both are switched off when there is none to
+    // read: with no elevation the whole world is exactly sea level, and a
+    // beach test on that paints the entire planet as one tan sheet — which is
+    // precisely what it used to do.
+    float shore = smoothstep(7.0, 0.5, surface) * uHasRelief;
+    vec3 low = mix(vegetation, sand, shore);
+    float bare = clamp(
+      ((1.0 - flatness) * 1.15 + smoothstep(1100.0, 2800.0, surface) * 0.8) * uHasRelief,
+      0.0, 1.0
+    );
+    return mix(low, rock, bare);
+  }
+
   void main() {
     #include <logdepthbuf_fragment>
+    vec3 n = normalize(vNormalW);
+    float flatness = smoothstep(0.30, 0.92, n.y);
     vec2 uv = uUvOffset + clamp(vUv, 0.0, 1.0) * uUvScale;
-    vec3 albedo = mix(uFallbackColor, texture2D(uMap, uv).rgb, uHasTexture);
+    vec3 albedo = mix(
+      groundWithoutImagery(vHeight, vBed, flatness),
+      texture2D(uMap, uv).rgb,
+      uHasTexture
+    );
 
     // Ground detail.
     //
@@ -96,7 +158,6 @@ const TERRAIN_FRAG = /* glsl */ `
       albedo *= 1.0 + (grain - 0.5) * 0.3 * near;
     }
 
-    vec3 n = normalize(vNormalW);
     float lambert = max(dot(n, uSunDir), 0.0);
     // Soft wrap keeps shaded slopes readable instead of crushing them to black.
     float wrapped = lambert * 0.62 + 0.38;
@@ -110,7 +171,6 @@ const TERRAIN_FRAG = /* glsl */ `
     // kilometre of height, drifts about with the ground so the line is never
     // straight, sheds off any real slope, and only ever tints what is already
     // there rather than painting over it.
-    float flatness = smoothstep(0.30, 0.92, n.y);
     float drift = (detailNoise(vWorld.xz * 0.0035) - 0.5) * 460.0
                 + (detailNoise(vWorld.xz * 0.02) - 0.5) * 90.0;
     float snow = smoothstep(uSnowLine + drift, uSnowLine + drift + 1000.0, vHeight) * flatness;
@@ -143,7 +203,8 @@ export function createTerrainMaterial(shared) {
       uUvOffset: { value: new THREE.Vector2(0, 0) },
       uUvScale: { value: 1 },
       uHasTexture: { value: 0 },
-      uFallbackColor: { value: new THREE.Color(0.42, 0.45, 0.4) },
+      uLatitude: shared.uLatitude,
+      uHasRelief: shared.uHasRelief,
       uEarthRadius: shared.uEarthRadius,
       uCurvature: shared.uCurvature,
       uSunDir: shared.uSunDir,
@@ -172,6 +233,8 @@ export function createSharedUniforms() {
     uFogDensity: { value: 1 / 26000 },
     uFogEnabled: { value: 1 },
     uSnowLine: { value: 2600 },
+    uLatitude: { value: 0 },
+    uHasRelief: { value: 0 },
     uNight: { value: 0 },
   };
 }

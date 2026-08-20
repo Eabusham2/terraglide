@@ -518,6 +518,13 @@ export class Game {
 
     this.rig.update(player, dt, this.terrain);
 
+    // Invented imagery is only allowed over invented relief; see
+    // ImageryStreamer.mayGenerate. And the terrain shader needs to know
+    // whether there is any relief at all, because sand and bare rock are
+    // statements about height and slope that mean nothing on a flat plate.
+    this.streamer.setMayGenerate(this.elevation.invented);
+    this.shared.uHasRelief.value = this.elevation.hasRelief ? 1 : 0;
+
     const budget = this.perf.budgetMs();
     this.terrain.update(this.camera, budget);
     this.terrain.invalidateStale(this.camera.position.x, this.camera.position.z);

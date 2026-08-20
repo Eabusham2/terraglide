@@ -118,6 +118,10 @@ export class Sky {
     shared.uSunDir.value.copy(sunDir);
     shared.uSunColor.value.copy(this.current.sun);
     shared.uAmbient.value.copy(this.current.ambient);
+    // Which band of the planet the ground belongs to, for colouring terrain
+    // that has no photograph. It changes about as fast as you can fly, so one
+    // value a frame is plenty.
+    if (shared.uLatitude) shared.uLatitude.value = lat;
     shared.uFogColor.value.copy(this.current.horizon);
     // Cap the night tint: a dim blue cast, not a blackout.
     shared.uNight.value = clamp(smoothstep(2, -8, alt), 0, 1) * 0.7;

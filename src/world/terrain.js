@@ -19,8 +19,23 @@ import { createTerrainMaterial } from './shaders.js';
  * parent's rather than popping in as a hole.
  */
 
-const MAX_DRAWN_TILES = 620;
+/**
+ * Ceiling on how many tiles one frame may draw, per graphics preset.
+ *
+ * It is a safety rail rather than a budget: the walk is ordered by distance, so
+ * hitting it drops the farthest ground, and dropping ground leaves a hole. The
+ * numbers are high enough that a normal view never reaches them and low enough
+ * that a pathological one cannot lock the machine up.
+ */
+const MAX_DRAWN_TILES = { low: 520, medium: 760, high: 1100, ultra: 1500 };
 const SEA_LEVEL = 0;
+/**
+ * How much further than the render distance a built tile is kept before it may
+ * be thrown away. Turning round used to mean rebuilding everything behind you
+ * from nothing; a half again of margin means the ground you just flew over is
+ * still there when you come back to it.
+ */
+const KEEP_FACTOR = 1.5;
 
 export class Terrain {
   constructor({ scene, frame, streamer, elevation, shared }) {
@@ -113,7 +128,17 @@ export class Terrain {
       settings.get('maxTileZoom'),
       this.streamer.source ? this.streamer.source.maxZoom : 19,
     );
-    const renderDistance = settings.get('renderDistanceKm') * 1000;
+    const renderDistance = this.renderDistance;
+    this.keepDistance = renderDistance * KEEP_FACTOR;
+    this.maxDrawn = MAX_DRAWN_TILES[settings.get('graphics')] ?? MAX_DRAWN_TILES.high;
+    // Which way you are facing, flattened. Ground in front of you is what you
+    // are about to look at, so it is what gets built first.
+    camera.getWorldDirection(this._vecA);
+    this._viewX = this._vecA.x;
+    this._viewZ = this._vecA.z;
+    const flatLen = Math.hypot(this._viewX, this._viewZ) || 1;
+    this._viewX /= flatLen;
+    this._viewZ /= flatLen;
 
     this.streamer.beginFrame();
     this.elevation.beginFrame();
@@ -152,7 +177,14 @@ export class Terrain {
       const ty = rootY + dy;
       if (ty < 0 || ty >= n) continue;
       for (let dx = -span; dx <= span; dx++) {
-        roots.push({ z: baseZoom, x: wrapTileX(rootX + dx, baseZoom), y: ty, d: Math.hypot(dx, dy) });
+        const cx = camX + (dx + 0.5) * rootSize;
+        const cz = camZ + (dy + 0.5) * rootSize;
+        roots.push({
+          z: baseZoom,
+          x: wrapTileX(rootX + dx, baseZoom),
+          y: ty,
+          d: this.viewDistance(cx, cz, camX, camZ, Math.hypot(dx, dy) * rootSize),
+        });
       }
     }
     roots.sort((a, b) => a.d - b.d);
@@ -167,7 +199,7 @@ export class Terrain {
 
     this.streamer.pump();
     this.streamer.evict();
-    this.evict(preset.textureCacheSize);
+    this.evict(preset.textureCacheSize, camX, camZ);
 
     this.stats.drawn = this.drawn.length;
     this.stats.nodes = this.nodes.size;
@@ -175,8 +207,33 @@ export class Terrain {
     this.stats.maxZoom = maxZoom;
   }
 
+  /** Metres of ground drawn around the camera, and how far to keep it after. */
+  get renderDistance() {
+    return settings.get('renderDistanceKm') * 1000;
+  }
+
+  /**
+   * How far away a tile *effectively* is for ordering purposes.
+   *
+   * Straight-line distance alone builds the ground behind you at the same
+   * priority as the ground you are looking at, and on a frame where the budget
+   * runs out the difference is a hole in the view rather than a hole behind
+   * your head. Ground within the view cone keeps its real distance; ground
+   * behind you is treated as further off than it is.
+   */
+  viewDistance(cx, cz, camX, camZ, flat) {
+    const dx = cx - camX;
+    const dz = cz - camZ;
+    const len = Math.hypot(dx, dz);
+    if (len < 1) return flat;
+    const facing = (dx * this._viewX + dz * this._viewZ) / len;
+    // +1 dead ahead, -1 directly behind: a tile behind you sorts as up to
+    // three times its distance, which puts it after everything in front.
+    return flat * (1.6 - facing * 0.6);
+  }
+
   visit(tile, camera, camX, camZ, renderDistance, maxZoom) {
-    if (this.drawn.length >= MAX_DRAWN_TILES) return;
+    if (this.drawn.length >= this.maxDrawn) return;
 
     const size = this.frame.worldTileSize(tile.z);
     const n = Math.pow(2, tile.z);
@@ -212,10 +269,13 @@ export class Terrain {
         { z: cz, x: tile.x * 2, y: tile.y * 2 + 1, cx: x0 + half * 0.5, cz2: z0 + half * 1.5 },
         { z: cz, x: tile.x * 2 + 1, y: tile.y * 2 + 1, cx: x0 + half * 1.5, cz2: z0 + half * 1.5 },
       ];
-      children.sort(
-        (a, b) =>
-          Math.hypot(a.cx - camX, a.cz2 - camZ) - Math.hypot(b.cx - camX, b.cz2 - camZ),
-      );
+      for (const child of children) {
+        child.order = this.viewDistance(
+          child.cx, child.cz2, camX, camZ,
+          Math.hypot(child.cx - camX, child.cz2 - camZ),
+        );
+      }
+      children.sort((a, b) => a.order - b.order);
       for (const child of children) {
         this.visit(child, camera, camX, camZ, renderDistance, maxZoom);
       }
@@ -238,8 +298,14 @@ export class Terrain {
         // Out of build time this frame: show the nearest built ancestor so the
         // ground stays continuous, and try again next frame.
         const ancestor = this.findBuiltAncestor(tile);
-        if (ancestor) this.show(ancestor, tile, distance);
-        return;
+        if (ancestor) {
+          this.show(ancestor, tile, distance);
+          return;
+        }
+        // Nothing built above it either, so the choice is between going over
+        // budget and leaving a gap. A gap in the ground is a window straight
+        // through the planet — that is where the random holes came from — and
+        // one frame that runs long is cheaper than that.
       }
       node = this.build(tile, x0, z0, size, node);
       this.budget.built++;
@@ -329,22 +395,30 @@ export class Terrain {
     let positions = node.geometry && node.grid === grid ? node.geometry.attributes.position.array : null;
     let normals = positions ? node.geometry.attributes.normal.array : null;
     let uvs = positions ? node.geometry.attributes.uv.array : null;
+    let beds = positions ? node.geometry.attributes.bed.array : null;
     const fresh = !positions;
     if (fresh) {
       positions = new Float32Array(count * 3);
       normals = new Float32Array(count * 3);
       uvs = new Float32Array(count * 2);
+      beds = new Float32Array(count);
     }
 
     const heights = new Float32Array(grid * grid);
+    // The same points unclamped, sea floor and all. The surface is clamped to
+    // sea level so the ocean is flat; the shader needs the real depth beneath
+    // it to tell a bay from a beach when there is no photograph to go on.
+    const bedHeights = new Float32Array(grid * grid);
     let minY = Infinity;
     let maxY = -Infinity;
 
     for (let gy = 0; gy < grid; gy++) {
       const ny = ny0 + gy * step;
       for (let gx = 0; gx < grid; gx++) {
-        const h = this.heightAtNorm(nx0 + gx * step, ny);
+        const raw = this.elevation.sampleNorm(nx0 + gx * step, ny);
+        const h = Math.max(SEA_LEVEL, raw);
         heights[gy * grid + gx] = h;
+        bedHeights[gy * grid + gx] = raw;
         if (h < minY) minY = h;
         if (h > maxY) maxY = h;
       }
@@ -365,6 +439,7 @@ export class Terrain {
         positions[i] = gx * cell;
         positions[i + 1] = edgeX || edgeY ? h - skirt : h;
         positions[i + 2] = gy * cell;
+        beds[vy * verts + vx] = bedHeights[gy * grid + gx];
 
         const hl = heights[gy * grid + Math.max(0, gx - 1)];
         const hr = heights[gy * grid + Math.min(grid - 1, gx + 1)];
@@ -390,10 +465,12 @@ export class Terrain {
       geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
       geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+      geometry.setAttribute('bed', new THREE.BufferAttribute(beds, 1));
       geometry.setIndex(buildIndices(verts));
     } else {
       geometry.attributes.position.needsUpdate = true;
       geometry.attributes.normal.needsUpdate = true;
+      geometry.attributes.bed.needsUpdate = true;
     }
     geometry.boundingSphere = new THREE.Sphere(
       new THREE.Vector3(size / 2, (minY + maxY) / 2, size / 2),
@@ -477,11 +554,31 @@ export class Terrain {
     }
   }
 
-  evict(limit) {
+  /**
+   * Throw away the least recently used tiles, but never one that is still
+   * within reach.
+   *
+   * Ground you flew over thirty seconds ago used to be evicted the moment the
+   * cache filled, so turning round rebuilt it from nothing — a wall of empty
+   * ground where you had just been. Anything inside the keep radius survives
+   * the cull; only when *that* alone overflows does distance decide.
+   */
+  evict(limit, camX = 0, camZ = 0) {
     if (this.nodes.size <= limit) return;
-    const sorted = [...this.nodes.values()].sort((a, b) => a.used - b.used);
+    const keep = (this.keepDistance ?? Infinity) ** 2;
+    const near = [];
+    const far = [];
+    for (const node of this.nodes.values()) {
+      if (!node.mesh) continue;
+      const dx = node.mesh.position.x + (node.size ?? 0) / 2 - camX;
+      const dz = node.mesh.position.z + (node.size ?? 0) / 2 - camZ;
+      (dx * dx + dz * dz <= keep ? near : far).push(node);
+    }
+    far.sort((a, b) => a.used - b.used);
+    near.sort((a, b) => a.used - b.used);
+
     let excess = this.nodes.size - limit;
-    for (const node of sorted) {
+    for (const node of [...far, ...near]) {
       if (excess <= 0) break;
       if (node.mesh && node.mesh.visible) continue;
       this.disposeNode(node);

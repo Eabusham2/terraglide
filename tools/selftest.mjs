@@ -727,10 +727,25 @@ console.log('\nReal data first, invention last');
   ok('generated scenery textures are gated to the offline world',
     /imageryProvider'\) === 'offline'/.test(scatter));
 
-  // Elevation must never invent relief under real imagery.
+  // Elevation must never invent relief under real imagery. It may invent it
+  // once the provider has been given up on, but then the imagery has to be
+  // invented too, or the two disagree — which is how real mountains got
+  // painted ocean blue.
   const elevation = read('tiles/elevation.js');
-  ok('relief is only invented for the generated world',
-    /synthetic \? 0 :|source && !this\.source\.synthetic \? 0/.test(elevation));
+  ok('relief is only invented when nothing real is coming',
+    /return this\.invented \? proceduralElevation/.test(elevation));
+  ok('and "invented" means generated, or a provider given up on',
+    /get invented\(\)[\s\S]{0,160}synthetic \|\| this\.unreachable/.test(elevation));
+  const streamer = read('tiles/streamer.js');
+  ok('invented imagery is only allowed over invented relief',
+    /mayGenerate[\s\S]{0,80}STATE_BARE/.test(streamer));
+  ok('and the game keeps the two in step',
+    /setMayGenerate\(this\.elevation\.invented\)/.test(read('game.js')));
+  const shaderSrc = read('world/shaders.js');
+  ok('bare ground is coloured from the elevation, not from a flat fill',
+    /groundWithoutImagery/.test(shaderSrc) && !/uFallbackColor/.test(shaderSrc));
+  ok('and the sea is decided by the depth under it, not the height of it',
+    /if \(depth < -0\.5\)/.test(shaderSrc));
 
   // Photogrammetry, where a key allows it, replaces all of the above.
   const game = read('game.js');

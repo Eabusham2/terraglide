@@ -87,7 +87,12 @@ export class ElevationField {
     // ground is continuous. With a real elevation provider, stay at sea level
     // and let the terrain rise as data lands — inventing mountains under real
     // satellite imagery would be worse than briefly flat ground.
-    return this.source && !this.source.synthetic ? 0 : proceduralElevation(x, y, 6);
+    //
+    // Once the provider has actually been given up on, though, dead flat is
+    // not honesty, it is an empty plate: there is no real ground coming and
+    // nothing left to contradict. The generator takes over then, and the
+    // imagery follows it so the two agree.
+    return this.invented ? proceduralElevation(x, y, 6) : 0;
   }
 
   sampleLatLon(lat, lon) {
@@ -183,7 +188,11 @@ export class ElevationField {
     if (!msg.ok || !msg.heights) {
       entry.state = STATE_FAILED;
       entry.retryAt = performance.now() + 20000;
+      const wasInvented = this.invented;
       this.failed++;
+      // Crossing into "given up" changes what every sample returns, so the
+      // terrain has to be told its meshes are stale.
+      if (!wasInvented && this.invented) this.version = (this.version ?? 0) + 1;
       return;
     }
     entry.heights = msg.heights;
@@ -196,6 +205,29 @@ export class ElevationField {
   /** True when a real provider is selected but nothing has ever arrived. */
   get unreachable() {
     return Boolean(this.source && !this.source.synthetic && this.loaded === 0 && this.failed >= 6);
+  }
+
+  /**
+   * Is the relief being made up rather than measured?
+   *
+   * True for the generated world, and true once a real provider has been given
+   * up on. The imagery streamer reads this to decide whether it may invent
+   * tiles: invented ground may wear invented paint, measured ground may not.
+   */
+  get invented() {
+    return !this.source || this.source.synthetic || this.unreachable;
+  }
+
+  /**
+   * Is there relief to read at all — measured or invented?
+   *
+   * False only in the gap where a real provider has been asked and has not yet
+   * answered or failed enough times to be given up on. In that gap every
+   * sample is exactly sea level, and anything that reasons about height or
+   * slope is reasoning about a flat plate.
+   */
+  get hasRelief() {
+    return this.invented || this.loaded > 0;
   }
 
   evict() {

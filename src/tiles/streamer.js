@@ -23,6 +23,11 @@ const KEEP_FRAMES = 240;
 const STATE_PENDING = 1;
 const STATE_READY = 2;
 const STATE_FAILED = 3;
+/**
+ * Nothing real to fetch and nothing invented allowed. The tile stays bare and
+ * the terrain shader colours it from the elevation instead — see mayGenerate.
+ */
+const STATE_BARE = 4;
 
 export class ImageryStreamer extends Emitter {
   constructor(worker, renderer) {
@@ -39,8 +44,19 @@ export class ImageryStreamer extends Emitter {
     this.stats = { loaded: 0, pending: 0, failed: 0, bytes: 0 };
     this.tileSizeHint = 256;
     this.consecutiveFailures = 0;
-    /** Set when a provider is unreachable; tiles are generated locally instead. */
+    /** Set when a provider is unreachable. */
     this.degraded = false;
+    /**
+     * May a tile be invented when there is nothing real to fetch?
+     *
+     * Only when the *elevation* is invented too. The generator paints its own
+     * coastlines from its own relief, so dropped on top of real elevation it
+     * puts oceans over mountains and beaches up hillsides — which is exactly
+     * how real ground ended up blue. When the ground underneath is real, the
+     * tile is left bare and the terrain shader colours it from the elevation
+     * it is actually standing on, which cannot fail to line up.
+     */
+    this.mayGenerate = true;
 
     this.worker.addEventListener('message', (event) => this.onWorkerMessage(event.data));
   }
@@ -48,6 +64,19 @@ export class ImageryStreamer extends Emitter {
   setSource(source) {
     this.source = source;
     this.clear();
+  }
+
+  /**
+   * Turn invented tiles on or off. Called whenever the elevation source
+   * changes: generated relief may be dressed in generated imagery, real relief
+   * may not. Bare tiles are released so they get another go under the new rule.
+   */
+  setMayGenerate(allowed) {
+    if (this.mayGenerate === allowed) return;
+    this.mayGenerate = allowed;
+    for (const entry of this.entries.values()) {
+      if (entry.state === STATE_BARE) entry.state = 0;
+    }
   }
 
   clear() {
@@ -86,6 +115,7 @@ export class ImageryStreamer extends Emitter {
     }
     entry.used = this.frame;
     entry.priority = priority;
+    if (entry.state === STATE_BARE) return entry;
     if (entry.state === 0 || (entry.state === STATE_FAILED && entry.retryAt < performance.now())) {
       this.queue.push(entry);
     }
@@ -153,6 +183,10 @@ export class ImageryStreamer extends Emitter {
     const tile = { z: entry.tile.z, x: wrapTileX(entry.tile.x, entry.tile.z), y: entry.tile.y };
     const url = this.degraded ? null : source.urlFor(tile);
     if (url === null && !source.synthetic && !this.degraded) return;
+    if (url === null && !this.mayGenerate) {
+      entry.state = STATE_BARE;
+      return;
+    }
 
     const id = this.nextId++;
     entry.state = STATE_PENDING;
