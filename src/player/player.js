@@ -62,6 +62,12 @@ export class Player extends Emitter {
     this.mode = 'walk'; // walk | glide | fall
     this.onGround = false;
     this.groundHeight = 0;
+    /**
+     * How steeply the ground rises ahead of you, in radians, positive uphill.
+     * Zero in the air. The avatar leans on it so walking a hillside reads as a
+     * hillside rather than as level ground that happens to be moving.
+     */
+    this.groundSlope = 0;
     this.inBuilding = false;
     this.lat = 0;
     this.lon = 0;

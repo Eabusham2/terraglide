@@ -93,23 +93,40 @@ roughly eight metres forward for every metre down, so a kilometre of altitude is
 eight kilometres of ground — a long way, and still a slope.
 
 **No sequence of inputs ends higher and faster than it started.** That is
-checked on every build across a sweep of dive-and-flare shapes, because the
-obvious version of this model — the one Minecraft uses, discounting gravity when
-you are level and crediting a pull-up several times what it costs — lets a
-patient player porpoise upward forever on nothing at all.
+checked on every build across a sweep of dive-and-flare shapes. Level flight
+sinks 3.4 m/s while making 24; a dive tops out at 78.4 m/s, which is
+Minecraft's own terminal velocity; flown well it is seven metres forward for
+every metre down.
 
-Rockets are the only way to add energy. **The slot number is the burn in
-seconds** — a Rocket V pushes for five of them — and it is also the powder
-behind it, though the power ramp is gentle so the seconds are the main thing
-you buy. The push itself is Minecraft's: it accelerates you toward 1.5 blocks
+The obvious version of this model — the one Minecraft actually uses, which
+discounts gravity when you are level, credits a sinking glide part of its own
+sink, and pays a pull-up over three times the speed it costs — lets a patient
+player porpoise upward forever on nothing at all. That one is **also here**,
+under **Settings → World → Glide model**, transcribed tick for tick. One dive
+and zoom flown well ends about twenty-two metres higher than it began, so you
+can climb with no rocket at all. Endless flight is a feature if you asked for
+it and a bug if you did not; choosing it is the asking.
+
+Rockets are the only way to add energy to the honest model. **The slot number
+is the burn in seconds** — a Rocket V pushes for five of them — and it is also
+the powder behind it, compounding a fifth at a time, so the step from IV to V
+is bigger than the step from I to II and a Rocket V is a shade over twice a
+Rocket I. The push itself is Minecraft's: it accelerates you toward 1.5 blocks
 per tick, which is 30 m/s, and then drag takes it back once the burn is spent.
 There is no cooldown; light another whenever you like.
 
-Fold the wings away with `F` to drop out of a glide deliberately, rather than
+Two taps of jump in the air open the wings, and two more stow them. `F` folds
+them away as well, so you can drop out of a glide deliberately rather than
 having to fly all the way down to something solid.
 
+Walking, jumping and falling are Minecraft's numbers: 4.32 m/s walking, 5.61
+sprinting, 1.30 sneaking, a jump that clears exactly a block and a quarter, and
+a fall that reaches terminal velocity instead of accelerating forever.
+
 Speed mode multiplies *displacement*, not forces — you cover twice the ground
-without the aircraft handling like a different machine.
+without the aircraft handling like a different machine. It comes on like a
+switch and goes off like momentum: it bleeds away over a few seconds, and a
+firework burning while it does holds it up longer.
 
 ### The two mouse modes
 
@@ -168,8 +185,19 @@ keyless endpoints are rate limited in code because they are community services.
 Attribution for whatever you have selected stays in the corner of the screen and
 must not be removed.
 
-If a provider cannot be reached, the world falls back to generated terrain and
-the status line says so rather than leaving you on blank ground.
+If a provider cannot be reached, the status line says so rather than leaving you
+guessing — and what happens next depends on what is still real. Missing
+*photography* over measured ground is never filled in with invented photography:
+the generator paints its own coastlines from its own relief, so over real
+elevation it would put oceans on mountains. The ground is coloured from the
+elevation instead — height, depth below sea level, slope and latitude, blended
+with slow noise — which cannot fail to line up with the land it is painting.
+Only when the *elevation* has been given up on too does the whole world fall
+back to the generator, and then both halves agree with each other again.
+
+A provider you have selected but not given a key to falls back to the keyless
+one in the same list rather than dropping the world to generated terrain, and
+the status line names both.
 
 ### Three tiers, most real first
 
@@ -279,7 +307,8 @@ One rule, applied in one order, everywhere:
 
 What never happens is something invented standing in for something real: no
 tree where the picture says bare rock, no relief invented under real imagery,
-no made-up texture over a real photograph.
+no made-up texture over a real photograph, and no invented coastline painted
+across measured ground.
 
 #### Where generated art is allowed
 

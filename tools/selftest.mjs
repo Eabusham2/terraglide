@@ -955,6 +955,78 @@ console.log('\nGenerated art stays where it belongs');
   }
 }
 
+console.log('\nElevation that arrives as numbers rather than pixels');
+{
+  const grid = await import('../src/tiles/elevationGrid.js');
+  const { TileSource, ELEVATION_PROVIDERS, findProvider } = await import('../src/tiles/providers.js');
+
+  // The published algorithm's own worked example.
+  ok('the polyline encoder matches Google\u2019s worked example',
+    grid.encodePolyline([[38.5, -120.2], [40.7, -120.95], [43.252, -126.453]]) === '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
+    grid.encodePolyline([[38.5, -120.2], [40.7, -120.95], [43.252, -126.453]]));
+
+  const tile = { z: 12, x: 2048, y: 1362 };
+  const bounds = grid.tileBounds(tile);
+  ok('a tile\u2019s north edge is above its south edge', bounds.north > bounds.south,
+    `${bounds.north.toFixed(3)} vs ${bounds.south.toFixed(3)}`);
+  ok('and its west edge is left of its east edge', bounds.west < bounds.east);
+
+  const points = grid.googleSamplePoints(tile, 4);
+  ok('the sample grid starts at the north-west corner and ends at the south-east',
+    near(points[0][0], bounds.north, 1e-9) && near(points[0][1], bounds.west, 1e-9) &&
+    near(points[15][0], bounds.south, 1e-9) && near(points[15][1], bounds.east, 1e-9));
+
+  // Bing counts from the south-west; every raster decoder here counts from the
+  // north-west. Getting that wrong mirrors the terrain about its own middle,
+  // which is the kind of bug that looks like plausible scenery.
+  const side = 4;
+  const ascending = [];
+  for (let row = 0; row < side; row++) for (let col = 0; col < side; col++) ascending.push(row * 100);
+  const bing = grid.decodeBingElevation(
+    { resourceSets: [{ resources: [{ elevations: ascending }] }] }, side, side,
+  );
+  ok('Bing\u2019s south-first rows are flipped to north-first',
+    bing[0] === 300 && bing[side * (side - 1)] === 0,
+    `top ${bing[0]} m, bottom ${bing[side * (side - 1)]} m`);
+
+  const google = grid.decodeGoogleElevation(
+    { status: 'OK', results: ascending.map((elevation) => ({ elevation })) }, side, side,
+  );
+  ok('Google\u2019s rows are already north-first and stay that way',
+    google[0] === 0 && google[side * (side - 1)] === 300);
+  let refused = false;
+  try {
+    grid.decodeGoogleElevation({ status: 'REQUEST_DENIED', error_message: 'no key' }, 4, 4);
+  } catch { refused = true; }
+  ok('a refused Google request is an error, not a flat plain', refused);
+
+  const bigger = grid.resampleGrid(Float32Array.from(ascending), side, 7);
+  ok('a small grid stretches to the size the mesh wants, corners intact',
+    bigger.length === 49 && near(bigger[0], 0, 1e-6) && near(bigger[42], 300, 1e-6),
+    `${bigger[0]} to ${bigger[42]}`);
+  ok('and interpolates between them rather than stepping',
+    bigger[21] > 100 && bigger[21] < 200, `${bigger[21].toFixed(1)} m halfway down`);
+
+  const keys = { bingKey: 'BKEY', googleKey: 'GKEY' };
+  const bingSource = new TileSource(findProvider(ELEVATION_PROVIDERS, 'bing-elevation'), keys);
+  const bingUrl = bingSource.urlFor(tile);
+  ok('the Bing URL asks for the tile\u2019s own rectangle, south first',
+    bingUrl.includes(`bounds=${bounds.south.toFixed(6)},${bounds.west.toFixed(6)}`) &&
+    bingUrl.includes('rows=32&cols=32'));
+  ok('and the worker is told to read it as a grid', bingSource.decode === 'bing-elevation');
+  const googleSource = new TileSource(findProvider(ELEVATION_PROVIDERS, 'google-elevation'), keys);
+  const googleUrl = googleSource.urlFor(tile);
+  // Four hundred and eighty-four points written out longhand is about eleven
+  // kilobytes of URL; encoded and escaped it is a quarter of that, which is
+  // what makes one request per tile possible at all.
+  ok('the Google URL sends its points encoded rather than one by one',
+    googleUrl.includes('locations=enc:') && googleUrl.length < 8192,
+    `${googleUrl.length} characters for ${grid.GOOGLE_SIDE ** 2} points`);
+  ok('both are capped shallow, because each tile costs a request',
+    findProvider(ELEVATION_PROVIDERS, 'bing-elevation').maxZoom <= 12 &&
+    findProvider(ELEVATION_PROVIDERS, 'google-elevation').maxZoom <= 12);
+}
+
 console.log('\nTwo wings: one honest, one Minecraft\u2019s');
 {
   const look = (pitch) => ({ x: 0, y: Math.sin(pitch), z: -Math.cos(pitch) });

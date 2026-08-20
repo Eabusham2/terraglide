@@ -1,4 +1,5 @@
 import { proceduralHeights, proceduralImagery } from './procedural.js';
+import { decodeBingElevation, decodeGoogleElevation } from './elevationGrid.js';
 
 /**
  * The actual tile work: fetching, decoding, unpacking elevation and stitching
@@ -69,6 +70,15 @@ async function fetchBitmap(jobKey, url) {
   return createImageBitmap(await res.blob());
 }
 
+/** Same cancellation handling as fetchBitmap, for the JSON elevation services. */
+async function fetchJson(jobKey, url) {
+  const controller = new AbortController();
+  inflight.set(jobKey, controller);
+  const res = await fetch(url, { signal: controller.signal, mode: 'cors', credentials: 'omit' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 async function handleImagery(msg, jobKey, post) {
   let bitmap;
   if (!msg.url) {
@@ -86,6 +96,10 @@ async function handleElevation(msg, jobKey, post) {
 
   if (!msg.url) {
     heights = proceduralHeights(msg.tile, size);
+  } else if (msg.decode === 'bing-elevation') {
+    heights = decodeBingElevation(await fetchJson(jobKey, msg.url), size);
+  } else if (msg.decode === 'google-elevation') {
+    heights = decodeGoogleElevation(await fetchJson(jobKey, msg.url), size);
   } else {
     const bitmap = await fetchBitmap(jobKey, msg.url);
     heights = decodeHeights(bitmap, msg.decode, size);

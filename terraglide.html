@@ -422,11 +422,24 @@ input[type='checkbox'] {
 }
 
 .gauge label {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-faint);
+}
+
+/* The key that works the gauge, beside its name and updated when you rebind. */
+.gauge label kbd {
+  margin-left: auto;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.gauge label kbd + kbd {
+  margin-left: 0;
 }
 
 .gauge .bar {
@@ -82382,6 +82395,7 @@ const DEFAULT_SETTINGS = {
   googleKey: '',
   mapboxKey: '',
   mapillaryToken: '',
+  maxarConnectId: '',
   addressLookup: true,
   buildings: true,
   structuresNeedHeight: false,
@@ -82390,6 +82404,8 @@ const DEFAULT_SETTINGS = {
   /* graphics */
   graphics: 'high',
   renderDistanceKm: 16,
+  distantMode: false,
+  glideModel: 'honest',
   fov: 78,
   freecamFov: 85,
   speedFovKick: true,
@@ -82868,15 +82884,26 @@ class KeybindStore extends Emitter {
     return keyLabel(this.binds[action] ?? '');
   }
 
+  /**
+   * Point an action at a physical key.
+   *
+   * A key drives one action at a time, so whoever held it has to give it up —
+   * and gets this action's old key in exchange. It used to only take keys off
+   * actions that were not required, which meant binding anything to W left
+   * *both* it and Walk forward on W: press W and you walked forward and did
+   * the other thing at once, which reads as the binding not working.
+   *
+   * Returns false, changing nothing, when the swap would leave a required
+   * action with no key at all.
+   */
   rebind(action, code) {
-    // A physical key drives one action at a time; steal it from its old owner.
-    for (const other of ACTIONS) {
-      if (other.id !== action && this.binds[other.id] === code && !other.required) {
-        this.binds[other.id] = '';
-      }
-    }
+    const previous = this.binds[action] ?? '';
+    const displaced = ACTIONS.filter((a) => a.id !== action && this.binds[a.id] === code);
+    if (!previous && displaced.some((a) => a.required)) return false;
+    for (const other of displaced) this.binds[other.id] = previous;
     this.binds[action] = code;
     this.save();
+    return true;
   }
 
   clear(action) {
@@ -82956,6 +82983,7 @@ class InputManager extends Emitter {
     this.onMouseUp = this.onMouseUp.bind(this);
     this.onWheel = this.onWheel.bind(this);
     this.onPointerLockChange = this.onPointerLockChange.bind(this);
+    this.onPointerLockError = this.onPointerLockError.bind(this);
     this.onBlur = this.onBlur.bind(this);
 
     window.addEventListener('keydown', this.onKeyDown);
@@ -82966,6 +82994,11 @@ class InputManager extends Emitter {
     canvas.addEventListener('wheel', this.onWheel, { passive: false });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('pointerlockchange', this.onPointerLockChange);
+    // Chrome rejects a lock request that comes too soon after the last exit and
+    // reports it *only* through this event on some paths — no promise, no
+    // throw. Without it the rejection went unrecorded, the next click asked
+    // again immediately, and the pointer never locked at all.
+    document.addEventListener('pointerlockerror', this.onPointerLockError);
     window.addEventListener('blur', this.onBlur);
 
     settings.on('change', ({ key }) => {
@@ -82979,6 +83012,7 @@ class InputManager extends Emitter {
     window.removeEventListener('mousemove', this.onMouseMove);
     window.removeEventListener('mouseup', this.onMouseUp);
     document.removeEventListener('pointerlockchange', this.onPointerLockChange);
+    document.removeEventListener('pointerlockerror', this.onPointerLockError);
     window.removeEventListener('blur', this.onBlur);
   }
 
@@ -83050,6 +83084,10 @@ class InputManager extends Emitter {
     this.emit('pointerlock', locked);
   }
 
+  onPointerLockError() {
+    this.lockRejectedAt = performance.now();
+  }
+
   onBlur() {
     this.keys.clear();
     this.dragging = false;
@@ -83072,13 +83110,16 @@ class InputManager extends Emitter {
       event.code === 'AltRight';
     if (!modifierItself && (event.ctrlKey || event.metaKey || event.altKey)) return;
 
-    const actions = keybinds.actionsFor(event.code);
-    if (actions.length === 0) return;
-
-    // F-keys and space would otherwise scroll or open browser help.
+    // F-keys, Space and Tab would otherwise scroll the page, open browser help,
+    // or — the one that actually bit — press whichever HUD button still has
+    // focus. That has to happen whether or not the key is bound to anything,
+    // so it comes before the unbound early return rather than after it.
     if (event.code.startsWith('F') || event.code === 'Space' || event.code === 'Tab') {
       event.preventDefault();
     }
+
+    const actions = keybinds.actionsFor(event.code);
+    if (actions.length === 0) return;
 
     const first = !this.keys.has(event.code);
     this.keys.add(event.code);
@@ -83316,14 +83357,20 @@ class CameraRig {
     this.roll = this.rolling ? this.rolling * Math.PI * 2 : 0;
 
     const eye = player.eyeHeight;
-    this._target.set(player.position.x, player.position.y + eye, player.position.z);
+    // The drawn position, not the physics one — see Player.renderPosition.
+    const at = player.renderPosition;
+    this._target.set(at.x, at.y + eye, at.z);
 
     const perspective = settings.get('perspective');
     if (perspective === 'third' || perspective === 'second') {
       // Second person is the same rig turned around: the camera sits in front
       // of you looking back, so you fly toward it and can see your own face.
       const behind = perspective === 'third' ? 1 : -1;
-      const distance = 3.4 * player.height;
+      // Minecraft's chase camera sits four blocks off a 1.8 m player, which
+      // puts the figure at roughly a third of the frame height. Ours was at
+      // 3.4 heights and put it at a sixth — far enough that you were watching
+      // a distant doll rather than steering yourself.
+      const distance = 2.6 * player.height;
       const cosPitch = Math.cos(player.pitch);
       this._offset.set(
         -Math.sin(player.yaw) * cosPitch * behind,
@@ -84518,11 +84565,17 @@ __tg_modules["src/player/elytra.js"] = function (__tg_exports) {
  *             sets terminal velocity
  *
  * The consequence is the one that matters: **no sequence of inputs can end
- * higher and faster than it started.** Look level and you sink at about 3 m/s.
- * Dive and you build to around 85 m/s. Flare out of that and you buy back
- * something like 60 metres — a lot, but always less than the dive cost you.
- * Flown well the ratio is roughly eight metres forward per metre down, which is
- * a long way, and still a slope.
+ * higher and faster than it started.** Look level and you sink at about 3.4 m/s
+ * while making 24. Dive and you build toward 78 m/s, which is Minecraft's own
+ * terminal velocity and where drag stops you. Flare out of that and you buy
+ * back height, always less than the dive cost you. Flown well the ratio is
+ * seven metres forward per metre down: a kilometre up is seven kilometres of
+ * country, which is a long way and still a slope.
+ *
+ * The drag used to be light enough for a ten-to-one glide, and ten to one is
+ * not a slope, it is a cruise — you could leave a mountain and still be in the
+ * air two minutes later with nothing to do. It is now set so that a level
+ * glide costs you something you can feel.
  *
  * Everything below runs at a fixed 20 steps a second in blocks-per-tick, the
  * units the constants were tuned in, then converts back to metres per second.
@@ -84530,9 +84583,16 @@ __tg_modules["src/player/elytra.js"] = function (__tg_exports) {
 
 const TICK = 1 / 20;
 const GRAVITY_PER_TICK = 0.08; // blocks / tick^2  (~32 m/s^2)
-/** Constant drag per tick, plus a term that grows with speed. */
-const DRAG_BASE = 0.004;
-const DRAG_SPEED = 0.0022;
+/**
+ * Constant drag per tick, plus a term that grows with speed.
+ *
+ * Together they set both ends of the envelope: the constant term decides how
+ * expensive a level glide is, and the speed term decides where a dive stops
+ * accelerating. These two put the dive terminal at 3.92 blocks a tick, which
+ * is exactly Minecraft's.
+ */
+const DRAG_BASE = 0.008;
+const DRAG_SPEED = 0.003;
 /**
  * Peak firework thrust, blocks per tick. A rocket kicks hard at ignition and
  * tapers off across its burn, so it shoves you and then hands you back to the
@@ -84638,6 +84698,66 @@ function stepRocket(velocity, look, power = 1, spent = 0) {
 }
 
 /**
+ * Minecraft's elytra, tick for tick.
+ *
+ * Everything above is built so that it cannot cheat. This is the other one:
+ * the real thing, transcribed, free energy and all. Gravity is discounted by
+ * up to three quarters whenever you are level; a sinking glide is credited a
+ * tenth of its own sink back as forward speed; and a pull-up is paid three and
+ * a fifth times the horizontal speed it costs. Those three terms together are
+ * why a patient Minecraft player can porpoise upward for ever on nothing, and
+ * they are the reason the honest model exists.
+ *
+ * It is offered because "like Minecraft" is a perfectly good thing to want,
+ * and because endless flight is a feature if you asked for it and a bug if you
+ * did not. Choosing it is the asking.
+ *
+ * Minecraft measures pitch positive downward; ours is positive up, so the
+ * transcription negates it wherever the original reads xRot.
+ */
+function stepGlideMinecraft(velocity, look, pitch) {
+  let vx = velocity.x * TO_TICK;
+  let vy = velocity.y * TO_TICK;
+  let vz = velocity.z * TO_TICK;
+
+  const horizLook = Math.hypot(look.x, look.z);
+  const horizSpeed = Math.hypot(vx, vz);
+  // cos(pitch)^2: one when level, nothing when pointing straight up or down.
+  const level = Math.min(1, Math.cos(pitch) * Math.cos(pitch));
+
+  vy += GRAVITY_PER_TICK * (-1 + level * 0.75);
+
+  if (vy < 0 && horizLook > 0) {
+    const lift = vy * -0.1 * level;
+    vy += lift;
+    vx += (look.x * lift) / horizLook;
+    vz += (look.z * lift) / horizLook;
+  }
+
+  // Looking up trades horizontal speed for height, at a rate no wing has.
+  if (pitch > 0 && horizLook > 0) {
+    const trade = horizSpeed * Math.sin(pitch) * 0.04;
+    vy += trade * 3.2;
+    vx -= (look.x * trade) / horizLook;
+    vz -= (look.z * trade) / horizLook;
+  }
+
+  // Swing the horizontal component round toward where you are looking.
+  if (horizLook > 0) {
+    vx += ((look.x / horizLook) * horizSpeed - vx) * 0.1;
+    vz += ((look.z / horizLook) * horizSpeed - vz) * 0.1;
+  }
+
+  vx *= 0.99;
+  vy *= 0.98;
+  vz *= 0.99;
+
+  velocity.x = vx * TO_SECOND;
+  velocity.y = vy * TO_SECOND;
+  velocity.z = vz * TO_SECOND;
+}
+
+/**
  * Ticks of thrust a rocket of the given flight duration provides.
  *
  * The slot number is the burn in *seconds*, which is what the label has always
@@ -84654,22 +84774,28 @@ function rocketTicks(duration) {
  * Thrust multiplier for a slot: bigger rockets carry more powder.
  *
  * Minecraft gives every rocket the same push and varies only the burn. Here
- * the number means both, so the ramp is deliberately gentle — a Rocket V is
- * about sixty per cent harder than a Rocket I, not twice, so that the extra
- * seconds stay the main thing you are buying.
+ * the number means both, and each step up is a fifth again on top of the last
+ * rather than a fifth of the first — so the gap between IV and V is bigger
+ * than the gap between I and II, which is how a stack of powder actually
+ * behaves. It tops out a shade over twice a Rocket I, which is a real reason
+ * to carry the big ones and still not fast enough to lose the ground.
  */
 function rocketPowerFor(duration) {
-  return 1 + (duration - 1) * 0.15;
+  return Math.pow(1.2, duration - 1);
 }
 
-/** Terminal glide speed for the HUD's "best glide" readout, metres per second. */
+/**
+ * Best-glide speed for the HUD readout, metres per second — the airspeed that
+ * covers the most ground per metre of height, found by sweeping the model.
+ */
 function bestGlideSpeed() {
-  return 33.5;
+  return 24;
 }
 
 __tg_exports["TICK"] = TICK;
 __tg_exports["stepGlide"] = stepGlide;
 __tg_exports["stepRocket"] = stepRocket;
+__tg_exports["stepGlideMinecraft"] = stepGlideMinecraft;
 __tg_exports["rocketTicks"] = rocketTicks;
 __tg_exports["rocketPowerFor"] = rocketPowerFor;
 __tg_exports["bestGlideSpeed"] = bestGlideSpeed;
@@ -84678,7 +84804,7 @@ __tg_modules["src/player/player.js"] = function (__tg_exports) {
 const THREE = __tg_require("vendor/three/three.module.js");
 const { cheats } = __tg_require("src/core/cheats.js");
 const { Emitter } = __tg_require("src/core/events.js");
-const { clamp } = __tg_require("src/core/math.js");
+const { clamp, damp } = __tg_require("src/core/math.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { rocketPowerFor, rocketTicks } = __tg_require("src/player/elytra.js");
 
@@ -84721,6 +84847,17 @@ class Player extends Emitter {
     super();
     this.frame = frame;
     this.position = new THREE.Vector3();
+    /**
+     * Where to *draw* you.
+     *
+     * Physics run at a fixed 20 Hz and the screen does not, so on anything
+     * faster than 20 fps the position only changes on one frame in three or
+     * six or seven and holds still in between. That is the jitter you see when
+     * flying fast on a good monitor: not a physics problem, a sampling one.
+     * The controller keeps this interpolated between the last two ticks, and
+     * the camera and the avatar read it instead of the real one.
+     */
+    this.renderPosition = new THREE.Vector3();
     this.velocity = new THREE.Vector3();
     this.yaw = 0;
     this.pitch = 0;
@@ -84728,6 +84865,12 @@ class Player extends Emitter {
     this.mode = 'walk'; // walk | glide | fall
     this.onGround = false;
     this.groundHeight = 0;
+    /**
+     * How steeply the ground rises ahead of you, in radians, positive uphill.
+     * Zero in the air. The avatar leans on it so walking a hillside reads as a
+     * hillside rather than as level ground that happens to be moving.
+     */
+    this.groundSlope = 0;
     this.inBuilding = false;
     this.lat = 0;
     this.lon = 0;
@@ -84743,6 +84886,11 @@ class Player extends Emitter {
     this.speedActive = false;
     this.speedRemaining = 0;
     this.speedCooldown = 0;
+    /**
+     * What speed mode is actually worth right now, eased rather than switched.
+     * See tickTimers.
+     */
+    this.speedBlend = 1;
 
     this.selectedSlot = 0;
     this.distanceTravelled = 0;
@@ -84782,15 +84930,24 @@ class Player extends Emitter {
     return HOTBAR[this.selectedSlot];
   }
 
-  /** How far a second of movement carries you. Speed mode, then any cheat. */
+  /**
+   * How far a second of movement carries you. Speed mode, then any cheat.
+   *
+   * This is the *only* place speed mode multiplies anything. It used to also
+   * double the firework's thrust, and since thrust feeds velocity and velocity
+   * feeds this, the two compounded: a rocket lit in speed mode went four times
+   * as fast as one lit without it, over four times the ground, which is where
+   * the stutter came from — the terrain was being asked to stream in at four
+   * times the rate the budget was written for. Two is two.
+   */
   get speedMultiplier() {
-    return (this.speedActive ? 2 : 1) * cheats.playerSpeed;
+    return this.speedBlend * cheats.playerSpeed;
   }
 
-  /** Firework thrust: the slot's powder, speed mode, and any cheat on top. */
+  /** Firework thrust: the slot's powder and any cheat on top. */
   get rocketPower() {
     const slot = this.selectedItem;
-    return (slot ? slot.power : 1) * (this.speedActive ? 2 : 1) * cheats.rocketPower;
+    return (slot ? slot.power : 1) * cheats.rocketPower;
   }
 
   /** How far through the current burn we are, 0 at ignition and 1 at burnout. */
@@ -84821,6 +84978,7 @@ class Player extends Emitter {
   teleport(lat, lon, groundHeight, clearance = 2) {
     this.frame.setAnchor(lat, lon);
     this.position.set(0, groundHeight + clearance, 0);
+    this.snapRender();
     this.velocity.set(0, 0, 0);
     this.lat = lat;
     this.lon = lon;
@@ -84829,6 +84987,11 @@ class Player extends Emitter {
     this.rocketTicksLeft = 0;
     this.onGround = true;
     this.emit('teleport', { lat, lon });
+  }
+
+  /** Draw where you actually are — after a teleport, a rebase, or a hold. */
+  snapRender() {
+    this.renderPosition.copy(this.position);
   }
 
   syncGeo() {
@@ -84884,6 +85047,17 @@ class Player extends Emitter {
   }
 
   tickTimers(dt) {
+    // Speed mode comes on like a switch and goes off like momentum. Dropping
+    // it used to halve your ground speed between one frame and the next, which
+    // is not what running out of anything feels like; now it bleeds away over
+    // a few seconds, and a firework still burning holds it up while it does —
+    // so a well-timed rocket carries some of the boost past the end of it.
+    const target = this.speedActive ? 2 : 1;
+    const rate = target > this.speedBlend ? 8 : this.rocketTicksLeft > 0 ? 0.25 : 0.8;
+    this.speedBlend = damp(this.speedBlend, target, rate, dt);
+    // An exponential never quite arrives; a per cent is under the noise floor.
+    if (Math.abs(this.speedBlend - target) < 0.01) this.speedBlend = target;
+
     if (this.speedActive && cheats.speedFree) {
       // Unlimited: hold the gauge full rather than counting down.
       this.speedRemaining = settings.get('speedModeDurationS');
@@ -84958,6 +85132,47 @@ const BODY_TURN = 8;
  * down shows the ground where your legs ought to be.
  */
 const BODY_BACK = 0.07;
+/**
+ * Where the glide pose turns, as a fraction of height.
+ *
+ * It used to turn about the feet, which is where a model's origin happens to
+ * be and nowhere a body bends. Laying out a 1.9 m figure about its ankles
+ * threw the whole thing a metre and a half forward and down, so in first
+ * person you flew along looking at your own back from behind — a paper
+ * aeroplane two metres ahead of your face rather than a body you were inside.
+ * Turning about the base of the neck instead keeps the head where the eyes
+ * are and trails the spine, hips and legs out behind you, which is what lying
+ * face down actually looks like from inside.
+ *
+ * The number is the eye height exactly, so in first person the pose turns
+ * about the camera itself: every part of you keeps its own distance from your
+ * eye whatever attitude you are in, and nothing can swing through your head.
+ */
+const POSE_PIVOT = 0.94;
+
+/**
+ * The held view model: how far in front of the eye it sits, and where in the
+ * frame it hangs as a fraction of the half-frustum at that distance.
+ *
+ * Anchored to the frustum rather than to fixed metres because the frame is not
+ * a fixed shape: a phone held upright is narrower than it is tall, and a hand
+ * parked at a fixed x sails off the side of it. Proportions of the frustum
+ * keep it in the bottom-right corner at every aspect from 9:21 to 32:9.
+ */
+/**
+ * The two poses, as [across, down, forward, pitch, yaw, roll].
+ *
+ * `across` and `down` are fractions of the half-frustum at the pose's own
+ * depth, so they mean "this far toward the corner" rather than "this many
+ * metres" and survive being handed a phone stood on its end. `forward` is
+ * metres from the eye and the last three are radians.
+ *
+ * HELD is a firework carried at your side, the way Minecraft holds an item.
+ * GLIDE is the superman pose from inside it: both arms out along the flight
+ * path, converging ahead of you, entering frame from the bottom corners.
+ */
+const HAND_HELD = [0.62, 0.82, 0.52, -0.35, 0, 0.34];
+const HAND_GLIDE = [0.62, 0.62, 0.85, -1.3, 0.42, 0.1];
 
 /**
  * Your kit — jacket, trousers, wings — can carry a generated texture in every
@@ -84968,6 +85183,20 @@ const BODY_BACK = 0.07;
  * colour, which is what the single-file build gets.
  */
 const CLOTH_TINT = 0xffffff;
+
+/** The firework mesh runs along its own +Y; these are what it gets aimed at. */
+const ROCKET_AXIS = new THREE.Vector3(0, 1, 0);
+/**
+ * Where the held one points, in view space.
+ *
+ * Not straight down the view axis, even though that is exactly where the
+ * thrust goes: aim it there and you are looking down the barrel, so the whole
+ * rocket hides behind the fist and only the guide stick shows. Up and inward
+ * from the corner keeps its length on screen and still reads as pointing the
+ * way you are about to go. The world model has no such problem and is aimed at
+ * the look vector itself, which is what you see from the chase camera.
+ */
+const VIEW_AIM = new THREE.Vector3(-0.3, 0.55, -0.78).normalize();
 
 class Avatar {
   constructor(scene) {
@@ -85031,16 +85260,56 @@ class Avatar {
     this.noseMat = mat(0xffffff);
     this.rocket = this.makeRocket(rocketMat, this.noseMat, mat(0x6b5334));
     // The limb mesh is a box of its own length centred on its origin, so the
-    // hand is at −length/2. Sit the rocket just past the fingers, pointing the
-    // way the arm does: the group's +Y axis is turned onto −Z, forward.
-    this.rocket.position.set(0, -this.armR.length / 2 + 0.01, -0.03);
-    this.rocket.rotation.x = -Math.PI / 2;
+    // hand is at −length/2. The grip goes there; which way the rocket then
+    // points is decided every frame by aimRocket.
+    this.rocket.position.set(0, -this.armR.length / 2 + 0.015, -0.02);
     this.armR.limb.add(this.rocket);
     this.cloth.rocket = [rocketMat];
     this.rocketColour = -1;
 
+    // The view model: your arms and the firework in one of them, drawn in view
+    // space instead of world space.
+    //
+    // The world body alone left first person with nothing of you in it at all.
+    // Stand, walk, fall — pure scenery, because your arms hang at your sides
+    // behind your own eyes and nothing in front of you is you. Turning the
+    // glide pose about the eye fixed the flying case in world space and made
+    // this one worse: the shoulders end up a hand's width *behind* the camera,
+    // so an arm has to be longer than an arm to reach into frame at all.
+    //
+    // Everything that draws a first-person hand draws it this way for exactly
+    // that reason: in view space you place the arm where it should look, and
+    // the frame is the only geometry it has to agree with. The world arms are
+    // hidden in first person so there is never a second pair.
+    //
+    // Materials are shared with the world body, so one kit texture dresses
+    // both and the nose keeps the colour of the slot you are on.
+    this.viewModel = new THREE.Group();
+    this.viewModel.name = 'view-model';
+    this.viewModel.visible = false;
+    this.handR = this.makeHand(this.armR.limb.material, mat(SKIN));
+    this.handL = this.makeHand(this.armL.limb.material, mat(SKIN));
+    this.handRocket = this.makeRocket(rocketMat, this.noseMat, mat(0x6b5334));
+    // Clear of the fist rather than half inside it: the tube is 9.5 cm and the
+    // fist 8.5, so anything under a quarter of a metre up buries the thing you
+    // are meant to be able to read the colour off.
+    this.handRocket.position.set(0, 0.155, 0);
+    this.handR.add(this.handRocket);
+    this.viewModel.add(this.handR, this.handL);
+    /** Look-lag and the shove a firework gives the arm. */
+    this.handSway = { yaw: 0, pitch: 0, lastYaw: 0, lastPitch: 0 };
+    this.handPunch = 0;
+    this.lastRockets = 0;
+
     this.walkPhase = 0;
     this.glideBlend = 0;
+    /** Scratch for the pose pivot, and the damped first-person set-back. */
+    this._pivot = new THREE.Vector3();
+    this.backBlend = 0;
+    /** Scratch for aiming the firework along the thrust. */
+    this._aim = new THREE.Vector3();
+    this._aimQuat = new THREE.Quaternion();
+    this._holdQuat = new THREE.Quaternion();
     /** Where the shoulders point. Its own value, not a copy of the camera's. */
     this.bodyYaw = 0;
     this.firstPerson = false;
@@ -85071,35 +85340,102 @@ class Avatar {
   makeRocket(paper, nose, stick) {
     const group = new THREE.Group();
 
-    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.095, 10), paper);
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.034, 10), nose);
-    cone.position.y = 0.0645;
-    const guide = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, 0.1, 5), stick);
-    guide.position.y = -0.095;
+    // Full size of the real thing — a hand's length of tube and a stick as
+    // long again. It was built at two thirds of this and read as a matchstick
+    // in the hand and as nothing at all from the chase camera; the colour on
+    // the nose is meant to be readable, and at that size it was not.
+    // Everything sits above the group origin, because the origin is the *grip*
+    // — the point a fist closes around, a little below the middle of the tube.
+    // Aiming the thing then turns it in the hand instead of swinging it round
+    // some point in mid-air, which is what left it floating beside the fist.
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.14, 10), paper);
+    tube.position.y = 0.04;
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.026, 0.05, 10), nose);
+    cone.position.y = 0.135;
+    const guide = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.15, 5), stick);
+    guide.position.y = -0.1;
 
     group.add(tube, cone, guide);
     return group;
   }
 
+  /** One view-model forearm: sleeve and fist, reaching along its own +Y. */
+  makeHand(sleeve, skin) {
+    const group = new THREE.Group();
+    const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.32, 0.085), sleeve);
+    forearm.position.y = -0.05;
+    const fist = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.085, 0.09), skin);
+    fist.position.y = 0.15;
+    group.add(forearm, fist);
+    return group;
+  }
+
+  /**
+   * One wing.
+   *
+   * It was three boxes: a slab, a smaller slab for the tip, and a bar along
+   * the top. At any distance the wings *are* the silhouette of a gliding
+   * figure, and a silhouette made of rectangles reads as a thrown crate. This
+   * is the real outline instead — broad at the shoulder, swept back, tapering
+   * to a point — extruded from a profile, which costs a few dozen triangles
+   * and is the difference between a wing and a plank.
+   *
+   * The profile is drawn for the right wing and mirrored by negating x, so one
+   * set of numbers describes both and they cannot drift apart.
+   */
   makeWing(material, edgeMaterial, side) {
     const group = new THREE.Group();
-    // Wider and deeper than they were. Open elytra are roughly as broad as the
-    // player is tall, and at any distance the wings *are* the silhouette — the
-    // old stubs left a gliding figure looking like a thrown box.
-    const shape = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.34, 0.016), material);
-    shape.position.set(side * 0.29, -0.09, 0);
-    // A taper at the tip, so the outline is a wing rather than a plank.
-    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.2, 0.014), material);
-    tip.position.set(side * 0.63, -0.15, 0);
-    const spar = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.035, 0.035), edgeMaterial);
-    spar.position.set(side * 0.37, 0.06, 0);
-    group.add(shape, tip, spar);
+
+    const outline = [
+      [0, 0.17], [0.3, 0.15], [0.58, 0.06], [0.76, -0.1],
+      [0.8, -0.19], [0.6, -0.23], [0.24, -0.25], [0, -0.21],
+    ];
+    const shape = new THREE.Shape();
+    shape.moveTo(side * outline[0][0], outline[0][1]);
+    for (const [x, y] of outline.slice(1)) shape.lineTo(side * x, y);
+    shape.closePath();
+
+    const membrane = new THREE.Mesh(
+      new THREE.ExtrudeGeometry(shape, {
+        depth: 0.014,
+        bevelEnabled: true,
+        bevelThickness: 0.004,
+        bevelSize: 0.004,
+        bevelSegments: 1,
+        curveSegments: 1,
+      }),
+      material,
+    );
+    membrane.position.z = -0.007;
+    // Extrusion runs along +Z and the outline is drawn in XY, which is already
+    // the plane a wing lies in: outboard along X, along the back on Y.
+    group.add(membrane);
+
+    // The leading edge, thicker and darker, running from the shoulder to the
+    // tip. It is what catches the light and tells you which way the wing is
+    // pointing when the membrane is edge-on.
+    const spar = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.034, 0.034), edgeMaterial);
+    spar.position.set(side * 0.4, 0.12, 0);
+    spar.rotation.z = side * -0.31;
+    group.add(spar);
+
     group.userData.side = side;
     return group;
   }
 
   setVisible(visible) {
     this.root.visible = visible;
+  }
+
+  /**
+   * Hang the view model off the camera. It rides the camera's transform, so it
+   * is stuck to the frame the way a held thing is, and it is depth-tested like
+   * everything else — walk your fist into a wall and the wall wins, which is
+   * what Minecraft does too.
+   */
+  attachTo(camera) {
+    if (this.viewModel.parent === camera) return;
+    camera.add(this.viewModel);
   }
 
   /**
@@ -85217,10 +85553,10 @@ class Avatar {
    * @param {object} player
    * @param {number} dt
    */
-  update(player, dt) {
+  update(player, dt, camera) {
     const height = player.height;
     this.root.scale.setScalar(height);
-    this.root.position.copy(player.position);
+    this.root.position.copy(player.renderPosition);
 
     const gliding = player.mode === 'glide';
     const flying = player.mode === 'fly';
@@ -85266,16 +85602,30 @@ class Avatar {
     // Gliding lays the body along the flight path. The head points where you
     // look: level flight is face down, a dive is head down, a climb stands up.
     const glidePitch = player.pitch - Math.PI / 2;
-    this.body.rotation.x = damp(this.body.rotation.x, gliding || flying ? glidePitch : 0, 9, dt);
+    // On foot the body leans with the grade — a fraction of it, the way a
+    // walker actually leans, rather than standing perpendicular to a hillside
+    // like a flagpole. The pose turns about the neck, so leaning does not move
+    // the head off the camera.
+    const lean = gliding || flying ? glidePitch : -(player.groundSlope ?? 0) * 0.45;
+    this.body.rotation.x = damp(this.body.rotation.x, lean, 9, dt);
     this.body.rotation.z = damp(
       this.body.rotation.z,
       gliding || flying ? 0 : clamp(sideSpeed * 0.05, -0.25, 0.25),
       8,
       dt,
     );
-    this.body.position.y = damp(this.body.position.y, gliding || flying ? 0.3 : 0, 8, dt);
+    // Turn the pose about the base of the neck rather than about the origin
+    // under the feet, so that whatever the body does the head stays where the
+    // eyes are and the spine trails out behind it. See POSE_PIVOT. The lift
+    // that used to be here was papering over the same thing.
+    this._pivot.set(0, POSE_PIVOT, 0).applyEuler(this.body.rotation);
     // +Z is behind you, so this walks the model backwards out of the view.
-    this.body.position.z = damp(this.body.position.z, this.firstPerson ? BODY_BACK : 0, 10, dt);
+    this.backBlend = damp(this.backBlend, this.firstPerson ? BODY_BACK : 0, 10, dt);
+    this.body.position.set(
+      -this._pivot.x,
+      POSE_PIVOT - this._pivot.y,
+      -this._pivot.z + this.backBlend,
+    );
 
     const stride = clamp(player.horizontalSpeed / (4.3 * Math.pow(player.scale, 0.75)), 0, 1.8);
     const strafing = Math.abs(sideSpeed) > Math.abs(forwardSpeed) * 1.2 && stride > 0.15;
@@ -85322,7 +85672,11 @@ class Avatar {
     }
 
     const open = player.elytraDeployed ? Math.max(this.glideBlend, 0.6) : 0;
-    this.wings.visible = player.elytraDeployed;
+    // Wings are strapped to your back, and now that the pose turns about your
+    // eyes rather than your ankles they are where a back is: directly behind
+    // your head. Drawing them in first person put a metre of canvas through
+    // the camera. You cannot see your own wings, so do not draw them.
+    this.wings.visible = player.elytraDeployed && !this.firstPerson;
     this.wingL.rotation.set(0.15 * open, -0.35 + 1.5 * (1 - open), 0.2 * open);
     this.wingR.rotation.set(0.15 * open, 0.35 - 1.5 * (1 - open), -0.2 * open);
 
@@ -85337,6 +85691,130 @@ class Avatar {
         dt,
       );
     }
+
+    // What is left of you in first person.
+    //
+    // The arms come off: they are the view model's job now, and two right arms
+    // is worse than none. The wings come off with them — they are strapped to
+    // your back, which since the pose turns about your eyes is directly behind
+    // your head, and a metre of canvas through the camera is not a wing you
+    // can see. Chest and legs stay while you are on your feet or falling and
+    // go in a glide, where they are behind your head rather than below you and
+    // only ever appear as a shape passing through the near plane.
+    const inside = this.firstPerson;
+    const prone = inside && this.glideBlend > 0.5;
+    this.armL.pivot.visible = !inside;
+    this.armR.pivot.visible = !inside;
+    // The chest goes too. It is a half-metre box a hand's width under your
+    // eye, so looking down it is not a chest, it is a khaki wall across the
+    // bottom third of the screen with your legs, your feet and the firework in
+    // your hand all behind it. Legs and boots are what the first-person body
+    // was for, and with the chest gone they are what you get.
+    this.torso.visible = !inside;
+    this.legL.pivot.visible = !prone;
+    this.legR.pivot.visible = !prone;
+
+    this.viewModel.visible = inside;
+    if (inside) this.updateHand(player, dt, camera);
+
+    this.aimRocket(player);
+  }
+
+  /**
+   * Point the firework where it is about to push you.
+   *
+   * It used to lie along the forearm, which is where a hand holds a stick and
+   * not where a rocket is aimed: look straight up and the thing that was going
+   * to throw you at the sky was still pointing off to one side. Thrust runs
+   * along your look vector, so the rocket does — in the world model by undoing
+   * the arm's rotation, and in the view model by undoing the hand's, since
+   * there "along your look" is simply forward out of the screen.
+   */
+  aimRocket(player) {
+    const cp = Math.cos(player.pitch ?? 0);
+    this._aim.set(
+      cp * Math.sin(player.yaw ?? 0),
+      Math.sin(player.pitch ?? 0),
+      -cp * Math.cos(player.yaw ?? 0),
+    );
+    this._aimQuat.setFromUnitVectors(ROCKET_AXIS, this._aim);
+    this.root.updateMatrixWorld(true);
+    this.armR.limb.getWorldQuaternion(this._holdQuat);
+    this.rocket.quaternion.copy(this._holdQuat).invert().multiply(this._aimQuat);
+
+    if (!this.viewModel.visible) return;
+    this._aimQuat.setFromUnitVectors(ROCKET_AXIS, VIEW_AIM);
+    this._holdQuat.copy(this.viewModel.quaternion).multiply(this.handR.quaternion);
+    this.handRocket.quaternion.copy(this._holdQuat).invert().multiply(this._aimQuat);
+  }
+
+  /**
+   * Where the view model sits, and how it moves.
+   *
+   * Anchored to the frustum rather than to fixed metres, so the bottom-right
+   * corner is the bottom-right corner whether the frame is a phone stood on
+   * end or an ultrawide; scaled with you, so a giant's fist is a giant's fist
+   * and still covers the same part of the screen; blended between the carried
+   * pose and the flying one by the same number the body uses, so opening the
+   * wings sweeps your arms forward rather than swapping them; and given the
+   * three motions a carried thing has — it lags behind a turn and swings back,
+   * it bobs with your stride, and it kicks when the firework in it lights.
+   */
+  updateHand(player, dt, camera) {
+    if (!camera) return;
+    const tan = Math.tan((camera.fov * Math.PI) / 360);
+    const aspect = camera.aspect || 1;
+    this.viewModel.scale.setScalar(player.scale);
+
+    const glide = this.glideBlend;
+    const lerp = (a, b) => a + (b - a) * glide;
+    const across = lerp(HAND_HELD[0], HAND_GLIDE[0]);
+    const down = lerp(HAND_HELD[1], HAND_GLIDE[1]);
+    const forward = lerp(HAND_HELD[2], HAND_GLIDE[2]);
+    // Half-frustum at the depth this pose actually sits at, not at some fixed
+    // reference depth: the glide pose is further out than the carried one, and
+    // measuring both against the same plane would drag it toward the middle.
+    const half = tan * forward;
+    this.handR.position.set(half * aspect * across, -half * down, -forward);
+    this.handR.rotation.set(
+      lerp(HAND_HELD[3], HAND_GLIDE[3]),
+      lerp(HAND_HELD[4], HAND_GLIDE[4]),
+      lerp(HAND_HELD[5], HAND_GLIDE[5]),
+    );
+    // The left arm only exists once the wings are open; carried, there is
+    // nothing in it worth a quarter of the screen. It is the right arm's
+    // mirror, so one set of numbers drives both.
+    const farHalf = tan * HAND_GLIDE[2];
+    this.handL.visible = glide > 0.02;
+    this.handL.position.set(-farHalf * aspect * HAND_GLIDE[0], -farHalf * HAND_GLIDE[1], -HAND_GLIDE[2]);
+    this.handL.rotation.set(HAND_GLIDE[3], -HAND_GLIDE[4], -HAND_GLIDE[5]);
+    this.handL.scale.setScalar(glide);
+
+    const sway = this.handSway;
+    const yawStep = wrapAngle(player.yaw - sway.lastYaw);
+    const pitchStep = player.pitch - sway.lastPitch;
+    sway.lastYaw = player.yaw;
+    sway.lastPitch = player.pitch;
+    sway.yaw = damp(clamp(sway.yaw - yawStep * 0.9, -0.28, 0.28), 0, 7, dt);
+    sway.pitch = damp(clamp(sway.pitch - pitchStep * 0.9, -0.24, 0.24), 0, 7, dt);
+
+    if (player.rocketsFired !== this.lastRockets) {
+      this.lastRockets = player.rocketsFired;
+      this.handPunch = 1;
+    }
+    this.handPunch = damp(this.handPunch, 0, 6, dt);
+
+    const stride = player.onGround ? clamp(player.horizontalSpeed / 4.3, 0, 1.4) : 0;
+    // Sway, bob and the firework's shove ride on top of whichever pose is in
+    // force, so they read the same carried or flying.
+    this.viewModel.position.set(
+      Math.sin(this.walkPhase) * 0.02 * stride + sway.yaw * 0.24,
+      -Math.abs(Math.cos(this.walkPhase)) * 0.016 * stride +
+        sway.pitch * 0.22 -
+        this.handPunch * 0.05,
+      -this.handPunch * 0.12,
+    );
+    this.viewModel.rotation.set(sway.pitch * 0.5 + this.handPunch * 0.5, sway.yaw * 0.7, 0);
   }
 }
 
@@ -85348,7 +85826,7 @@ const { cheats } = __tg_require("src/core/cheats.js");
 const { clamp, damp } = __tg_require("src/core/math.js");
 const { FixedStep } = __tg_require("src/core/perf.js");
 const { settings } = __tg_require("src/core/settings.js");
-const { TICK, stepGlide, stepRocket } = __tg_require("src/player/elytra.js");
+const { TICK, stepGlide, stepGlideMinecraft, stepRocket } = __tg_require("src/player/elytra.js");
 
 /**
  * Movement, collision and the two flight modes.
@@ -85360,10 +85838,26 @@ const { TICK, stepGlide, stepRocket } = __tg_require("src/player/elytra.js");
  */
 
 const GRAVITY = 32; // metres / second^2, Minecraft-flavoured rather than 9.81
-const WALK_SPEED = 4.3;
-const SPRINT_SPEED = 8.2;
-const CROUCH_SPEED = 1.7;
+/**
+ * Minecraft's own ground speeds, converted from blocks per tick.
+ *
+ * Walking is 0.21585 b/t, sprinting 0.2806 and sneaking 0.06475 — 4.32, 5.61
+ * and 1.30 metres a second. Sprinting used to be 8.2, which is a fast jog for
+ * a helicopter and made every other number in the movement model a guess.
+ */
+const WALK_SPEED = 4.32;
+const SPRINT_SPEED = 5.61;
+const CROUCH_SPEED = 1.3;
+/** 0.42 blocks per tick off the ground, which clears a block and a quarter. */
 const JUMP_SPEED = 8.4;
+/**
+ * Minecraft's vertical drag: velocity is multiplied by 0.98 every tick after
+ * gravity, which is what stops a fall accelerating forever and puts terminal
+ * velocity at 3.92 blocks a tick — 78.4 m/s. Without it a long drop reached
+ * speeds nothing in the game could survive or render, and the ground arrived
+ * as a single frame.
+ */
+const FALL_DRAG_PER_TICK = 0.98;
 const GROUND_ACCEL = 14;
 const AIR_ACCEL = 2.4;
 const CLIMB_SPEED = 3.4;
@@ -85371,6 +85865,17 @@ const SWIM_SPEED = 2.4;
 const SWIM_SINK = 0.9;
 const SWIM_RISE = 3.2;
 const WATER_DRAG = 5.5;
+/** How long the second tap of a double jump may arrive after the first. */
+const DOUBLE_TAP_S = 0.4;
+/** How long a jump press waits for a tick that finds you on the ground. */
+const JUMP_BUFFER_S = 0.16;
+/**
+ * Further than a tick could possibly move you, so a gap this big means the
+ * ground moved rather than you did — a teleport or a frame rebase. Terminal
+ * velocity is 78 m/s and a tick is a twentieth of a second, so four metres is
+ * the real ceiling; this leaves room for speed mode and every cheat at once.
+ */
+const RESYNC_M = 200;
 /** How far the feet can be lifted per second when walking up a slope. */
 const STEP_SMOOTHING = 12;
 /** Creative flight, metres per second, cruise and sprint. */
@@ -85385,9 +85890,17 @@ class PlayerController {
     this.fixed = new FixedStep(TICK, 5);
     this.look = new THREE.Vector3();
     this.tmp = new THREE.Vector3();
+    /** Where the player was at the start of the most recent physics tick. */
+    this.prevPosition = new THREE.Vector3();
     this.lastGroundContact = 0;
     this.landedThisFrame = false;
     this.climbing = false;
+    /** Jump-key bookkeeping, read at frame rate rather than tick rate. */
+    this.clock = 0;
+    this.jumpHeld = false;
+    this.jumpQueued = false;
+    this.jumpQueuedAt = -Infinity;
+    this.lastJumpTap = -Infinity;
   }
 
   /**
@@ -85399,13 +85912,35 @@ class PlayerController {
     this.landedThisFrame = false;
     player.tickTimers(dt);
 
+    // Jump is read here, once a frame, and not inside the fixed step. Physics
+    // run at 20 Hz, so on a 60 Hz screen only one frame in three carries a
+    // tick: an edge detected in there misses any press shorter than about
+    // fifty milliseconds, and a *double* tap has to get two edges past the
+    // same sieve. That is why tapping twice sometimes did nothing at all.
+    this.readJumpEdges(dt, input);
+
     // A stretched clock needs proportionally more catch-up ticks per frame, or
     // the substep cap quietly swallows the extra speed on a slow machine.
     this.fixed.maxSteps = Math.ceil(5 * Math.max(1, cheats.gameSpeed));
     this.fixed.run(dt, (step) => this.tick(step, input));
 
+    // Draw somewhere between the last two ticks rather than on the last one.
+    // A tick moves you at most a few metres, so anything further apart than
+    // that is a teleport or a rebase rather than motion, and is not something
+    // to interpolate across.
+    if (this.prevPosition.distanceToSquared(player.position) > RESYNC_M * RESYNC_M) {
+      player.snapRender();
+    } else {
+      player.renderPosition.lerpVectors(
+        this.prevPosition,
+        player.position,
+        clamp(this.fixed.alpha, 0, 1),
+      );
+    }
+
     player.syncGeo();
     player.groundHeight = this.groundHeightAt(player.position.x, player.position.z, player.position.y);
+    this.readGroundSlope(player);
     // Under water the useful floor is the sea bed, not the surface above you.
     if (player.swimming) {
       player.groundHeight = Math.min(
@@ -85415,8 +85950,31 @@ class PlayerController {
     }
   }
 
+  /**
+   * How steep the ground is along the way you are facing.
+   *
+   * Measured over a couple of metres either side of you rather than from a
+   * surface normal, because the mesh normal is per-vertex and a person is
+   * longer than a vertex: what you want is the grade a walker feels, not the
+   * tilt of the polygon under one boot.
+   */
+  readGroundSlope(player) {
+    if (!player.onGround) {
+      player.groundSlope = damp(player.groundSlope, 0, 6, 1 / 60);
+      return;
+    }
+    const reach = Math.max(1, player.height * 0.8);
+    const fx = Math.sin(player.yaw) * reach;
+    const fz = -Math.cos(player.yaw) * reach;
+    const ahead = this.terrain.heightAt(player.position.x + fx, player.position.z + fz);
+    const behind = this.terrain.heightAt(player.position.x - fx, player.position.z - fz);
+    const target = clamp(Math.atan2(ahead - behind, reach * 2), -0.7, 0.7);
+    player.groundSlope = damp(player.groundSlope, target, 8, 1 / 60);
+  }
+
   tick(step, input) {
     const player = this.player;
+    this.prevPosition.copy(player.position);
     const scale = player.scale;
     player.lookVector(this.look);
 
@@ -85434,6 +85992,10 @@ class PlayerController {
     player.position.y += player.velocity.y * step * multiplier;
     player.position.z += player.velocity.z * step * multiplier;
     player.distanceTravelled += player.velocity.length() * step * multiplier;
+    // How far this tick's gravity dropped the feet. The ground resolve needs
+    // it to tell a step in the terrain apart from its own settling; see the
+    // note there.
+    this.fallThisTick = Math.max(0, -player.velocity.y * step * multiplier);
 
     this.resolveCollisions(step, input);
   }
@@ -85446,7 +86008,10 @@ class PlayerController {
       player.rocketTicksLeft--;
     }
 
-    stepGlide(player.velocity, this.look, player.pitch);
+    // Two wings to choose from: the energy-honest one, and Minecraft's own
+    // with its free energy intact. See stepGlideMinecraft.
+    const glide = settings.get('glideModel') === 'minecraft' ? stepGlideMinecraft : stepGlide;
+    glide(player.velocity, this.look, player.pitch);
     player.airborneSeconds += step;
 
     // Crouch pulls the nose down a touch — handy for shedding altitude.
@@ -85535,9 +86100,13 @@ class PlayerController {
           : 0;
     } else {
       player.velocity.y -= GRAVITY * step;
-      if (player.onGround && input.jump) {
+      // Drag on the fall, so terminal velocity exists. Raised to the power of
+      // the step so it is the same 0.98 a tick whatever the frame rate.
+      player.velocity.y *= Math.pow(FALL_DRAG_PER_TICK, step / TICK);
+      if (player.onGround && (input.jump || this.jumpQueued)) {
         player.velocity.y = JUMP_SPEED * Math.sqrt(scale);
         player.onGround = false;
+        this.jumpQueued = false;
       }
     }
 
@@ -85546,11 +86115,39 @@ class PlayerController {
       player.rocketTicksLeft = 0;
     } else {
       player.airborneSeconds += step;
-      // Falling with jump held snaps the wings open, like the real thing.
-      if (input.jump && player.velocity.y < -2 && player.airborneSeconds > 0.25) {
-        player.toggleElytra(true);
-      }
     }
+  }
+
+  /**
+   * The jump key's edges: buffer one press for the next ground tick, and turn
+   * two presses in the air into the wings opening — or closing again.
+   *
+   * Holding jump used to open the wings on its own, which is one key doing two
+   * things at once: every ordinary jump ends with jump still held, so a
+   * quarter of a second later the wings snapped out whether you wanted them or
+   * not. A double tap is a deliberate thing to do, and it reads the same in
+   * both directions — the gesture that opens them closes them.
+   */
+  readJumpEdges(dt, input) {
+    const player = this.player;
+    this.clock += dt;
+    if (this.jumpQueued && this.clock - this.jumpQueuedAt > JUMP_BUFFER_S) this.jumpQueued = false;
+
+    const pressed = !!input.jump && !this.jumpHeld;
+    this.jumpHeld = !!input.jump;
+    if (!pressed) return;
+
+    if (!player.onGround && this.clock - this.lastJumpTap < DOUBLE_TAP_S) {
+      player.toggleElytra(!player.elytraDeployed);
+      // A third tap starts a fresh pair rather than toggling straight back.
+      this.lastJumpTap = -Infinity;
+      return;
+    }
+    this.lastJumpTap = this.clock;
+    // Held for the next tick that finds you on the ground, so a tap made
+    // between ticks — or a fraction of a second before you land — still jumps.
+    this.jumpQueued = true;
+    this.jumpQueuedAt = this.clock;
   }
 
   resolveCollisions(step, input) {
@@ -85658,7 +86255,15 @@ class PlayerController {
       // Walking uphill lifts the feet over a step or two rather than snapping,
       // which is what made short slopes feel like stairs before.
       const rise = floor - player.position.y;
-      if (player.onGround && rise > 0 && rise < stepUp) {
+      // Standing perfectly still, gravity still pulls the feet a few
+      // centimetres under the floor every tick and this resolve puts them
+      // back. That is not a step, and smoothing it was why you stood a hand's
+      // width *into* the ground for as long as you stood anywhere: the damp
+      // recovered less than half the drop, the next tick took it again, and
+      // the pair settled about ten centimetres down. Only the part of the rise
+      // that this tick's fall cannot account for is a step to be climbed.
+      const settling = (this.fallThisTick ?? 0) + 0.01;
+      if (player.onGround && rise > settling && rise < stepUp) {
         player.position.y = damp(player.position.y, floor, STEP_SMOOTHING, step);
         if (floor - player.position.y < 0.02) player.position.y = floor;
       } else {
@@ -85826,7 +86431,12 @@ class ElevationField {
     // ground is continuous. With a real elevation provider, stay at sea level
     // and let the terrain rise as data lands — inventing mountains under real
     // satellite imagery would be worse than briefly flat ground.
-    return this.source && !this.source.synthetic ? 0 : proceduralElevation(x, y, 6);
+    //
+    // Once the provider has actually been given up on, though, dead flat is
+    // not honesty, it is an empty plate: there is no real ground coming and
+    // nothing left to contradict. The generator takes over then, and the
+    // imagery follows it so the two agree.
+    return this.invented ? proceduralElevation(x, y, 6) : 0;
   }
 
   sampleLatLon(lat, lon) {
@@ -85922,7 +86532,11 @@ class ElevationField {
     if (!msg.ok || !msg.heights) {
       entry.state = STATE_FAILED;
       entry.retryAt = performance.now() + 20000;
+      const wasInvented = this.invented;
       this.failed++;
+      // Crossing into "given up" changes what every sample returns, so the
+      // terrain has to be told its meshes are stale.
+      if (!wasInvented && this.invented) this.version = (this.version ?? 0) + 1;
       return;
     }
     entry.heights = msg.heights;
@@ -85935,6 +86549,29 @@ class ElevationField {
   /** True when a real provider is selected but nothing has ever arrived. */
   get unreachable() {
     return Boolean(this.source && !this.source.synthetic && this.loaded === 0 && this.failed >= 6);
+  }
+
+  /**
+   * Is the relief being made up rather than measured?
+   *
+   * True for the generated world, and true once a real provider has been given
+   * up on. The imagery streamer reads this to decide whether it may invent
+   * tiles: invented ground may wear invented paint, measured ground may not.
+   */
+  get invented() {
+    return !this.source || this.source.synthetic || this.unreachable;
+  }
+
+  /**
+   * Is there relief to read at all — measured or invented?
+   *
+   * False only in the gap where a real provider has been asked and has not yet
+   * answered or failed enough times to be given up on. In that gap every
+   * sample is exactly sea level, and anything that reasons about height or
+   * slope is reasoning about a flat plate.
+   */
+  get hasRelief() {
+    return this.invented || this.loaded > 0;
   }
 
   evict() {
@@ -85952,8 +86589,158 @@ class ElevationField {
 
 __tg_exports["ElevationField"] = ElevationField;
 };
+__tg_modules["src/tiles/elevationGrid.js"] = function (__tg_exports) {
+const { normXToLon, normYToLat } = __tg_require("src/geo/mercator.js");
+
+/**
+ * Elevation from services that answer with a grid of numbers rather than a
+ * picture.
+ *
+ * Mapbox and Terrarium pack height into the channels of a PNG, so a tile is
+ * one image request and decoding it is arithmetic on pixels. Bing and Google
+ * publish elevation as JSON instead: you hand them a rectangle (or a list of
+ * points) and they hand back a list of metres. That is a different shape of
+ * answer, and this is where the two are made to look the same to everything
+ * downstream.
+ *
+ * Both are coarser than the raster sources and both cost a request per tile
+ * against your own account, which is why their descriptors cap the zoom low:
+ * a shallow tile covers a lot of ground for one call. Where you have the
+ * choice, Terrarium is finer and free — these exist because a Bing or Google
+ * key is a thing people have, and having one should be enough.
+ */
+
+/** Bing's cap: rows * cols may not exceed 1024. */
+const BING_SIDE = 32;
+/** Google's cap is 512 locations a request; 22 x 22 leaves a little room. */
+const GOOGLE_SIDE = 22;
+
+/** Geographic edges of a slippy tile, in degrees. */
+function tileBounds(tile) {
+  const n = Math.pow(2, tile.z);
+  return {
+    west: normXToLon(tile.x / n),
+    east: normXToLon((tile.x + 1) / n),
+    north: normYToLat(tile.y / n),
+    south: normYToLat((tile.y + 1) / n),
+  };
+}
+
+/**
+ * Google's encoded polyline, which is how a few hundred coordinates fit in a
+ * URL. Each value is offset from the last, shifted left one bit with the sign
+ * folded into bit 0, then emitted five bits at a time with a continuation flag
+ * and an ASCII offset of 63. Straight from the published algorithm.
+ */
+function encodePolyline(points) {
+  let out = '';
+  let lastLat = 0;
+  let lastLon = 0;
+  const chunk = (value) => {
+    let v = value < 0 ? ~(value << 1) : value << 1;
+    while (v >= 0x20) {
+      out += String.fromCharCode((0x20 | (v & 0x1f)) + 63);
+      v >>>= 5;
+    }
+    out += String.fromCharCode(v + 63);
+  };
+  for (const [lat, lon] of points) {
+    const y = Math.round(lat * 1e5);
+    const x = Math.round(lon * 1e5);
+    chunk(y - lastLat);
+    chunk(x - lastLon);
+    lastLat = y;
+    lastLon = x;
+  }
+  return out;
+}
+
+/**
+ * The sample points Google is asked for, north row first — the same order the
+ * raster decoders produce, so nothing downstream has to know the difference.
+ */
+function googleSamplePoints(tile, side = GOOGLE_SIDE) {
+  const { west, east, north, south } = tileBounds(tile);
+  const points = [];
+  for (let row = 0; row < side; row++) {
+    const lat = north + ((south - north) * row) / (side - 1);
+    for (let col = 0; col < side; col++) {
+      points.push([lat, west + ((east - west) * col) / (side - 1)]);
+    }
+  }
+  return points;
+}
+
+function bilinear(values, side, fx, fy) {
+  const x0 = Math.max(0, Math.min(side - 1, Math.floor(fx)));
+  const y0 = Math.max(0, Math.min(side - 1, Math.floor(fy)));
+  const x1 = Math.min(side - 1, x0 + 1);
+  const y1 = Math.min(side - 1, y0 + 1);
+  const tx = Math.max(0, Math.min(1, fx - x0));
+  const ty = Math.max(0, Math.min(1, fy - y0));
+  const top = values[y0 * side + x0] * (1 - tx) + values[y0 * side + x1] * tx;
+  const bottom = values[y1 * side + x0] * (1 - tx) + values[y1 * side + x1] * tx;
+  return top * (1 - ty) + bottom * ty;
+}
+
+/** Stretch a small square grid up to the size the terrain mesh wants. */
+function resampleGrid(values, side, size) {
+  const out = new Float32Array(size * size);
+  const scale = (side - 1) / (size - 1);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) out[y * size + x] = bilinear(values, side, x * scale, y * scale);
+  }
+  return out;
+}
+
+/**
+ * Bing's Elevation/Bounds answer.
+ *
+ * The documented order is "starting with the southwest corner, and then
+ * proceed west to east and south to north" — so the first row is the *bottom*
+ * of the tile and every raster decoder in this project starts at the top. The
+ * rows are flipped here rather than anywhere further downstream, where the
+ * mistake would show up as terrain mirrored about its own middle.
+ */
+function decodeBingElevation(json, size, side = BING_SIDE) {
+  const values = json?.resourceSets?.[0]?.resources?.[0]?.elevations;
+  if (!Array.isArray(values) || values.length < side * side) {
+    throw new Error('Bing elevation returned no grid');
+  }
+  const north = new Float32Array(side * side);
+  for (let row = 0; row < side; row++) {
+    const from = (side - 1 - row) * side;
+    for (let col = 0; col < side; col++) north[row * side + col] = values[from + col];
+  }
+  return resampleGrid(north, side, size);
+}
+
+/** Google's Elevation answer: results in the order the points were sent. */
+function decodeGoogleElevation(json, size, side = GOOGLE_SIDE) {
+  if (json?.status && json.status !== 'OK') {
+    throw new Error(`Google elevation: ${json.error_message ?? json.status}`);
+  }
+  const results = json?.results;
+  if (!Array.isArray(results) || results.length < side * side) {
+    throw new Error('Google elevation returned no grid');
+  }
+  const values = new Float32Array(side * side);
+  for (let i = 0; i < side * side; i++) values[i] = Number(results[i].elevation) || 0;
+  return resampleGrid(values, side, size);
+}
+
+__tg_exports["BING_SIDE"] = BING_SIDE;
+__tg_exports["GOOGLE_SIDE"] = GOOGLE_SIDE;
+__tg_exports["tileBounds"] = tileBounds;
+__tg_exports["encodePolyline"] = encodePolyline;
+__tg_exports["googleSamplePoints"] = googleSamplePoints;
+__tg_exports["resampleGrid"] = resampleGrid;
+__tg_exports["decodeBingElevation"] = decodeBingElevation;
+__tg_exports["decodeGoogleElevation"] = decodeGoogleElevation;
+};
 __tg_modules["src/tiles/providers.js"] = function (__tg_exports) {
 const { quadKey } = __tg_require("src/geo/mercator.js");
+const { BING_SIDE, GOOGLE_SIDE, encodePolyline, googleSamplePoints, tileBounds } = __tg_require("src/tiles/elevationGrid.js");
 
 /**
  * Provider registry. TerraGlide ships with every key slot empty; a provider is
@@ -85977,6 +86764,7 @@ const IMAGERY_PROVIDERS = [
     label: 'Esri World Imagery',
     kind: 'xyz',
     needsKey: null,
+    recommended: true,
     maxZoom: 19,
     template: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
@@ -86017,6 +86805,24 @@ const IMAGERY_PROVIDERS = [
       'Microsoft\u2019s current satellite imagery, on an Azure Maps subscription key. ' +
       'This is where Bing Maps is being retired to. Imagery only \u2014 Azure serves no ' +
       'photogrammetry, so it cannot drive the 3D option.',
+  },
+  {
+    id: 'maxar',
+    label: 'Maxar SecureWatch',
+    kind: 'xyz',
+    needsKey: 'maxarConnectId',
+    maxZoom: 20,
+    template:
+      'https://securewatch.digitalglobe.com/earthservice/wmtsaccess?connectid={key}' +
+      '&SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=DigitalGlobe:ImageryTileService' +
+      '&FORMAT=image/jpeg&TileMatrixSet=EPSG:3857&TileMatrix=EPSG:3857:{z}&TileRow={y}&TileCol={x}',
+    attribution: 'Imagery © Maxar Technologies',
+    note:
+      'Maxar\u2019s own service, on a SecureWatch connect ID. That is an enterprise '
+      + 'credential rather than something you sign up for in an afternoon \u2014 and if '
+      + 'you have not got one you are not missing the imagery, only the direct '
+      + 'route to it: Esri, Bing and Google all serve Maxar scenes and all three '
+      + 'credit them.',
   },
   {
     id: 'mapbox',
@@ -86063,10 +86869,42 @@ const ELEVATION_PROVIDERS = [
     attribution: '© Mapbox',
   },
   {
+    id: 'bing-elevation',
+    label: 'Bing Maps elevation',
+    kind: 'bing-elevation',
+    needsKey: 'bingKey',
+    // Deliberately shallow. Every tile is one call against your own Bing
+    // account, so a tile has to be worth making a call for: at zoom 12 one
+    // covers about ten kilometres, and 32 by 32 samples across it is roughly
+    // three hundred metre spacing — coarser than Terrarium, and enough to
+    // shape a landscape.
+    maxZoom: 12,
+    attribution: 'Elevation © Microsoft',
+    note:
+      'Bing\u2019s Elevation service, on a Bing Maps key. It answers with a grid of '
+      + 'heights rather than a picture, one request per tile against your own quota, '
+      + 'and it is coarser than the raster sources \u2014 pick it because you have the '
+      + 'key, not because it is sharper.',
+  },
+  {
+    id: 'google-elevation',
+    label: 'Google Maps elevation',
+    kind: 'google-elevation',
+    needsKey: 'googleKey',
+    maxZoom: 12,
+    attribution: 'Elevation © Google',
+    note:
+      'The Google Elevation API, on a Maps Platform key. It takes a list of points '
+      + 'rather than an area, so a tile is sent as an encoded polyline of 22 by 22 '
+      + 'samples \u2014 coarse, and billed per request on your own account. Google\u2019s '
+      + 'real terrain detail is in the photorealistic 3D tiles, not here.',
+  },
+  {
     id: 'terrarium',
     label: 'AWS Terrain Tiles (Terrarium)',
     kind: 'terrarium',
     needsKey: null,
+    recommended: true,
     maxZoom: 14,
     template: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
     attribution: 'Elevation: AWS Terrain Tiles, SRTM/GMTED',
@@ -86080,6 +86918,7 @@ const PANORAMA_PROVIDERS = [
     id: 'google',
     label: 'Google Street View',
     needsKey: 'googleKey',
+    recommended: true,
     attribution: 'Street-level imagery © Google',
     note: 'Uses the Street View Static API; six faces are stitched into a cube.',
   },
@@ -86094,6 +86933,25 @@ const PANORAMA_PROVIDERS = [
 
 function findProvider(list, id) {
   return list.find((p) => p.id === id) ?? list[0];
+}
+
+/**
+ * The one to pick if you have not got a key for anything.
+ *
+ * Marked on the descriptor rather than worked out here, so the answer lives
+ * next to the reasons for it. Esri and Terrarium are the picks: both are open,
+ * both cover the whole planet, and neither asks you for an account before you
+ * can fly anywhere.
+ */
+function recommendedProvider(list) {
+  return list.find((p) => p.recommended && !p.needsKey) ?? null;
+}
+
+/**
+ * Label for a provider in a menu, with the recommendation on the end.
+ */
+function providerLabel(descriptor) {
+  return descriptor.recommended ? `${descriptor.label} (recommended)` : descriptor.label;
 }
 
 function fillTemplate(template, tile, key) {
@@ -86113,6 +86971,8 @@ class TileSource {
   constructor(descriptor, keys) {
     this.descriptor = descriptor;
     this.keys = keys;
+    /** Set when this provider is standing in for one that had no key. */
+    this.substitutedFor = null;
     this.bingTemplate = null;
     this.state = 'idle'; // idle | preparing | ready | needs-key | error
     this.error = '';
@@ -86223,32 +87083,75 @@ class TileSource {
       if (!this.googleSession) return null;
       return `https://tile.googleapis.com/v1/2dtiles/${tile.z}/${tile.x}/${tile.y}?session=${encodeURIComponent(this.googleSession)}&key=${encodeURIComponent(this.key)}`;
     }
+    if (d.kind === 'bing-elevation') {
+      const b = tileBounds(tile);
+      // Bounds are south, west, north, east — Bing's order, not ours.
+      return (
+        'https://dev.virtualearth.net/REST/v1/Elevation/Bounds?bounds=' +
+        `${b.south.toFixed(6)},${b.west.toFixed(6)},${b.north.toFixed(6)},${b.east.toFixed(6)}` +
+        `&rows=${BING_SIDE}&cols=${BING_SIDE}&heights=ellipsoid&key=${encodeURIComponent(this.key)}`
+      );
+    }
+    if (d.kind === 'google-elevation') {
+      const encoded = encodePolyline(googleSamplePoints(tile, GOOGLE_SIDE));
+      return (
+        'https://maps.googleapis.com/maps/api/elevation/json?locations=enc:' +
+        `${encodeURIComponent(encoded)}&key=${encodeURIComponent(this.key)}`
+      );
+    }
     if (!d.template) return null;
     return fillTemplate(d.template, tile, this.key);
   }
 
-  /** 'imagery' | 'terrain-rgb' | 'terrarium' — tells the worker how to decode. */
+  /** How the worker should read the answer: a picture, or a grid of numbers. */
   get decode() {
     const kind = this.descriptor.kind;
-    if (kind === 'terrain-rgb' || kind === 'terrarium') return kind;
+    if (
+      kind === 'terrain-rgb' ||
+      kind === 'terrarium' ||
+      kind === 'bing-elevation' ||
+      kind === 'google-elevation'
+    ) {
+      return kind;
+    }
     return 'imagery';
   }
 }
 
+/**
+ * Resolve a chosen provider to one that can actually serve tiles.
+ *
+ * Picking a provider and leaving its key blank used to mean no map at all: the
+ * source sat in `needs-key` and the world fell back to generated terrain, even
+ * though there is a perfectly good keyless provider sitting in the same list.
+ * It substitutes now, and says so — the status line names both, so nobody is
+ * left thinking they are looking at Google's imagery when they are not.
+ */
+function withKeylessFallback(list, descriptor, values) {
+  if (!descriptor.needsKey || values[descriptor.needsKey]) return new TileSource(descriptor, values);
+  const fallback = recommendedProvider(list);
+  if (!fallback || fallback.id === descriptor.id) return new TileSource(descriptor, values);
+  const source = new TileSource(fallback, values);
+  source.substitutedFor = descriptor;
+  return source;
+}
+
 function createImagerySource(settingsValues) {
   const descriptor = findProvider(IMAGERY_PROVIDERS, settingsValues.imageryProvider);
-  return new TileSource(descriptor, settingsValues);
+  return withKeylessFallback(IMAGERY_PROVIDERS, descriptor, settingsValues);
 }
 
 function createElevationSource(settingsValues) {
   const descriptor = findProvider(ELEVATION_PROVIDERS, settingsValues.elevationProvider);
-  return new TileSource(descriptor, settingsValues);
+  return withKeylessFallback(ELEVATION_PROVIDERS, descriptor, settingsValues);
 }
 
 __tg_exports["IMAGERY_PROVIDERS"] = IMAGERY_PROVIDERS;
 __tg_exports["ELEVATION_PROVIDERS"] = ELEVATION_PROVIDERS;
 __tg_exports["PANORAMA_PROVIDERS"] = PANORAMA_PROVIDERS;
 __tg_exports["findProvider"] = findProvider;
+__tg_exports["recommendedProvider"] = recommendedProvider;
+__tg_exports["providerLabel"] = providerLabel;
 __tg_exports["TileSource"] = TileSource;
 __tg_exports["createImagerySource"] = createImagerySource;
 __tg_exports["createElevationSource"] = createElevationSource;
@@ -86279,6 +87182,11 @@ const KEEP_FRAMES = 240;
 const STATE_PENDING = 1;
 const STATE_READY = 2;
 const STATE_FAILED = 3;
+/**
+ * Nothing real to fetch and nothing invented allowed. The tile stays bare and
+ * the terrain shader colours it from the elevation instead — see mayGenerate.
+ */
+const STATE_BARE = 4;
 
 class ImageryStreamer extends Emitter {
   constructor(worker, renderer) {
@@ -86295,8 +87203,19 @@ class ImageryStreamer extends Emitter {
     this.stats = { loaded: 0, pending: 0, failed: 0, bytes: 0 };
     this.tileSizeHint = 256;
     this.consecutiveFailures = 0;
-    /** Set when a provider is unreachable; tiles are generated locally instead. */
+    /** Set when a provider is unreachable. */
     this.degraded = false;
+    /**
+     * May a tile be invented when there is nothing real to fetch?
+     *
+     * Only when the *elevation* is invented too. The generator paints its own
+     * coastlines from its own relief, so dropped on top of real elevation it
+     * puts oceans over mountains and beaches up hillsides — which is exactly
+     * how real ground ended up blue. When the ground underneath is real, the
+     * tile is left bare and the terrain shader colours it from the elevation
+     * it is actually standing on, which cannot fail to line up.
+     */
+    this.mayGenerate = true;
 
     this.worker.addEventListener('message', (event) => this.onWorkerMessage(event.data));
   }
@@ -86304,6 +87223,19 @@ class ImageryStreamer extends Emitter {
   setSource(source) {
     this.source = source;
     this.clear();
+  }
+
+  /**
+   * Turn invented tiles on or off. Called whenever the elevation source
+   * changes: generated relief may be dressed in generated imagery, real relief
+   * may not. Bare tiles are released so they get another go under the new rule.
+   */
+  setMayGenerate(allowed) {
+    if (this.mayGenerate === allowed) return;
+    this.mayGenerate = allowed;
+    for (const entry of this.entries.values()) {
+      if (entry.state === STATE_BARE) entry.state = 0;
+    }
   }
 
   clear() {
@@ -86342,6 +87274,7 @@ class ImageryStreamer extends Emitter {
     }
     entry.used = this.frame;
     entry.priority = priority;
+    if (entry.state === STATE_BARE) return entry;
     if (entry.state === 0 || (entry.state === STATE_FAILED && entry.retryAt < performance.now())) {
       this.queue.push(entry);
     }
@@ -86409,6 +87342,10 @@ class ImageryStreamer extends Emitter {
     const tile = { z: entry.tile.z, x: wrapTileX(entry.tile.x, entry.tile.z), y: entry.tile.y };
     const url = this.degraded ? null : source.urlFor(tile);
     if (url === null && !source.synthetic && !this.degraded) return;
+    if (url === null && !this.mayGenerate) {
+      entry.state = STATE_BARE;
+      return;
+    }
 
     const id = this.nextId++;
     entry.state = STATE_PENDING;
@@ -86502,6 +87439,7 @@ __tg_exports["STATE_FAILED"] = STATE_FAILED;
 };
 __tg_modules["src/tiles/tileJobs.js"] = function (__tg_exports) {
 const { proceduralHeights, proceduralImagery } = __tg_require("src/tiles/procedural.js");
+const { decodeBingElevation, decodeGoogleElevation } = __tg_require("src/tiles/elevationGrid.js");
 
 /**
  * The actual tile work: fetching, decoding, unpacking elevation and stitching
@@ -86572,6 +87510,15 @@ async function fetchBitmap(jobKey, url) {
   return createImageBitmap(await res.blob());
 }
 
+/** Same cancellation handling as fetchBitmap, for the JSON elevation services. */
+async function fetchJson(jobKey, url) {
+  const controller = new AbortController();
+  inflight.set(jobKey, controller);
+  const res = await fetch(url, { signal: controller.signal, mode: 'cors', credentials: 'omit' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 async function handleImagery(msg, jobKey, post) {
   let bitmap;
   if (!msg.url) {
@@ -86589,6 +87536,10 @@ async function handleElevation(msg, jobKey, post) {
 
   if (!msg.url) {
     heights = proceduralHeights(msg.tile, size);
+  } else if (msg.decode === 'bing-elevation') {
+    heights = decodeBingElevation(await fetchJson(jobKey, msg.url), size);
+  } else if (msg.decode === 'google-elevation') {
+    heights = decodeGoogleElevation(await fetchJson(jobKey, msg.url), size);
   } else {
     const bitmap = await fetchBitmap(jobKey, msg.url);
     heights = decodeHeights(bitmap, msg.decode, size);
@@ -87873,14 +88824,20 @@ const TERRAIN_VERT = /* glsl */ `
 
   uniform float uEarthRadius;
   uniform float uCurvature;
+  attribute float bed;
   varying vec2 vUv;
   varying vec3 vNormalW;
   varying float vDist;
   varying float vHeight;
+  varying float vBed;
   varying vec3 vWorld;
 
   void main() {
     vUv = uv;
+    // The unclamped ground height, sea floor included. The surface is clamped
+    // to sea level so the ocean is a flat plane; without the real depth
+    // underneath it, nothing downstream can tell a beach from a bay.
+    vBed = bed;
     vec4 worldPos = modelMatrix * vec4(position, 1.0);
     vHeight = worldPos.y;
     vWorld = worldPos.xyz;
@@ -87912,13 +88869,15 @@ const TERRAIN_FRAG = /* glsl */ `
   uniform float uFogEnabled;
   uniform float uSnowLine;
   uniform float uHasTexture;
-  uniform vec3 uFallbackColor;
+  uniform float uLatitude;
+  uniform float uHasRelief;
   uniform float uNight;
 
   varying vec2 vUv;
   varying vec3 vNormalW;
   varying float vDist;
   varying float vHeight;
+  varying float vBed;
   varying vec3 vWorld;
 
   float detailHash(vec2 p) {
@@ -87933,10 +88892,64 @@ const TERRAIN_FRAG = /* glsl */ `
                mix(detailHash(i + vec2(0.0, 1.0)), detailHash(i + vec2(1.0, 1.0)), u.x), u.y);
   }
 
+  /**
+   * What the ground looks like when there is no photograph of it.
+   *
+   * Everything here comes off the real elevation tile and the real latitude:
+   * how high the surface is, how far the sea floor is below it, how steep the
+   * slope is, how warm and how dry that band of the planet runs. Nothing is
+   * invented — it is the same reasoning a relief map uses, done per pixel.
+   *
+   * It replaces one flat olive fill, which is what made unphotographed ground
+   * read as a tan sheet, and it is why the sea is blue and the land is not:
+   * the depth under the surface decides, not a guess from the height alone.
+   */
+  vec3 groundWithoutImagery(float surface, float depth, float flatness) {
+    float lat = abs(uLatitude);
+    float warmth = clamp(1.0 - lat / 62.0, 0.0, 1.0);
+    float dryness = clamp(1.0 - abs(lat - 25.0) / 22.0, 0.0, 1.0);
+    // Slow noise so neighbouring ground is not all one colour and one biome
+    // fades into the next instead of meeting it at a tile edge.
+    float blend = detailNoise(vWorld.xz * 0.00008) - 0.5;
+
+    if (depth < -0.5) {
+      vec3 deep = vec3(0.05, 0.13, 0.24);
+      vec3 shallow = vec3(0.16, 0.35, 0.46);
+      return mix(shallow, deep, clamp(-depth / 900.0, 0.0, 1.0));
+    }
+
+    vec3 grass = vec3(0.33, 0.42, 0.25);
+    vec3 forest = vec3(0.20, 0.29, 0.19);
+    vec3 arid = vec3(0.58, 0.49, 0.35);
+    vec3 sand = vec3(0.70, 0.65, 0.52);
+    vec3 rock = vec3(0.42, 0.40, 0.38);
+
+    vec3 green = mix(grass, forest, clamp(warmth * 0.85 + blend * 0.6, 0.0, 1.0));
+    vec3 vegetation = mix(green, arid, clamp(dryness * 0.8 + blend * 0.5, 0.0, 1.0));
+    // Sand along the waterline, bare rock on anything steep or high. Both are
+    // statements about relief, so both are switched off when there is none to
+    // read: with no elevation the whole world is exactly sea level, and a
+    // beach test on that paints the entire planet as one tan sheet — which is
+    // precisely what it used to do.
+    float shore = smoothstep(7.0, 0.5, surface) * uHasRelief;
+    vec3 low = mix(vegetation, sand, shore);
+    float bare = clamp(
+      ((1.0 - flatness) * 1.15 + smoothstep(1100.0, 2800.0, surface) * 0.8) * uHasRelief,
+      0.0, 1.0
+    );
+    return mix(low, rock, bare);
+  }
+
   void main() {
     #include <logdepthbuf_fragment>
+    vec3 n = normalize(vNormalW);
+    float flatness = smoothstep(0.30, 0.92, n.y);
     vec2 uv = uUvOffset + clamp(vUv, 0.0, 1.0) * uUvScale;
-    vec3 albedo = mix(uFallbackColor, texture2D(uMap, uv).rgb, uHasTexture);
+    vec3 albedo = mix(
+      groundWithoutImagery(vHeight, vBed, flatness),
+      texture2D(uMap, uv).rgb,
+      uHasTexture
+    );
 
     // Ground detail.
     //
@@ -87952,7 +88965,6 @@ const TERRAIN_FRAG = /* glsl */ `
       albedo *= 1.0 + (grain - 0.5) * 0.3 * near;
     }
 
-    vec3 n = normalize(vNormalW);
     float lambert = max(dot(n, uSunDir), 0.0);
     // Soft wrap keeps shaded slopes readable instead of crushing them to black.
     float wrapped = lambert * 0.62 + 0.38;
@@ -87966,7 +88978,6 @@ const TERRAIN_FRAG = /* glsl */ `
     // kilometre of height, drifts about with the ground so the line is never
     // straight, sheds off any real slope, and only ever tints what is already
     // there rather than painting over it.
-    float flatness = smoothstep(0.30, 0.92, n.y);
     float drift = (detailNoise(vWorld.xz * 0.0035) - 0.5) * 460.0
                 + (detailNoise(vWorld.xz * 0.02) - 0.5) * 90.0;
     float snow = smoothstep(uSnowLine + drift, uSnowLine + drift + 1000.0, vHeight) * flatness;
@@ -87999,7 +89010,8 @@ function createTerrainMaterial(shared) {
       uUvOffset: { value: new THREE.Vector2(0, 0) },
       uUvScale: { value: 1 },
       uHasTexture: { value: 0 },
-      uFallbackColor: { value: new THREE.Color(0.42, 0.45, 0.4) },
+      uLatitude: shared.uLatitude,
+      uHasRelief: shared.uHasRelief,
       uEarthRadius: shared.uEarthRadius,
       uCurvature: shared.uCurvature,
       uSunDir: shared.uSunDir,
@@ -88028,6 +89040,8 @@ function createSharedUniforms() {
     uFogDensity: { value: 1 / 26000 },
     uFogEnabled: { value: 1 },
     uSnowLine: { value: 2600 },
+    uLatitude: { value: 0 },
+    uHasRelief: { value: 0 },
     uNight: { value: 0 },
   };
 }
@@ -88176,6 +89190,12 @@ const { createPanoramaMaterial } = __tg_require("src/world/shaders.js");
 const SEARCH_RADIUS_M = 70;
 const DOME_RADIUS = 90;
 
+/** Hermite fade between two edges, so a blend arrives rather than switches. */
+function smoothstep(edge0, edge1, x) {
+  const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
 class Panorama {
   constructor({ scene, frame, worker }) {
     this.frame = frame;
@@ -88239,9 +89259,17 @@ class Panorama {
         { lat: state.lat, lon: state.lon },
         { lat: this.current.lat, lon: this.current.lon },
       );
-      const near = 1 - clamp((distance - 12) / 38, 0, 1);
-      const low = 1 - clamp((state.altitudeAboveGround - 6) / 22, 0, 1);
-      const calm = 1 - clamp((state.speed - 6) / 14, 0, 1);
+      // How much of what you are looking at is the photograph.
+      //
+      // It used to run out over thirty-eight metres, which is short enough
+      // that the dome read as switching on rather than as arriving: you
+      // stepped forward and the world changed. Walking toward a capture point
+      // now brings the photograph up gradually across a hundred metres and
+      // over a smooth curve, so the geometry underneath gives way to it by
+      // degrees — the closer you get, the more of it you are standing in.
+      const near = 1 - smoothstep(10, 110, distance);
+      const low = 1 - smoothstep(6, 34, state.altitudeAboveGround);
+      const calm = 1 - smoothstep(6, 22, state.speed);
       target = near * low * calm;
     }
 
@@ -88552,6 +89580,14 @@ const { randomPopulatedPlace } = __tg_require("src/world/places.js");
 
 const MAX_ATTEMPTS = 26;
 const TIME_BUDGET_MS = 2600;
+/**
+ * How far to walk outward looking for a coast when the random draw keeps
+ * coming up wet. Seven-tenths of the planet is water, so a run of misses is
+ * ordinary rather than exceptional, and the time budget usually cuts the draw
+ * short long before the attempt count does — which is how a request for dry
+ * land ended in the middle of the Pacific.
+ */
+const RESCUE_RADIUS_M = 400000;
 
 async function pickRandomDestination({ waterMap, onProgress }) {
   const populated = settings.get('rtpTarget') === 'populated';
@@ -88602,6 +89638,20 @@ async function pickRandomDestination({ waterMap, onProgress }) {
     candidate = randomLatLon();
   }
 
+  // Out of draws and still wet: rather than dropping you where the last coin
+  // toss happened to land, walk outward from it until a coast turns up. Six
+  // rings of twelve bearings reach four hundred kilometres in every direction,
+  // which finds a shore from all but the deepest few points in the Pacific,
+  // and it costs a handful of cached tile reads instead of another two dozen
+  // draws that are each as likely to be wet as the last.
+  if (wantsLand && !landed) {
+    const rescue = await nearLand(candidate, RESCUE_RADIUS_M, waterMap, started, true);
+    if (rescue) {
+      candidate = rescue;
+      landed = true;
+    }
+  }
+
   return {
     lat: clamp(candidate.lat, -MAX_LATITUDE, MAX_LATITUDE),
     lon: candidate.lon,
@@ -88616,16 +89666,21 @@ async function pickRandomDestination({ waterMap, onProgress }) {
  * rings and returns the first spot whose neighbourhood has any land in it, or
  * null if the whole area is open ocean (or the test cannot answer).
  */
-async function nearLand(origin, radius, waterMap, started) {
+async function nearLand(origin, radius, waterMap, started, onLand = false) {
+  // The rescue walk is the last thing standing between "somewhere on land" and
+  // the open Pacific, so it gets its own clock rather than inheriting the
+  // draw's, which by now is spent.
+  const deadline = onLand ? performance.now() + TIME_BUDGET_MS : started + TIME_BUDGET_MS;
   try {
     if (!(await waterMap.isWater(origin.lat, origin.lon))) return origin;
-    for (let ring = 1; ring <= 4; ring++) {
-      const distance = (radius * ring) / 4;
-      for (let i = 0; i < 8; i++) {
-        if (performance.now() - started > TIME_BUDGET_MS) return null;
-        const point = destination(origin, (i / 8) * Math.PI * 2, distance);
+    for (let ring = 1; ring <= 6; ring++) {
+      const distance = (radius * ring) / 6;
+      for (let i = 0; i < 12; i++) {
+        if (performance.now() > deadline) return null;
+        const point = destination(origin, (i / 12) * Math.PI * 2, distance);
         if (!(await waterMap.isWater(point.lat, point.lon))) {
-          // Sit just off that coast rather than on it — you asked for the sea.
+          // Standing on the coast, or just off it — whichever was asked for.
+          if (onLand) return point;
           return destination(point, Math.random() * Math.PI * 2, Math.min(radius, 1500));
         }
       }
@@ -89731,6 +90786,10 @@ class Sky {
     shared.uSunDir.value.copy(sunDir);
     shared.uSunColor.value.copy(this.current.sun);
     shared.uAmbient.value.copy(this.current.ambient);
+    // Which band of the planet the ground belongs to, for colouring terrain
+    // that has no photograph. It changes about as fast as you can fly, so one
+    // value a frame is plenty.
+    if (shared.uLatitude) shared.uLatitude.value = lat;
     shared.uFogColor.value.copy(this.current.horizon);
     // Cap the night tint: a dim blue cast, not a blackout.
     shared.uNight.value = clamp(smoothstep(2, -8, alt), 0, 1) * 0.7;
@@ -89777,8 +90836,25 @@ const { createTerrainMaterial } = __tg_require("src/world/shaders.js");
  * parent's rather than popping in as a hole.
  */
 
-const MAX_DRAWN_TILES = 620;
+/**
+ * Ceiling on how many tiles one frame may draw, per graphics preset.
+ *
+ * It is a safety rail rather than a budget: the walk is ordered by distance, so
+ * hitting it drops the farthest ground, and dropping ground leaves a hole. The
+ * numbers are high enough that a normal view never reaches them and low enough
+ * that a pathological one cannot lock the machine up.
+ */
+const MAX_DRAWN_TILES = { low: 520, medium: 760, high: 1100, ultra: 1500 };
 const SEA_LEVEL = 0;
+/**
+ * How much further than the render distance a built tile is kept before it may
+ * be thrown away. Turning round used to mean rebuilding everything behind you
+ * from nothing; a half again of margin means the ground you just flew over is
+ * still there when you come back to it.
+ */
+const KEEP_FACTOR = 1.5;
+/** How much further distant mode reaches than the render distance proper. */
+const DISTANT_FACTOR = 2;
 
 class Terrain {
   constructor({ scene, frame, streamer, elevation, shared }) {
@@ -89807,6 +90883,11 @@ class Terrain {
     this._norm = { nx: 0, ny: 0 };
     this._world = { x: 0, z: 0 };
     this._geo = { lat: 0, lon: 0 };
+    /**
+     * Optional test for "have I been here before", used by distant mode. Set by
+     * the game; left null the quadtree simply stops at the render distance.
+     */
+    this.explored = null;
   }
 
   get gridSize() {
@@ -89871,7 +90952,23 @@ class Terrain {
       settings.get('maxTileZoom'),
       this.streamer.source ? this.streamer.source.maxZoom : 19,
     );
-    const renderDistance = settings.get('renderDistanceKm') * 1000;
+    const renderDistance = this.renderDistance;
+    // Distant mode: keep drawing past the render distance, but only over
+    // country you have already flown across. Ground you have never seen stops
+    // at the edge as it always did, so the setting cannot quietly double what
+    // an unexplored world costs to stream.
+    this.farDistance =
+      this.explored && settings.get('distantMode') ? renderDistance * DISTANT_FACTOR : renderDistance;
+    this.keepDistance = this.farDistance * KEEP_FACTOR;
+    this.maxDrawn = MAX_DRAWN_TILES[settings.get('graphics')] ?? MAX_DRAWN_TILES.high;
+    // Which way you are facing, flattened. Ground in front of you is what you
+    // are about to look at, so it is what gets built first.
+    camera.getWorldDirection(this._vecA);
+    this._viewX = this._vecA.x;
+    this._viewZ = this._vecA.z;
+    const flatLen = Math.hypot(this._viewX, this._viewZ) || 1;
+    this._viewX /= flatLen;
+    this._viewZ /= flatLen;
 
     this.streamer.beginFrame();
     this.elevation.beginFrame();
@@ -89885,7 +90982,7 @@ class Terrain {
     // Root zoom: the coarsest level whose tiles still comfortably cover the
     // view distance, so the recursion starts with only a few tiles.
     const worldSpan = 2 * Math.PI * this.frame.scale;
-    let baseZoom = Math.floor(Math.log2(worldSpan / Math.max(renderDistance * 2, 1000)));
+    let baseZoom = Math.floor(Math.log2(worldSpan / Math.max(this.farDistance * 2, 1000)));
     baseZoom = clamp(baseZoom, 1, Math.max(1, maxZoom - 1));
 
     for (const node of this.drawn) node.mesh.visible = false;
@@ -89899,7 +90996,7 @@ class Terrain {
     const rootY = Math.floor(clamp(this._norm.ny, 0, 0.999999) * n);
     // Enough root tiles to cover the view circle, however big the distance is.
     const rootSize = this.frame.worldTileSize(baseZoom);
-    const span = clamp(Math.ceil(renderDistance / rootSize) + 1, 1, 6);
+    const span = clamp(Math.ceil(this.farDistance / rootSize) + 1, 1, 6);
 
     // Visit nearest first so the closest ground always gets the frame's build
     // budget. Doing it in fixed quadrant order let distant tiles eat the budget,
@@ -89910,7 +91007,14 @@ class Terrain {
       const ty = rootY + dy;
       if (ty < 0 || ty >= n) continue;
       for (let dx = -span; dx <= span; dx++) {
-        roots.push({ z: baseZoom, x: wrapTileX(rootX + dx, baseZoom), y: ty, d: Math.hypot(dx, dy) });
+        const cx = camX + (dx + 0.5) * rootSize;
+        const cz = camZ + (dy + 0.5) * rootSize;
+        roots.push({
+          z: baseZoom,
+          x: wrapTileX(rootX + dx, baseZoom),
+          y: ty,
+          d: this.viewDistance(cx, cz, camX, camZ, Math.hypot(dx, dy) * rootSize),
+        });
       }
     }
     roots.sort((a, b) => a.d - b.d);
@@ -89925,7 +91029,7 @@ class Terrain {
 
     this.streamer.pump();
     this.streamer.evict();
-    this.evict(preset.textureCacheSize);
+    this.evict(preset.textureCacheSize, camX, camZ);
 
     this.stats.drawn = this.drawn.length;
     this.stats.nodes = this.nodes.size;
@@ -89933,8 +91037,33 @@ class Terrain {
     this.stats.maxZoom = maxZoom;
   }
 
+  /** Metres of ground drawn around the camera, and how far to keep it after. */
+  get renderDistance() {
+    return settings.get('renderDistanceKm') * 1000;
+  }
+
+  /**
+   * How far away a tile *effectively* is for ordering purposes.
+   *
+   * Straight-line distance alone builds the ground behind you at the same
+   * priority as the ground you are looking at, and on a frame where the budget
+   * runs out the difference is a hole in the view rather than a hole behind
+   * your head. Ground within the view cone keeps its real distance; ground
+   * behind you is treated as further off than it is.
+   */
+  viewDistance(cx, cz, camX, camZ, flat) {
+    const dx = cx - camX;
+    const dz = cz - camZ;
+    const len = Math.hypot(dx, dz);
+    if (len < 1) return flat;
+    const facing = (dx * this._viewX + dz * this._viewZ) / len;
+    // +1 dead ahead, -1 directly behind: a tile behind you sorts as up to
+    // three times its distance, which puts it after everything in front.
+    return flat * (1.6 - facing * 0.6);
+  }
+
   visit(tile, camera, camX, camZ, renderDistance, maxZoom) {
-    if (this.drawn.length >= MAX_DRAWN_TILES) return;
+    if (this.drawn.length >= this.maxDrawn) return;
 
     const size = this.frame.worldTileSize(tile.z);
     const n = Math.pow(2, tile.z);
@@ -89949,7 +91078,10 @@ class Terrain {
     // Distance to the nearest point of the tile, so the view ends on a circle
     // rather than a square with corners poking out.
     const flatDist = Math.hypot(dx, dz);
-    if (flatDist > renderDistance) return;
+    if (flatDist > renderDistance) {
+      if (flatDist > this.farDistance) return;
+      if (!this.explored || !this.explored(tile)) return;
+    }
 
     // Cheap vertical bounds for culling; refined once the tile is built.
     const cached = this.nodes.get(tileKey(tile.z, tile.x, tile.y));
@@ -89970,10 +91102,13 @@ class Terrain {
         { z: cz, x: tile.x * 2, y: tile.y * 2 + 1, cx: x0 + half * 0.5, cz2: z0 + half * 1.5 },
         { z: cz, x: tile.x * 2 + 1, y: tile.y * 2 + 1, cx: x0 + half * 1.5, cz2: z0 + half * 1.5 },
       ];
-      children.sort(
-        (a, b) =>
-          Math.hypot(a.cx - camX, a.cz2 - camZ) - Math.hypot(b.cx - camX, b.cz2 - camZ),
-      );
+      for (const child of children) {
+        child.order = this.viewDistance(
+          child.cx, child.cz2, camX, camZ,
+          Math.hypot(child.cx - camX, child.cz2 - camZ),
+        );
+      }
+      children.sort((a, b) => a.order - b.order);
       for (const child of children) {
         this.visit(child, camera, camX, camZ, renderDistance, maxZoom);
       }
@@ -89996,8 +91131,14 @@ class Terrain {
         // Out of build time this frame: show the nearest built ancestor so the
         // ground stays continuous, and try again next frame.
         const ancestor = this.findBuiltAncestor(tile);
-        if (ancestor) this.show(ancestor, tile, distance);
-        return;
+        if (ancestor) {
+          this.show(ancestor, tile, distance);
+          return;
+        }
+        // Nothing built above it either, so the choice is between going over
+        // budget and leaving a gap. A gap in the ground is a window straight
+        // through the planet — that is where the random holes came from — and
+        // one frame that runs long is cheaper than that.
       }
       node = this.build(tile, x0, z0, size, node);
       this.budget.built++;
@@ -90087,22 +91228,30 @@ class Terrain {
     let positions = node.geometry && node.grid === grid ? node.geometry.attributes.position.array : null;
     let normals = positions ? node.geometry.attributes.normal.array : null;
     let uvs = positions ? node.geometry.attributes.uv.array : null;
+    let beds = positions ? node.geometry.attributes.bed.array : null;
     const fresh = !positions;
     if (fresh) {
       positions = new Float32Array(count * 3);
       normals = new Float32Array(count * 3);
       uvs = new Float32Array(count * 2);
+      beds = new Float32Array(count);
     }
 
     const heights = new Float32Array(grid * grid);
+    // The same points unclamped, sea floor and all. The surface is clamped to
+    // sea level so the ocean is flat; the shader needs the real depth beneath
+    // it to tell a bay from a beach when there is no photograph to go on.
+    const bedHeights = new Float32Array(grid * grid);
     let minY = Infinity;
     let maxY = -Infinity;
 
     for (let gy = 0; gy < grid; gy++) {
       const ny = ny0 + gy * step;
       for (let gx = 0; gx < grid; gx++) {
-        const h = this.heightAtNorm(nx0 + gx * step, ny);
+        const raw = this.elevation.sampleNorm(nx0 + gx * step, ny);
+        const h = Math.max(SEA_LEVEL, raw);
         heights[gy * grid + gx] = h;
+        bedHeights[gy * grid + gx] = raw;
         if (h < minY) minY = h;
         if (h > maxY) maxY = h;
       }
@@ -90123,6 +91272,7 @@ class Terrain {
         positions[i] = gx * cell;
         positions[i + 1] = edgeX || edgeY ? h - skirt : h;
         positions[i + 2] = gy * cell;
+        beds[vy * verts + vx] = bedHeights[gy * grid + gx];
 
         const hl = heights[gy * grid + Math.max(0, gx - 1)];
         const hr = heights[gy * grid + Math.min(grid - 1, gx + 1)];
@@ -90148,10 +91298,12 @@ class Terrain {
       geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
       geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
       geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+      geometry.setAttribute('bed', new THREE.BufferAttribute(beds, 1));
       geometry.setIndex(buildIndices(verts));
     } else {
       geometry.attributes.position.needsUpdate = true;
       geometry.attributes.normal.needsUpdate = true;
+      geometry.attributes.bed.needsUpdate = true;
     }
     geometry.boundingSphere = new THREE.Sphere(
       new THREE.Vector3(size / 2, (minY + maxY) / 2, size / 2),
@@ -90235,11 +91387,31 @@ class Terrain {
     }
   }
 
-  evict(limit) {
+  /**
+   * Throw away the least recently used tiles, but never one that is still
+   * within reach.
+   *
+   * Ground you flew over thirty seconds ago used to be evicted the moment the
+   * cache filled, so turning round rebuilt it from nothing — a wall of empty
+   * ground where you had just been. Anything inside the keep radius survives
+   * the cull; only when *that* alone overflows does distance decide.
+   */
+  evict(limit, camX = 0, camZ = 0) {
     if (this.nodes.size <= limit) return;
-    const sorted = [...this.nodes.values()].sort((a, b) => a.used - b.used);
+    const keep = (this.keepDistance ?? Infinity) ** 2;
+    const near = [];
+    const far = [];
+    for (const node of this.nodes.values()) {
+      if (!node.mesh) continue;
+      const dx = node.mesh.position.x + (node.size ?? 0) / 2 - camX;
+      const dz = node.mesh.position.z + (node.size ?? 0) / 2 - camZ;
+      (dx * dx + dz * dz <= keep ? near : far).push(node);
+    }
+    far.sort((a, b) => a.used - b.used);
+    near.sort((a, b) => a.used - b.used);
+
     let excess = this.nodes.size - limit;
-    for (const node of sorted) {
+    for (const node of [...far, ...near]) {
       if (excess <= 0) break;
       if (node.mesh && node.mesh.visible) continue;
       this.disposeNode(node);
@@ -90876,12 +92048,19 @@ class Exploration extends Emitter {
     return n;
   }
 
-  /** Record a visit. Reveal radius grows with altitude. */
-  visit(lat, lon, altitudeAboveGround) {
-    // Deliberately short: altitude widens what you uncover, but only up to a
-    // few kilometres. A single high pass used to reveal half a country, which
-    // made the explored map meaningless.
-    const radius = Math.min(6000, Math.max(220, altitudeAboveGround * 0.45 + 220));
+  /**
+   * Record a visit.
+   *
+   * The caller says how far you can actually see — the geometric horizon at
+   * your height, capped by how far the terrain is being drawn — because that
+   * is the honest answer to "have I seen this". Guessing from altitude alone
+   * either revealed ground that was never on screen or hid ground that filled
+   * it. Without one, altitude is the fallback it always was.
+   */
+  visit(lat, lon, altitudeAboveGround, seenRadius) {
+    const radius = Number.isFinite(seenRadius) && seenRadius > 0
+      ? Math.min(60000, Math.max(220, seenRadius))
+      : Math.min(6000, Math.max(220, altitudeAboveGround * 0.45 + 220));
     const nx = lonToNormX(lon);
     const ny = latToNormY(lat);
     // Tile space is mercator, which stretches away from the equator, so the
@@ -91645,10 +92824,11 @@ const SEEN_KEY = 'seen-intro';
 const ROWS = [
   ['Move', ['forward', 'left', 'back', 'right']],
   ['Sprint / crouch', ['sprint', 'crouch']],
-  ['Jump — hold while falling to open the wings', ['jump']],
+  ['Jump — tap twice in the air to open or stow the wings', ['jump']],
   ['Fire a rocket — opens the wings for you (or use the mouse)', ['rocket']],
   ['Swim — jump to rise, crouch to dive', ['jump', 'crouch']],
   ['Speed mode — 2x for a while, then a cooldown', ['speedMode']],
+  ['Stow the wings and drop out of a glide', ['stowWings']],
   ['Random teleport', ['rtp']],
   ['World map', ['worldMap']],
   ['Drop a waypoint', ['waypoint']],
@@ -91672,6 +92852,11 @@ class HelpCard {
 
     this.element.addEventListener('click', (event) => {
       if (event.target.closest('[data-close]')) this.close();
+    });
+    // Rebind a key with the card open and the card should say the new key,
+    // not the one it was built with.
+    keybinds.on('change', () => {
+      if (this.open) this.render();
     });
   }
 
@@ -91805,12 +92990,12 @@ class HUD {
           <em data-id="autopilot"></em>
         </div>
         <div class="gauge" data-id="speed-gauge">
-          <label>Speed mode</label>
+          <label>Speed mode<kbd data-key="speedMode"></kbd></label>
           <div class="bar"><i data-id="speed-bar"></i></div>
           <span data-id="speed-text">Ready</span>
         </div>
         <div class="gauge" data-id="scale-gauge">
-          <label>Height</label>
+          <label>Height<kbd data-key="scaleDown"></kbd><kbd data-key="scaleUp"></kbd></label>
           <span data-id="scale-text">—</span>
         </div>
       </div>
@@ -91825,6 +93010,7 @@ class HUD {
           <div class="location-figures">
             <span data-id="altitude">—</span>
             <span data-id="speed">—</span>
+            <span data-id="glide">—</span>
             <span data-id="heading">—</span>
             <span data-id="mode">—</span>
             <span data-id="water"></span>
@@ -91853,6 +93039,12 @@ class HUD {
     this.element.addEventListener('click', (event) => {
       const button = event.target.closest('[data-action]');
       if (!button || !this.onAction) return;
+      // Hand the keyboard back before doing anything else. A button that keeps
+      // focus after a click is a button that Space presses: you would click
+      // Random teleport, land, press Space to jump, and get the Controls panel
+      // instead of a jump — and every key you pressed afterwards went to the
+      // browser's idea of the focused control rather than to the game.
+      button.blur();
       this.onAction(button.dataset.action);
     });
 
@@ -91898,6 +93090,7 @@ class HUD {
     }).join('');
     host.querySelectorAll('.slot').forEach((slot) => {
       slot.addEventListener('click', () => {
+        slot.blur();
         if (this.onAction) this.onAction(`slot:${slot.dataset.slot}`);
       });
     });
@@ -91934,6 +93127,14 @@ class HUD {
     this.setText('coords', formatLatLon(player.lat, player.lon, 5));
     this.setText('altitude', `${formatAltitude(player.position.y, units)} · ${formatDistance(player.altitudeAboveGround, units, 0)} AGL`);
     this.setText('speed', formatSpeed(player.speed, units));
+    // The flight path angle, which is the number a glider pilot actually flies
+    // to: how many degrees below the horizon you are travelling, as opposed to
+    // where you happen to be looking. Level is 0, a dive is negative.
+    const horizontal = player.horizontalSpeed;
+    const angle = horizontal > 0.6 || Math.abs(player.velocity.y) > 0.6
+      ? (Math.atan2(player.velocity.y, horizontal) * 180) / Math.PI
+      : 0;
+    this.setText('glide', `${angle >= 0 ? '+' : '\u2212'}${Math.abs(angle).toFixed(1)}\u00b0`);
     this.setText('heading', formatBearing(player.yaw));
     this.setText('mode', modeLabel(player, state));
     // Over water, the useful number is how far the nearest land is.
@@ -91948,16 +93149,24 @@ class HUD {
     this.refs['speed-bar'].style.width = `${clamp(speedRatio, 0, 1) * 100}%`;
     this.refs['speed-gauge'].dataset.state = player.speedActive
       ? 'active'
-      : player.speedCooldown > 0
-        ? 'cooling'
-        : 'ready';
+      : player.speedBlend > 1.02
+        ? 'active'
+        : player.speedCooldown > 0
+          ? 'cooling'
+          : 'ready';
+    // Speed mode does not stop, it runs down — so once the burst is over the
+    // gauge keeps reading out what the boost is still worth until it is gone,
+    // rather than claiming "ready" while you are still coasting on it.
+    const coasting = !player.speedActive && player.speedBlend > 1.02;
     this.setText(
       'speed-text',
       player.speedActive
         ? `2x · ${player.speedRemaining.toFixed(1)}s`
-        : player.speedCooldown > 0
-          ? `${Math.ceil(player.speedCooldown)}s`
-          : 'Ready',
+        : coasting
+          ? `${player.speedBlend.toFixed(2)}x · coasting`
+          : player.speedCooldown > 0
+            ? `${Math.ceil(player.speedCooldown)}s`
+            : 'Ready',
     );
 
     this.setText(
@@ -92245,7 +93454,7 @@ __tg_modules["src/ui/settingsPanel.js"] = function (__tg_exports) {
 const { ACTIONS, keyLabel, keybinds } = __tg_require("src/core/keybinds.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { formatHeight } = __tg_require("src/core/units.js");
-const { ELEVATION_PROVIDERS, IMAGERY_PROVIDERS, PANORAMA_PROVIDERS } = __tg_require("src/tiles/providers.js");
+const { ELEVATION_PROVIDERS, IMAGERY_PROVIDERS, PANORAMA_PROVIDERS, providerLabel } = __tg_require("src/tiles/providers.js");
 const { escapeHtml } = __tg_require("src/ui/worldmap.js");
 
 /**
@@ -92267,21 +93476,21 @@ const SECTIONS = [
         key: 'imageryProvider',
         label: 'Imagery',
         type: 'select',
-        options: () => IMAGERY_PROVIDERS.filter((p) => !p.hidden).map((p) => ({ value: p.id, label: p.label })),
+        options: () => IMAGERY_PROVIDERS.filter((p) => !p.hidden).map((p) => ({ value: p.id, label: providerLabel(p) })),
         help: (value) => providerNote(IMAGERY_PROVIDERS, value),
       },
       {
         key: 'elevationProvider',
         label: 'Elevation',
         type: 'select',
-        options: () => ELEVATION_PROVIDERS.map((p) => ({ value: p.id, label: p.label })),
+        options: () => ELEVATION_PROVIDERS.map((p) => ({ value: p.id, label: providerLabel(p) })),
         help: (value) => providerNote(ELEVATION_PROVIDERS, value),
       },
       {
         key: 'panoramaProvider',
         label: 'Street-level imagery',
         type: 'select',
-        options: () => PANORAMA_PROVIDERS.map((p) => ({ value: p.id, label: p.label })),
+        options: () => PANORAMA_PROVIDERS.map((p) => ({ value: p.id, label: providerLabel(p) })),
         help: (value) => providerNote(PANORAMA_PROVIDERS, value),
       },
       {
@@ -92318,6 +93527,7 @@ const SECTIONS = [
       { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation.' },
       { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'Only for the Cesium route into photorealistic 3D.' },
       { key: 'mapillaryToken', label: 'Mapillary token', type: 'secret' },
+      { key: 'maxarConnectId', label: 'Maxar SecureWatch connect ID', type: 'secret', help: 'Maxar\u2019s own imagery service. An enterprise credential \u2014 Esri, Bing and Google all serve Maxar scenes without one.' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },
       { key: 'buildings', label: 'OpenStreetMap buildings', type: 'toggle', help: 'Extrudes real footprints near the ground. Interiors are generated.' },
       {
@@ -92345,7 +93555,21 @@ const SECTIONS = [
         ],
         help: 'Sets terrain detail, texture cache and how many tiles load at once.',
       },
-      { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 32, step: 1, unit: ' km' },
+      {
+        key: 'glideModel',
+        label: 'Glide model',
+        type: 'select',
+        options: () => [
+          { value: 'honest', label: 'Energy-honest (recommended)' },
+          { value: 'minecraft', label: "Minecraft's own — climbing for free" },
+        ],
+        help: (value) =>
+          value === 'minecraft'
+            ? "Minecraft's elytra, transcribed tick for tick: gravity discounted while you are level, a sinking glide credited part of its own sink, and a pull-up paid over three times the speed it costs. One dive and zoom flown well ends about twenty metres higher than it began \u2014 so with no rocket at all you can keep climbing, for as long as you keep flying it right."
+            : 'Gravity in full every tick, and a wing that can only ever turn the speed gravity gave you. Seven metres forward per metre down, and never a metre for free.',
+      },
+      { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 1024, step: 4, unit: ' km', help: 'How far the ground is drawn. Far tiles stay coarse, so the cost grows far more slowly than the number does \u2014 but it does grow.' },
+      { key: 'distantMode', label: 'Draw twice as far over country you have seen', type: 'toggle', help: 'Past the render distance the ground keeps going, but only where the explored map says you have already been. Somewhere new still stops at the edge, so this never doubles what an unflown world costs to stream.' },
       { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 12, max: 21, step: 1, help: 'How close the ground can get before it stops sharpening. Higher is sharper underfoot and costs more to stream.' },
       { key: 'meshDetail', label: 'Terrain mesh detail', type: 'range', min: 0.5, max: 1.6, step: 0.1, format: (v) => `${v.toFixed(1)}x` },
       { key: 'fov', label: 'Field of view', type: 'range', min: 55, max: 118, step: 1, unit: '°' },
@@ -92408,7 +93632,7 @@ const SECTIONS = [
         type: 'toggle',
         help: 'A generated character mesh instead of the built one. More detail standing still, but it is a single fused mesh with no skeleton: it will not walk, will not open its wings, and is not used in first person. A real trade, not an upgrade. Not in the single-file build.',
       },
-      { key: 'showBody', label: 'Show your body in first person', type: 'toggle', help: 'Legs below you, arms out in front when the wings are open.' },
+      { key: 'showBody', label: 'Show your body in first person', type: 'toggle', help: 'Your legs and boots below you when you look down. Your arms and the rocket in your hand are drawn either way.' },
       {
         key: 'playerHeightM',
         label: 'Standing height',
@@ -92463,7 +93687,7 @@ const SECTIONS = [
         format: (v) => (v > 500 ? 'unlimited' : `${Math.round(v)} km`),
         help: 'Unlimited by default, so mid-ocean is fair game; wind it down to stay within reach of a coast.',
       },
-      { key: 'rtpSkySpawn', label: 'Random teleport arrives in the sky', type: 'toggle', help: 'On: you arrive high with the wings out. Off: you arrive standing on the ground.' },
+      { key: 'rtpSkySpawn', label: 'Teleport keeps you doing what you were doing', type: 'toggle', help: 'On: teleport while flying and you arrive high with the wings out; teleport from the ground and you arrive on your feet. Off: you always arrive standing.' },
       { key: 'spawnStreetLevel', label: 'Arrive where there is street-level imagery', type: 'toggle', help: 'Street-level photography is switched on for the arrival if the provider has any.' },
       { key: 'spawnInBuilding', label: 'Arrive inside a building where there is one', type: 'toggle' },
       {
@@ -92579,7 +93803,7 @@ class SettingsPanel {
       this.render();
       return;
     }
-    keybinds.rebind(this.capturing, event.code);
+    this.bindRefused = !keybinds.rebind(this.capturing, event.code);
     this.capturing = null;
     this.render();
   }
@@ -92742,7 +93966,12 @@ class SettingsPanel {
 
     return `
       <h3>Key bindings</h3>
-      <p class="settings-intro">Click a key, then press the one you want. Escape cancels.</p>
+      <p class="settings-intro">Click a key, then press the one you want. Escape cancels. Taking a
+      key off another action hands it whichever key this one was using.${
+        this.bindRefused
+          ? ' <strong>That key belongs to something that has to have one, and this action had none to trade.</strong>'
+          : ''
+      }</p>
       ${blocks.join('')}
       <div class="settings-actions"><button type="button" data-reset-binds>Reset key bindings</button></div>`;
   }
@@ -93283,6 +94512,9 @@ class Game {
       elevation: this.elevation,
       shared: this.shared,
     });
+    // Distant mode asks the explored map whether a far tile is worth drawing.
+    // The terrain does not know about the UI, so it is handed the question.
+    this.terrain.explored = (tile) => exploration.isExplored(tile.z, tile.x, tile.y);
     this.sky = new Sky(this.scene, this.shared);
     this.weather = new Weather(this.scene);
     this.scatter = new Scatter({ scene: this.scene, terrain: this.terrain, frame: this.frame });
@@ -93301,6 +94533,9 @@ class Game {
     this.avatar = new Avatar(this.scene);
     this.avatar.loadTextures();
     this.avatar.loadModel();
+    // The held view model rides the camera, so it is hung off it rather than
+    // off the scene root.
+    this.avatar.attachTo(this.camera);
     this.rig = new CameraRig(this.camera);
     this.input = new InputManager(canvas);
     this.autopilot = new Autopilot({
@@ -93676,17 +94911,32 @@ class Game {
       const ground = this.terrain.heightAt(this.rig.freecam.position.x, this.rig.freecam.position.z);
       this.rig.updateFreecam(dt, movement, ground);
       player.tickTimers(dt);
-    } else if (this.settling) {
+      player.snapRender();
+    } else if (this.settling && !this.wantsControl(movement)) {
       this.settle(dt);
+      player.snapRender();
     } else {
+      this.releaseSettle();
       this.controller.update(dt, movement);
     }
 
-    // Keep the world numerically comfortable around the player.
-    if (this.frame.needsRebase(player.position.x, player.position.z)) this.rebase();
+    // Keep the world numerically comfortable around the player. A rebase moves
+    // the origin under you, so the drawn position has to come with it rather
+    // than be interpolated across the jump.
+    if (this.frame.needsRebase(player.position.x, player.position.z)) {
+      this.rebase();
+      player.snapRender();
+    }
     player.syncGeo();
 
     this.rig.update(player, dt, this.terrain);
+
+    // Invented imagery is only allowed over invented relief; see
+    // ImageryStreamer.mayGenerate. And the terrain shader needs to know
+    // whether there is any relief at all, because sand and bare rock are
+    // statements about height and slope that mean nothing on a flat plate.
+    this.streamer.setMayGenerate(this.elevation.invented);
+    this.shared.uHasRelief.value = this.elevation.hasRelief ? 1 : 0;
 
     const budget = this.perf.budgetMs();
     this.terrain.update(this.camera, budget);
@@ -93725,7 +94975,10 @@ class Game {
     if (!photoreal) this.scatter.update(this.camera, player);
     else this.scatter.group.visible = false;
 
-    this.buildings.update(player.lat, player.lon, player.altitudeAboveGround);
+    // Nothing to extrude where Google is already handing us the real thing:
+    // asking Overpass for footprints we are not going to draw is a request
+    // against a shared community endpoint for nothing at all.
+    if (!photoreal) this.buildings.update(player.lat, player.lon, player.altitudeAboveGround);
 
     this.panorama.update(
       {
@@ -93749,9 +95002,13 @@ class Game {
     const showAvatar = thirdPerson || settings.get('showBody');
     this.avatar.setVisible(showAvatar);
     this.avatar.setFirstPerson(!thirdPerson);
-    if (showAvatar) this.avatar.update(player, dt);
+    // Always update, even with the body switched off: the held view model
+    // hangs off the camera rather than off the avatar root, and it is drawn in
+    // first person whatever the body setting says — the same way every game
+    // that has a first-person body still draws the thing in your hand.
+    this.avatar.update(player, dt, this.camera);
 
-    exploration.visit(player.lat, player.lon, player.altitudeAboveGround);
+    exploration.visit(player.lat, player.lon, player.altitudeAboveGround, this.seenRadius());
     exploration.tick(dt);
     trail.record(player.lat, player.lon);
     trail.tick(dt);
@@ -93820,8 +95077,46 @@ class Game {
       : 'open ocean';
   }
 
+  /**
+   * How far you can actually see, in metres.
+   *
+   * The geometric horizon at your height — sqrt(2Rh) — capped by how far the
+   * terrain is being drawn, because ground beyond the render distance is not
+   * on the screen however high you are. This is what the explored map reveals,
+   * so the map says you have seen what you have seen.
+   */
+  seenRadius() {
+    const alt = Math.max(2, this.player.altitudeAboveGround);
+    const horizon = Math.sqrt(2 * 6378137 * alt);
+    return Math.max(240, Math.min(horizon, this.terrain.renderDistance));
+  }
+
   get settling() {
     return performance.now() < this.settleUntil;
+  }
+
+  /** Has the player asked to do something? Then stop holding them still. */
+  wantsControl(movement) {
+    return !!(movement.forward || movement.back || movement.left || movement.right || movement.jump);
+  }
+
+  /**
+   * End the arrival hold early.
+   *
+   * The hold exists to stop a teleport stuttering while the ground streams in.
+   * It was ending only on its own clock, which meant two and a half seconds
+   * after every arrival where the controls did nothing and every frame reset
+   * your velocity to zero — you could not walk, and a rocket lit in that
+   * window did nothing at all. Anything you press now ends it instead.
+   */
+  releaseSettle() {
+    if (!this.settling) return;
+    this.settleUntil = 0;
+    // Hand over at exactly the height we were holding, so the release is not
+    // a step either.
+    if (Number.isFinite(this._holdY)) this.player.position.y = this._holdY;
+    this._holdY = NaN;
+    if (this.arrivalPending) this.finishArrival();
   }
 
   /**
@@ -93841,11 +95136,25 @@ class Game {
     // us, sometimes by hundreds of metres as a coarse LOD is replaced by a
     // finer one. Writing that straight into position.y snapped the camera on
     // every one of those, which is the jitter you get on an airborne teleport.
-    const target = ground + (this.holdInAir ? SPAWN_HEIGHT_M : 1.2);
-    if (!Number.isFinite(this._holdY)) this._holdY = target;
-    // Ease toward it instead, so a late tile slides the world into place
-    // rather than jerking it.
-    this._holdY = damp(this._holdY, target, 6, dt);
+    if (this.holdInAir) {
+      // An airborne arrival needs no tracking at all. You are four hundred
+      // metres up: whether the ground below turns out to be sea level or an
+      // alp does not move your eye by a pixel, so hold the height you were
+      // put at and leave it alone. Easing toward `ground + 420` instead meant
+      // every elevation tile that landed slid the whole world past you, which
+      // is exactly the jitter an arrival had. The only thing worth reacting
+      // to is ground arriving *above* you, and that is eased.
+      if (!Number.isFinite(this._holdY)) this._holdY = player.position.y;
+      const clearance = ground + SPAWN_HEIGHT_M * 0.1;
+      if (this._holdY < clearance) this._holdY = damp(this._holdY, clearance, 6, dt);
+    } else {
+      const target = ground + 1.2;
+      if (!Number.isFinite(this._holdY)) this._holdY = target;
+      // On the ground the height *is* the ground, so it has to be tracked —
+      // eased, so a late tile slides the world into place rather than jerking
+      // it.
+      this._holdY = damp(this._holdY, target, 6, dt);
+    }
     player.position.y = this._holdY;
     player.onGround = !this.holdInAir;
 
@@ -93854,14 +95163,7 @@ class Game {
     const waited = performance.now() - (this.settleUntil - SETTLE_MS);
     const norm = this.frame.worldToNorm(player.position.x, player.position.z);
     const ready = this.elevation.hasData(norm.nx, norm.ny) && this.terrain.stats.drawn > 6;
-    if (waited > 650 && ready) {
-      this.settleUntil = 0;
-      // Hand over at exactly the height we were holding, so the release is not
-      // a step either.
-      player.position.y = this._holdY;
-      this._holdY = NaN;
-    }
-    if (!this.settling && this.arrivalPending) this.finishArrival();
+    if (waited > 650 && ready) this.releaseSettle();
   }
 
   /**
@@ -93931,8 +95233,20 @@ class Game {
     // Arrive in the air with the wings out: you are here to look around, and a
     // teleport that dumps you in a field facing a hedge wastes the trip. Turn
     // "arrives in the sky" off in Settings → World to land on your feet instead.
-    const airborne = (reason === 'rtp' || reason === 'spawn') && settings.get('rtpSkySpawn');
+    // Arrive doing what you were doing. With the setting on, a teleport called
+    // while you are flying puts you back in the air and one called while you
+    // are standing puts you back on your feet — the first load has no previous
+    // state to match, so it takes the setting at its word.
+    const wasFlying = !player.onGround || player.elytraDeployed;
+    const airborne =
+      settings.get('rtpSkySpawn') &&
+      (reason === 'spawn' || ((reason === 'rtp' || reason === 'map') && wasFlying));
     player.teleport(lat, lon, ground, airborne ? SPAWN_HEIGHT_M : 1.2);
+    // Arrive looking at the country rather than at your own boots. Teleporting
+    // while you happened to be looking down dropped you four hundred metres up
+    // staring into ground that had not streamed in yet, which reads as a
+    // teleport into an empty void. Heading is yours; the pitch is levelled.
+    player.pitch = clamp(player.pitch, -0.25, 0.25);
     if (airborne) {
       player.onGround = false;
       player.toggleElytra(true);
@@ -94108,6 +95422,8 @@ class Game {
   fireRocket() {
     const player = this.player;
     if (this.rig.isFreecam) return;
+    // Lighting one is asking to move, so it ends the arrival hold too.
+    this.releaseSettle();
     if (!player.elytraDeployed) {
       if (!player.onGround) {
         player.toggleElytra(true);
@@ -94154,10 +95470,35 @@ class Game {
     const parts = [];
     const source = this.imagerySource;
     if (source) {
-      if (source.state === 'needs-key') parts.push(`${source.descriptor.label}: key required`);
-      else if (source.state === 'error') parts.push(`${source.descriptor.label}: ${source.error}`);
-      else if (this.streamer.degraded) parts.push(`${source.descriptor.label}: unreachable, generated terrain`);
-      else parts.push(source.descriptor.label);
+      const name = source.substitutedFor
+        ? `${source.descriptor.label} (no key for ${source.substitutedFor.label})`
+        : source.descriptor.label;
+      if (source.state === 'needs-key') parts.push(`${name}: key required`);
+      else if (source.state === 'error') parts.push(`${name}: ${source.error}`);
+      else if (this.streamer.degraded) parts.push(`${name}: unreachable`);
+      else parts.push(name);
+      // What is on the ground right now, which is not the same question as
+      // whether the provider is up: a tile past the provider's deepest zoom is
+      // still that provider's photograph, stretched, and saying "unavailable"
+      // about it was simply wrong.
+      const relief = this.elevation.source;
+      const reliefName = relief?.substitutedFor
+        ? `${relief.descriptor.label} (no key for ${relief.substitutedFor.label})`
+        : null;
+      if (!this.elevation.hasRelief) {
+        parts.push(reliefName ? `${reliefName}: loading` : 'elevation loading — flat for now');
+      } else if (this.elevation.invented && !relief?.synthetic) {
+        parts.push(
+          reliefName
+            ? `${reliefName}: unreachable, generated relief`
+            : 'elevation unreachable — generated relief',
+        );
+      } else if (reliefName) {
+        parts.push(reliefName);
+      }
+      if (!this.streamer.mayGenerate && this.streamer.degraded) {
+        parts.push('no imagery here — ground coloured from the elevation');
+      }
     }
     if (this.tiles3d) {
       const line = this.tiles3d.status();
@@ -94165,7 +95506,6 @@ class Game {
     } else if (this.notice3d) {
       parts.push(this.notice3d);
     }
-    if (this.elevation.unreachable) parts.push('elevation unavailable — flat terrain');
     const scenery = this.scatter.status();
     if (scenery) parts.push(scenery);
     if (this.debugVisible) {

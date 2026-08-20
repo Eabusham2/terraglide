@@ -25,9 +25,10 @@ your own quota. Read them before you turn a provider on.
 
 | Provider | Used for | Key required | Terms |
 | --- | --- | --- | --- |
-| Google Maps Platform (Map Tiles API, Street View Static API, Geocoding API) | satellite tiles, street-level panoramas, addresses | yes | <https://cloud.google.com/maps-platform/terms> |
-| Microsoft Bing Maps | satellite tiles | yes | <https://www.microsoft.com/maps/product/terms> |
+| Google Maps Platform (Map Tiles API, Street View Static API, Geocoding API, Elevation API) | satellite tiles, street-level panoramas, addresses, elevation grids | yes | <https://cloud.google.com/maps-platform/terms> |
+| Microsoft Bing Maps | satellite tiles, elevation grids | yes | <https://www.microsoft.com/maps/product/terms> |
 | Azure Maps (Render) | satellite tiles | yes | <https://azure.microsoft.com/support/legal/> |
+| Maxar SecureWatch | satellite tiles | yes (enterprise connect ID) | <https://www.maxar.com/legal> |
 | Mapbox (Satellite, Terrain-RGB) | satellite tiles, elevation | yes | <https://www.mapbox.com/legal/tos> |
 | Esri World Imagery | satellite tiles | no | <https://www.esri.com/en-us/legal/terms/full-master-agreement> |
 | OpenStreetMap standard tiles | reference map layer | no | <https://operations.osmfoundation.org/policies/tiles/> |
@@ -35,6 +36,19 @@ your own quota. Read them before you turn a provider on.
 | Overpass API | OpenStreetMap buildings, bridges, infrastructure and land cover | no | <https://dev.overpass-api.de/overpass-doc/en/preface/commons.html> |
 | Mapillary | street-level panoramas | yes (token) | <https://www.mapillary.com/terms> |
 | AWS Terrain Tiles (Terrarium) | elevation | no | <https://registry.opendata.aws/terrain-tiles/> |
+
+Bing and Google also publish elevation as *numbers* rather than as pictures —
+Bing's `Elevation/Bounds` answers with a grid for a rectangle, Google's
+Elevation API with a list of heights for a list of points, sent as an encoded
+polyline so a tile fits in one request. Both are offered, both cost one request
+per tile against your own quota, and both are capped shallow for that reason.
+Where you have the choice, AWS Terrain Tiles are finer and ask for no account.
+Google's real terrain detail is in the photorealistic 3D tiles, not in the
+Elevation API.
+
+Maxar's imagery reaches most people through Esri, Bing and Google, all of which
+serve Maxar scenes and all of which credit them. The direct route, Maxar
+SecureWatch, is offered for anyone who has an enterprise connect ID.
 
 Attribution for whichever providers you enable is shown in the bottom-right of
 the HUD and must not be hidden — see `LICENSE` §3(e) and §4.

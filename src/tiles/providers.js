@@ -1,4 +1,5 @@
 import { quadKey } from '../geo/mercator.js';
+import { BING_SIDE, GOOGLE_SIDE, encodePolyline, googleSamplePoints, tileBounds } from './elevationGrid.js';
 
 /**
  * Provider registry. TerraGlide ships with every key slot empty; a provider is
@@ -65,6 +66,24 @@ export const IMAGERY_PROVIDERS = [
       'photogrammetry, so it cannot drive the 3D option.',
   },
   {
+    id: 'maxar',
+    label: 'Maxar SecureWatch',
+    kind: 'xyz',
+    needsKey: 'maxarConnectId',
+    maxZoom: 20,
+    template:
+      'https://securewatch.digitalglobe.com/earthservice/wmtsaccess?connectid={key}' +
+      '&SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=DigitalGlobe:ImageryTileService' +
+      '&FORMAT=image/jpeg&TileMatrixSet=EPSG:3857&TileMatrix=EPSG:3857:{z}&TileRow={y}&TileCol={x}',
+    attribution: 'Imagery © Maxar Technologies',
+    note:
+      'Maxar\u2019s own service, on a SecureWatch connect ID. That is an enterprise '
+      + 'credential rather than something you sign up for in an afternoon \u2014 and if '
+      + 'you have not got one you are not missing the imagery, only the direct '
+      + 'route to it: Esri, Bing and Google all serve Maxar scenes and all three '
+      + 'credit them.',
+  },
+  {
     id: 'mapbox',
     label: 'Mapbox Satellite',
     kind: 'xyz',
@@ -107,6 +126,37 @@ export const ELEVATION_PROVIDERS = [
     maxZoom: 15,
     template: 'https://api.mapbox.com/v4/mapbox.terrain-rgb/{z}/{x}/{y}.pngraw?access_token={key}',
     attribution: '© Mapbox',
+  },
+  {
+    id: 'bing-elevation',
+    label: 'Bing Maps elevation',
+    kind: 'bing-elevation',
+    needsKey: 'bingKey',
+    // Deliberately shallow. Every tile is one call against your own Bing
+    // account, so a tile has to be worth making a call for: at zoom 12 one
+    // covers about ten kilometres, and 32 by 32 samples across it is roughly
+    // three hundred metre spacing — coarser than Terrarium, and enough to
+    // shape a landscape.
+    maxZoom: 12,
+    attribution: 'Elevation © Microsoft',
+    note:
+      'Bing\u2019s Elevation service, on a Bing Maps key. It answers with a grid of '
+      + 'heights rather than a picture, one request per tile against your own quota, '
+      + 'and it is coarser than the raster sources \u2014 pick it because you have the '
+      + 'key, not because it is sharper.',
+  },
+  {
+    id: 'google-elevation',
+    label: 'Google Maps elevation',
+    kind: 'google-elevation',
+    needsKey: 'googleKey',
+    maxZoom: 12,
+    attribution: 'Elevation © Google',
+    note:
+      'The Google Elevation API, on a Maps Platform key. It takes a list of points '
+      + 'rather than an area, so a tile is sent as an encoded polyline of 22 by 22 '
+      + 'samples \u2014 coarse, and billed per request on your own account. Google\u2019s '
+      + 'real terrain detail is in the photorealistic 3D tiles, not here.',
   },
   {
     id: 'terrarium',
@@ -292,14 +342,37 @@ export class TileSource {
       if (!this.googleSession) return null;
       return `https://tile.googleapis.com/v1/2dtiles/${tile.z}/${tile.x}/${tile.y}?session=${encodeURIComponent(this.googleSession)}&key=${encodeURIComponent(this.key)}`;
     }
+    if (d.kind === 'bing-elevation') {
+      const b = tileBounds(tile);
+      // Bounds are south, west, north, east — Bing's order, not ours.
+      return (
+        'https://dev.virtualearth.net/REST/v1/Elevation/Bounds?bounds=' +
+        `${b.south.toFixed(6)},${b.west.toFixed(6)},${b.north.toFixed(6)},${b.east.toFixed(6)}` +
+        `&rows=${BING_SIDE}&cols=${BING_SIDE}&heights=ellipsoid&key=${encodeURIComponent(this.key)}`
+      );
+    }
+    if (d.kind === 'google-elevation') {
+      const encoded = encodePolyline(googleSamplePoints(tile, GOOGLE_SIDE));
+      return (
+        'https://maps.googleapis.com/maps/api/elevation/json?locations=enc:' +
+        `${encodeURIComponent(encoded)}&key=${encodeURIComponent(this.key)}`
+      );
+    }
     if (!d.template) return null;
     return fillTemplate(d.template, tile, this.key);
   }
 
-  /** 'imagery' | 'terrain-rgb' | 'terrarium' — tells the worker how to decode. */
+  /** How the worker should read the answer: a picture, or a grid of numbers. */
   get decode() {
     const kind = this.descriptor.kind;
-    if (kind === 'terrain-rgb' || kind === 'terrarium') return kind;
+    if (
+      kind === 'terrain-rgb' ||
+      kind === 'terrarium' ||
+      kind === 'bing-elevation' ||
+      kind === 'google-elevation'
+    ) {
+      return kind;
+    }
     return 'imagery';
   }
 }

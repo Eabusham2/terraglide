@@ -565,7 +565,10 @@ export class Game {
     if (!photoreal) this.scatter.update(this.camera, player);
     else this.scatter.group.visible = false;
 
-    this.buildings.update(player.lat, player.lon, player.altitudeAboveGround);
+    // Nothing to extrude where Google is already handing us the real thing:
+    // asking Overpass for footprints we are not going to draw is a request
+    // against a shared community endpoint for nothing at all.
+    if (!photoreal) this.buildings.update(player.lat, player.lon, player.altitudeAboveGround);
 
     this.panorama.update(
       {
@@ -1068,9 +1071,20 @@ export class Game {
       // whether the provider is up: a tile past the provider's deepest zoom is
       // still that provider's photograph, stretched, and saying "unavailable"
       // about it was simply wrong.
-      if (!this.elevation.hasRelief) parts.push('elevation loading — flat for now');
-      else if (this.elevation.invented && !this.elevation.source?.synthetic) {
-        parts.push('elevation unreachable — generated relief');
+      const relief = this.elevation.source;
+      const reliefName = relief?.substitutedFor
+        ? `${relief.descriptor.label} (no key for ${relief.substitutedFor.label})`
+        : null;
+      if (!this.elevation.hasRelief) {
+        parts.push(reliefName ? `${reliefName}: loading` : 'elevation loading — flat for now');
+      } else if (this.elevation.invented && !relief?.synthetic) {
+        parts.push(
+          reliefName
+            ? `${reliefName}: unreachable, generated relief`
+            : 'elevation unreachable — generated relief',
+        );
+      } else if (reliefName) {
+        parts.push(reliefName);
       }
       if (!this.streamer.mayGenerate && this.streamer.degraded) {
         parts.push('no imagery here — ground coloured from the elevation');

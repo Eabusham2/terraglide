@@ -21,6 +21,12 @@ import { createPanoramaMaterial } from './shaders.js';
 const SEARCH_RADIUS_M = 70;
 const DOME_RADIUS = 90;
 
+/** Hermite fade between two edges, so a blend arrives rather than switches. */
+function smoothstep(edge0, edge1, x) {
+  const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
 export class Panorama {
   constructor({ scene, frame, worker }) {
     this.frame = frame;
@@ -84,9 +90,17 @@ export class Panorama {
         { lat: state.lat, lon: state.lon },
         { lat: this.current.lat, lon: this.current.lon },
       );
-      const near = 1 - clamp((distance - 12) / 38, 0, 1);
-      const low = 1 - clamp((state.altitudeAboveGround - 6) / 22, 0, 1);
-      const calm = 1 - clamp((state.speed - 6) / 14, 0, 1);
+      // How much of what you are looking at is the photograph.
+      //
+      // It used to run out over thirty-eight metres, which is short enough
+      // that the dome read as switching on rather than as arriving: you
+      // stepped forward and the world changed. Walking toward a capture point
+      // now brings the photograph up gradually across a hundred metres and
+      // over a smooth curve, so the geometry underneath gives way to it by
+      // degrees — the closer you get, the more of it you are standing in.
+      const near = 1 - smoothstep(10, 110, distance);
+      const low = 1 - smoothstep(6, 34, state.altitudeAboveGround);
+      const calm = 1 - smoothstep(6, 22, state.speed);
       target = near * low * calm;
     }
 

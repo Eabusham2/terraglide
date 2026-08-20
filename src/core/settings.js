@@ -38,6 +38,7 @@ export const DEFAULT_SETTINGS = {
   googleKey: '',
   mapboxKey: '',
   mapillaryToken: '',
+  maxarConnectId: '',
   addressLookup: true,
   buildings: true,
   structuresNeedHeight: false,

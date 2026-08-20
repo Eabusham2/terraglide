@@ -519,7 +519,12 @@ export class Avatar {
     // Gliding lays the body along the flight path. The head points where you
     // look: level flight is face down, a dive is head down, a climb stands up.
     const glidePitch = player.pitch - Math.PI / 2;
-    this.body.rotation.x = damp(this.body.rotation.x, gliding || flying ? glidePitch : 0, 9, dt);
+    // On foot the body leans with the grade — a fraction of it, the way a
+    // walker actually leans, rather than standing perpendicular to a hillside
+    // like a flagpole. The pose turns about the neck, so leaning does not move
+    // the head off the camera.
+    const lean = gliding || flying ? glidePitch : -(player.groundSlope ?? 0) * 0.45;
+    this.body.rotation.x = damp(this.body.rotation.x, lean, 9, dt);
     this.body.rotation.z = damp(
       this.body.rotation.z,
       gliding || flying ? 0 : clamp(sideSpeed * 0.05, -0.25, 0.25),

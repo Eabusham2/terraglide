@@ -117,6 +117,7 @@ export class PlayerController {
 
     player.syncGeo();
     player.groundHeight = this.groundHeightAt(player.position.x, player.position.z, player.position.y);
+    this.readGroundSlope(player);
     // Under water the useful floor is the sea bed, not the surface above you.
     if (player.swimming) {
       player.groundHeight = Math.min(
@@ -124,6 +125,28 @@ export class PlayerController {
         this.terrain.bedAt(player.position.x, player.position.z),
       );
     }
+  }
+
+  /**
+   * How steep the ground is along the way you are facing.
+   *
+   * Measured over a couple of metres either side of you rather than from a
+   * surface normal, because the mesh normal is per-vertex and a person is
+   * longer than a vertex: what you want is the grade a walker feels, not the
+   * tilt of the polygon under one boot.
+   */
+  readGroundSlope(player) {
+    if (!player.onGround) {
+      player.groundSlope = damp(player.groundSlope, 0, 6, 1 / 60);
+      return;
+    }
+    const reach = Math.max(1, player.height * 0.8);
+    const fx = Math.sin(player.yaw) * reach;
+    const fz = -Math.cos(player.yaw) * reach;
+    const ahead = this.terrain.heightAt(player.position.x + fx, player.position.z + fz);
+    const behind = this.terrain.heightAt(player.position.x - fx, player.position.z - fz);
+    const target = clamp(Math.atan2(ahead - behind, reach * 2), -0.7, 0.7);
+    player.groundSlope = damp(player.groundSlope, target, 8, 1 / 60);
   }
 
   tick(step, input) {
