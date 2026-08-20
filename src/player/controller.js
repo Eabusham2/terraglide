@@ -15,10 +15,26 @@ import { TICK, stepGlide, stepRocket } from './elytra.js';
  */
 
 const GRAVITY = 32; // metres / second^2, Minecraft-flavoured rather than 9.81
-const WALK_SPEED = 4.3;
-const SPRINT_SPEED = 8.2;
-const CROUCH_SPEED = 1.7;
+/**
+ * Minecraft's own ground speeds, converted from blocks per tick.
+ *
+ * Walking is 0.21585 b/t, sprinting 0.2806 and sneaking 0.06475 — 4.32, 5.61
+ * and 1.30 metres a second. Sprinting used to be 8.2, which is a fast jog for
+ * a helicopter and made every other number in the movement model a guess.
+ */
+const WALK_SPEED = 4.32;
+const SPRINT_SPEED = 5.61;
+const CROUCH_SPEED = 1.3;
+/** 0.42 blocks per tick off the ground, which clears a block and a quarter. */
 const JUMP_SPEED = 8.4;
+/**
+ * Minecraft's vertical drag: velocity is multiplied by 0.98 every tick after
+ * gravity, which is what stops a fall accelerating forever and puts terminal
+ * velocity at 3.92 blocks a tick — 78.4 m/s. Without it a long drop reached
+ * speeds nothing in the game could survive or render, and the ground arrived
+ * as a single frame.
+ */
+const FALL_DRAG_PER_TICK = 0.98;
 const GROUND_ACCEL = 14;
 const AIR_ACCEL = 2.4;
 const CLIMB_SPEED = 3.4;
@@ -26,6 +42,10 @@ const SWIM_SPEED = 2.4;
 const SWIM_SINK = 0.9;
 const SWIM_RISE = 3.2;
 const WATER_DRAG = 5.5;
+/** How long the second tap of a double jump may arrive after the first. */
+const DOUBLE_TAP_S = 0.4;
+/** How long a jump press waits for a tick that finds you on the ground. */
+const JUMP_BUFFER_S = 0.16;
 /** How far the feet can be lifted per second when walking up a slope. */
 const STEP_SMOOTHING = 12;
 /** Creative flight, metres per second, cruise and sprint. */
@@ -43,6 +63,12 @@ export class PlayerController {
     this.lastGroundContact = 0;
     this.landedThisFrame = false;
     this.climbing = false;
+    /** Jump-key bookkeeping, read at frame rate rather than tick rate. */
+    this.clock = 0;
+    this.jumpHeld = false;
+    this.jumpQueued = false;
+    this.jumpQueuedAt = -Infinity;
+    this.lastJumpTap = -Infinity;
   }
 
   /**
@@ -53,6 +79,13 @@ export class PlayerController {
     const player = this.player;
     this.landedThisFrame = false;
     player.tickTimers(dt);
+
+    // Jump is read here, once a frame, and not inside the fixed step. Physics
+    // run at 20 Hz, so on a 60 Hz screen only one frame in three carries a
+    // tick: an edge detected in there misses any press shorter than about
+    // fifty milliseconds, and a *double* tap has to get two edges past the
+    // same sieve. That is why tapping twice sometimes did nothing at all.
+    this.readJumpEdges(dt, input);
 
     // A stretched clock needs proportionally more catch-up ticks per frame, or
     // the substep cap quietly swallows the extra speed on a slow machine.
@@ -194,9 +227,13 @@ export class PlayerController {
           : 0;
     } else {
       player.velocity.y -= GRAVITY * step;
-      if (player.onGround && input.jump) {
+      // Drag on the fall, so terminal velocity exists. Raised to the power of
+      // the step so it is the same 0.98 a tick whatever the frame rate.
+      player.velocity.y *= Math.pow(FALL_DRAG_PER_TICK, step / TICK);
+      if (player.onGround && (input.jump || this.jumpQueued)) {
         player.velocity.y = JUMP_SPEED * Math.sqrt(scale);
         player.onGround = false;
+        this.jumpQueued = false;
       }
     }
 
@@ -205,11 +242,39 @@ export class PlayerController {
       player.rocketTicksLeft = 0;
     } else {
       player.airborneSeconds += step;
-      // Falling with jump held snaps the wings open, like the real thing.
-      if (input.jump && player.velocity.y < -2 && player.airborneSeconds > 0.25) {
-        player.toggleElytra(true);
-      }
     }
+  }
+
+  /**
+   * The jump key's edges: buffer one press for the next ground tick, and turn
+   * two presses in the air into the wings opening — or closing again.
+   *
+   * Holding jump used to open the wings on its own, which is one key doing two
+   * things at once: every ordinary jump ends with jump still held, so a
+   * quarter of a second later the wings snapped out whether you wanted them or
+   * not. A double tap is a deliberate thing to do, and it reads the same in
+   * both directions — the gesture that opens them closes them.
+   */
+  readJumpEdges(dt, input) {
+    const player = this.player;
+    this.clock += dt;
+    if (this.jumpQueued && this.clock - this.jumpQueuedAt > JUMP_BUFFER_S) this.jumpQueued = false;
+
+    const pressed = !!input.jump && !this.jumpHeld;
+    this.jumpHeld = !!input.jump;
+    if (!pressed) return;
+
+    if (!player.onGround && this.clock - this.lastJumpTap < DOUBLE_TAP_S) {
+      player.toggleElytra(!player.elytraDeployed);
+      // A third tap starts a fresh pair rather than toggling straight back.
+      this.lastJumpTap = -Infinity;
+      return;
+    }
+    this.lastJumpTap = this.clock;
+    // Held for the next tick that finds you on the ground, so a tap made
+    // between ticks — or a fraction of a second before you land — still jumps.
+    this.jumpQueued = true;
+    this.jumpQueuedAt = this.clock;
   }
 
   resolveCollisions(step, input) {

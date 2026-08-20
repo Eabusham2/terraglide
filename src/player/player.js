@@ -1,7 +1,7 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { cheats } from '../core/cheats.js';
 import { Emitter } from '../core/events.js';
-import { clamp } from '../core/math.js';
+import { clamp, damp } from '../core/math.js';
 import { settings } from '../core/settings.js';
 import { rocketPowerFor, rocketTicks } from './elytra.js';
 
@@ -66,6 +66,11 @@ export class Player extends Emitter {
     this.speedActive = false;
     this.speedRemaining = 0;
     this.speedCooldown = 0;
+    /**
+     * What speed mode is actually worth right now, eased rather than switched.
+     * See tickTimers.
+     */
+    this.speedBlend = 1;
 
     this.selectedSlot = 0;
     this.distanceTravelled = 0;
@@ -105,15 +110,24 @@ export class Player extends Emitter {
     return HOTBAR[this.selectedSlot];
   }
 
-  /** How far a second of movement carries you. Speed mode, then any cheat. */
+  /**
+   * How far a second of movement carries you. Speed mode, then any cheat.
+   *
+   * This is the *only* place speed mode multiplies anything. It used to also
+   * double the firework's thrust, and since thrust feeds velocity and velocity
+   * feeds this, the two compounded: a rocket lit in speed mode went four times
+   * as fast as one lit without it, over four times the ground, which is where
+   * the stutter came from — the terrain was being asked to stream in at four
+   * times the rate the budget was written for. Two is two.
+   */
   get speedMultiplier() {
-    return (this.speedActive ? 2 : 1) * cheats.playerSpeed;
+    return this.speedBlend * cheats.playerSpeed;
   }
 
-  /** Firework thrust: the slot's powder, speed mode, and any cheat on top. */
+  /** Firework thrust: the slot's powder and any cheat on top. */
   get rocketPower() {
     const slot = this.selectedItem;
-    return (slot ? slot.power : 1) * (this.speedActive ? 2 : 1) * cheats.rocketPower;
+    return (slot ? slot.power : 1) * cheats.rocketPower;
   }
 
   /** How far through the current burn we are, 0 at ignition and 1 at burnout. */
@@ -207,6 +221,17 @@ export class Player extends Emitter {
   }
 
   tickTimers(dt) {
+    // Speed mode comes on like a switch and goes off like momentum. Dropping
+    // it used to halve your ground speed between one frame and the next, which
+    // is not what running out of anything feels like; now it bleeds away over
+    // a few seconds, and a firework still burning holds it up while it does —
+    // so a well-timed rocket carries some of the boost past the end of it.
+    const target = this.speedActive ? 2 : 1;
+    const rate = target > this.speedBlend ? 8 : this.rocketTicksLeft > 0 ? 0.25 : 0.8;
+    this.speedBlend = damp(this.speedBlend, target, rate, dt);
+    // An exponential never quite arrives; a per cent is under the noise floor.
+    if (Math.abs(this.speedBlend - target) < 0.01) this.speedBlend = target;
+
     if (this.speedActive && cheats.speedFree) {
       // Unlimited: hold the gauge full rather than counting down.
       this.speedRemaining = settings.get('speedModeDurationS');

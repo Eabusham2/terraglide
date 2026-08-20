@@ -10,10 +10,11 @@ const SEEN_KEY = 'seen-intro';
 const ROWS = [
   ['Move', ['forward', 'left', 'back', 'right']],
   ['Sprint / crouch', ['sprint', 'crouch']],
-  ['Jump — hold while falling to open the wings', ['jump']],
+  ['Jump — tap twice in the air to open or stow the wings', ['jump']],
   ['Fire a rocket — opens the wings for you (or use the mouse)', ['rocket']],
   ['Swim — jump to rise, crouch to dive', ['jump', 'crouch']],
   ['Speed mode — 2x for a while, then a cooldown', ['speedMode']],
+  ['Stow the wings and drop out of a glide', ['stowWings']],
   ['Random teleport', ['rtp']],
   ['World map', ['worldMap']],
   ['Drop a waypoint', ['waypoint']],
@@ -37,6 +38,11 @@ export class HelpCard {
 
     this.element.addEventListener('click', (event) => {
       if (event.target.closest('[data-close]')) this.close();
+    });
+    // Rebind a key with the card open and the card should say the new key,
+    // not the one it was built with.
+    keybinds.on('change', () => {
+      if (this.open) this.render();
     });
   }
 

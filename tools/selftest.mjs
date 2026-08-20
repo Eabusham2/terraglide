@@ -197,7 +197,10 @@ console.log('\nelytra flight model');
     }
     best = Math.max(best, distance / 1000);
   }
-  ok('a good angle glides a long way', best > 6 && best < 20, `${best.toFixed(1)} : 1`);
+  // Kilometres of ground from a kilometre up, which is the glide ratio in the
+  // units a player thinks in. Drag was raised to bring this down from a ten to
+  // one cruise; it still has to be a long way, and it still has to end.
+  ok('a good angle glides a long way', best > 4.5 && best < 12, `${best.toFixed(1)} km from 1 km up`);
 
   // Rockets accelerate along the look vector.
   const boosted = { x: 0, y: 0, z: -10 };
@@ -212,8 +215,13 @@ console.log('\nelytra flight model');
       near(rocketTicks(duration) * TICK, duration, 0.001));
   }
   ok('a bigger rocket carries more powder', rocketPowerFor(5) > rocketPowerFor(1));
+  ok(
+    'the powder ramp compounds rather than adding',
+    rocketPowerFor(5) - rocketPowerFor(4) > rocketPowerFor(2) - rocketPowerFor(1) + 0.01,
+    `IV->V ${(rocketPowerFor(5) - rocketPowerFor(4)).toFixed(3)} vs I->II ${(rocketPowerFor(2) - rocketPowerFor(1)).toFixed(3)}`,
+  );
   ok('but duration is the main thing you buy — power ramps gently',
-    rocketPowerFor(5) < rocketPowerFor(1) * 1.8,
+    rocketPowerFor(5) < rocketPowerFor(1) * 2.2,
     `${rocketPowerFor(1).toFixed(2)} to ${rocketPowerFor(5).toFixed(2)}`);
 
   // Minecraft accelerates you toward 1.5 blocks/tick, which is 30 m/s. A
@@ -928,6 +936,95 @@ console.log('\nGenerated art stays where it belongs');
     if (!file.endsWith('.jpg') && !file.endsWith('.png')) continue;
     const path = new URL(`../assets/${file}`, import.meta.url);
     ok(`${file} is present`, existsSync(path) && statSync(path).size > 1024);
+  }
+}
+
+console.log('\nWalking, jumping and falling like Minecraft');
+{
+  const { Player } = await import('../src/player/player.js');
+  const { PlayerController } = await import('../src/player/controller.js');
+  const frame = { setAnchor() {}, toGeo: () => ({ lat: 0, lon: 0 }) };
+  const flat = {
+    heightAt: () => 0, bedAt: () => 0, meshHeightAt: () => null,
+    hasElevationAt: () => true, isWaterAt: () => false,
+  };
+  const rig = () => {
+    const player = new Player(frame);
+    return { player, controller: new PlayerController({ player, terrain: flat, buildings: null }) };
+  };
+  const keys = (over = {}) => ({
+    forward: false, back: false, left: false, right: false,
+    jump: false, sprint: false, crouch: false, ...over,
+  });
+  const run = (r, frames, over) => { for (let i = 0; i < frames; i++) r.controller.update(1 / 60, keys(over)); };
+
+  {
+    const r = rig();
+    r.player.position.set(0, 4000, 0);
+    r.player.onGround = false;
+    run(r, 60 * 30);
+    ok('a fall reaches terminal velocity and stops there',
+      near(-r.player.velocity.y, 78.4, 0.5), `${(-r.player.velocity.y).toFixed(1)} m/s`);
+  }
+  {
+    const r = rig();
+    r.player.onGround = true;
+    run(r, 180, { forward: true });
+    ok('walking is 4.32 m/s', near(r.player.horizontalSpeed, 4.32, 0.05),
+      `${r.player.horizontalSpeed.toFixed(2)} m/s`);
+    run(r, 180, { forward: true, sprint: true });
+    ok('sprinting is 5.61 m/s', near(r.player.horizontalSpeed, 5.61, 0.05),
+      `${r.player.horizontalSpeed.toFixed(2)} m/s`);
+  }
+  {
+    const r = rig();
+    r.player.onGround = true;
+    let peak = 0;
+    for (let i = 0; i < 120; i++) {
+      r.controller.update(1 / 60, keys({ jump: i < 2 }));
+      peak = Math.max(peak, r.player.position.y);
+    }
+    // Two frames at 60 Hz is shorter than one 20 Hz physics tick, so this also
+    // pins the buffering: without it the tap falls between ticks and is lost.
+    ok('a tap of jump clears a block and a quarter', near(peak, 1.25, 0.06), `${peak.toFixed(2)} m`);
+  }
+  {
+    const r = rig();
+    r.player.position.set(0, 300, 0);
+    r.player.onGround = false;
+    const tap = () => { run(r, 1, { jump: true }); run(r, 1); };
+    tap(); tap();
+    ok('two taps in the air open the wings', r.player.elytraDeployed);
+    tap(); tap();
+    ok('and two more stow them', !r.player.elytraDeployed);
+
+    const held = rig();
+    held.player.onGround = true;
+    run(held, 60, { jump: true });
+    ok('holding jump off the ground does not open them', !held.player.elytraDeployed);
+  }
+  {
+    const r = rig();
+    r.player.onGround = true;
+    r.player.startSpeedMode();
+    run(r, 60);
+    ok('speed mode is worth exactly two', near(r.player.speedMultiplier, 2, 0.01));
+    r.player.stopSpeedMode();
+    run(r, 30);
+    const half = r.player.speedMultiplier;
+    run(r, 60 * 8);
+    ok('and bleeds off rather than switching off', half > 1.4 && half < 2,
+      `${half.toFixed(2)}x half a second later`);
+    ok('and does get all the way back to one', near(r.player.speedMultiplier, 1, 0.02),
+      `${r.player.speedMultiplier.toFixed(2)}x`);
+  }
+  {
+    const r = rig();
+    r.player.onGround = true;
+    r.player.position.set(0, 0, 0);
+    run(r, 90);
+    ok('standing still leaves the feet on the ground, not in it',
+      near(r.player.position.y, 0, 0.001), `${r.player.position.y.toFixed(3)} m`);
   }
 }
 

@@ -405,11 +405,24 @@ input[type='checkbox'] {
 }
 
 .gauge label {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-faint);
+}
+
+/* The key that works the gauge, beside its name and updated when you rebind. */
+.gauge label kbd {
+  margin-left: auto;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.gauge label kbd + kbd {
+  margin-left: 0;
 }
 
 .gauge .bar {

@@ -498,9 +498,10 @@ export class Game {
       const ground = this.terrain.heightAt(this.rig.freecam.position.x, this.rig.freecam.position.z);
       this.rig.updateFreecam(dt, movement, ground);
       player.tickTimers(dt);
-    } else if (this.settling) {
+    } else if (this.settling && !this.wantsControl(movement)) {
       this.settle(dt);
     } else {
+      this.releaseSettle();
       this.controller.update(dt, movement);
     }
 
@@ -650,6 +651,30 @@ export class Game {
     return performance.now() < this.settleUntil;
   }
 
+  /** Has the player asked to do something? Then stop holding them still. */
+  wantsControl(movement) {
+    return !!(movement.forward || movement.back || movement.left || movement.right || movement.jump);
+  }
+
+  /**
+   * End the arrival hold early.
+   *
+   * The hold exists to stop a teleport stuttering while the ground streams in.
+   * It was ending only on its own clock, which meant two and a half seconds
+   * after every arrival where the controls did nothing and every frame reset
+   * your velocity to zero — you could not walk, and a rocket lit in that
+   * window did nothing at all. Anything you press now ends it instead.
+   */
+  releaseSettle() {
+    if (!this.settling) return;
+    this.settleUntil = 0;
+    // Hand over at exactly the height we were holding, so the release is not
+    // a step either.
+    if (Number.isFinite(this._holdY)) this.player.position.y = this._holdY;
+    this._holdY = NaN;
+    if (this.arrivalPending) this.finishArrival();
+  }
+
   /**
    * Right after a teleport the elevation for the new place has not arrived, so
    * hold the player just above whatever the ground currently claims to be until
@@ -667,11 +692,25 @@ export class Game {
     // us, sometimes by hundreds of metres as a coarse LOD is replaced by a
     // finer one. Writing that straight into position.y snapped the camera on
     // every one of those, which is the jitter you get on an airborne teleport.
-    const target = ground + (this.holdInAir ? SPAWN_HEIGHT_M : 1.2);
-    if (!Number.isFinite(this._holdY)) this._holdY = target;
-    // Ease toward it instead, so a late tile slides the world into place
-    // rather than jerking it.
-    this._holdY = damp(this._holdY, target, 6, dt);
+    if (this.holdInAir) {
+      // An airborne arrival needs no tracking at all. You are four hundred
+      // metres up: whether the ground below turns out to be sea level or an
+      // alp does not move your eye by a pixel, so hold the height you were
+      // put at and leave it alone. Easing toward `ground + 420` instead meant
+      // every elevation tile that landed slid the whole world past you, which
+      // is exactly the jitter an arrival had. The only thing worth reacting
+      // to is ground arriving *above* you, and that is eased.
+      if (!Number.isFinite(this._holdY)) this._holdY = player.position.y;
+      const clearance = ground + SPAWN_HEIGHT_M * 0.1;
+      if (this._holdY < clearance) this._holdY = damp(this._holdY, clearance, 6, dt);
+    } else {
+      const target = ground + 1.2;
+      if (!Number.isFinite(this._holdY)) this._holdY = target;
+      // On the ground the height *is* the ground, so it has to be tracked —
+      // eased, so a late tile slides the world into place rather than jerking
+      // it.
+      this._holdY = damp(this._holdY, target, 6, dt);
+    }
     player.position.y = this._holdY;
     player.onGround = !this.holdInAir;
 
@@ -680,14 +719,7 @@ export class Game {
     const waited = performance.now() - (this.settleUntil - SETTLE_MS);
     const norm = this.frame.worldToNorm(player.position.x, player.position.z);
     const ready = this.elevation.hasData(norm.nx, norm.ny) && this.terrain.stats.drawn > 6;
-    if (waited > 650 && ready) {
-      this.settleUntil = 0;
-      // Hand over at exactly the height we were holding, so the release is not
-      // a step either.
-      player.position.y = this._holdY;
-      this._holdY = NaN;
-    }
-    if (!this.settling && this.arrivalPending) this.finishArrival();
+    if (waited > 650 && ready) this.releaseSettle();
   }
 
   /**
@@ -757,7 +789,14 @@ export class Game {
     // Arrive in the air with the wings out: you are here to look around, and a
     // teleport that dumps you in a field facing a hedge wastes the trip. Turn
     // "arrives in the sky" off in Settings → World to land on your feet instead.
-    const airborne = (reason === 'rtp' || reason === 'spawn') && settings.get('rtpSkySpawn');
+    // Arrive doing what you were doing. With the setting on, a teleport called
+    // while you are flying puts you back in the air and one called while you
+    // are standing puts you back on your feet — the first load has no previous
+    // state to match, so it takes the setting at its word.
+    const wasFlying = !player.onGround || player.elytraDeployed;
+    const airborne =
+      settings.get('rtpSkySpawn') &&
+      (reason === 'spawn' || ((reason === 'rtp' || reason === 'map') && wasFlying));
     player.teleport(lat, lon, ground, airborne ? SPAWN_HEIGHT_M : 1.2);
     if (airborne) {
       player.onGround = false;
@@ -934,6 +973,8 @@ export class Game {
   fireRocket() {
     const player = this.player;
     if (this.rig.isFreecam) return;
+    // Lighting one is asking to move, so it ends the arrival hold too.
+    this.releaseSettle();
     if (!player.elytraDeployed) {
       if (!player.onGround) {
         player.toggleElytra(true);

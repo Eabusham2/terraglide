@@ -35,6 +35,7 @@ export class InputManager extends Emitter {
     this.onMouseUp = this.onMouseUp.bind(this);
     this.onWheel = this.onWheel.bind(this);
     this.onPointerLockChange = this.onPointerLockChange.bind(this);
+    this.onPointerLockError = this.onPointerLockError.bind(this);
     this.onBlur = this.onBlur.bind(this);
 
     window.addEventListener('keydown', this.onKeyDown);
@@ -45,6 +46,11 @@ export class InputManager extends Emitter {
     canvas.addEventListener('wheel', this.onWheel, { passive: false });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     document.addEventListener('pointerlockchange', this.onPointerLockChange);
+    // Chrome rejects a lock request that comes too soon after the last exit and
+    // reports it *only* through this event on some paths — no promise, no
+    // throw. Without it the rejection went unrecorded, the next click asked
+    // again immediately, and the pointer never locked at all.
+    document.addEventListener('pointerlockerror', this.onPointerLockError);
     window.addEventListener('blur', this.onBlur);
 
     settings.on('change', ({ key }) => {
@@ -58,6 +64,7 @@ export class InputManager extends Emitter {
     window.removeEventListener('mousemove', this.onMouseMove);
     window.removeEventListener('mouseup', this.onMouseUp);
     document.removeEventListener('pointerlockchange', this.onPointerLockChange);
+    document.removeEventListener('pointerlockerror', this.onPointerLockError);
     window.removeEventListener('blur', this.onBlur);
   }
 
@@ -129,6 +136,10 @@ export class InputManager extends Emitter {
     this.emit('pointerlock', locked);
   }
 
+  onPointerLockError() {
+    this.lockRejectedAt = performance.now();
+  }
+
   onBlur() {
     this.keys.clear();
     this.dragging = false;
@@ -151,13 +162,16 @@ export class InputManager extends Emitter {
       event.code === 'AltRight';
     if (!modifierItself && (event.ctrlKey || event.metaKey || event.altKey)) return;
 
-    const actions = keybinds.actionsFor(event.code);
-    if (actions.length === 0) return;
-
-    // F-keys and space would otherwise scroll or open browser help.
+    // F-keys, Space and Tab would otherwise scroll the page, open browser help,
+    // or — the one that actually bit — press whichever HUD button still has
+    // focus. That has to happen whether or not the key is bound to anything,
+    // so it comes before the unbound early return rather than after it.
     if (event.code.startsWith('F') || event.code === 'Space' || event.code === 'Tab') {
       event.preventDefault();
     }
+
+    const actions = keybinds.actionsFor(event.code);
+    if (actions.length === 0) return;
 
     const first = !this.keys.has(event.code);
     this.keys.add(event.code);

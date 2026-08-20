@@ -17,11 +17,17 @@
  *             sets terminal velocity
  *
  * The consequence is the one that matters: **no sequence of inputs can end
- * higher and faster than it started.** Look level and you sink at about 3 m/s.
- * Dive and you build to around 85 m/s. Flare out of that and you buy back
- * something like 60 metres — a lot, but always less than the dive cost you.
- * Flown well the ratio is roughly eight metres forward per metre down, which is
- * a long way, and still a slope.
+ * higher and faster than it started.** Look level and you sink at about 3.4 m/s
+ * while making 24. Dive and you build toward 78 m/s, which is Minecraft's own
+ * terminal velocity and where drag stops you. Flare out of that and you buy
+ * back height, always less than the dive cost you. Flown well the ratio is
+ * seven metres forward per metre down: a kilometre up is seven kilometres of
+ * country, which is a long way and still a slope.
+ *
+ * The drag used to be light enough for a ten-to-one glide, and ten to one is
+ * not a slope, it is a cruise — you could leave a mountain and still be in the
+ * air two minutes later with nothing to do. It is now set so that a level
+ * glide costs you something you can feel.
  *
  * Everything below runs at a fixed 20 steps a second in blocks-per-tick, the
  * units the constants were tuned in, then converts back to metres per second.
@@ -29,9 +35,16 @@
 
 export const TICK = 1 / 20;
 const GRAVITY_PER_TICK = 0.08; // blocks / tick^2  (~32 m/s^2)
-/** Constant drag per tick, plus a term that grows with speed. */
-const DRAG_BASE = 0.004;
-const DRAG_SPEED = 0.0022;
+/**
+ * Constant drag per tick, plus a term that grows with speed.
+ *
+ * Together they set both ends of the envelope: the constant term decides how
+ * expensive a level glide is, and the speed term decides where a dive stops
+ * accelerating. These two put the dive terminal at 3.92 blocks a tick, which
+ * is exactly Minecraft's.
+ */
+const DRAG_BASE = 0.008;
+const DRAG_SPEED = 0.003;
 /**
  * Peak firework thrust, blocks per tick. A rocket kicks hard at ignition and
  * tapers off across its burn, so it shoves you and then hands you back to the
@@ -153,15 +166,20 @@ export function rocketTicks(duration) {
  * Thrust multiplier for a slot: bigger rockets carry more powder.
  *
  * Minecraft gives every rocket the same push and varies only the burn. Here
- * the number means both, so the ramp is deliberately gentle — a Rocket V is
- * about sixty per cent harder than a Rocket I, not twice, so that the extra
- * seconds stay the main thing you are buying.
+ * the number means both, and each step up is a fifth again on top of the last
+ * rather than a fifth of the first — so the gap between IV and V is bigger
+ * than the gap between I and II, which is how a stack of powder actually
+ * behaves. It tops out a shade over twice a Rocket I, which is a real reason
+ * to carry the big ones and still not fast enough to lose the ground.
  */
 export function rocketPowerFor(duration) {
-  return 1 + (duration - 1) * 0.15;
+  return Math.pow(1.2, duration - 1);
 }
 
-/** Terminal glide speed for the HUD's "best glide" readout, metres per second. */
+/**
+ * Best-glide speed for the HUD readout, metres per second — the airspeed that
+ * covers the most ground per metre of height, found by sweeping the model.
+ */
 export function bestGlideSpeed() {
-  return 33.5;
+  return 24;
 }

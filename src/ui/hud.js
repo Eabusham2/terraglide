@@ -59,12 +59,12 @@ export class HUD {
           <em data-id="autopilot"></em>
         </div>
         <div class="gauge" data-id="speed-gauge">
-          <label>Speed mode</label>
+          <label>Speed mode<kbd data-key="speedMode"></kbd></label>
           <div class="bar"><i data-id="speed-bar"></i></div>
           <span data-id="speed-text">Ready</span>
         </div>
         <div class="gauge" data-id="scale-gauge">
-          <label>Height</label>
+          <label>Height<kbd data-key="scaleDown"></kbd><kbd data-key="scaleUp"></kbd></label>
           <span data-id="scale-text">—</span>
         </div>
       </div>
@@ -107,6 +107,12 @@ export class HUD {
     this.element.addEventListener('click', (event) => {
       const button = event.target.closest('[data-action]');
       if (!button || !this.onAction) return;
+      // Hand the keyboard back before doing anything else. A button that keeps
+      // focus after a click is a button that Space presses: you would click
+      // Random teleport, land, press Space to jump, and get the Controls panel
+      // instead of a jump — and every key you pressed afterwards went to the
+      // browser's idea of the focused control rather than to the game.
+      button.blur();
       this.onAction(button.dataset.action);
     });
 
@@ -152,6 +158,7 @@ export class HUD {
     }).join('');
     host.querySelectorAll('.slot').forEach((slot) => {
       slot.addEventListener('click', () => {
+        slot.blur();
         if (this.onAction) this.onAction(`slot:${slot.dataset.slot}`);
       });
     });
@@ -202,16 +209,24 @@ export class HUD {
     this.refs['speed-bar'].style.width = `${clamp(speedRatio, 0, 1) * 100}%`;
     this.refs['speed-gauge'].dataset.state = player.speedActive
       ? 'active'
-      : player.speedCooldown > 0
-        ? 'cooling'
-        : 'ready';
+      : player.speedBlend > 1.02
+        ? 'active'
+        : player.speedCooldown > 0
+          ? 'cooling'
+          : 'ready';
+    // Speed mode does not stop, it runs down — so once the burst is over the
+    // gauge keeps reading out what the boost is still worth until it is gone,
+    // rather than claiming "ready" while you are still coasting on it.
+    const coasting = !player.speedActive && player.speedBlend > 1.02;
     this.setText(
       'speed-text',
       player.speedActive
         ? `2x · ${player.speedRemaining.toFixed(1)}s`
-        : player.speedCooldown > 0
-          ? `${Math.ceil(player.speedCooldown)}s`
-          : 'Ready',
+        : coasting
+          ? `${player.speedBlend.toFixed(2)}x · coasting`
+          : player.speedCooldown > 0
+            ? `${Math.ceil(player.speedCooldown)}s`
+            : 'Ready',
     );
 
     this.setText(

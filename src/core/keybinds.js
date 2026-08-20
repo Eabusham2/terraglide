@@ -137,15 +137,26 @@ class KeybindStore extends Emitter {
     return keyLabel(this.binds[action] ?? '');
   }
 
+  /**
+   * Point an action at a physical key.
+   *
+   * A key drives one action at a time, so whoever held it has to give it up —
+   * and gets this action's old key in exchange. It used to only take keys off
+   * actions that were not required, which meant binding anything to W left
+   * *both* it and Walk forward on W: press W and you walked forward and did
+   * the other thing at once, which reads as the binding not working.
+   *
+   * Returns false, changing nothing, when the swap would leave a required
+   * action with no key at all.
+   */
   rebind(action, code) {
-    // A physical key drives one action at a time; steal it from its old owner.
-    for (const other of ACTIONS) {
-      if (other.id !== action && this.binds[other.id] === code && !other.required) {
-        this.binds[other.id] = '';
-      }
-    }
+    const previous = this.binds[action] ?? '';
+    const displaced = ACTIONS.filter((a) => a.id !== action && this.binds[a.id] === code);
+    if (!previous && displaced.some((a) => a.required)) return false;
+    for (const other of displaced) this.binds[other.id] = previous;
     this.binds[action] = code;
     this.save();
+    return true;
   }
 
   clear(action) {

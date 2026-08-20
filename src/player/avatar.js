@@ -165,7 +165,7 @@ export class Avatar {
     // The limb mesh is a box of its own length centred on its origin, so the
     // hand is at −length/2. Sit the rocket just past the fingers, pointing the
     // way the arm does: the group's +Y axis is turned onto −Z, forward.
-    this.rocket.position.set(0, -this.armR.length / 2 + 0.01, -0.03);
+    this.rocket.position.set(0, -this.armR.length / 2 + 0.02, -0.035);
     this.rocket.rotation.x = -Math.PI / 2;
     this.armR.limb.add(this.rocket);
     this.cloth.rocket = [rocketMat];
@@ -197,7 +197,7 @@ export class Avatar {
     // Clear of the fist rather than half inside it: the tube is 9.5 cm and the
     // fist 8.5, so anything under a quarter of a metre up buries the thing you
     // are meant to be able to read the colour off.
-    this.handRocket.position.set(0, 0.25, 0);
+    this.handRocket.position.set(0, 0.29, 0);
     this.handR.add(this.handRocket);
     this.viewModel.add(this.handR, this.handL);
     /** Look-lag and the shove a firework gives the arm. */
@@ -240,11 +240,15 @@ export class Avatar {
   makeRocket(paper, nose, stick) {
     const group = new THREE.Group();
 
-    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.095, 10), paper);
-    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.034, 10), nose);
-    cone.position.y = 0.0645;
-    const guide = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, 0.1, 5), stick);
-    guide.position.y = -0.095;
+    // Full size of the real thing — a hand's length of tube and a stick as
+    // long again. It was built at two thirds of this and read as a matchstick
+    // in the hand and as nothing at all from the chase camera; the colour on
+    // the nose is meant to be readable, and at that size it was not.
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.14, 10), paper);
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.026, 0.05, 10), nose);
+    cone.position.y = 0.095;
+    const guide = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.15, 5), stick);
+    guide.position.y = -0.14;
 
     group.add(tube, cone, guide);
     return group;

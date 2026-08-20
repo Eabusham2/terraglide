@@ -219,7 +219,7 @@ const SECTIONS = [
         format: (v) => (v > 500 ? 'unlimited' : `${Math.round(v)} km`),
         help: 'Unlimited by default, so mid-ocean is fair game; wind it down to stay within reach of a coast.',
       },
-      { key: 'rtpSkySpawn', label: 'Random teleport arrives in the sky', type: 'toggle', help: 'On: you arrive high with the wings out. Off: you arrive standing on the ground.' },
+      { key: 'rtpSkySpawn', label: 'Teleport keeps you doing what you were doing', type: 'toggle', help: 'On: teleport while flying and you arrive high with the wings out; teleport from the ground and you arrive on your feet. Off: you always arrive standing.' },
       { key: 'spawnStreetLevel', label: 'Arrive where there is street-level imagery', type: 'toggle', help: 'Street-level photography is switched on for the arrival if the provider has any.' },
       { key: 'spawnInBuilding', label: 'Arrive inside a building where there is one', type: 'toggle' },
       {
@@ -335,7 +335,7 @@ export class SettingsPanel {
       this.render();
       return;
     }
-    keybinds.rebind(this.capturing, event.code);
+    this.bindRefused = !keybinds.rebind(this.capturing, event.code);
     this.capturing = null;
     this.render();
   }
@@ -498,7 +498,12 @@ export class SettingsPanel {
 
     return `
       <h3>Key bindings</h3>
-      <p class="settings-intro">Click a key, then press the one you want. Escape cancels.</p>
+      <p class="settings-intro">Click a key, then press the one you want. Escape cancels. Taking a
+      key off another action hands it whichever key this one was using.${
+        this.bindRefused
+          ? ' <strong>That key belongs to something that has to have one, and this action had none to trade.</strong>'
+          : ''
+      }</p>
       ${blocks.join('')}
       <div class="settings-actions"><button type="button" data-reset-binds>Reset key bindings</button></div>`;
   }
