@@ -86685,6 +86685,275 @@ class InlineWorker {
 
 __tg_exports["createTileWorker"] = createTileWorker;
 };
+__tg_modules["src/ui/mapTiles.js"] = function (__tg_exports) {
+const { tileKey, wrapTileX } = __tg_require("src/geo/mercator.js");
+const { proceduralImagery } = __tg_require("src/tiles/procedural.js");
+
+/**
+ * A small ImageBitmap cache for the 2D maps (minimap and world map).
+ *
+ * Deliberately separate from the 3D streamer: the maps want whole tiles at a
+ * fixed zoom, the terrain wants a quadtree, and mixing the two made both worse.
+ * Requests are capped and least-recently-used tiles are dropped so panning the
+ * world map cannot run away with memory.
+ */
+
+const LIMIT = 260;
+const MAX_ACTIVE = 6;
+
+class MapTileCache {
+  constructor() {
+    this.source = null;
+    this.tiles = new Map();
+    /** Decoded pixels, for colour sampling. */
+    this.pixels = new Map();
+    this.active = 0;
+    this.queue = [];
+    this.listeners = new Set();
+    this.generation = 0;
+    /** Mirrors the 3D streamer: draw generated tiles when a provider is down. */
+    this.degraded = false;
+  }
+
+  /** Called whenever a tile finishes loading. Returns an unsubscribe function. */
+  onTileLoaded(fn) {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  notify() {
+    for (const fn of this.listeners) fn();
+  }
+
+  setDegraded(degraded) {
+    if (this.degraded === degraded) return;
+    this.degraded = degraded;
+    for (const entry of this.tiles.values()) {
+      if (entry.bitmap) entry.bitmap.close();
+    }
+    this.tiles.clear();
+    this.pixels.clear();
+    this.queue.length = 0;
+    this.generation++;
+  }
+
+  setSource(source) {
+    this.source = source;
+    for (const entry of this.tiles.values()) {
+      if (entry.bitmap) entry.bitmap.close();
+    }
+    this.tiles.clear();
+    this.pixels.clear();
+    this.queue.length = 0;
+    this.generation++;
+  }
+
+  /** Bitmap for a tile, or null while it loads. */
+  get(z, x, y) {
+    const n = Math.pow(2, z);
+    if (y < 0 || y >= n) return null;
+    const wrapped = wrapTileX(x, z);
+    const key = tileKey(z, wrapped, y);
+    const entry = this.tiles.get(key);
+    if (entry) {
+      entry.used = performance.now();
+      return entry.bitmap;
+    }
+    this.tiles.set(key, { key, bitmap: null, used: performance.now(), state: 'queued' });
+    this.queue.push({ key, tile: { z, x: wrapped, y } });
+    this.pump();
+    return null;
+  }
+
+  /** Best available bitmap for a tile: itself or an ancestor, with a UV window. */
+  resolve(z, x, y, maxSteps = 5) {
+    let tz = z;
+    let tx = wrapTileX(x, z);
+    let ty = y;
+    let scale = 1;
+    let ox = 0;
+    let oy = 0;
+    for (let step = 0; step <= maxSteps && tz >= 0; step++) {
+      const bitmap = step === 0 ? this.get(tz, tx, ty) : this.peek(tz, tx, ty);
+      if (bitmap) return { bitmap, scale, ox, oy };
+      ox = (ox + (tx & 1)) * 0.5;
+      oy = (oy + (ty & 1)) * 0.5;
+      scale *= 0.5;
+      tx >>= 1;
+      ty >>= 1;
+      tz -= 1;
+    }
+    return null;
+  }
+
+  /**
+   * Average colour of the imagery at a point, or null if that tile has not
+   * arrived. Used to take scenery colour from the actual aerial photograph
+   * rather than from a palette someone invented: a fir in a Norwegian spruce
+   * plantation and one in a Californian chaparral are not the same green, and
+   * the imagery already knows which is which.
+   *
+   * One tile is decoded to pixels at most once and kept, so this costs a canvas
+   * draw per tile and an array read per lookup.
+   */
+  sampleColour(z, x, y, u, v) {
+    const key = tileKey(z, wrapTileX(x, z), y);
+    let pixels = this.pixels.get(key);
+    if (pixels === undefined) {
+      const bitmap = this.peek(z, wrapTileX(x, z), y);
+      if (!bitmap) {
+        // Ask for it; the caller can use a fallback until it lands.
+        this.get(z, x, y);
+        return null;
+      }
+      const size = 64; // plenty: this is a colour, not a texture
+      const canvas =
+        typeof OffscreenCanvas === 'function'
+          ? new OffscreenCanvas(size, size)
+          : Object.assign(document.createElement('canvas'), { width: size, height: size });
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(bitmap, 0, 0, size, size);
+      pixels = { data: ctx.getImageData(0, 0, size, size).data, size };
+      this.pixels.set(key, pixels);
+      if (this.pixels.size > 220) {
+        const oldest = this.pixels.keys().next().value;
+        this.pixels.delete(oldest);
+      }
+    }
+
+    const size = pixels.size;
+    const px = Math.min(size - 1, Math.max(0, Math.floor(u * size)));
+    const py = Math.min(size - 1, Math.max(0, Math.floor(v * size)));
+    const index = (py * size + px) * 4;
+    return {
+      r: pixels.data[index] / 255,
+      g: pixels.data[index + 1] / 255,
+      b: pixels.data[index + 2] / 255,
+    };
+  }
+
+  peek(z, x, y) {
+    const entry = this.tiles.get(tileKey(z, wrapTileX(x, z), y));
+    return entry ? entry.bitmap : null;
+  }
+
+  pump() {
+    while (this.active < MAX_ACTIVE && this.queue.length > 0) {
+      const job = this.queue.shift();
+      if (!job) break;
+      this.load(job);
+    }
+    this.evict();
+  }
+
+  async load(job) {
+    const entry = this.tiles.get(job.key);
+    if (!entry) return;
+    const generation = this.generation;
+    this.active++;
+    entry.state = 'loading';
+    try {
+      const url = this.source && !this.degraded ? this.source.urlFor(job.tile) : null;
+      let bitmap;
+      if (!url) {
+        const image = proceduralImagery(job.tile, 128);
+        bitmap = await createImageBitmap(new ImageData(image.data, image.width, image.height));
+      } else {
+        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+        if (!res.ok) throw new Error(String(res.status));
+        bitmap = await createImageBitmap(await res.blob());
+      }
+      if (generation !== this.generation) {
+        bitmap.close();
+        return;
+      }
+      entry.bitmap = bitmap;
+      entry.state = 'ready';
+      this.notify();
+    } catch {
+      entry.state = 'failed';
+    } finally {
+      this.active--;
+      if (this.queue.length > 0) this.pump();
+    }
+  }
+
+  evict() {
+    if (this.tiles.size <= LIMIT) return;
+    const sorted = [...this.tiles.values()].sort((a, b) => a.used - b.used);
+    let excess = this.tiles.size - LIMIT;
+    for (const entry of sorted) {
+      if (excess <= 0) break;
+      if (entry.state === 'loading') continue;
+      if (entry.bitmap) entry.bitmap.close();
+      this.tiles.delete(entry.key);
+      this.pixels.delete(entry.key);
+      excess--;
+    }
+  }
+}
+
+const mapTiles = new MapTileCache();
+
+/**
+ * A second cache, holding the drawn street map.
+ *
+ * Ground you have not visited is shown as a *map* rather than a photograph,
+ * and it used to get there by running the satellite tile through a greyscale
+ * filter — which produced a washed-out photo, not a map. Roads, coastlines and
+ * place names were exactly as unreadable as before, only paler.
+ *
+ * This fetches the real OpenStreetMap raster instead, so unexplored ground
+ * reads the way a map is supposed to: named roads, rivers, borders. Keyless,
+ * and only requested for tiles actually on screen and actually unexplored.
+ */
+const streetTiles = new MapTileCache();
+
+__tg_exports["MapTileCache"] = MapTileCache;
+__tg_exports["mapTiles"] = mapTiles;
+__tg_exports["streetTiles"] = streetTiles;
+};
+__tg_modules["src/world/imagerySample.js"] = function (__tg_exports) {
+/**
+ * Read the aerial photograph at a point on the ground.
+ *
+ * Shared by the scenery and the buildings, because both want the same thing:
+ * the actual colour of that exact patch of earth, rather than a palette
+ * somebody chose. The imagery is already downloaded and already decoded for the
+ * map, so this costs a lookup.
+ */
+
+const { latToNormY, lonToNormX } = __tg_require("src/geo/mercator.js");
+const { mapTiles } = __tg_require("src/ui/mapTiles.js");
+
+/** Imagery zoom to sample from — close enough to resolve a roof. */
+const SAMPLE_ZOOM = 16;
+
+const geo = { lat: 0, lon: 0 };
+
+/**
+ * @returns {{r:number,g:number,b:number}|null} 0-1 channels, or null when that
+ * tile has not arrived yet — callers must have something to fall back on.
+ */
+function sampleImageryAt(frame, x, z, zoom = SAMPLE_ZOOM) {
+  if (!frame) return null;
+  const point = frame.toGeo(x, z, geo);
+  const n = Math.pow(2, zoom);
+  const fx = lonToNormX(point.lon) * n;
+  const fy = latToNormY(point.lat) * n;
+  const tx = Math.floor(fx);
+  const ty = Math.floor(fy);
+  if (ty < 0 || ty >= n) return null;
+  try {
+    return mapTiles.sampleColour(zoom, tx, ty, fx - tx, fy - ty);
+  } catch {
+    return null;
+  }
+}
+
+__tg_exports["SAMPLE_ZOOM"] = SAMPLE_ZOOM;
+__tg_exports["sampleImageryAt"] = sampleImageryAt;
+};
 __tg_modules["src/world/overpass.js"] = function (__tg_exports) {
 /**
  * One queue for every OpenStreetMap query the game makes.
@@ -86789,6 +87058,7 @@ __tg_exports["overpass"] = overpass;
 __tg_modules["src/world/buildings.js"] = function (__tg_exports) {
 const THREE = __tg_require("vendor/three/three.module.js");
 const { clamp, rand3 } = __tg_require("src/core/math.js");
+const { sampleImageryAt } = __tg_require("src/world/imagerySample.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { latToNormY, lonToNormX, normXToLon, normYToLat, tileKey } = __tg_require("src/geo/mercator.js");
 const { overpass } = __tg_require("src/world/overpass.js");
@@ -86811,6 +87081,14 @@ const DATA_ZOOM = 15;
 const STOREY_M = 3.2;
 const DOOR_WIDTH = 1.4;
 const DOOR_HEIGHT = 2.3;
+/**
+ * Only used when the aerial photograph of a roof has not arrived yet.
+ *
+ * The roof colour is read from the imagery of that exact building — it is
+ * right there in the picture, and inventing a grey for it when the real one is
+ * already downloaded is exactly the kind of made-up dressing this project
+ * keeps out. These are the placeholder until the tile lands.
+ */
 const WALL_COLOUR = new THREE.Color(0.72, 0.70, 0.67);
 const ROOF_COLOUR = new THREE.Color(0.42, 0.42, 0.44);
 /** Galvanised steel, near enough, for masts and pylons. */
@@ -87070,7 +87348,10 @@ class Buildings {
 
     const seed = Math.abs(node.id | 0);
     const width = clamp(height * 0.055, 0.7, 9);
-    const colour = MAST_COLOUR.clone().multiplyScalar(0.88 + rand3(seed, 3, 9) * 0.24);
+    const sampled = sampleImageryAt(this.frame, x, z);
+    const colour = sampled
+      ? new THREE.Color(sampled.r, sampled.g, sampled.b).lerp(MAST_COLOUR, 0.45)
+      : MAST_COLOUR.clone().multiplyScalar(0.88 + rand3(seed, 3, 9) * 0.24);
     // A square tapered shaft: four walls, narrower at the top.
     const half = width / 2;
     const tip = half * 0.35;
@@ -87109,8 +87390,38 @@ class Buildings {
 
     const seed = Math.abs(way.id | 0);
     const tint = 0.86 + rand3(seed, 7, 3) * 0.26;
-    const wall = WALL_COLOUR.clone().multiplyScalar(tint);
-    const roof = ROOF_COLOUR.clone().multiplyScalar(0.9 + rand3(seed, 11, 5) * 0.3);
+
+    // The roof is in the photograph. Take it from there: a terracotta roof in
+    // Tuscany and a grey slate one in Yorkshire are not the same colour, and
+    // the imagery already knows which is which.
+    let centreX = 0;
+    let centreZ = 0;
+    for (const p of ring) {
+      centreX += p.x;
+      centreZ += p.y;
+    }
+    centreX /= ring.length;
+    centreZ /= ring.length;
+    const sampled = sampleImageryAt(this.frame, centreX, centreZ);
+
+    let wall;
+    let roof;
+    if (sampled) {
+      roof = new THREE.Color(sampled.r, sampled.g, sampled.b);
+      // Walls are not visible from above, so there is nothing to sample them
+      // from. Derive them from the roof instead — same building, same era,
+      // usually lighter and less saturated than what is on top of it.
+      const hsl = { h: 0, s: 0, l: 0 };
+      roof.getHSL(hsl);
+      wall = new THREE.Color().setHSL(
+        hsl.h,
+        hsl.s * 0.45,
+        clamp(hsl.l * 0.6 + 0.34, 0.22, 0.86) * tint,
+      );
+    } else {
+      wall = WALL_COLOUR.clone().multiplyScalar(tint);
+      roof = ROOF_COLOUR.clone().multiplyScalar(0.9 + rand3(seed, 11, 5) * 0.3);
+    }
 
     // Door goes in the longest wall, which is nearly always the street side.
     let doorIndex = 0;
@@ -88072,234 +88383,6 @@ async function nearLand(origin, radius, waterMap, started) {
 
 __tg_exports["pickRandomDestination"] = pickRandomDestination;
 };
-__tg_modules["src/ui/mapTiles.js"] = function (__tg_exports) {
-const { tileKey, wrapTileX } = __tg_require("src/geo/mercator.js");
-const { proceduralImagery } = __tg_require("src/tiles/procedural.js");
-
-/**
- * A small ImageBitmap cache for the 2D maps (minimap and world map).
- *
- * Deliberately separate from the 3D streamer: the maps want whole tiles at a
- * fixed zoom, the terrain wants a quadtree, and mixing the two made both worse.
- * Requests are capped and least-recently-used tiles are dropped so panning the
- * world map cannot run away with memory.
- */
-
-const LIMIT = 260;
-const MAX_ACTIVE = 6;
-
-class MapTileCache {
-  constructor() {
-    this.source = null;
-    this.tiles = new Map();
-    /** Decoded pixels, for colour sampling. */
-    this.pixels = new Map();
-    this.active = 0;
-    this.queue = [];
-    this.listeners = new Set();
-    this.generation = 0;
-    /** Mirrors the 3D streamer: draw generated tiles when a provider is down. */
-    this.degraded = false;
-  }
-
-  /** Called whenever a tile finishes loading. Returns an unsubscribe function. */
-  onTileLoaded(fn) {
-    this.listeners.add(fn);
-    return () => this.listeners.delete(fn);
-  }
-
-  notify() {
-    for (const fn of this.listeners) fn();
-  }
-
-  setDegraded(degraded) {
-    if (this.degraded === degraded) return;
-    this.degraded = degraded;
-    for (const entry of this.tiles.values()) {
-      if (entry.bitmap) entry.bitmap.close();
-    }
-    this.tiles.clear();
-    this.pixels.clear();
-    this.queue.length = 0;
-    this.generation++;
-  }
-
-  setSource(source) {
-    this.source = source;
-    for (const entry of this.tiles.values()) {
-      if (entry.bitmap) entry.bitmap.close();
-    }
-    this.tiles.clear();
-    this.pixels.clear();
-    this.queue.length = 0;
-    this.generation++;
-  }
-
-  /** Bitmap for a tile, or null while it loads. */
-  get(z, x, y) {
-    const n = Math.pow(2, z);
-    if (y < 0 || y >= n) return null;
-    const wrapped = wrapTileX(x, z);
-    const key = tileKey(z, wrapped, y);
-    const entry = this.tiles.get(key);
-    if (entry) {
-      entry.used = performance.now();
-      return entry.bitmap;
-    }
-    this.tiles.set(key, { key, bitmap: null, used: performance.now(), state: 'queued' });
-    this.queue.push({ key, tile: { z, x: wrapped, y } });
-    this.pump();
-    return null;
-  }
-
-  /** Best available bitmap for a tile: itself or an ancestor, with a UV window. */
-  resolve(z, x, y, maxSteps = 5) {
-    let tz = z;
-    let tx = wrapTileX(x, z);
-    let ty = y;
-    let scale = 1;
-    let ox = 0;
-    let oy = 0;
-    for (let step = 0; step <= maxSteps && tz >= 0; step++) {
-      const bitmap = step === 0 ? this.get(tz, tx, ty) : this.peek(tz, tx, ty);
-      if (bitmap) return { bitmap, scale, ox, oy };
-      ox = (ox + (tx & 1)) * 0.5;
-      oy = (oy + (ty & 1)) * 0.5;
-      scale *= 0.5;
-      tx >>= 1;
-      ty >>= 1;
-      tz -= 1;
-    }
-    return null;
-  }
-
-  /**
-   * Average colour of the imagery at a point, or null if that tile has not
-   * arrived. Used to take scenery colour from the actual aerial photograph
-   * rather than from a palette someone invented: a fir in a Norwegian spruce
-   * plantation and one in a Californian chaparral are not the same green, and
-   * the imagery already knows which is which.
-   *
-   * One tile is decoded to pixels at most once and kept, so this costs a canvas
-   * draw per tile and an array read per lookup.
-   */
-  sampleColour(z, x, y, u, v) {
-    const key = tileKey(z, wrapTileX(x, z), y);
-    let pixels = this.pixels.get(key);
-    if (pixels === undefined) {
-      const bitmap = this.peek(z, wrapTileX(x, z), y);
-      if (!bitmap) {
-        // Ask for it; the caller can use a fallback until it lands.
-        this.get(z, x, y);
-        return null;
-      }
-      const size = 64; // plenty: this is a colour, not a texture
-      const canvas =
-        typeof OffscreenCanvas === 'function'
-          ? new OffscreenCanvas(size, size)
-          : Object.assign(document.createElement('canvas'), { width: size, height: size });
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      ctx.drawImage(bitmap, 0, 0, size, size);
-      pixels = { data: ctx.getImageData(0, 0, size, size).data, size };
-      this.pixels.set(key, pixels);
-      if (this.pixels.size > 220) {
-        const oldest = this.pixels.keys().next().value;
-        this.pixels.delete(oldest);
-      }
-    }
-
-    const size = pixels.size;
-    const px = Math.min(size - 1, Math.max(0, Math.floor(u * size)));
-    const py = Math.min(size - 1, Math.max(0, Math.floor(v * size)));
-    const index = (py * size + px) * 4;
-    return {
-      r: pixels.data[index] / 255,
-      g: pixels.data[index + 1] / 255,
-      b: pixels.data[index + 2] / 255,
-    };
-  }
-
-  peek(z, x, y) {
-    const entry = this.tiles.get(tileKey(z, wrapTileX(x, z), y));
-    return entry ? entry.bitmap : null;
-  }
-
-  pump() {
-    while (this.active < MAX_ACTIVE && this.queue.length > 0) {
-      const job = this.queue.shift();
-      if (!job) break;
-      this.load(job);
-    }
-    this.evict();
-  }
-
-  async load(job) {
-    const entry = this.tiles.get(job.key);
-    if (!entry) return;
-    const generation = this.generation;
-    this.active++;
-    entry.state = 'loading';
-    try {
-      const url = this.source && !this.degraded ? this.source.urlFor(job.tile) : null;
-      let bitmap;
-      if (!url) {
-        const image = proceduralImagery(job.tile, 128);
-        bitmap = await createImageBitmap(new ImageData(image.data, image.width, image.height));
-      } else {
-        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
-        if (!res.ok) throw new Error(String(res.status));
-        bitmap = await createImageBitmap(await res.blob());
-      }
-      if (generation !== this.generation) {
-        bitmap.close();
-        return;
-      }
-      entry.bitmap = bitmap;
-      entry.state = 'ready';
-      this.notify();
-    } catch {
-      entry.state = 'failed';
-    } finally {
-      this.active--;
-      if (this.queue.length > 0) this.pump();
-    }
-  }
-
-  evict() {
-    if (this.tiles.size <= LIMIT) return;
-    const sorted = [...this.tiles.values()].sort((a, b) => a.used - b.used);
-    let excess = this.tiles.size - LIMIT;
-    for (const entry of sorted) {
-      if (excess <= 0) break;
-      if (entry.state === 'loading') continue;
-      if (entry.bitmap) entry.bitmap.close();
-      this.tiles.delete(entry.key);
-      this.pixels.delete(entry.key);
-      excess--;
-    }
-  }
-}
-
-const mapTiles = new MapTileCache();
-
-/**
- * A second cache, holding the drawn street map.
- *
- * Ground you have not visited is shown as a *map* rather than a photograph,
- * and it used to get there by running the satellite tile through a greyscale
- * filter — which produced a washed-out photo, not a map. Roads, coastlines and
- * place names were exactly as unreadable as before, only paler.
- *
- * This fetches the real OpenStreetMap raster instead, so unexplored ground
- * reads the way a map is supposed to: named roads, rivers, borders. Keyless,
- * and only requested for tiles actually on screen and actually unexplored.
- */
-const streetTiles = new MapTileCache();
-
-__tg_exports["MapTileCache"] = MapTileCache;
-__tg_exports["mapTiles"] = mapTiles;
-__tg_exports["streetTiles"] = streetTiles;
-};
 __tg_modules["src/world/landcover.js"] = function (__tg_exports) {
 /**
  * Reading OpenStreetMap land cover.
@@ -88468,9 +88551,9 @@ const THREE = __tg_require("vendor/three/three.module.js");
 const { clamp } = __tg_require("src/core/math.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { latToNormY, lonToNormX, normXToLon, normYToLat, tileKey } = __tg_require("src/geo/mercator.js");
-const { mapTiles } = __tg_require("src/ui/mapTiles.js");
 const { classify, parseFeatures, pointInRing } = __tg_require("src/world/landcover.js");
 const { COVER_DENSITY, COVER_KIND, classifyPixel } = __tg_require("src/world/landclass.js");
+const { sampleImageryAt } = __tg_require("src/world/imagerySample.js");
 const { overpass } = __tg_require("src/world/overpass.js");
 
 /**
@@ -89035,19 +89118,7 @@ class Scatter {
   }
 
   sampleImagery(x, z) {
-    if (!this.frame) return null;
-    const geo = this.frame.toGeo(x, z, this._geo);
-    const n = Math.pow(2, COLOUR_ZOOM);
-    const fx = lonToNormX(geo.lon) * n;
-    const fy = latToNormY(geo.lat) * n;
-    const tx = Math.floor(fx);
-    const ty = Math.floor(fy);
-    if (ty < 0 || ty >= n) return null;
-    try {
-      return mapTiles.sampleColour(COLOUR_ZOOM, tx, ty, fx - tx, fy - ty);
-    } catch {
-      return null;
-    }
+    return sampleImageryAt(this.frame, x, z, COLOUR_ZOOM);
   }
 
   /** The local frame re-anchored, or you teleported: drop everything placed. */

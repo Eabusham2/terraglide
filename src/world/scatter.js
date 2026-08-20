@@ -2,9 +2,9 @@ import * as THREE from '../../vendor/three/three.module.js';
 import { clamp } from '../core/math.js';
 import { settings } from '../core/settings.js';
 import { latToNormY, lonToNormX, normXToLon, normYToLat, tileKey } from '../geo/mercator.js';
-import { mapTiles } from '../ui/mapTiles.js';
 import { classify, parseFeatures, pointInRing } from './landcover.js';
 import { COVER_DENSITY, COVER_KIND, classifyPixel } from './landclass.js';
+import { sampleImageryAt } from './imagerySample.js';
 import { overpass } from './overpass.js';
 
 /**
@@ -569,19 +569,7 @@ export class Scatter {
   }
 
   sampleImagery(x, z) {
-    if (!this.frame) return null;
-    const geo = this.frame.toGeo(x, z, this._geo);
-    const n = Math.pow(2, COLOUR_ZOOM);
-    const fx = lonToNormX(geo.lon) * n;
-    const fy = latToNormY(geo.lat) * n;
-    const tx = Math.floor(fx);
-    const ty = Math.floor(fy);
-    if (ty < 0 || ty >= n) return null;
-    try {
-      return mapTiles.sampleColour(COLOUR_ZOOM, tx, ty, fx - tx, fy - ty);
-    } catch {
-      return null;
-    }
+    return sampleImageryAt(this.frame, x, z, COLOUR_ZOOM);
   }
 
   /** The local frame re-anchored, or you teleported: drop everything placed. */

@@ -694,6 +694,42 @@ console.log('\nThe body you can see');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nReal data first, invention last');
+{
+  // The project's rule, as something a machine can check: what stands in the
+  // world comes from provider data or from the imagery, and the generated
+  // parts are confined to the generated world or to a stated fallback.
+  const read = (file) => readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8');
+
+  const buildings = read('world/buildings.js');
+  ok('buildings take their colour from the photograph',
+    /sampleImageryAt\(this\.frame/.test(buildings));
+  ok('and the invented grey is only a placeholder',
+    /placeholder|not arrived/.test(buildings));
+
+  const scatter = read('world/scatter.js');
+  ok('scenery prefers surveyed land cover', /parseFeatures|record\.areas/.test(scatter));
+  ok('and only reads the image where the survey is silent',
+    /placedNothing\(counts\)[\s\S]{0,160}fillFromImagery/.test(scatter));
+  ok('the imagery fallback can be turned off', /sceneryFromImagery/.test(scatter));
+
+  // Generated textures stay in the generated world; the player's kit is exempt
+  // because no provider publishes a photograph of your jacket.
+  ok('generated scenery textures are gated to the offline world',
+    /imageryProvider'\) === 'offline'/.test(scatter));
+
+  // Elevation must never invent relief under real imagery.
+  const elevation = read('tiles/elevation.js');
+  ok('relief is only invented for the generated world',
+    /synthetic \? 0 :|source && !this\.source\.synthetic \? 0/.test(elevation));
+
+  // Photogrammetry, where a key allows it, replaces all of the above.
+  const game = read('game.js');
+  ok('real 3D tiles take precedence over the game\'s own scenery',
+    /photoreal[\s\S]{0,120}scatter/.test(game));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nLand cover read off the photograph');
 {
   const { classifyPixel, COVER, COVER_DENSITY, COVER_KIND } =

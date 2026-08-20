@@ -238,6 +238,29 @@ silos, gasometers, cooling towers, pylons and wind turbines, each at its
 mapped height where the data records one. That layer is most of what makes a
 skyline read correctly from the air, and none of it needs a key.
 
+#### What is real, and what is not
+
+One rule, applied in one order, everywhere:
+
+1. **Photogrammetry**, if you have a key for it. The buildings and the trees
+   are in the mesh because somebody flew over them. Everything below stands
+   aside where it draws.
+2. **Surveyed data.** OpenStreetMap for buildings, infrastructure and land
+   cover; real elevation for the ground. A mapped wood has a real boundary; a
+   chimney tagged 180 m is 180 m tall.
+3. **The aerial photograph**, where the survey is silent. Green is vegetation,
+   grey and rough is rock — and roofs take their actual colour from the picture
+   of that exact roof, so terracotta in Tuscany is terracotta. A photograph of
+   a forest is evidence of a forest; this is a coarser source than a survey and
+   it is used only where there is no survey.
+4. **Generated**, and only then: the individual trunk positions inside a wood
+   that is really there, the inside of a building, and — with no network at all
+   — the whole world.
+
+What never happens is something invented standing in for something real: no
+tree where the picture says bare rock, no relief invented under real imagery,
+no made-up texture over a real photograph.
+
 #### Where generated art is allowed
 
 There are AI-generated textures in `assets/`, and exactly one rule governs

@@ -1,5 +1,6 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { clamp, rand3 } from '../core/math.js';
+import { sampleImageryAt } from './imagerySample.js';
 import { settings } from '../core/settings.js';
 import { latToNormY, lonToNormX, normXToLon, normYToLat, tileKey } from '../geo/mercator.js';
 import { overpass } from './overpass.js';
@@ -22,6 +23,14 @@ const DATA_ZOOM = 15;
 const STOREY_M = 3.2;
 const DOOR_WIDTH = 1.4;
 const DOOR_HEIGHT = 2.3;
+/**
+ * Only used when the aerial photograph of a roof has not arrived yet.
+ *
+ * The roof colour is read from the imagery of that exact building — it is
+ * right there in the picture, and inventing a grey for it when the real one is
+ * already downloaded is exactly the kind of made-up dressing this project
+ * keeps out. These are the placeholder until the tile lands.
+ */
 const WALL_COLOUR = new THREE.Color(0.72, 0.70, 0.67);
 const ROOF_COLOUR = new THREE.Color(0.42, 0.42, 0.44);
 /** Galvanised steel, near enough, for masts and pylons. */
@@ -281,7 +290,10 @@ export class Buildings {
 
     const seed = Math.abs(node.id | 0);
     const width = clamp(height * 0.055, 0.7, 9);
-    const colour = MAST_COLOUR.clone().multiplyScalar(0.88 + rand3(seed, 3, 9) * 0.24);
+    const sampled = sampleImageryAt(this.frame, x, z);
+    const colour = sampled
+      ? new THREE.Color(sampled.r, sampled.g, sampled.b).lerp(MAST_COLOUR, 0.45)
+      : MAST_COLOUR.clone().multiplyScalar(0.88 + rand3(seed, 3, 9) * 0.24);
     // A square tapered shaft: four walls, narrower at the top.
     const half = width / 2;
     const tip = half * 0.35;
@@ -320,8 +332,38 @@ export class Buildings {
 
     const seed = Math.abs(way.id | 0);
     const tint = 0.86 + rand3(seed, 7, 3) * 0.26;
-    const wall = WALL_COLOUR.clone().multiplyScalar(tint);
-    const roof = ROOF_COLOUR.clone().multiplyScalar(0.9 + rand3(seed, 11, 5) * 0.3);
+
+    // The roof is in the photograph. Take it from there: a terracotta roof in
+    // Tuscany and a grey slate one in Yorkshire are not the same colour, and
+    // the imagery already knows which is which.
+    let centreX = 0;
+    let centreZ = 0;
+    for (const p of ring) {
+      centreX += p.x;
+      centreZ += p.y;
+    }
+    centreX /= ring.length;
+    centreZ /= ring.length;
+    const sampled = sampleImageryAt(this.frame, centreX, centreZ);
+
+    let wall;
+    let roof;
+    if (sampled) {
+      roof = new THREE.Color(sampled.r, sampled.g, sampled.b);
+      // Walls are not visible from above, so there is nothing to sample them
+      // from. Derive them from the roof instead — same building, same era,
+      // usually lighter and less saturated than what is on top of it.
+      const hsl = { h: 0, s: 0, l: 0 };
+      roof.getHSL(hsl);
+      wall = new THREE.Color().setHSL(
+        hsl.h,
+        hsl.s * 0.45,
+        clamp(hsl.l * 0.6 + 0.34, 0.22, 0.86) * tint,
+      );
+    } else {
+      wall = WALL_COLOUR.clone().multiplyScalar(tint);
+      roof = ROOF_COLOUR.clone().multiplyScalar(0.9 + rand3(seed, 11, 5) * 0.3);
+    }
 
     // Door goes in the longest wall, which is nearly always the street side.
     let doorIndex = 0;
