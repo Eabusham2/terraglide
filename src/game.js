@@ -120,6 +120,9 @@ export class Game {
     this.avatar = new Avatar(this.scene);
     this.avatar.loadTextures();
     this.avatar.loadModel();
+    // The held view model rides the camera, so it is hung off it rather than
+    // off the scene root.
+    this.avatar.attachTo(this.camera);
     this.rig = new CameraRig(this.camera);
     this.input = new InputManager(canvas);
     this.autopilot = new Autopilot({
@@ -568,7 +571,11 @@ export class Game {
     const showAvatar = thirdPerson || settings.get('showBody');
     this.avatar.setVisible(showAvatar);
     this.avatar.setFirstPerson(!thirdPerson);
-    if (showAvatar) this.avatar.update(player, dt);
+    // Always update, even with the body switched off: the held view model
+    // hangs off the camera rather than off the avatar root, and it is drawn in
+    // first person whatever the body setting says — the same way every game
+    // that has a first-person body still draws the thing in your hand.
+    this.avatar.update(player, dt, this.camera);
 
     exploration.visit(player.lat, player.lon, player.altitudeAboveGround);
     exploration.tick(dt);

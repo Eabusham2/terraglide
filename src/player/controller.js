@@ -89,6 +89,10 @@ export class PlayerController {
     player.position.y += player.velocity.y * step * multiplier;
     player.position.z += player.velocity.z * step * multiplier;
     player.distanceTravelled += player.velocity.length() * step * multiplier;
+    // How far this tick's gravity dropped the feet. The ground resolve needs
+    // it to tell a step in the terrain apart from its own settling; see the
+    // note there.
+    this.fallThisTick = Math.max(0, -player.velocity.y * step * multiplier);
 
     this.resolveCollisions(step, input);
   }
@@ -313,7 +317,15 @@ export class PlayerController {
       // Walking uphill lifts the feet over a step or two rather than snapping,
       // which is what made short slopes feel like stairs before.
       const rise = floor - player.position.y;
-      if (player.onGround && rise > 0 && rise < stepUp) {
+      // Standing perfectly still, gravity still pulls the feet a few
+      // centimetres under the floor every tick and this resolve puts them
+      // back. That is not a step, and smoothing it was why you stood a hand's
+      // width *into* the ground for as long as you stood anywhere: the damp
+      // recovered less than half the drop, the next tick took it again, and
+      // the pair settled about ten centimetres down. Only the part of the rise
+      // that this tick's fall cannot account for is a step to be climbed.
+      const settling = (this.fallThisTick ?? 0) + 0.01;
+      if (player.onGround && rise > settling && rise < stepUp) {
         player.position.y = damp(player.position.y, floor, STEP_SMOOTHING, step);
         if (floor - player.position.y < 0.02) player.position.y = floor;
       } else {

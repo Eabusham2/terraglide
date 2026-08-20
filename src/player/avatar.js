@@ -49,6 +49,47 @@ const BODY_TURN = 8;
  * down shows the ground where your legs ought to be.
  */
 const BODY_BACK = 0.07;
+/**
+ * Where the glide pose turns, as a fraction of height.
+ *
+ * It used to turn about the feet, which is where a model's origin happens to
+ * be and nowhere a body bends. Laying out a 1.9 m figure about its ankles
+ * threw the whole thing a metre and a half forward and down, so in first
+ * person you flew along looking at your own back from behind — a paper
+ * aeroplane two metres ahead of your face rather than a body you were inside.
+ * Turning about the base of the neck instead keeps the head where the eyes
+ * are and trails the spine, hips and legs out behind you, which is what lying
+ * face down actually looks like from inside.
+ *
+ * The number is the eye height exactly, so in first person the pose turns
+ * about the camera itself: every part of you keeps its own distance from your
+ * eye whatever attitude you are in, and nothing can swing through your head.
+ */
+const POSE_PIVOT = 0.94;
+
+/**
+ * The held view model: how far in front of the eye it sits, and where in the
+ * frame it hangs as a fraction of the half-frustum at that distance.
+ *
+ * Anchored to the frustum rather than to fixed metres because the frame is not
+ * a fixed shape: a phone held upright is narrower than it is tall, and a hand
+ * parked at a fixed x sails off the side of it. Proportions of the frustum
+ * keep it in the bottom-right corner at every aspect from 9:21 to 32:9.
+ */
+/**
+ * The two poses, as [across, down, forward, pitch, yaw, roll].
+ *
+ * `across` and `down` are fractions of the half-frustum at the pose's own
+ * depth, so they mean "this far toward the corner" rather than "this many
+ * metres" and survive being handed a phone stood on its end. `forward` is
+ * metres from the eye and the last three are radians.
+ *
+ * HELD is a firework carried at your side, the way Minecraft holds an item.
+ * GLIDE is the superman pose from inside it: both arms out along the flight
+ * path, converging ahead of you, entering frame from the bottom corners.
+ */
+const HAND_HELD = [0.62, 0.82, 0.52, -0.35, 0, 0.34];
+const HAND_GLIDE = [0.62, 0.62, 0.85, -1.3, 0.42, 0.1];
 
 /**
  * Your kit — jacket, trousers, wings — can carry a generated texture in every
@@ -130,8 +171,45 @@ export class Avatar {
     this.cloth.rocket = [rocketMat];
     this.rocketColour = -1;
 
+    // The view model: your arms and the firework in one of them, drawn in view
+    // space instead of world space.
+    //
+    // The world body alone left first person with nothing of you in it at all.
+    // Stand, walk, fall — pure scenery, because your arms hang at your sides
+    // behind your own eyes and nothing in front of you is you. Turning the
+    // glide pose about the eye fixed the flying case in world space and made
+    // this one worse: the shoulders end up a hand's width *behind* the camera,
+    // so an arm has to be longer than an arm to reach into frame at all.
+    //
+    // Everything that draws a first-person hand draws it this way for exactly
+    // that reason: in view space you place the arm where it should look, and
+    // the frame is the only geometry it has to agree with. The world arms are
+    // hidden in first person so there is never a second pair.
+    //
+    // Materials are shared with the world body, so one kit texture dresses
+    // both and the nose keeps the colour of the slot you are on.
+    this.viewModel = new THREE.Group();
+    this.viewModel.name = 'view-model';
+    this.viewModel.visible = false;
+    this.handR = this.makeHand(this.armR.limb.material, mat(SKIN));
+    this.handL = this.makeHand(this.armL.limb.material, mat(SKIN));
+    this.handRocket = this.makeRocket(rocketMat, this.noseMat, mat(0x6b5334));
+    // Clear of the fist rather than half inside it: the tube is 9.5 cm and the
+    // fist 8.5, so anything under a quarter of a metre up buries the thing you
+    // are meant to be able to read the colour off.
+    this.handRocket.position.set(0, 0.25, 0);
+    this.handR.add(this.handRocket);
+    this.viewModel.add(this.handR, this.handL);
+    /** Look-lag and the shove a firework gives the arm. */
+    this.handSway = { yaw: 0, pitch: 0, lastYaw: 0, lastPitch: 0 };
+    this.handPunch = 0;
+    this.lastRockets = 0;
+
     this.walkPhase = 0;
     this.glideBlend = 0;
+    /** Scratch for the pose pivot, and the damped first-person set-back. */
+    this._pivot = new THREE.Vector3();
+    this.backBlend = 0;
     /** Where the shoulders point. Its own value, not a copy of the camera's. */
     this.bodyYaw = 0;
     this.firstPerson = false;
@@ -172,6 +250,17 @@ export class Avatar {
     return group;
   }
 
+  /** One view-model forearm: sleeve and fist, reaching along its own +Y. */
+  makeHand(sleeve, skin) {
+    const group = new THREE.Group();
+    const forearm = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.32, 0.085), sleeve);
+    forearm.position.y = -0.05;
+    const fist = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.085, 0.09), skin);
+    fist.position.y = 0.15;
+    group.add(forearm, fist);
+    return group;
+  }
+
   makeWing(material, edgeMaterial, side) {
     const group = new THREE.Group();
     // Wider and deeper than they were. Open elytra are roughly as broad as the
@@ -191,6 +280,17 @@ export class Avatar {
 
   setVisible(visible) {
     this.root.visible = visible;
+  }
+
+  /**
+   * Hang the view model off the camera. It rides the camera's transform, so it
+   * is stuck to the frame the way a held thing is, and it is depth-tested like
+   * everything else — walk your fist into a wall and the wall wins, which is
+   * what Minecraft does too.
+   */
+  attachTo(camera) {
+    if (this.viewModel.parent === camera) return;
+    camera.add(this.viewModel);
   }
 
   /**
@@ -308,7 +408,7 @@ export class Avatar {
    * @param {object} player
    * @param {number} dt
    */
-  update(player, dt) {
+  update(player, dt, camera) {
     const height = player.height;
     this.root.scale.setScalar(height);
     this.root.position.copy(player.position);
@@ -364,9 +464,18 @@ export class Avatar {
       8,
       dt,
     );
-    this.body.position.y = damp(this.body.position.y, gliding || flying ? 0.3 : 0, 8, dt);
+    // Turn the pose about the base of the neck rather than about the origin
+    // under the feet, so that whatever the body does the head stays where the
+    // eyes are and the spine trails out behind it. See POSE_PIVOT. The lift
+    // that used to be here was papering over the same thing.
+    this._pivot.set(0, POSE_PIVOT, 0).applyEuler(this.body.rotation);
     // +Z is behind you, so this walks the model backwards out of the view.
-    this.body.position.z = damp(this.body.position.z, this.firstPerson ? BODY_BACK : 0, 10, dt);
+    this.backBlend = damp(this.backBlend, this.firstPerson ? BODY_BACK : 0, 10, dt);
+    this.body.position.set(
+      -this._pivot.x,
+      POSE_PIVOT - this._pivot.y,
+      -this._pivot.z + this.backBlend,
+    );
 
     const stride = clamp(player.horizontalSpeed / (4.3 * Math.pow(player.scale, 0.75)), 0, 1.8);
     const strafing = Math.abs(sideSpeed) > Math.abs(forwardSpeed) * 1.2 && stride > 0.15;
@@ -413,7 +522,11 @@ export class Avatar {
     }
 
     const open = player.elytraDeployed ? Math.max(this.glideBlend, 0.6) : 0;
-    this.wings.visible = player.elytraDeployed;
+    // Wings are strapped to your back, and now that the pose turns about your
+    // eyes rather than your ankles they are where a back is: directly behind
+    // your head. Drawing them in first person put a metre of canvas through
+    // the camera. You cannot see your own wings, so do not draw them.
+    this.wings.visible = player.elytraDeployed && !this.firstPerson;
     this.wingL.rotation.set(0.15 * open, -0.35 + 1.5 * (1 - open), 0.2 * open);
     this.wingR.rotation.set(0.15 * open, 0.35 - 1.5 * (1 - open), -0.2 * open);
 
@@ -428,5 +541,99 @@ export class Avatar {
         dt,
       );
     }
+
+    // What is left of you in first person.
+    //
+    // The arms come off: they are the view model's job now, and two right arms
+    // is worse than none. The wings come off with them — they are strapped to
+    // your back, which since the pose turns about your eyes is directly behind
+    // your head, and a metre of canvas through the camera is not a wing you
+    // can see. Chest and legs stay while you are on your feet or falling and
+    // go in a glide, where they are behind your head rather than below you and
+    // only ever appear as a shape passing through the near plane.
+    const inside = this.firstPerson;
+    const prone = inside && this.glideBlend > 0.5;
+    this.armL.pivot.visible = !inside;
+    this.armR.pivot.visible = !inside;
+    // The chest goes too. It is a half-metre box a hand's width under your
+    // eye, so looking down it is not a chest, it is a khaki wall across the
+    // bottom third of the screen with your legs, your feet and the firework in
+    // your hand all behind it. Legs and boots are what the first-person body
+    // was for, and with the chest gone they are what you get.
+    this.torso.visible = !inside;
+    this.legL.pivot.visible = !prone;
+    this.legR.pivot.visible = !prone;
+
+    this.viewModel.visible = inside;
+    if (inside) this.updateHand(player, dt, camera);
+  }
+
+  /**
+   * Where the view model sits, and how it moves.
+   *
+   * Anchored to the frustum rather than to fixed metres, so the bottom-right
+   * corner is the bottom-right corner whether the frame is a phone stood on
+   * end or an ultrawide; scaled with you, so a giant's fist is a giant's fist
+   * and still covers the same part of the screen; blended between the carried
+   * pose and the flying one by the same number the body uses, so opening the
+   * wings sweeps your arms forward rather than swapping them; and given the
+   * three motions a carried thing has — it lags behind a turn and swings back,
+   * it bobs with your stride, and it kicks when the firework in it lights.
+   */
+  updateHand(player, dt, camera) {
+    if (!camera) return;
+    const tan = Math.tan((camera.fov * Math.PI) / 360);
+    const aspect = camera.aspect || 1;
+    this.viewModel.scale.setScalar(player.scale);
+
+    const glide = this.glideBlend;
+    const lerp = (a, b) => a + (b - a) * glide;
+    const across = lerp(HAND_HELD[0], HAND_GLIDE[0]);
+    const down = lerp(HAND_HELD[1], HAND_GLIDE[1]);
+    const forward = lerp(HAND_HELD[2], HAND_GLIDE[2]);
+    // Half-frustum at the depth this pose actually sits at, not at some fixed
+    // reference depth: the glide pose is further out than the carried one, and
+    // measuring both against the same plane would drag it toward the middle.
+    const half = tan * forward;
+    this.handR.position.set(half * aspect * across, -half * down, -forward);
+    this.handR.rotation.set(
+      lerp(HAND_HELD[3], HAND_GLIDE[3]),
+      lerp(HAND_HELD[4], HAND_GLIDE[4]),
+      lerp(HAND_HELD[5], HAND_GLIDE[5]),
+    );
+    // The left arm only exists once the wings are open; carried, there is
+    // nothing in it worth a quarter of the screen. It is the right arm's
+    // mirror, so one set of numbers drives both.
+    const farHalf = tan * HAND_GLIDE[2];
+    this.handL.visible = glide > 0.02;
+    this.handL.position.set(-farHalf * aspect * HAND_GLIDE[0], -farHalf * HAND_GLIDE[1], -HAND_GLIDE[2]);
+    this.handL.rotation.set(HAND_GLIDE[3], -HAND_GLIDE[4], -HAND_GLIDE[5]);
+    this.handL.scale.setScalar(glide);
+
+    const sway = this.handSway;
+    const yawStep = wrapAngle(player.yaw - sway.lastYaw);
+    const pitchStep = player.pitch - sway.lastPitch;
+    sway.lastYaw = player.yaw;
+    sway.lastPitch = player.pitch;
+    sway.yaw = damp(clamp(sway.yaw - yawStep * 0.9, -0.28, 0.28), 0, 7, dt);
+    sway.pitch = damp(clamp(sway.pitch - pitchStep * 0.9, -0.24, 0.24), 0, 7, dt);
+
+    if (player.rocketsFired !== this.lastRockets) {
+      this.lastRockets = player.rocketsFired;
+      this.handPunch = 1;
+    }
+    this.handPunch = damp(this.handPunch, 0, 6, dt);
+
+    const stride = player.onGround ? clamp(player.horizontalSpeed / 4.3, 0, 1.4) : 0;
+    // Sway, bob and the firework's shove ride on top of whichever pose is in
+    // force, so they read the same carried or flying.
+    this.viewModel.position.set(
+      Math.sin(this.walkPhase) * 0.02 * stride + sway.yaw * 0.24,
+      -Math.abs(Math.cos(this.walkPhase)) * 0.016 * stride +
+        sway.pitch * 0.22 -
+        this.handPunch * 0.05,
+      -this.handPunch * 0.12,
+    );
+    this.viewModel.rotation.set(sway.pitch * 0.5 + this.handPunch * 0.5, sway.yaw * 0.7, 0);
   }
 }

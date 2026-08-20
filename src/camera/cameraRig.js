@@ -144,7 +144,11 @@ export class CameraRig {
       // Second person is the same rig turned around: the camera sits in front
       // of you looking back, so you fly toward it and can see your own face.
       const behind = perspective === 'third' ? 1 : -1;
-      const distance = 3.4 * player.height;
+      // Minecraft's chase camera sits four blocks off a 1.8 m player, which
+      // puts the figure at roughly a third of the frame height. Ours was at
+      // 3.4 heights and put it at a sixth — far enough that you were watching
+      // a distant doll rather than steering yourself.
+      const distance = 2.6 * player.height;
       const cosPitch = Math.cos(player.pitch);
       this._offset.set(
         -Math.sin(player.yaw) * cosPitch * behind,
