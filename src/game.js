@@ -498,15 +498,22 @@ export class Game {
       const ground = this.terrain.heightAt(this.rig.freecam.position.x, this.rig.freecam.position.z);
       this.rig.updateFreecam(dt, movement, ground);
       player.tickTimers(dt);
+      player.snapRender();
     } else if (this.settling && !this.wantsControl(movement)) {
       this.settle(dt);
+      player.snapRender();
     } else {
       this.releaseSettle();
       this.controller.update(dt, movement);
     }
 
-    // Keep the world numerically comfortable around the player.
-    if (this.frame.needsRebase(player.position.x, player.position.z)) this.rebase();
+    // Keep the world numerically comfortable around the player. A rebase moves
+    // the origin under you, so the drawn position has to come with it rather
+    // than be interpolated across the jump.
+    if (this.frame.needsRebase(player.position.x, player.position.z)) {
+      this.rebase();
+      player.snapRender();
+    }
     player.syncGeo();
 
     this.rig.update(player, dt, this.terrain);
@@ -798,6 +805,11 @@ export class Game {
       settings.get('rtpSkySpawn') &&
       (reason === 'spawn' || ((reason === 'rtp' || reason === 'map') && wasFlying));
     player.teleport(lat, lon, ground, airborne ? SPAWN_HEIGHT_M : 1.2);
+    // Arrive looking at the country rather than at your own boots. Teleporting
+    // while you happened to be looking down dropped you four hundred metres up
+    // staring into ground that had not streamed in yet, which reads as a
+    // teleport into an empty void. Heading is yours; the pitch is levelled.
+    player.pitch = clamp(player.pitch, -0.25, 0.25);
     if (airborne) {
       player.onGround = false;
       player.toggleElytra(true);

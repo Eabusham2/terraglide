@@ -594,6 +594,7 @@ console.log('\nThe body you can see');
   /** A stand-in player. Nothing here needs the real one. */
   const makePlayer = (over = {}) => ({
     position: new THREE.Vector3(),
+    renderPosition: new THREE.Vector3(),
     velocity: new THREE.Vector3(),
     height: 1.7, scale: 1, pitch: 0, yaw: 0,
     mode: 'walk', onGround: true, swimming: false,
@@ -1025,6 +1026,42 @@ console.log('\nWalking, jumping and falling like Minecraft');
     run(r, 90);
     ok('standing still leaves the feet on the ground, not in it',
       near(r.player.position.y, 0, 0.001), `${r.player.position.y.toFixed(3)} m`);
+  }
+  {
+    // The drawn position has to advance on *every* frame, not only on the
+    // frames that happen to carry a physics tick. At 120 Hz that is one frame
+    // in six; the other five held still, and holding still for five frames and
+    // then jumping is exactly what flying fast looked like on a good monitor.
+    const r = rig();
+    r.player.position.set(0, 500, 0);
+    r.player.onGround = false;
+    r.player.elytraDeployed = true;
+    run(r, 120);
+    const steps = [];
+    let last = r.player.renderPosition.clone();
+    for (let i = 0; i < 120; i++) {
+      r.controller.update(1 / 120, keys());
+      steps.push(r.player.renderPosition.distanceTo(last));
+      last = r.player.renderPosition.clone();
+    }
+    const still = steps.filter((d) => d < 1e-6).length;
+    const biggest = Math.max(...steps);
+    const smallest = Math.min(...steps);
+    ok('the drawn position moves on every frame at 120 Hz', still === 0,
+      `${still} of ${steps.length} frames held still`);
+    ok('and moves by about the same amount each time',
+      biggest < smallest * 2.5, `${smallest.toFixed(4)} to ${biggest.toFixed(4)} m`);
+  }
+  {
+    // A teleport is not motion, so it must not be smeared across a frame.
+    const r = rig();
+    r.player.position.set(0, 200, 0);
+    run(r, 4);
+    r.player.position.set(9000, 200, -9000);
+    r.controller.update(1 / 60, keys());
+    ok('and jumps straight to a teleport rather than interpolating into it',
+      r.player.renderPosition.distanceTo(r.player.position) < 1,
+      `${r.player.renderPosition.distanceTo(r.player.position).toFixed(1)} m behind`);
   }
 }
 

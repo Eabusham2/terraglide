@@ -46,6 +46,13 @@ const WATER_DRAG = 5.5;
 const DOUBLE_TAP_S = 0.4;
 /** How long a jump press waits for a tick that finds you on the ground. */
 const JUMP_BUFFER_S = 0.16;
+/**
+ * Further than a tick could possibly move you, so a gap this big means the
+ * ground moved rather than you did — a teleport or a frame rebase. Terminal
+ * velocity is 78 m/s and a tick is a twentieth of a second, so four metres is
+ * the real ceiling; this leaves room for speed mode and every cheat at once.
+ */
+const RESYNC_M = 200;
 /** How far the feet can be lifted per second when walking up a slope. */
 const STEP_SMOOTHING = 12;
 /** Creative flight, metres per second, cruise and sprint. */
@@ -60,6 +67,8 @@ export class PlayerController {
     this.fixed = new FixedStep(TICK, 5);
     this.look = new THREE.Vector3();
     this.tmp = new THREE.Vector3();
+    /** Where the player was at the start of the most recent physics tick. */
+    this.prevPosition = new THREE.Vector3();
     this.lastGroundContact = 0;
     this.landedThisFrame = false;
     this.climbing = false;
@@ -92,6 +101,20 @@ export class PlayerController {
     this.fixed.maxSteps = Math.ceil(5 * Math.max(1, cheats.gameSpeed));
     this.fixed.run(dt, (step) => this.tick(step, input));
 
+    // Draw somewhere between the last two ticks rather than on the last one.
+    // A tick moves you at most a few metres, so anything further apart than
+    // that is a teleport or a rebase rather than motion, and is not something
+    // to interpolate across.
+    if (this.prevPosition.distanceToSquared(player.position) > RESYNC_M * RESYNC_M) {
+      player.snapRender();
+    } else {
+      player.renderPosition.lerpVectors(
+        this.prevPosition,
+        player.position,
+        clamp(this.fixed.alpha, 0, 1),
+      );
+    }
+
     player.syncGeo();
     player.groundHeight = this.groundHeightAt(player.position.x, player.position.z, player.position.y);
     // Under water the useful floor is the sea bed, not the surface above you.
@@ -105,6 +128,7 @@ export class PlayerController {
 
   tick(step, input) {
     const player = this.player;
+    this.prevPosition.copy(player.position);
     const scale = player.scale;
     player.lookVector(this.look);
 

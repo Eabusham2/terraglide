@@ -44,6 +44,17 @@ export class Player extends Emitter {
     super();
     this.frame = frame;
     this.position = new THREE.Vector3();
+    /**
+     * Where to *draw* you.
+     *
+     * Physics run at a fixed 20 Hz and the screen does not, so on anything
+     * faster than 20 fps the position only changes on one frame in three or
+     * six or seven and holds still in between. That is the jitter you see when
+     * flying fast on a good monitor: not a physics problem, a sampling one.
+     * The controller keeps this interpolated between the last two ticks, and
+     * the camera and the avatar read it instead of the real one.
+     */
+    this.renderPosition = new THREE.Vector3();
     this.velocity = new THREE.Vector3();
     this.yaw = 0;
     this.pitch = 0;
@@ -158,6 +169,7 @@ export class Player extends Emitter {
   teleport(lat, lon, groundHeight, clearance = 2) {
     this.frame.setAnchor(lat, lon);
     this.position.set(0, groundHeight + clearance, 0);
+    this.snapRender();
     this.velocity.set(0, 0, 0);
     this.lat = lat;
     this.lon = lon;
@@ -166,6 +178,11 @@ export class Player extends Emitter {
     this.rocketTicksLeft = 0;
     this.onGround = true;
     this.emit('teleport', { lat, lon });
+  }
+
+  /** Draw where you actually are — after a teleport, a rebase, or a hold. */
+  snapRender() {
+    this.renderPosition.copy(this.position);
   }
 
   syncGeo() {

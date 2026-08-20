@@ -101,6 +101,20 @@ const HAND_GLIDE = [0.62, 0.62, 0.85, -1.3, 0.42, 0.1];
  */
 const CLOTH_TINT = 0xffffff;
 
+/** The firework mesh runs along its own +Y; these are what it gets aimed at. */
+const ROCKET_AXIS = new THREE.Vector3(0, 1, 0);
+/**
+ * Where the held one points, in view space.
+ *
+ * Not straight down the view axis, even though that is exactly where the
+ * thrust goes: aim it there and you are looking down the barrel, so the whole
+ * rocket hides behind the fist and only the guide stick shows. Up and inward
+ * from the corner keeps its length on screen and still reads as pointing the
+ * way you are about to go. The world model has no such problem and is aimed at
+ * the look vector itself, which is what you see from the chase camera.
+ */
+const VIEW_AIM = new THREE.Vector3(-0.3, 0.55, -0.78).normalize();
+
 export class Avatar {
   constructor(scene) {
     this.root = new THREE.Group();
@@ -163,10 +177,9 @@ export class Avatar {
     this.noseMat = mat(0xffffff);
     this.rocket = this.makeRocket(rocketMat, this.noseMat, mat(0x6b5334));
     // The limb mesh is a box of its own length centred on its origin, so the
-    // hand is at −length/2. Sit the rocket just past the fingers, pointing the
-    // way the arm does: the group's +Y axis is turned onto −Z, forward.
-    this.rocket.position.set(0, -this.armR.length / 2 + 0.02, -0.035);
-    this.rocket.rotation.x = -Math.PI / 2;
+    // hand is at −length/2. The grip goes there; which way the rocket then
+    // points is decided every frame by aimRocket.
+    this.rocket.position.set(0, -this.armR.length / 2 + 0.015, -0.02);
     this.armR.limb.add(this.rocket);
     this.cloth.rocket = [rocketMat];
     this.rocketColour = -1;
@@ -197,7 +210,7 @@ export class Avatar {
     // Clear of the fist rather than half inside it: the tube is 9.5 cm and the
     // fist 8.5, so anything under a quarter of a metre up buries the thing you
     // are meant to be able to read the colour off.
-    this.handRocket.position.set(0, 0.29, 0);
+    this.handRocket.position.set(0, 0.155, 0);
     this.handR.add(this.handRocket);
     this.viewModel.add(this.handR, this.handL);
     /** Look-lag and the shove a firework gives the arm. */
@@ -210,6 +223,10 @@ export class Avatar {
     /** Scratch for the pose pivot, and the damped first-person set-back. */
     this._pivot = new THREE.Vector3();
     this.backBlend = 0;
+    /** Scratch for aiming the firework along the thrust. */
+    this._aim = new THREE.Vector3();
+    this._aimQuat = new THREE.Quaternion();
+    this._holdQuat = new THREE.Quaternion();
     /** Where the shoulders point. Its own value, not a copy of the camera's. */
     this.bodyYaw = 0;
     this.firstPerson = false;
@@ -244,11 +261,16 @@ export class Avatar {
     // long again. It was built at two thirds of this and read as a matchstick
     // in the hand and as nothing at all from the chase camera; the colour on
     // the nose is meant to be readable, and at that size it was not.
+    // Everything sits above the group origin, because the origin is the *grip*
+    // — the point a fist closes around, a little below the middle of the tube.
+    // Aiming the thing then turns it in the hand instead of swinging it round
+    // some point in mid-air, which is what left it floating beside the fist.
     const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.14, 10), paper);
+    tube.position.y = 0.04;
     const cone = new THREE.Mesh(new THREE.ConeGeometry(0.026, 0.05, 10), nose);
-    cone.position.y = 0.095;
+    cone.position.y = 0.135;
     const guide = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.15, 5), stick);
-    guide.position.y = -0.14;
+    guide.position.y = -0.1;
 
     group.add(tube, cone, guide);
     return group;
@@ -265,19 +287,55 @@ export class Avatar {
     return group;
   }
 
+  /**
+   * One wing.
+   *
+   * It was three boxes: a slab, a smaller slab for the tip, and a bar along
+   * the top. At any distance the wings *are* the silhouette of a gliding
+   * figure, and a silhouette made of rectangles reads as a thrown crate. This
+   * is the real outline instead — broad at the shoulder, swept back, tapering
+   * to a point — extruded from a profile, which costs a few dozen triangles
+   * and is the difference between a wing and a plank.
+   *
+   * The profile is drawn for the right wing and mirrored by negating x, so one
+   * set of numbers describes both and they cannot drift apart.
+   */
   makeWing(material, edgeMaterial, side) {
     const group = new THREE.Group();
-    // Wider and deeper than they were. Open elytra are roughly as broad as the
-    // player is tall, and at any distance the wings *are* the silhouette — the
-    // old stubs left a gliding figure looking like a thrown box.
-    const shape = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.34, 0.016), material);
-    shape.position.set(side * 0.29, -0.09, 0);
-    // A taper at the tip, so the outline is a wing rather than a plank.
-    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.2, 0.014), material);
-    tip.position.set(side * 0.63, -0.15, 0);
-    const spar = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.035, 0.035), edgeMaterial);
-    spar.position.set(side * 0.37, 0.06, 0);
-    group.add(shape, tip, spar);
+
+    const outline = [
+      [0, 0.17], [0.3, 0.15], [0.58, 0.06], [0.76, -0.1],
+      [0.8, -0.19], [0.6, -0.23], [0.24, -0.25], [0, -0.21],
+    ];
+    const shape = new THREE.Shape();
+    shape.moveTo(side * outline[0][0], outline[0][1]);
+    for (const [x, y] of outline.slice(1)) shape.lineTo(side * x, y);
+    shape.closePath();
+
+    const membrane = new THREE.Mesh(
+      new THREE.ExtrudeGeometry(shape, {
+        depth: 0.014,
+        bevelEnabled: true,
+        bevelThickness: 0.004,
+        bevelSize: 0.004,
+        bevelSegments: 1,
+        curveSegments: 1,
+      }),
+      material,
+    );
+    membrane.position.z = -0.007;
+    // Extrusion runs along +Z and the outline is drawn in XY, which is already
+    // the plane a wing lies in: outboard along X, along the back on Y.
+    group.add(membrane);
+
+    // The leading edge, thicker and darker, running from the shoulder to the
+    // tip. It is what catches the light and tells you which way the wing is
+    // pointing when the membrane is edge-on.
+    const spar = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.034, 0.034), edgeMaterial);
+    spar.position.set(side * 0.4, 0.12, 0);
+    spar.rotation.z = side * -0.31;
+    group.add(spar);
+
     group.userData.side = side;
     return group;
   }
@@ -415,7 +473,7 @@ export class Avatar {
   update(player, dt, camera) {
     const height = player.height;
     this.root.scale.setScalar(height);
-    this.root.position.copy(player.position);
+    this.root.position.copy(player.renderPosition);
 
     const gliding = player.mode === 'glide';
     const flying = player.mode === 'fly';
@@ -570,6 +628,36 @@ export class Avatar {
 
     this.viewModel.visible = inside;
     if (inside) this.updateHand(player, dt, camera);
+
+    this.aimRocket(player);
+  }
+
+  /**
+   * Point the firework where it is about to push you.
+   *
+   * It used to lie along the forearm, which is where a hand holds a stick and
+   * not where a rocket is aimed: look straight up and the thing that was going
+   * to throw you at the sky was still pointing off to one side. Thrust runs
+   * along your look vector, so the rocket does — in the world model by undoing
+   * the arm's rotation, and in the view model by undoing the hand's, since
+   * there "along your look" is simply forward out of the screen.
+   */
+  aimRocket(player) {
+    const cp = Math.cos(player.pitch ?? 0);
+    this._aim.set(
+      cp * Math.sin(player.yaw ?? 0),
+      Math.sin(player.pitch ?? 0),
+      -cp * Math.cos(player.yaw ?? 0),
+    );
+    this._aimQuat.setFromUnitVectors(ROCKET_AXIS, this._aim);
+    this.root.updateMatrixWorld(true);
+    this.armR.limb.getWorldQuaternion(this._holdQuat);
+    this.rocket.quaternion.copy(this._holdQuat).invert().multiply(this._aimQuat);
+
+    if (!this.viewModel.visible) return;
+    this._aimQuat.setFromUnitVectors(ROCKET_AXIS, VIEW_AIM);
+    this._holdQuat.copy(this.viewModel.quaternion).multiply(this.handR.quaternion);
+    this.handRocket.quaternion.copy(this._holdQuat).invert().multiply(this._aimQuat);
   }
 
   /**

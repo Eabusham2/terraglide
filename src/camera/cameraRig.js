@@ -137,7 +137,9 @@ export class CameraRig {
     this.roll = this.rolling ? this.rolling * Math.PI * 2 : 0;
 
     const eye = player.eyeHeight;
-    this._target.set(player.position.x, player.position.y + eye, player.position.z);
+    // The drawn position, not the physics one — see Player.renderPosition.
+    const at = player.renderPosition;
+    this._target.set(at.x, at.y + eye, at.z);
 
     const perspective = settings.get('perspective');
     if (perspective === 'third' || perspective === 'second') {
