@@ -82310,7 +82310,7 @@ const { readJSON, removeKey, writeJSON } = __tg_require("src/core/storage.js");
  * Every persisted option in the game. Defaults are chosen so a fresh browser
  * with no API keys and no network still boots into something playable.
  *
- * imageryProvider:   'offline' | 'esri' | 'google' | 'azure' | 'mapbox'
+ * imageryProvider:   'offline' | 'esri' | 'google' | 'bing' | 'azure' | 'mapbox'
  * elevationProvider: 'procedural' | 'mapbox' | 'terrarium'
  * panoramaProvider:  'none' | 'google' | 'mapillary'
  * graphics:          'low' | 'medium' | 'high' | 'ultra'
@@ -82338,6 +82338,7 @@ const DEFAULT_SETTINGS = {
   world3d: 'off',
   world3dDetail: 'high',
   cesiumToken: '',
+  bingKey: '',
   azureKey: '',
   googleKey: '',
   mapboxKey: '',
@@ -82358,6 +82359,7 @@ const DEFAULT_SETTINGS = {
   fog: true,
   weather: true,
   scenery: true,
+  sceneryFromImagery: true,
   maxTileZoom: 20,
   meshDetail: 1.2,
   showFps: false,
@@ -85887,6 +85889,18 @@ const IMAGERY_PROVIDERS = [
     note: 'Needs a Map Tiles API key. A session token is created on first use.',
   },
   {
+    id: 'bing',
+    label: 'Bing Maps (aerial)',
+    kind: 'bing',
+    needsKey: 'bingKey',
+    maxZoom: 20,
+    attribution: 'Imagery © Microsoft, Maxar',
+    note:
+      'Bing still has coverage and zoom levels Azure has not inherited, so it is '
+      + 'worth keeping alongside. Tile URLs come from the imagery metadata service. '
+      + 'Microsoft is retiring it, so treat it as the older of the two.',
+  },
+  {
     id: 'azure',
     label: 'Azure Maps (satellite)',
     kind: 'xyz',
@@ -85989,13 +86003,14 @@ function fillTemplate(template, tile, key) {
 
 /**
  * Resolves a provider descriptor plus the current keys into something that can
- * hand out tile URLs. Providers needing a handshake (Google session
+ * hand out tile URLs. Providers needing a handshake (Google sessions, Bing
  * metadata) do it once, lazily, and cache the result.
  */
 class TileSource {
   constructor(descriptor, keys) {
     this.descriptor = descriptor;
     this.keys = keys;
+    this.bingTemplate = null;
     this.state = 'idle'; // idle | preparing | ready | needs-key | error
     this.error = '';
     this.googleSession = null;
@@ -86045,7 +86060,8 @@ class TileSource {
     this.state = 'preparing';
     this.preparing = (async () => {
       try {
-        if (this.descriptor.kind === 'google') await this.prepareGoogle();
+        if (this.descriptor.kind === 'bing') await this.prepareBing();
+        else if (this.descriptor.kind === 'google') await this.prepareGoogle();
         this.state = 'ready';
         this.error = '';
       } catch (err) {
@@ -86058,6 +86074,19 @@ class TileSource {
     return this.preparing;
   }
 
+
+  async prepareBing() {
+    const url =
+      'https://dev.virtualearth.net/REST/v1/Imagery/Metadata/Aerial' +
+      `?output=json&include=ImageryProviders&uriScheme=https&key=${encodeURIComponent(this.key)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Bing metadata failed (${res.status})`);
+    const data = await res.json();
+    const resource = data?.resourceSets?.[0]?.resources?.[0];
+    if (!resource?.imageUrl) throw new Error('Bing metadata had no imageUrl');
+    this.bingTemplate = resource.imageUrl;
+    this.bingSubdomains = resource.imageUrlSubdomains ?? [''];
+  }
 
   async prepareGoogle() {
     const res = await fetch(
@@ -86078,6 +86107,15 @@ class TileSource {
   urlFor(tile) {
     const d = this.descriptor;
     if (d.kind === 'synthetic') return null;
+    if (d.kind === 'bing') {
+      if (!this.bingTemplate) return null;
+      const subs = this.bingSubdomains ?? [''];
+      const sub = subs[(tile.x + tile.y) % subs.length];
+      return this.bingTemplate
+        .replace('{subdomain}', sub)
+        .replace('{quadkey}', quadKey(tile))
+        .replace('{culture}', 'en-US');
+    }
     if (d.kind === 'google') {
       if (!this.googleSession) return null;
       return `https://tile.googleapis.com/v1/2dtiles/${tile.z}/${tile.x}/${tile.y}?session=${encodeURIComponent(this.googleSession)}&key=${encodeURIComponent(this.key)}`;
@@ -88328,6 +88366,103 @@ __tg_exports["pointInRing"] = pointInRing;
 __tg_exports["classify"] = classify;
 __tg_exports["parseFeatures"] = parseFeatures;
 };
+__tg_modules["src/world/landclass.js"] = function (__tg_exports) {
+/**
+ * Land cover read off the aerial photograph.
+ *
+ * The scenery's first choice is always OpenStreetMap: a mapped wood is a
+ * surveyed fact, with a boundary and often a leaf type. But OSM is reached
+ * through Overpass, which is a donated service — rate limited, queued one
+ * request at a time, and entitled to refuse. When it is slow, or the ground you
+ * are over simply has not been mapped, the result was flat bare terrain with
+ * nothing standing on it anywhere.
+ *
+ * So there is a second source, and it is already on your screen: the satellite
+ * image. A photograph of a forest is *evidence of a forest* — it is not an
+ * invention, and it is the same trick a flight simulator uses to decide where
+ * autogen goes outside its photogrammetry cities. Green means something grows
+ * there; grey and rough means rock; bright white means snow and nothing grows.
+ *
+ * The honesty line is unchanged and worth restating: the *presence* of woodland
+ * here is read from real imagery of that exact ground, and the position of each
+ * individual trunk within it is generated. What this must never do is put trees
+ * somewhere the picture says there are none.
+ */
+
+/** What a patch of ground looks like from above. */
+const COVER = {
+  none: 0,
+  grass: 1,
+  forest: 2,
+  rock: 3,
+};
+
+/**
+ * Classify one averaged pixel of aerial imagery.
+ *
+ * Deliberately conservative: anything ambiguous comes back `none`, because a
+ * missing tree is a much smaller error than a tree standing in a car park.
+ *
+ * @param {number} r 0-255
+ * @param {number} g 0-255
+ * @param {number} b 0-255
+ */
+function classifyPixel(r, g, b) {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+  const saturation = max === 0 ? 0 : (max - min) / max;
+
+  // Snow, ice, cloud and glare: bright and colourless. Nothing grows, and
+  // guessing here is how you end up with a forest on a glacier.
+  if (luma > 205 && saturation < 0.12) return COVER.none;
+  // Deep shadow and open water read almost black; do not plant in either.
+  if (luma < 26) return COVER.none;
+  // Water: blue ahead of green, and green ahead of red.
+  if (b > g && g >= r && saturation > 0.1) return COVER.none;
+
+  const greenLead = g - Math.max(r, b);
+
+  // Vegetation. Aerial green is muddier than screen green, so the margin is
+  // small — but it does have to lead, and the patch has to have some colour to
+  // it at all, or grey gravel with a green cast qualifies.
+  if (greenLead > 4 && saturation > 0.08) {
+    // Dark, saturated green is canopy; pale green is grass, scrub or crop.
+    return luma < 95 ? COVER.forest : COVER.grass;
+  }
+
+  // Bare ground: rock, scree, sand, ploughed earth. Grey to brown, and never
+  // very dark — the floor is set above asphalt, because roads and car parks
+  // are exactly the flat grey that would otherwise sprout boulders.
+  if (saturation < 0.24 && luma > 78 && luma < 190) return COVER.rock;
+  if (r > g && g > b && saturation < 0.5 && luma > 78) return COVER.rock;
+
+  return COVER.none;
+}
+
+/**
+ * How densely to plant a classified patch, as a fraction of the normal spacing
+ * for its kind. Grass gets scattered bushes rather than a lawn of them.
+ */
+const COVER_DENSITY = {
+  [COVER.none]: 0,
+  [COVER.grass]: 0.22,
+  [COVER.forest]: 1,
+  [COVER.rock]: 0.3,
+};
+
+/** Which scenery kind a cover class plants. */
+const COVER_KIND = {
+  [COVER.grass]: 'bush',
+  [COVER.forest]: 'mixed',
+  [COVER.rock]: 'rock',
+};
+
+__tg_exports["COVER"] = COVER;
+__tg_exports["classifyPixel"] = classifyPixel;
+__tg_exports["COVER_DENSITY"] = COVER_DENSITY;
+__tg_exports["COVER_KIND"] = COVER_KIND;
+};
 __tg_modules["src/world/scatter.js"] = function (__tg_exports) {
 const THREE = __tg_require("vendor/three/three.module.js");
 const { clamp } = __tg_require("src/core/math.js");
@@ -88335,16 +88470,27 @@ const { settings } = __tg_require("src/core/settings.js");
 const { latToNormY, lonToNormX, normXToLon, normYToLat, tileKey } = __tg_require("src/geo/mercator.js");
 const { mapTiles } = __tg_require("src/ui/mapTiles.js");
 const { classify, parseFeatures, pointInRing } = __tg_require("src/world/landcover.js");
+const { COVER_DENSITY, COVER_KIND, classifyPixel } = __tg_require("src/world/landclass.js");
 const { overpass } = __tg_require("src/world/overpass.js");
 
 /**
  * Scenery: trees, scrub and rock, in the places they actually are.
  *
- * Every position here traces back to OpenStreetMap. Woods, scrub, heath, bare
- * rock and scree are mapped as areas, individual notable trees are mapped as
- * points, and OSM even records whether a wood is needleleaved or broadleaved —
- * so a fir is a fir because the data says so, not because a noise function felt
- * like it. Where OSM has nothing, this draws nothing. No invented forests.
+ * Two sources, both real, in order of preference.
+ *
+ * First OpenStreetMap. Woods, scrub, heath, bare rock and scree are mapped as
+ * areas, individual notable trees are mapped as points, and OSM even records
+ * whether a wood is needleleaved or broadleaved — so a fir is a fir because the
+ * data says so, not because a noise function felt like it.
+ *
+ * Where OSM has nothing — unmapped ground, or Overpass busy — the aerial
+ * photograph is read instead: green is vegetation, grey and rough is rock, and
+ * anything ambiguous grows nothing. A photograph of a forest is evidence of a
+ * forest, so this is still not invention; it is a coarser source than a survey
+ * and it is treated as one. See landclass.js.
+ *
+ * What neither source ever does is put a tree where the data says there is
+ * none. That is the line.
  *
  * OSM does not record every trunk inside a wood, and no public dataset does, so
  * the *filling in* of a mapped wood is generated: positions are hashed from the
@@ -88390,6 +88536,11 @@ const KIND_LIMITS = { conifer: 6000, broadleaf: 6000, bush: 3600, rock: 2600 };
 const THIN_FROM_M = 420;
 
 const KINDS = ['conifer', 'broadleaf', 'bush', 'rock'];
+
+/** True when a rebuild has put nothing on the ground at all. */
+function placedNothing(counts) {
+  return KINDS.every((kind) => counts[kind] === 0);
+}
 
 /** What fraction of the trunks to keep at this distance from the camera. */
 function densityAt(distance) {
@@ -88712,6 +88863,13 @@ class Scatter {
       }
     }
 
+    // Nothing surveyed here — either OSM has not mapped this ground, or
+    // Overpass has not answered yet. Read the aerial photograph instead, so
+    // the world is never bare just because a donated API is busy.
+    if (placedNothing(counts) && settings.get('sceneryFromImagery')) {
+      this.fillFromImagery(counts, centreX, centreZ, radius);
+    }
+
     let placed = 0;
     for (const kind of KINDS) {
       const mesh = this.meshes[kind];
@@ -88839,6 +88997,43 @@ class Scatter {
   }
 
   /** Colour of the imagery under a world position, or null if not loaded yet. */
+  /**
+   * Plant from the satellite image, where no survey data covers the ground.
+   *
+   * Coarser grid than a mapped wood gets: this is a photograph read at a few
+   * metres per pixel, so it knows "there are trees about here" and not where
+   * any individual one stands. Claiming more precision than the source has
+   * would be the dishonest part.
+   */
+  fillFromImagery(counts, centreX, centreZ, radius) {
+    const spacing = 18;
+    const x0 = Math.floor((centreX - radius) / spacing);
+    const x1 = Math.ceil((centreX + radius) / spacing);
+    const z0 = Math.floor((centreZ - radius) / spacing);
+    const z1 = Math.ceil((centreZ + radius) / spacing);
+
+    for (let gz = z0; gz <= z1; gz++) {
+      for (let gx = x0; gx <= x1; gx++) {
+        const x = (gx + hash2(gx, gz, 11) - 0.5) * spacing;
+        const z = (gz + hash2(gx, gz, 12) - 0.5) * spacing;
+        const distance = Math.hypot(x - centreX, z - centreZ);
+        if (distance > radius) continue;
+        if (distance > THIN_FROM_M && hash2(gx, gz, 13) > densityAt(distance)) continue;
+
+        const colour = this.sampleImagery(x, z);
+        if (!colour) continue;
+        const cover = classifyPixel(colour.r * 255, colour.g * 255, colour.b * 255);
+        const density = COVER_DENSITY[cover];
+        if (!density) continue;
+        if (hash2(gx, gz, 14) > density) continue;
+
+        const kind = COVER_KIND[cover];
+        const resolved = kind === 'mixed' ? (hash2(gx, gz, 15) < 0.5 ? 'conifer' : 'broadleaf') : kind;
+        this.place(resolved, counts, x, z, 0.7 + hash2(gx, gz, 16) * 0.8);
+      }
+    }
+  }
+
   sampleImagery(x, z) {
     if (!this.frame) return null;
     const geo = this.frame.toGeo(x, z, this._geo);
@@ -91792,6 +91987,7 @@ const SECTIONS = [
         help: 'How deep to walk the tile tree, and so how many triangles arrive. Photogrammetry is far heavier than the ordinary world, so drop this before turning 3D off entirely.',
       },
       { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Photorealistic 3D Tiles, Street View Static and Geocoding APIs.' },
+      { key: 'bingKey', label: 'Bing Maps key', type: 'secret', help: 'Bing aerial imagery. Microsoft is retiring this into Azure Maps, but the coverage is not identical yet.' },
       { key: 'azureKey', label: 'Azure Maps key', type: 'secret', help: 'Azure Maps subscription key, for Microsoft satellite imagery. Azure serves no 3D data.' },
       { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation.' },
       { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'Only for the Cesium route into photorealistic 3D.' },
@@ -91825,6 +92021,12 @@ const SECTIONS = [
       { key: 'speedFovKick', label: 'Widen view with speed', type: 'toggle' },
       { key: 'fog', label: 'Distance haze', type: 'toggle' },
       { key: 'scenery', label: 'Trees, rocks and scenery', type: 'toggle', help: 'Trees, scrub and rock from OpenStreetMap land cover. Where nothing is mapped, nothing is drawn.' },
+      {
+        key: 'sceneryFromImagery',
+        label: 'Fill in scenery from the satellite image',
+        type: 'toggle',
+        help: 'Where OpenStreetMap has nothing mapped — or Overpass is busy — read the aerial photograph instead: trees where it is green, rock where it is bare. Off means only surveyed ground grows anything.',
+      },
       { key: 'weather', label: 'Clouds and rain', type: 'toggle', help: 'Cloud cover and precipitation for where and when you are, from the same climate model as the temperature.' },
       { key: 'resolutionScale', label: 'Render scale', type: 'range', min: 0.5, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%` },
       { key: 'adaptiveResolution', label: 'Adapt render scale to keep the frame rate', type: 'toggle' },
@@ -92641,7 +92843,7 @@ __tg_exports["trail"] = trail;
 __tg_modules["src/game.js"] = function (__tg_exports) {
 const THREE = __tg_require("vendor/three/three.module.js");
 const { cheats } = __tg_require("src/core/cheats.js");
-const { clamp } = __tg_require("src/core/math.js");
+const { clamp, damp } = __tg_require("src/core/math.js");
 const { PerfGovernor } = __tg_require("src/core/perf.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { readJSON, writeJSON } = __tg_require("src/core/storage.js");
@@ -92703,6 +92905,7 @@ class Game {
     this.lastTime = 0;
     this.perf = new PerfGovernor();
     this.settleUntil = 0;
+    this._holdY = NaN;
     this.teleporting = false;
     this.debugVisible = false;
     this.landFraction = 0.6;
@@ -92985,7 +93188,7 @@ class Game {
   }
 
   onSettingChanged(key) {
-    const providerKeys = ['imageryProvider', 'elevationProvider', 'googleKey', 'mapboxKey', 'azureKey'];
+    const providerKeys = ['imageryProvider', 'elevationProvider', 'googleKey', 'mapboxKey', 'bingKey', 'azureKey'];
     if (providerKeys.includes(key)) {
       this.applyProviders({ rebuild: key === 'elevationProvider' });
       this.toast('Provider updated');
@@ -93291,22 +93494,31 @@ class Game {
     player.velocity.set(0, 0, 0);
     player.tickTimers(dt);
 
-    if (this.holdInAir) {
-      // Hang at spawn height with the wings out while the world builds under
-      // you, so the first second of a teleport is not a slideshow.
-      player.position.y = ground + SPAWN_HEIGHT_M;
-      player.onGround = false;
-    } else {
-      player.position.y = ground + 1.2;
-      player.onGround = true;
-    }
+    // Where we want to be held. Note this is measured against ground that is
+    // still arriving: every elevation tile that lands changes heightAt under
+    // us, sometimes by hundreds of metres as a coarse LOD is replaced by a
+    // finer one. Writing that straight into position.y snapped the camera on
+    // every one of those, which is the jitter you get on an airborne teleport.
+    const target = ground + (this.holdInAir ? SPAWN_HEIGHT_M : 1.2);
+    if (!Number.isFinite(this._holdY)) this._holdY = target;
+    // Ease toward it instead, so a late tile slides the world into place
+    // rather than jerking it.
+    this._holdY = damp(this._holdY, target, 6, dt);
+    player.position.y = this._holdY;
+    player.onGround = !this.holdInAir;
 
     // Release once real elevation has landed, the tiles under you have been
     // built, and it has had a moment to settle.
     const waited = performance.now() - (this.settleUntil - SETTLE_MS);
     const norm = this.frame.worldToNorm(player.position.x, player.position.z);
     const ready = this.elevation.hasData(norm.nx, norm.ny) && this.terrain.stats.drawn > 6;
-    if (waited > 650 && ready) this.settleUntil = 0;
+    if (waited > 650 && ready) {
+      this.settleUntil = 0;
+      // Hand over at exactly the height we were holding, so the release is not
+      // a step either.
+      player.position.y = this._holdY;
+      this._holdY = NaN;
+    }
     if (!this.settling && this.arrivalPending) this.finishArrival();
   }
 
@@ -93389,6 +93601,7 @@ class Game {
     // dropped into a hole while the tiles stream in is what made an arrival
     // feel like a stutter, and what left the ground invisible underfoot.
     this.holdInAir = airborne;
+    this._holdY = NaN; // re-seeded on the first settle frame
     this.settleUntil = performance.now() + SETTLE_MS;
     this.arrivalPending = !airborne;
     this.address = 'Locating…';

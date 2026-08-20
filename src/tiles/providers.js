@@ -37,6 +37,18 @@ export const IMAGERY_PROVIDERS = [
     note: 'Needs a Map Tiles API key. A session token is created on first use.',
   },
   {
+    id: 'bing',
+    label: 'Bing Maps (aerial)',
+    kind: 'bing',
+    needsKey: 'bingKey',
+    maxZoom: 20,
+    attribution: 'Imagery © Microsoft, Maxar',
+    note:
+      'Bing still has coverage and zoom levels Azure has not inherited, so it is '
+      + 'worth keeping alongside. Tile URLs come from the imagery metadata service. '
+      + 'Microsoft is retiring it, so treat it as the older of the two.',
+  },
+  {
     id: 'azure',
     label: 'Azure Maps (satellite)',
     kind: 'xyz',
@@ -139,13 +151,14 @@ function fillTemplate(template, tile, key) {
 
 /**
  * Resolves a provider descriptor plus the current keys into something that can
- * hand out tile URLs. Providers needing a handshake (Google session
+ * hand out tile URLs. Providers needing a handshake (Google sessions, Bing
  * metadata) do it once, lazily, and cache the result.
  */
 export class TileSource {
   constructor(descriptor, keys) {
     this.descriptor = descriptor;
     this.keys = keys;
+    this.bingTemplate = null;
     this.state = 'idle'; // idle | preparing | ready | needs-key | error
     this.error = '';
     this.googleSession = null;
@@ -195,7 +208,8 @@ export class TileSource {
     this.state = 'preparing';
     this.preparing = (async () => {
       try {
-        if (this.descriptor.kind === 'google') await this.prepareGoogle();
+        if (this.descriptor.kind === 'bing') await this.prepareBing();
+        else if (this.descriptor.kind === 'google') await this.prepareGoogle();
         this.state = 'ready';
         this.error = '';
       } catch (err) {
@@ -208,6 +222,19 @@ export class TileSource {
     return this.preparing;
   }
 
+
+  async prepareBing() {
+    const url =
+      'https://dev.virtualearth.net/REST/v1/Imagery/Metadata/Aerial' +
+      `?output=json&include=ImageryProviders&uriScheme=https&key=${encodeURIComponent(this.key)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Bing metadata failed (${res.status})`);
+    const data = await res.json();
+    const resource = data?.resourceSets?.[0]?.resources?.[0];
+    if (!resource?.imageUrl) throw new Error('Bing metadata had no imageUrl');
+    this.bingTemplate = resource.imageUrl;
+    this.bingSubdomains = resource.imageUrlSubdomains ?? [''];
+  }
 
   async prepareGoogle() {
     const res = await fetch(
@@ -228,6 +255,15 @@ export class TileSource {
   urlFor(tile) {
     const d = this.descriptor;
     if (d.kind === 'synthetic') return null;
+    if (d.kind === 'bing') {
+      if (!this.bingTemplate) return null;
+      const subs = this.bingSubdomains ?? [''];
+      const sub = subs[(tile.x + tile.y) % subs.length];
+      return this.bingTemplate
+        .replace('{subdomain}', sub)
+        .replace('{quadkey}', quadKey(tile))
+        .replace('{culture}', 'en-US');
+    }
     if (d.kind === 'google') {
       if (!this.googleSession) return null;
       return `https://tile.googleapis.com/v1/2dtiles/${tile.z}/${tile.x}/${tile.y}?session=${encodeURIComponent(this.googleSession)}&key=${encodeURIComponent(this.key)}`;

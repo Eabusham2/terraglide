@@ -69,6 +69,7 @@ const SECTIONS = [
         help: 'How deep to walk the tile tree, and so how many triangles arrive. Photogrammetry is far heavier than the ordinary world, so drop this before turning 3D off entirely.',
       },
       { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Photorealistic 3D Tiles, Street View Static and Geocoding APIs.' },
+      { key: 'bingKey', label: 'Bing Maps key', type: 'secret', help: 'Bing aerial imagery. Microsoft is retiring this into Azure Maps, but the coverage is not identical yet.' },
       { key: 'azureKey', label: 'Azure Maps key', type: 'secret', help: 'Azure Maps subscription key, for Microsoft satellite imagery. Azure serves no 3D data.' },
       { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation.' },
       { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'Only for the Cesium route into photorealistic 3D.' },

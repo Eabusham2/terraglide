@@ -5,7 +5,7 @@ import { readJSON, removeKey, writeJSON } from './storage.js';
  * Every persisted option in the game. Defaults are chosen so a fresh browser
  * with no API keys and no network still boots into something playable.
  *
- * imageryProvider:   'offline' | 'esri' | 'google' | 'azure' | 'mapbox'
+ * imageryProvider:   'offline' | 'esri' | 'google' | 'bing' | 'azure' | 'mapbox'
  * elevationProvider: 'procedural' | 'mapbox' | 'terrarium'
  * panoramaProvider:  'none' | 'google' | 'mapillary'
  * graphics:          'low' | 'medium' | 'high' | 'ultra'
@@ -33,6 +33,7 @@ export const DEFAULT_SETTINGS = {
   world3d: 'off',
   world3dDetail: 'high',
   cesiumToken: '',
+  bingKey: '',
   azureKey: '',
   googleKey: '',
   mapboxKey: '',

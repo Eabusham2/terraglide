@@ -1,6 +1,6 @@
 import * as THREE from '../vendor/three/three.module.js';
 import { cheats } from './core/cheats.js';
-import { clamp } from './core/math.js';
+import { clamp, damp } from './core/math.js';
 import { PerfGovernor } from './core/perf.js';
 import { settings } from './core/settings.js';
 import { readJSON, writeJSON } from './core/storage.js';
@@ -62,6 +62,7 @@ export class Game {
     this.lastTime = 0;
     this.perf = new PerfGovernor();
     this.settleUntil = 0;
+    this._holdY = NaN;
     this.teleporting = false;
     this.debugVisible = false;
     this.landFraction = 0.6;
@@ -344,7 +345,7 @@ export class Game {
   }
 
   onSettingChanged(key) {
-    const providerKeys = ['imageryProvider', 'elevationProvider', 'googleKey', 'mapboxKey', 'azureKey'];
+    const providerKeys = ['imageryProvider', 'elevationProvider', 'googleKey', 'mapboxKey', 'bingKey', 'azureKey'];
     if (providerKeys.includes(key)) {
       this.applyProviders({ rebuild: key === 'elevationProvider' });
       this.toast('Provider updated');
@@ -650,22 +651,31 @@ export class Game {
     player.velocity.set(0, 0, 0);
     player.tickTimers(dt);
 
-    if (this.holdInAir) {
-      // Hang at spawn height with the wings out while the world builds under
-      // you, so the first second of a teleport is not a slideshow.
-      player.position.y = ground + SPAWN_HEIGHT_M;
-      player.onGround = false;
-    } else {
-      player.position.y = ground + 1.2;
-      player.onGround = true;
-    }
+    // Where we want to be held. Note this is measured against ground that is
+    // still arriving: every elevation tile that lands changes heightAt under
+    // us, sometimes by hundreds of metres as a coarse LOD is replaced by a
+    // finer one. Writing that straight into position.y snapped the camera on
+    // every one of those, which is the jitter you get on an airborne teleport.
+    const target = ground + (this.holdInAir ? SPAWN_HEIGHT_M : 1.2);
+    if (!Number.isFinite(this._holdY)) this._holdY = target;
+    // Ease toward it instead, so a late tile slides the world into place
+    // rather than jerking it.
+    this._holdY = damp(this._holdY, target, 6, dt);
+    player.position.y = this._holdY;
+    player.onGround = !this.holdInAir;
 
     // Release once real elevation has landed, the tiles under you have been
     // built, and it has had a moment to settle.
     const waited = performance.now() - (this.settleUntil - SETTLE_MS);
     const norm = this.frame.worldToNorm(player.position.x, player.position.z);
     const ready = this.elevation.hasData(norm.nx, norm.ny) && this.terrain.stats.drawn > 6;
-    if (waited > 650 && ready) this.settleUntil = 0;
+    if (waited > 650 && ready) {
+      this.settleUntil = 0;
+      // Hand over at exactly the height we were holding, so the release is not
+      // a step either.
+      player.position.y = this._holdY;
+      this._holdY = NaN;
+    }
     if (!this.settling && this.arrivalPending) this.finishArrival();
   }
 
@@ -748,6 +758,7 @@ export class Game {
     // dropped into a hole while the tiles stream in is what made an arrival
     // feel like a stutter, and what left the ground invisible underfoot.
     this.holdInAir = airborne;
+    this._holdY = NaN; // re-seeded on the first settle frame
     this.settleUntil = performance.now() + SETTLE_MS;
     this.arrivalPending = !airborne;
     this.address = 'Locating…';
