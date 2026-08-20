@@ -119,6 +119,7 @@ export class Game {
     });
     this.avatar = new Avatar(this.scene);
     this.avatar.loadTextures();
+    this.avatar.loadModel();
     this.rig = new CameraRig(this.camera);
     this.input = new InputManager(canvas);
     this.autopilot = new Autopilot({
@@ -362,6 +363,9 @@ export class Game {
       } else {
         this.loadWorld3D();
       }
+    }
+    if (key === 'detailedPlayerModel') {
+      this.avatar.loadModel().then(() => this.avatar.applyModelMode());
     }
     if (key === 'resolutionScale' || key === 'graphics') this.resize();
     if (key === 'meshDetail') this.terrain.rebase();

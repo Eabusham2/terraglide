@@ -119,6 +119,12 @@ takes its colour from the satellite image instead. The player's own kit has no
 real-world counterpart any provider publishes, so it displaces nothing and is
 drawn in every mode.
 
+`assets/player.glb` is a generated character mesh — TRELLIS.2 on Hugging Face,
+from a prompt, then reduced by `tools/glb-optimise.py`: the baked ground plane
+cut away, textures halved and re-encoded, normals and UVs quantised, 3.9 MB
+down to 0.9 MB. It depicts no real person. Off by default, and never fetched by
+the single-file build.
+
 All of it is optional. `assets/manifest.json` is fetched at startup and, when
 it is absent — as it is in the single-file build — everything falls back to
 flat colour.

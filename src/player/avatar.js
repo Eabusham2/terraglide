@@ -1,5 +1,6 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { clamp, damp, dampAngle, wrapAngle } from '../core/math.js';
+import { settings } from '../core/settings.js';
 import { ROCKET_COLOURS } from './player.js';
 
 /**
@@ -134,6 +135,8 @@ export class Avatar {
     /** Where the shoulders point. Its own value, not a copy of the camera's. */
     this.bodyYaw = 0;
     this.firstPerson = false;
+    /** Optional generated mesh; null until asked for. See loadModel(). */
+    this.model = null;
     this.root.visible = false;
   }
 
@@ -191,6 +194,59 @@ export class Avatar {
   }
 
   /**
+   * An optional generated character mesh, in place of the built model.
+   *
+   * Made with TRELLIS.2 on Hugging Face, then cut down here: the generator
+   * reconstructs what it sees, and what it saw was a figure standing on an
+   * implied floor — so it built the floor too, welded under the boots. That
+   * slab and eleven thousand triangles of it are removed, the textures are
+   * halved and re-encoded, and the normals and UVs are quantised, which takes
+   * it from 3.9 MB to under 900 KB.
+   *
+   * It is off by default and says why in the settings: it is one fused mesh
+   * with no skeleton, so it cannot walk, cannot open its wings, and cannot be
+   * cut down for the first-person body. It is more detailed standing still and
+   * worse at everything else. That is a real trade, so it is offered as one
+   * rather than chosen for you.
+   */
+  async loadModel(base = './assets/') {
+    if (globalThis.__TERRAGLIDE_INLINE_WORKER__) return false;
+    if (!settings.get('detailedPlayerModel')) return false;
+    if (this.model) return true;
+    try {
+      const { GLTFLoader } = await import('../../vendor/three/loaders/GLTFLoader.js');
+      const gltf = await new Promise((resolve, reject) =>
+        new GLTFLoader().load(`${base}player.glb`, resolve, undefined, reject),
+      );
+      const model = gltf.scene;
+      // Normalise to a 1-unit-tall figure standing on the origin, matching the
+      // built model's convention so the same root transform drives both.
+      const box = new THREE.Box3().setFromObject(model);
+      const size = box.getSize(new THREE.Vector3());
+      const centre = box.getCenter(new THREE.Vector3());
+      const scale = 1 / Math.max(size.y, 1e-6);
+      model.scale.setScalar(scale);
+      model.position.set(-centre.x * scale, -box.min.y * scale, -centre.z * scale);
+
+      this.model = new THREE.Group();
+      this.model.add(model);
+      this.root.add(this.model);
+      this.applyModelMode();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Show whichever of the two bodies is wanted, and only that one. */
+  applyModelMode() {
+    const useModel = !!this.model && settings.get('detailedPlayerModel') && !this.firstPerson;
+    if (this.model) this.model.visible = useModel;
+    // The built rig stays for first person and for everything that moves.
+    this.body.visible = !useModel;
+  }
+
+  /**
    * Optional kit textures from the assets folder. Same shape as the scenery
    * loader, and the same manifest, but with no provider gate: see the note by
    * CLOTH_TINT for why the character is not held to the world's rule. Missing
@@ -245,6 +301,7 @@ export class Avatar {
     this.firstPerson = firstPerson;
     this.head.visible = !firstPerson;
     this.hair.visible = !firstPerson;
+    this.applyModelMode();
   }
 
   /**

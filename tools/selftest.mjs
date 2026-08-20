@@ -886,6 +886,23 @@ console.log('\nGenerated art stays where it belongs');
 
   // Every file the manifest names has to actually be there, or a player gets a
   // silent fallback and no idea why the world looks flat.
+  // The generated character mesh: real, optional, and honest about what it is.
+  ok('the player mesh is declared', !!manifest.model?.player);
+  ok('and says it cannot animate', /skeleton|animate/i.test(manifest.model?.note ?? ''));
+  {
+    const glb = new URL(`../assets/${manifest.model.player}`, import.meta.url);
+    ok('the mesh is present', existsSync(glb));
+    const size = statSync(glb).size;
+    ok('and small enough to be worth downloading', size < 1_200_000,
+      `${Math.round(size / 1024)} KB`);
+    ok('and is a real GLB', readFileSync(glb).subarray(0, 4).toString() === 'glTF');
+  }
+  const avatar2 = readFileSync(new URL('../src/player/avatar.js', import.meta.url), 'utf8');
+  ok('it is off by default and first person never uses it',
+    /detailedPlayerModel'\) && !this\.firstPerson/.test(avatar2));
+  ok('and the single-file build never asks for it',
+    /__TERRAGLIDE_INLINE_WORKER__[\s\S]{0,200}detailedPlayerModel/.test(avatar2));
+
   for (const file of [...Object.values(manifest.textures), ...Object.values(manifest.kit)]) {
     if (!file.endsWith('.jpg') && !file.endsWith('.png')) continue;
     const path = new URL(`../assets/${file}`, import.meta.url);

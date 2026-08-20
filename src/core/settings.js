@@ -68,6 +68,7 @@ export const DEFAULT_SETTINGS = {
   /** 'first' | 'third' — F5 cycles it, the same key Minecraft uses. */
   perspective: 'first',
   showBody: true,
+  detailedPlayerModel: false,
   barrelRoll: false,
 
   /* player */
