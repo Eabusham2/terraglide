@@ -75,7 +75,21 @@ export class ImageryStreamer extends Emitter {
     if (this.mayGenerate === allowed) return;
     this.mayGenerate = allowed;
     for (const entry of this.entries.values()) {
-      if (entry.state === STATE_BARE) entry.state = 0;
+      if (allowed) {
+        // Generation is back on: bare tiles get another go under the new rule.
+        if (entry.state === STATE_BARE) entry.state = 0;
+        continue;
+      }
+      // Generation is off because real relief arrived. Any tile still wearing
+      // an invented photograph is now an invented coastline over measured
+      // ground, so it goes — the shader colours the bare tile from the
+      // elevation instead, and that cannot disagree with itself.
+      if (!entry.generated) continue;
+      if (entry.texture) entry.texture.dispose();
+      entry.texture = null;
+      entry.generated = false;
+      entry.state = STATE_BARE;
+      this.stats.loaded = Math.max(0, this.stats.loaded - 1);
     }
   }
 
@@ -190,6 +204,9 @@ export class ImageryStreamer extends Emitter {
 
     const id = this.nextId++;
     entry.state = STATE_PENDING;
+    // Remember whether this one was fetched or invented, so it can be thrown
+    // away the moment invented ground stops being allowed.
+    entry.generated = url === null;
     entry.jobId = id;
     this.jobs.set(id, entry);
     this.active++;

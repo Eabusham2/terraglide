@@ -298,10 +298,17 @@ export class Terrain {
       return;
     }
 
-    this.draw(tile, x0, z0, size, flatDist);
+    // Pass the view-weighted distance, not the flat one: it decides both which
+    // tiles get the frame's build budget and which textures are asked for
+    // first, and both should favour the ground you are looking at.
+    this.draw(tile, x0, z0, size, this.viewDistance(
+      (x0 + x1) / 2, (z0 + z1) / 2, camX, camZ, flatDist,
+    ));
   }
 
   draw(tile, x0, z0, size, distance) {
+    // `distance` here is the view-weighted one from visit(): how far away the
+    // tile is *for the purpose of caring about it*, not how far away it is.
     const key = tileKey(tile.z, tile.x, tile.y);
     let node = this.nodes.get(key);
 

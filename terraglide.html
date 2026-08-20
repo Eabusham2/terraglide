@@ -87345,7 +87345,21 @@ class ImageryStreamer extends Emitter {
     if (this.mayGenerate === allowed) return;
     this.mayGenerate = allowed;
     for (const entry of this.entries.values()) {
-      if (entry.state === STATE_BARE) entry.state = 0;
+      if (allowed) {
+        // Generation is back on: bare tiles get another go under the new rule.
+        if (entry.state === STATE_BARE) entry.state = 0;
+        continue;
+      }
+      // Generation is off because real relief arrived. Any tile still wearing
+      // an invented photograph is now an invented coastline over measured
+      // ground, so it goes — the shader colours the bare tile from the
+      // elevation instead, and that cannot disagree with itself.
+      if (!entry.generated) continue;
+      if (entry.texture) entry.texture.dispose();
+      entry.texture = null;
+      entry.generated = false;
+      entry.state = STATE_BARE;
+      this.stats.loaded = Math.max(0, this.stats.loaded - 1);
     }
   }
 
@@ -87460,6 +87474,9 @@ class ImageryStreamer extends Emitter {
 
     const id = this.nextId++;
     entry.state = STATE_PENDING;
+    // Remember whether this one was fetched or invented, so it can be thrown
+    // away the moment invented ground stops being allowed.
+    entry.generated = url === null;
     entry.jobId = id;
     this.jobs.set(id, entry);
     this.active++;
@@ -91226,10 +91243,17 @@ class Terrain {
       return;
     }
 
-    this.draw(tile, x0, z0, size, flatDist);
+    // Pass the view-weighted distance, not the flat one: it decides both which
+    // tiles get the frame's build budget and which textures are asked for
+    // first, and both should favour the ground you are looking at.
+    this.draw(tile, x0, z0, size, this.viewDistance(
+      (x0 + x1) / 2, (z0 + z1) / 2, camX, camZ, flatDist,
+    ));
   }
 
   draw(tile, x0, z0, size, distance) {
+    // `distance` here is the view-weighted one from visit(): how far away the
+    // tile is *for the purpose of caring about it*, not how far away it is.
     const key = tileKey(tile.z, tile.x, tile.y);
     let node = this.nodes.get(key);
 
@@ -95089,7 +95113,15 @@ class Game {
     // footprints step aside rather than fighting them for the same ground.
     if (settings.get('world3d') !== 'off' && !this.tiles3d) this.loadWorld3D();
     if (this.tiles3d) this.tiles3d.update(this.camera, player);
-    const photoreal = this.tiles3d ? this.tiles3d.stats.drawn > 0 : false;
+    // One photogrammetry tile arriving used to hide the entire terrain, which
+    // on a slow connection meant the ground vanishing and coming back as
+    // tiles trickled in and out of the frustum — ground that is invisible
+    // because something better is *about* to cover it is still invisible
+    // ground. It takes a few tiles held for a moment to hand over, and a
+    // single frame with none of them to hand back.
+    const drawn3d = this.tiles3d ? this.tiles3d.stats.drawn : 0;
+    this.photorealFrames = drawn3d >= 3 ? (this.photorealFrames ?? 0) + 1 : 0;
+    const photoreal = this.photorealFrames >= 3;
     this.terrain.group.visible = !photoreal;
     this.buildings.setVisible(!photoreal && settings.get('buildings'));
 

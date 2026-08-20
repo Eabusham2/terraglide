@@ -739,6 +739,13 @@ console.log('\nReal data first, invention last');
   const streamer = read('tiles/streamer.js');
   ok('invented imagery is only allowed over invented relief',
     /mayGenerate[\s\S]{0,80}STATE_BARE/.test(streamer));
+  ok('and an invented tile is thrown away the moment real relief arrives',
+    /entry\.generated = url === null/.test(streamer) &&
+    /if \(!entry\.generated\) continue;[\s\S]{0,200}texture\.dispose\(\)/.test(streamer));
+  ok('the terrain does not vanish for one photogrammetry tile',
+    /photorealFrames[\s\S]{0,120}>= 3/.test(read('game.js')));
+  ok('and the ground you are looking at is asked for first',
+    /this\.draw\(tile, x0, z0, size, this\.viewDistance\(/.test(read('world/terrain.js')));
   ok('and the game keeps the two in step',
     /setMayGenerate\(this\.elevation\.invented\)/.test(read('game.js')));
   const shaderSrc = read('world/shaders.js');

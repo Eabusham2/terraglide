@@ -559,7 +559,15 @@ export class Game {
     // footprints step aside rather than fighting them for the same ground.
     if (settings.get('world3d') !== 'off' && !this.tiles3d) this.loadWorld3D();
     if (this.tiles3d) this.tiles3d.update(this.camera, player);
-    const photoreal = this.tiles3d ? this.tiles3d.stats.drawn > 0 : false;
+    // One photogrammetry tile arriving used to hide the entire terrain, which
+    // on a slow connection meant the ground vanishing and coming back as
+    // tiles trickled in and out of the frustum — ground that is invisible
+    // because something better is *about* to cover it is still invisible
+    // ground. It takes a few tiles held for a moment to hand over, and a
+    // single frame with none of them to hand back.
+    const drawn3d = this.tiles3d ? this.tiles3d.stats.drawn : 0;
+    this.photorealFrames = drawn3d >= 3 ? (this.photorealFrames ?? 0) + 1 : 0;
+    const photoreal = this.photorealFrames >= 3;
     this.terrain.group.visible = !photoreal;
     this.buildings.setVisible(!photoreal && settings.get('buildings'));
 
