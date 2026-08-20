@@ -42,8 +42,17 @@ const SWIM_SPEED = 2.4;
 const SWIM_SINK = 0.9;
 const SWIM_RISE = 3.2;
 const WATER_DRAG = 5.5;
-/** How long the second tap of a double jump may arrive after the first. */
-const DOUBLE_TAP_S = 0.4;
+/**
+ * How long the second tap of a double jump may arrive after the first.
+ *
+ * Generous on purpose. The gap is measured between the frames the two presses
+ * are *seen* on, not between the presses themselves, so on a machine drawing
+ * at four frames a second a pair of taps a seventh of a second apart arrives
+ * half a second apart — and a window tight enough to feel crisp at 60 Hz is a
+ * window that does not work at all on a slow one. Browsers allow half a second
+ * for a double click for the same reason.
+ */
+const DOUBLE_TAP_S = 0.55;
 /** How long a jump press waits for a tick that finds you on the ground. */
 const JUMP_BUFFER_S = 0.16;
 /**
@@ -310,21 +319,28 @@ export class PlayerController {
     this.clock += dt;
     if (this.jumpQueued && this.clock - this.jumpQueuedAt > JUMP_BUFFER_S) this.jumpQueued = false;
 
-    const pressed = !!input.jump && !this.jumpHeld;
+    const edge = !!input.jump && !this.jumpHeld;
     this.jumpHeld = !!input.jump;
-    if (!pressed) return;
+    // The input layer counts presses, so a frame slow enough to hold two taps
+    // reports two rather than one. Falling back to the edge keeps this working
+    // for anything that feeds the controller a plain snapshot — the autopilot,
+    // the touch pad, and the tests.
+    const presses = Math.max(edge ? 1 : 0, input.jumpPresses ?? 0);
 
-    if (!player.onGround && this.clock - this.lastJumpTap < DOUBLE_TAP_S) {
-      player.toggleElytra(!player.elytraDeployed);
-      // A third tap starts a fresh pair rather than toggling straight back.
-      this.lastJumpTap = -Infinity;
-      return;
+    for (let i = 0; i < presses; i++) {
+      if (!player.onGround && this.clock - this.lastJumpTap < DOUBLE_TAP_S) {
+        player.toggleElytra(!player.elytraDeployed);
+        // A third tap starts a fresh pair rather than toggling straight back.
+        this.lastJumpTap = -Infinity;
+        continue;
+      }
+      this.lastJumpTap = this.clock;
+      // Held for the next tick that finds you on the ground, so a tap made
+      // between ticks — or a fraction of a second before you land — still
+      // jumps.
+      this.jumpQueued = true;
+      this.jumpQueuedAt = this.clock;
     }
-    this.lastJumpTap = this.clock;
-    // Held for the next tick that finds you on the ground, so a tap made
-    // between ticks — or a fraction of a second before you land — still jumps.
-    this.jumpQueued = true;
-    this.jumpQueuedAt = this.clock;
   }
 
   resolveCollisions(step, input) {

@@ -1132,6 +1132,13 @@ console.log('\nWalking, jumping and falling like Minecraft');
     held.player.onGround = true;
     run(held, 60, { jump: true });
     ok('holding jump off the ground does not open them', !held.player.elytraDeployed);
+
+    // A frame slow enough to contain both taps still counts two of them.
+    const slow = rig();
+    slow.player.position.set(0, 300, 0);
+    slow.player.onGround = false;
+    slow.controller.update(1 / 5, keys({ jump: true, jumpPresses: 2 }));
+    ok('two taps inside one slow frame still count as two', slow.player.elytraDeployed);
   }
   {
     const r = rig();

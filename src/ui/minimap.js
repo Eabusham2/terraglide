@@ -95,7 +95,11 @@ export class Minimap {
   }
 
   applySettings() {
-    const size = clamp(settings.get('minimapSize'), 140, 460);
+    // Never more than a third of the window across. The setting is a size in
+    // pixels, and a 240 px minimap on a 320 px phone is most of the screen
+    // with the toolbar underneath it — so the window gets the last word.
+    const room = Math.max(100, Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.34));
+    const size = Math.min(clamp(settings.get('minimapSize'), 140, 460), room);
     const dpr = clamp(window.devicePixelRatio || 1, 1, 2);
     this.element.style.width = `${size}px`;
     this.element.style.height = `${size}px`;
@@ -108,6 +112,11 @@ export class Minimap {
     this.element.dataset.corner = settings.get('minimapCorner');
     this.element.style.display = settings.get('minimapVisible') ? '' : 'none';
     this.timer = REDRAW_INTERVAL;
+  }
+
+  /** Re-fit when the window changes shape; the cap above depends on it. */
+  onResize() {
+    this.applySettings();
   }
 
   zoomBy(delta) {

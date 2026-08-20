@@ -456,6 +456,9 @@ export class Game {
     this.camera.aspect = width / Math.max(1, height);
     this.camera.updateProjectionMatrix();
     if (this.worldmap.open) this.worldmap.resize();
+    // The minimap caps itself against the window, so it has to be told when
+    // the window changes shape.
+    this.minimap.onResize();
   }
 
   loop(now) {

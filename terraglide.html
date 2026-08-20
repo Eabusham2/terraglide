@@ -1397,6 +1397,71 @@ body.touch-active .hud-crosshair {
   }
 }
 
+/* ---------------------------------------------------------------- phones
+
+   Under about seven hundred pixels there is no longer a left half and a right
+   half to put things in: the toolbar reaches the minimap across the top, and
+   the location panel reaches the credit line across the bottom. Both corners
+   stop being corners and stack instead — the credit and status line sit above
+   the location panel, which sits above the hotbar, and the top-left block is
+   held clear of whatever width the minimap has settled on.
+*/
+@media (max-width: 700px) {
+  .hud-topleft {
+    /* The minimap caps itself at a third of the window; this is the rest of
+       the row, less the two gutters and a gap between them. */
+    max-width: calc(66% - 36px);
+  }
+
+  .climate {
+    min-width: 0;
+  }
+
+  .toolbar {
+    gap: 4px;
+  }
+
+  .toolbar button {
+    padding: 5px 7px;
+    font-size: 11px;
+  }
+
+  /* The two bottom blocks stop being corners and become a column.
+     Stacking them by hand needs a number for how tall the location panel is,
+     and it is as tall as its address happens to be — so they are laid out
+     instead. Everything else in the HUD is absolutely positioned and stays
+     exactly where it was; only these two join the flow. */
+  .hud {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    /* The hotbar keeps its place along the bottom; this is its row. */
+    padding-bottom: 66px;
+    gap: 6px;
+  }
+
+  .hud-bottomleft,
+  .hud-bottomright {
+    position: static;
+    margin: 0 12px;
+    max-width: none;
+    text-align: left;
+  }
+
+  /* Credit and status above, location below, whatever the markup order. */
+  .hud-bottomright {
+    order: 1;
+  }
+
+  .hud-bottomleft {
+    order: 2;
+  }
+
+  body.touch-active .hud {
+    padding-bottom: 174px;
+  }
+}
+
 /* Narrower still and the hotbar itself will not fit across the window, so the
    slots shed their padding and then their labels rather than overflowing. */
 @media (max-width: 660px) {
@@ -82969,6 +83034,20 @@ class InputManager extends Emitter {
     super();
     this.canvas = canvas;
     this.keys = new Set();
+    /**
+     * Keys pressed since the last time movement was sampled.
+     *
+     * A key can go down and up again entirely between two frames — a quick tap
+     * on a machine drawing at twenty frames a second is fifty milliseconds and
+     * the tap is thirty — and a snapshot of what is *currently* held never
+     * sees it. Every press is held for at least one poll, so a tap always
+     * counts once however slowly the frame is arriving.
+     *
+     * Counted rather than flagged, because two taps can land inside one slow
+     * frame and a flag would merge them into one — which is exactly what a
+     * double tap must not do.
+     */
+    this.tapped = new Map();
     this.pointerLocked = false;
     this.dragging = false;
     this.dragMoved = 0;
@@ -83021,6 +83100,7 @@ class InputManager extends Emitter {
     this.suspended = suspended;
     if (suspended) {
       this.keys.clear();
+      this.tapped.clear();
       this.exitPointerLock();
     }
   }
@@ -83031,22 +83111,32 @@ class InputManager extends Emitter {
     return code ? this.keys.has(code) : false;
   }
 
+  /** Held now, or pressed at any point since the last poll. See `tapped`. */
+  wasDown(action) {
+    if (this.suspended) return false;
+    const code = keybinds.codeFor(action);
+    return code ? this.keys.has(code) || this.tapped.has(code) : false;
+  }
+
   /** Movement snapshot the controller consumes each frame. */
   movement() {
     const keys = {
-      forward: this.isDown('forward'),
-      back: this.isDown('back'),
-      left: this.isDown('left'),
-      right: this.isDown('right'),
-      jump: this.isDown('jump'),
-      sprint: this.isDown('sprint'),
-      crouch: this.isDown('crouch'),
+      forward: this.wasDown('forward'),
+      back: this.wasDown('back'),
+      left: this.wasDown('left'),
+      right: this.wasDown('right'),
+      jump: this.wasDown('jump'),
+      sprint: this.wasDown('sprint'),
+      crouch: this.wasDown('crouch'),
+      // How many separate presses of jump happened since the last poll, so a
+      // double tap survives a frame slow enough to contain both of them.
+      jumpPresses: this.tapped.get(keybinds.codeFor('jump')) ?? 0,
     };
+    this.tapped.clear();
     // Touch and keyboard both feed the same snapshot, so either can drive and
     // holding both does the obvious thing.
     const touch = this.touch ? this.touch.movement() : null;
-    if (!touch) return keys;
-    for (const key of Object.keys(keys)) keys[key] = keys[key] || touch[key];
+    if (touch) for (const key of Object.keys(keys)) keys[key] = keys[key] || touch[key];
     return keys;
   }
 
@@ -83078,7 +83168,10 @@ class InputManager extends Emitter {
 
   onPointerLockChange() {
     const locked = document.pointerLockElement === this.canvas;
-    if (!locked && this.pointerLocked) this.keys.clear();
+    if (!locked && this.pointerLocked) {
+      this.keys.clear();
+      this.tapped.clear();
+    }
     this.pointerLocked = locked;
     if (locked) this.lockRejectedAt = -Infinity;
     this.emit('pointerlock', locked);
@@ -83090,6 +83183,7 @@ class InputManager extends Emitter {
 
   onBlur() {
     this.keys.clear();
+    this.tapped.clear();
     this.dragging = false;
   }
 
@@ -83123,6 +83217,7 @@ class InputManager extends Emitter {
 
     const first = !this.keys.has(event.code);
     this.keys.add(event.code);
+    this.tapped.set(event.code, (this.tapped.get(event.code) ?? 0) + 1);
     for (const action of actions) {
       this.emit('action', { id: action, repeat: !first, event });
     }
@@ -85865,8 +85960,17 @@ const SWIM_SPEED = 2.4;
 const SWIM_SINK = 0.9;
 const SWIM_RISE = 3.2;
 const WATER_DRAG = 5.5;
-/** How long the second tap of a double jump may arrive after the first. */
-const DOUBLE_TAP_S = 0.4;
+/**
+ * How long the second tap of a double jump may arrive after the first.
+ *
+ * Generous on purpose. The gap is measured between the frames the two presses
+ * are *seen* on, not between the presses themselves, so on a machine drawing
+ * at four frames a second a pair of taps a seventh of a second apart arrives
+ * half a second apart — and a window tight enough to feel crisp at 60 Hz is a
+ * window that does not work at all on a slow one. Browsers allow half a second
+ * for a double click for the same reason.
+ */
+const DOUBLE_TAP_S = 0.55;
 /** How long a jump press waits for a tick that finds you on the ground. */
 const JUMP_BUFFER_S = 0.16;
 /**
@@ -86133,21 +86237,28 @@ class PlayerController {
     this.clock += dt;
     if (this.jumpQueued && this.clock - this.jumpQueuedAt > JUMP_BUFFER_S) this.jumpQueued = false;
 
-    const pressed = !!input.jump && !this.jumpHeld;
+    const edge = !!input.jump && !this.jumpHeld;
     this.jumpHeld = !!input.jump;
-    if (!pressed) return;
+    // The input layer counts presses, so a frame slow enough to hold two taps
+    // reports two rather than one. Falling back to the edge keeps this working
+    // for anything that feeds the controller a plain snapshot — the autopilot,
+    // the touch pad, and the tests.
+    const presses = Math.max(edge ? 1 : 0, input.jumpPresses ?? 0);
 
-    if (!player.onGround && this.clock - this.lastJumpTap < DOUBLE_TAP_S) {
-      player.toggleElytra(!player.elytraDeployed);
-      // A third tap starts a fresh pair rather than toggling straight back.
-      this.lastJumpTap = -Infinity;
-      return;
+    for (let i = 0; i < presses; i++) {
+      if (!player.onGround && this.clock - this.lastJumpTap < DOUBLE_TAP_S) {
+        player.toggleElytra(!player.elytraDeployed);
+        // A third tap starts a fresh pair rather than toggling straight back.
+        this.lastJumpTap = -Infinity;
+        continue;
+      }
+      this.lastJumpTap = this.clock;
+      // Held for the next tick that finds you on the ground, so a tap made
+      // between ticks — or a fraction of a second before you land — still
+      // jumps.
+      this.jumpQueued = true;
+      this.jumpQueuedAt = this.clock;
     }
-    this.lastJumpTap = this.clock;
-    // Held for the next tick that finds you on the ground, so a tap made
-    // between ticks — or a fraction of a second before you land — still jumps.
-    this.jumpQueued = true;
-    this.jumpQueuedAt = this.clock;
   }
 
   resolveCollisions(step, input) {
@@ -93374,7 +93485,11 @@ class Minimap {
   }
 
   applySettings() {
-    const size = clamp(settings.get('minimapSize'), 140, 460);
+    // Never more than a third of the window across. The setting is a size in
+    // pixels, and a 240 px minimap on a 320 px phone is most of the screen
+    // with the toolbar underneath it — so the window gets the last word.
+    const room = Math.max(100, Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.34));
+    const size = Math.min(clamp(settings.get('minimapSize'), 140, 460), room);
     const dpr = clamp(window.devicePixelRatio || 1, 1, 2);
     this.element.style.width = `${size}px`;
     this.element.style.height = `${size}px`;
@@ -93387,6 +93502,11 @@ class Minimap {
     this.element.dataset.corner = settings.get('minimapCorner');
     this.element.style.display = settings.get('minimapVisible') ? '' : 'none';
     this.timer = REDRAW_INTERVAL;
+  }
+
+  /** Re-fit when the window changes shape; the cap above depends on it. */
+  onResize() {
+    this.applySettings();
   }
 
   zoomBy(delta) {
@@ -93555,19 +93675,6 @@ const SECTIONS = [
         ],
         help: 'Sets terrain detail, texture cache and how many tiles load at once.',
       },
-      {
-        key: 'glideModel',
-        label: 'Glide model',
-        type: 'select',
-        options: () => [
-          { value: 'honest', label: 'Energy-honest (recommended)' },
-          { value: 'minecraft', label: "Minecraft's own — climbing for free" },
-        ],
-        help: (value) =>
-          value === 'minecraft'
-            ? "Minecraft's elytra, transcribed tick for tick: gravity discounted while you are level, a sinking glide credited part of its own sink, and a pull-up paid over three times the speed it costs. One dive and zoom flown well ends about twenty metres higher than it began \u2014 so with no rocket at all you can keep climbing, for as long as you keep flying it right."
-            : 'Gravity in full every tick, and a wing that can only ever turn the speed gravity gave you. Seven metres forward per metre down, and never a metre for free.',
-      },
       { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 1024, step: 4, unit: ' km', help: 'How far the ground is drawn. Far tiles stay coarse, so the cost grows far more slowly than the number does \u2014 but it does grow.' },
       { key: 'distantMode', label: 'Draw twice as far over country you have seen', type: 'toggle', help: 'Past the render distance the ground keeps going, but only where the explored map says you have already been. Somewhere new still stops at the edge, so this never doubles what an unflown world costs to stream.' },
       { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 12, max: 21, step: 1, help: 'How close the ground can get before it stops sharpening. Higher is sharper underfoot and costs more to stream.' },
@@ -93652,6 +93759,19 @@ const SECTIONS = [
     id: 'world',
     label: 'World',
     fields: [
+      {
+        key: 'glideModel',
+        label: 'Glide model',
+        type: 'select',
+        options: () => [
+          { value: 'honest', label: 'Energy-honest (recommended)' },
+          { value: 'minecraft', label: "Minecraft's own — climbing for free" },
+        ],
+        help: (value) =>
+          value === 'minecraft'
+            ? "Minecraft's elytra, transcribed tick for tick: gravity discounted while you are level, a sinking glide credited part of its own sink, and a pull-up paid over three times the speed it costs. One dive and zoom flown well ends about twenty metres higher than it began \u2014 so with no rocket at all you can keep climbing, for as long as you keep flying it right."
+            : 'Gravity in full every tick, and a wing that can only ever turn the speed gravity gave you. Seven metres forward per metre down, and never a metre for free.',
+      },
       {
         key: 'units',
         label: 'Units',
@@ -94866,6 +94986,9 @@ class Game {
     this.camera.aspect = width / Math.max(1, height);
     this.camera.updateProjectionMatrix();
     if (this.worldmap.open) this.worldmap.resize();
+    // The minimap caps itself against the window, so it has to be told when
+    // the window changes shape.
+    this.minimap.onResize();
   }
 
   loop(now) {

@@ -102,19 +102,6 @@ const SECTIONS = [
         ],
         help: 'Sets terrain detail, texture cache and how many tiles load at once.',
       },
-      {
-        key: 'glideModel',
-        label: 'Glide model',
-        type: 'select',
-        options: () => [
-          { value: 'honest', label: 'Energy-honest (recommended)' },
-          { value: 'minecraft', label: "Minecraft's own — climbing for free" },
-        ],
-        help: (value) =>
-          value === 'minecraft'
-            ? "Minecraft's elytra, transcribed tick for tick: gravity discounted while you are level, a sinking glide credited part of its own sink, and a pull-up paid over three times the speed it costs. One dive and zoom flown well ends about twenty metres higher than it began \u2014 so with no rocket at all you can keep climbing, for as long as you keep flying it right."
-            : 'Gravity in full every tick, and a wing that can only ever turn the speed gravity gave you. Seven metres forward per metre down, and never a metre for free.',
-      },
       { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 1024, step: 4, unit: ' km', help: 'How far the ground is drawn. Far tiles stay coarse, so the cost grows far more slowly than the number does \u2014 but it does grow.' },
       { key: 'distantMode', label: 'Draw twice as far over country you have seen', type: 'toggle', help: 'Past the render distance the ground keeps going, but only where the explored map says you have already been. Somewhere new still stops at the edge, so this never doubles what an unflown world costs to stream.' },
       { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 12, max: 21, step: 1, help: 'How close the ground can get before it stops sharpening. Higher is sharper underfoot and costs more to stream.' },
@@ -199,6 +186,19 @@ const SECTIONS = [
     id: 'world',
     label: 'World',
     fields: [
+      {
+        key: 'glideModel',
+        label: 'Glide model',
+        type: 'select',
+        options: () => [
+          { value: 'honest', label: 'Energy-honest (recommended)' },
+          { value: 'minecraft', label: "Minecraft's own — climbing for free" },
+        ],
+        help: (value) =>
+          value === 'minecraft'
+            ? "Minecraft's elytra, transcribed tick for tick: gravity discounted while you are level, a sinking glide credited part of its own sink, and a pull-up paid over three times the speed it costs. One dive and zoom flown well ends about twenty metres higher than it began \u2014 so with no rocket at all you can keep climbing, for as long as you keep flying it right."
+            : 'Gravity in full every tick, and a wing that can only ever turn the speed gravity gave you. Seven metres forward per metre down, and never a metre for free.',
+      },
       {
         key: 'units',
         label: 'Units',

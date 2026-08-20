@@ -21,6 +21,20 @@ export class InputManager extends Emitter {
     super();
     this.canvas = canvas;
     this.keys = new Set();
+    /**
+     * Keys pressed since the last time movement was sampled.
+     *
+     * A key can go down and up again entirely between two frames — a quick tap
+     * on a machine drawing at twenty frames a second is fifty milliseconds and
+     * the tap is thirty — and a snapshot of what is *currently* held never
+     * sees it. Every press is held for at least one poll, so a tap always
+     * counts once however slowly the frame is arriving.
+     *
+     * Counted rather than flagged, because two taps can land inside one slow
+     * frame and a flag would merge them into one — which is exactly what a
+     * double tap must not do.
+     */
+    this.tapped = new Map();
     this.pointerLocked = false;
     this.dragging = false;
     this.dragMoved = 0;
@@ -73,6 +87,7 @@ export class InputManager extends Emitter {
     this.suspended = suspended;
     if (suspended) {
       this.keys.clear();
+      this.tapped.clear();
       this.exitPointerLock();
     }
   }
@@ -83,22 +98,32 @@ export class InputManager extends Emitter {
     return code ? this.keys.has(code) : false;
   }
 
+  /** Held now, or pressed at any point since the last poll. See `tapped`. */
+  wasDown(action) {
+    if (this.suspended) return false;
+    const code = keybinds.codeFor(action);
+    return code ? this.keys.has(code) || this.tapped.has(code) : false;
+  }
+
   /** Movement snapshot the controller consumes each frame. */
   movement() {
     const keys = {
-      forward: this.isDown('forward'),
-      back: this.isDown('back'),
-      left: this.isDown('left'),
-      right: this.isDown('right'),
-      jump: this.isDown('jump'),
-      sprint: this.isDown('sprint'),
-      crouch: this.isDown('crouch'),
+      forward: this.wasDown('forward'),
+      back: this.wasDown('back'),
+      left: this.wasDown('left'),
+      right: this.wasDown('right'),
+      jump: this.wasDown('jump'),
+      sprint: this.wasDown('sprint'),
+      crouch: this.wasDown('crouch'),
+      // How many separate presses of jump happened since the last poll, so a
+      // double tap survives a frame slow enough to contain both of them.
+      jumpPresses: this.tapped.get(keybinds.codeFor('jump')) ?? 0,
     };
+    this.tapped.clear();
     // Touch and keyboard both feed the same snapshot, so either can drive and
     // holding both does the obvious thing.
     const touch = this.touch ? this.touch.movement() : null;
-    if (!touch) return keys;
-    for (const key of Object.keys(keys)) keys[key] = keys[key] || touch[key];
+    if (touch) for (const key of Object.keys(keys)) keys[key] = keys[key] || touch[key];
     return keys;
   }
 
@@ -130,7 +155,10 @@ export class InputManager extends Emitter {
 
   onPointerLockChange() {
     const locked = document.pointerLockElement === this.canvas;
-    if (!locked && this.pointerLocked) this.keys.clear();
+    if (!locked && this.pointerLocked) {
+      this.keys.clear();
+      this.tapped.clear();
+    }
     this.pointerLocked = locked;
     if (locked) this.lockRejectedAt = -Infinity;
     this.emit('pointerlock', locked);
@@ -142,6 +170,7 @@ export class InputManager extends Emitter {
 
   onBlur() {
     this.keys.clear();
+    this.tapped.clear();
     this.dragging = false;
   }
 
@@ -175,6 +204,7 @@ export class InputManager extends Emitter {
 
     const first = !this.keys.has(event.code);
     this.keys.add(event.code);
+    this.tapped.set(event.code, (this.tapped.get(event.code) ?? 0) + 1);
     for (const action of actions) {
       this.emit('action', { id: action, repeat: !first, event });
     }
