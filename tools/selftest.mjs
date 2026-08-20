@@ -779,6 +779,18 @@ console.log('\nInfrastructure from OpenStreetMap');
   }
   ok('pylons and turbines are asked for', /power.*tower|generator/.test(source));
 
+  // Roads are surveyed geometry too, and they come down the same request —
+  // Overpass is rate limited, so a second query would cost real time.
+  ok('roads are asked for', /way\["highway"/.test(source));
+  ok('in the same Overpass request as the buildings',
+    (source.match(/overpass\.query/g) ?? []).length === 1);
+  ok('a tagged width beats the class default',
+    /Number\(tags\.width\)[\s\S]{0,80}ROAD_WIDTH_M/.test(source));
+  ok('lane count is used where width is not', /lanes \* 3\.1/.test(source));
+  ok('unpaved classes are drawn differently', /UNPAVED/.test(source));
+  ok('road surface colour comes from the photograph',
+    /emitRoad[\s\S]{0,900}sampleImageryAt/.test(source));
+
   // Nodes are both way vertices and structures in their own right. Collecting
   // them with an `else` made the mast branch unreachable and silently dropped
   // every one of them, so the loop must not be an if/else chain over type.

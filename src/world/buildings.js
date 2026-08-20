@@ -37,6 +37,26 @@ const ROOF_COLOUR = new THREE.Color(0.42, 0.42, 0.44);
 const MAST_COLOUR = new THREE.Color(0.55, 0.57, 0.60);
 
 /**
+ * Carriageway width in metres by OSM highway class.
+ *
+ * OSM records `width` and `lanes` on a minority of ways; where it does, that
+ * wins. These are the fallbacks, and they are ordinary real-world widths for
+ * each class rather than anything invented for effect.
+ */
+const ROAD_WIDTH_M = {
+  motorway: 14, trunk: 12, primary: 10, secondary: 8.5, tertiary: 7,
+  unclassified: 5.5, residential: 5.5, living_street: 5, service: 4,
+  track: 3, pedestrian: 4, footway: 1.6, path: 1.2, cycleway: 2,
+};
+/** Unsurfaced classes, so a farm track is not drawn as fresh tarmac. */
+const UNPAVED = new Set(['track', 'path']);
+/** Tarmac, and the pale gravel of an unsurfaced track. */
+const ROAD_COLOUR = new THREE.Color(0.24, 0.24, 0.25);
+const TRACK_COLOUR = new THREE.Color(0.46, 0.42, 0.36);
+/** Lift the ribbon this far off the ground so it does not fight the terrain. */
+const ROAD_LIFT_M = 0.12;
+
+/**
  * Default heights for point-mapped structures, metres, where OSM does not
  * record one. Rough but not invented: these are typical builds for each kind.
  */
@@ -185,6 +205,7 @@ export class Buildings {
       `way["bridge"="yes"]["layer"](${bbox});` +
       `node["man_made"~"^(tower|mast|chimney|water_tower|communications_tower|storage_tank|silo)$"](${bbox});` +
       `node["power"~"^(tower|generator)$"](${bbox});` +
+      `way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|service|living_street|track|pedestrian|footway|path|cycleway)$"](${bbox});` +
       `);(._;>;);out body;`;
 
     try {
@@ -206,6 +227,7 @@ export class Buildings {
   buildTile(record, data) {
     const nodes = new Map();
     const ways = [];
+    const roads = [];
     const masts = [];
     for (const element of data.elements ?? []) {
       if (element.type === 'node') {
@@ -214,11 +236,12 @@ export class Buildings {
         // its own right, so this is not an else — every way needs its
         // coordinates regardless of what the node itself is tagged as.
         if (element.tags && MAST_HEIGHT_M[mastKind(element.tags)]) masts.push(element);
-      } else if (element.type === 'way' && element.tags && isStructure(element.tags)) {
-        ways.push(element);
+      } else if (element.type === 'way' && element.tags) {
+        if (isStructure(element.tags)) ways.push(element);
+        else if (element.tags.highway) roads.push(element);
       }
     }
-    if (ways.length === 0 && masts.length === 0) return;
+    if (ways.length === 0 && masts.length === 0 && roads.length === 0) return;
 
     const positions = [];
     const normals = [];
@@ -245,6 +268,19 @@ export class Buildings {
       if (collider) colliders.push(collider);
     }
 
+    // Roads, drawn as ribbons following the ground. Real geometry from the
+    // survey: OSM knows where every carriageway runs and, often, how wide.
+    for (const way of roads.slice(0, 700)) {
+      const line = [];
+      for (const id of way.nodes ?? []) {
+        const node = nodes.get(id);
+        if (!node) continue;
+        this.frame.toWorld(node.lat, node.lon, world);
+        line.push({ x: world.x, z: world.z });
+      }
+      if (line.length >= 2) this.emitRoad(way, line, positions, normals, colors);
+    }
+
     // Vertical structures mapped as single points — masts, pylons, chimneys,
     // turbines. A footprint cannot describe these, but their *height* is the
     // whole point of them, so they are raised parametrically from the tag.
@@ -268,6 +304,63 @@ export class Buildings {
     record.mesh = mesh;
     record.colliders = colliders;
     this.stats.buildings += colliders.length;
+  }
+
+  /**
+   * A road, as a ribbon of quads following the carriageway and draped over the
+   * ground.
+   *
+   * Every vertex of the centreline is surveyed — OSM knows where the road
+   * runs. The width comes from the data too where it is tagged, and from the
+   * ordinary width of that road class where it is not. The surface colour is
+   * sampled from the aerial photograph, which sees roads better than it sees
+   * anything else, so a red-sand track in Australia is not grey tarmac.
+   */
+  emitRoad(way, line, positions, normals, colors) {
+    const tags = way.tags ?? {};
+    const kind = tags.highway;
+    const lanes = Number(tags.lanes);
+    const width = clamp(
+      Number(tags.width) || (lanes > 0 ? lanes * 3.1 : 0) || ROAD_WIDTH_M[kind] || 5,
+      1,
+      40,
+    );
+    const half = width / 2;
+
+    const sampled = sampleImageryAt(this.frame, line[0].x, line[0].z);
+    const base = UNPAVED.has(kind) ? TRACK_COLOUR : ROAD_COLOUR;
+    // Lean on the photograph, but keep some of the surface tone: a road under
+    // tree shadow should still read as a road.
+    const colour = sampled
+      ? new THREE.Color(sampled.r, sampled.g, sampled.b).lerp(base, 0.55)
+      : base.clone();
+
+    for (let i = 0; i < line.length - 1; i++) {
+      const a = line[i];
+      const b = line[i + 1];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const length = Math.hypot(dx, dz);
+      // Skip degenerate segments, and anything absurdly long, which means the
+      // way crossed the tile and its far node was never fetched.
+      if (length < 0.5 || length > 4000) continue;
+      const nx = (-dz / length) * half;
+      const nz = (dx / length) * half;
+
+      const ay = this.terrain.heightAt(a.x, a.z);
+      const by = this.terrain.heightAt(b.x, b.z);
+      if (!Number.isFinite(ay) || !Number.isFinite(by)) continue;
+
+      pushQuad(
+        positions, normals, colors,
+        { x: a.x - nx, y: ay + ROAD_LIFT_M, z: a.z - nz },
+        { x: a.x + nx, y: ay + ROAD_LIFT_M, z: a.z + nz },
+        { x: b.x + nx, y: by + ROAD_LIFT_M, z: b.z + nz },
+        { x: b.x - nx, y: by + ROAD_LIFT_M, z: b.z - nz },
+        colour,
+      );
+      this.stats.roadSegments = (this.stats.roadSegments ?? 0) + 1;
+    }
   }
 
   /**

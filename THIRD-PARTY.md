@@ -78,8 +78,8 @@ Apache 2.0, Copyright Google LLC.
 The scenery reads `natural=wood|scrub|heath|bare_rock|scree|shingle`,
 `landuse=forest|orchard|vineyard|meadow` and `natural=tree`. The structures
 layer reads `building`, `building:part`, `bridge`, and
-`man_made=tower|mast|chimney|water_tower|cooling_tower|storage_tank|silo|gasometer|pier`
-plus `power=tower|generator`, standing each one at its mapped height where the
+`man_made=tower|mast|chimney|water_tower|cooling_tower|storage_tank|silo|gasometer|pier`,
+`power=tower|generator` and `highway=*` for the road network, standing each one at its mapped height where the
 data records one. All of it comes from the same Overpass API, under the Open
 Database Licence. Attribution
 for it is already in the corner of the screen alongside the buildings credit.
