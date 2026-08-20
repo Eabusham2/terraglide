@@ -102,6 +102,12 @@ const SECTIONS = [
       { key: 'speedFovKick', label: 'Widen view with speed', type: 'toggle' },
       { key: 'fog', label: 'Distance haze', type: 'toggle' },
       { key: 'scenery', label: 'Trees, rocks and scenery', type: 'toggle', help: 'Trees, scrub and rock from OpenStreetMap land cover. Where nothing is mapped, nothing is drawn.' },
+      {
+        key: 'sceneryFromImagery',
+        label: 'Fill in scenery from the satellite image',
+        type: 'toggle',
+        help: 'Where OpenStreetMap has nothing mapped — or Overpass is busy — read the aerial photograph instead: trees where it is green, rock where it is bare. Off means only surveyed ground grows anything.',
+      },
       { key: 'weather', label: 'Clouds and rain', type: 'toggle', help: 'Cloud cover and precipitation for where and when you are, from the same climate model as the temperature.' },
       { key: 'resolutionScale', label: 'Render scale', type: 'range', min: 0.5, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%` },
       { key: 'adaptiveResolution', label: 'Adapt render scale to keep the frame rate', type: 'toggle' },

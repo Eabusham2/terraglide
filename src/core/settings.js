@@ -53,6 +53,7 @@ export const DEFAULT_SETTINGS = {
   fog: true,
   weather: true,
   scenery: true,
+  sceneryFromImagery: true,
   maxTileZoom: 20,
   meshDetail: 1.2,
   showFps: false,

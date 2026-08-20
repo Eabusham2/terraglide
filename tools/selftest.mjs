@@ -694,6 +694,45 @@ console.log('\nThe body you can see');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nLand cover read off the photograph');
+{
+  const { classifyPixel, COVER, COVER_DENSITY, COVER_KIND } =
+    await import('../src/world/landclass.js');
+
+  // Where OSM has nothing, the aerial image is the second source. The rule it
+  // must never break: nothing grows where the picture says nothing grows.
+  const cases = [
+    ['dark forest canopy', [34, 64, 30], COVER.forest],
+    ['pine plantation', [28, 52, 34], COVER.forest],
+    ['pasture', [120, 148, 82], COVER.grass],
+    ['meadow', [138, 160, 96], COVER.grass],
+    ['grey rock', [128, 126, 122], COVER.rock],
+    ['scree', [150, 145, 138], COVER.rock],
+    ['ploughed earth', [140, 112, 78], COVER.rock],
+    ['deep water', [22, 44, 78], COVER.none],
+    ['shallow sea', [40, 90, 120], COVER.none],
+    ['snow', [236, 240, 244], COVER.none],
+    ['cloud', [228, 228, 230], COVER.none],
+    ['asphalt', [62, 62, 64], COVER.none],
+    ['dark asphalt', [48, 48, 50], COVER.none],
+    ['deep shadow', [18, 20, 22], COVER.none],
+  ];
+  for (const [label, [r, g, b], want] of cases) {
+    ok(`${label} reads as ${['nothing', 'grass', 'forest', 'rock'][want]}`,
+      classifyPixel(r, g, b) === want);
+  }
+
+  // The three that must never grow anything, stated as one invariant.
+  ok('water, snow and tarmac never grow anything',
+    [[22, 44, 78], [236, 240, 244], [55, 55, 57]]
+      .every(([r, g, b]) => COVER_DENSITY[classifyPixel(r, g, b)] === 0));
+
+  ok('forest is denser than scrub', COVER_DENSITY[COVER.forest] > COVER_DENSITY[COVER.grass]);
+  ok('each cover class plants something', [COVER.grass, COVER.forest, COVER.rock]
+    .every((c) => !!COVER_KIND[c]));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nInfrastructure from OpenStreetMap');
 {
   const source = readFileSync(new URL('../src/world/buildings.js', import.meta.url), 'utf8');

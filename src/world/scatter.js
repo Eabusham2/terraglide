@@ -4,16 +4,27 @@ import { settings } from '../core/settings.js';
 import { latToNormY, lonToNormX, normXToLon, normYToLat, tileKey } from '../geo/mercator.js';
 import { mapTiles } from '../ui/mapTiles.js';
 import { classify, parseFeatures, pointInRing } from './landcover.js';
+import { COVER_DENSITY, COVER_KIND, classifyPixel } from './landclass.js';
 import { overpass } from './overpass.js';
 
 /**
  * Scenery: trees, scrub and rock, in the places they actually are.
  *
- * Every position here traces back to OpenStreetMap. Woods, scrub, heath, bare
- * rock and scree are mapped as areas, individual notable trees are mapped as
- * points, and OSM even records whether a wood is needleleaved or broadleaved —
- * so a fir is a fir because the data says so, not because a noise function felt
- * like it. Where OSM has nothing, this draws nothing. No invented forests.
+ * Two sources, both real, in order of preference.
+ *
+ * First OpenStreetMap. Woods, scrub, heath, bare rock and scree are mapped as
+ * areas, individual notable trees are mapped as points, and OSM even records
+ * whether a wood is needleleaved or broadleaved — so a fir is a fir because the
+ * data says so, not because a noise function felt like it.
+ *
+ * Where OSM has nothing — unmapped ground, or Overpass busy — the aerial
+ * photograph is read instead: green is vegetation, grey and rough is rock, and
+ * anything ambiguous grows nothing. A photograph of a forest is evidence of a
+ * forest, so this is still not invention; it is a coarser source than a survey
+ * and it is treated as one. See landclass.js.
+ *
+ * What neither source ever does is put a tree where the data says there is
+ * none. That is the line.
  *
  * OSM does not record every trunk inside a wood, and no public dataset does, so
  * the *filling in* of a mapped wood is generated: positions are hashed from the
@@ -59,6 +70,11 @@ const KIND_LIMITS = { conifer: 6000, broadleaf: 6000, bush: 3600, rock: 2600 };
 const THIN_FROM_M = 420;
 
 const KINDS = ['conifer', 'broadleaf', 'bush', 'rock'];
+
+/** True when a rebuild has put nothing on the ground at all. */
+function placedNothing(counts) {
+  return KINDS.every((kind) => counts[kind] === 0);
+}
 
 /** What fraction of the trunks to keep at this distance from the camera. */
 function densityAt(distance) {
@@ -381,6 +397,13 @@ export class Scatter {
       }
     }
 
+    // Nothing surveyed here — either OSM has not mapped this ground, or
+    // Overpass has not answered yet. Read the aerial photograph instead, so
+    // the world is never bare just because a donated API is busy.
+    if (placedNothing(counts) && settings.get('sceneryFromImagery')) {
+      this.fillFromImagery(counts, centreX, centreZ, radius);
+    }
+
     let placed = 0;
     for (const kind of KINDS) {
       const mesh = this.meshes[kind];
@@ -508,6 +531,43 @@ export class Scatter {
   }
 
   /** Colour of the imagery under a world position, or null if not loaded yet. */
+  /**
+   * Plant from the satellite image, where no survey data covers the ground.
+   *
+   * Coarser grid than a mapped wood gets: this is a photograph read at a few
+   * metres per pixel, so it knows "there are trees about here" and not where
+   * any individual one stands. Claiming more precision than the source has
+   * would be the dishonest part.
+   */
+  fillFromImagery(counts, centreX, centreZ, radius) {
+    const spacing = 18;
+    const x0 = Math.floor((centreX - radius) / spacing);
+    const x1 = Math.ceil((centreX + radius) / spacing);
+    const z0 = Math.floor((centreZ - radius) / spacing);
+    const z1 = Math.ceil((centreZ + radius) / spacing);
+
+    for (let gz = z0; gz <= z1; gz++) {
+      for (let gx = x0; gx <= x1; gx++) {
+        const x = (gx + hash2(gx, gz, 11) - 0.5) * spacing;
+        const z = (gz + hash2(gx, gz, 12) - 0.5) * spacing;
+        const distance = Math.hypot(x - centreX, z - centreZ);
+        if (distance > radius) continue;
+        if (distance > THIN_FROM_M && hash2(gx, gz, 13) > densityAt(distance)) continue;
+
+        const colour = this.sampleImagery(x, z);
+        if (!colour) continue;
+        const cover = classifyPixel(colour.r * 255, colour.g * 255, colour.b * 255);
+        const density = COVER_DENSITY[cover];
+        if (!density) continue;
+        if (hash2(gx, gz, 14) > density) continue;
+
+        const kind = COVER_KIND[cover];
+        const resolved = kind === 'mixed' ? (hash2(gx, gz, 15) < 0.5 ? 'conifer' : 'broadleaf') : kind;
+        this.place(resolved, counts, x, z, 0.7 + hash2(gx, gz, 16) * 0.8);
+      }
+    }
+  }
+
   sampleImagery(x, z) {
     if (!this.frame) return null;
     const geo = this.frame.toGeo(x, z, this._geo);
