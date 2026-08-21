@@ -29,6 +29,7 @@ your own quota. Read them before you turn a provider on.
 | Microsoft Bing Maps | satellite tiles, elevation grids | yes | <https://www.microsoft.com/maps/product/terms> |
 | Azure Maps (Render) | satellite tiles | yes | <https://azure.microsoft.com/support/legal/> |
 | Maxar SecureWatch | satellite tiles | yes (enterprise connect ID) | <https://www.maxar.com/legal> |
+| Cesium ion | satellite tiles (any raster asset you own), photorealistic 3D tiles | yes (token) | <https://cesium.com/legal/terms-of-service/> |
 | Mapbox (Satellite, Terrain-RGB) | satellite tiles, elevation | yes | <https://www.mapbox.com/legal/tos> |
 | Esri World Imagery | satellite tiles | no | <https://www.esri.com/en-us/legal/terms/full-master-agreement> |
 | Sentinel-2 cloudless (EOX IT Services) | satellite tiles | no | <https://s2maps.eu> |
@@ -90,6 +91,12 @@ Optional, off by default, and reachable two ways — both on your own account.
 **Google Photorealistic 3D Tiles** needs a Google Maps Platform key with the
 Map Tiles API enabled. Requests go straight from your browser to Google on your
 quota, under the Google Maps Platform Terms of Service.
+
+**Cesium ion** also serves ordinary imagery — any raster asset in your account,
+asset 2 (Bing Aerial) by default — through the same token and the same endpoint
+exchange. Whatever attribution ion returns with the asset is shown with it.
+Every ion asset is metered per account and there is no keyless route to one; the
+API refuses an unauthenticated request outright.
 
 **Cesium ion** serves the same photorealistic dataset as asset 2275207 and
 needs a Cesium ion access token. The token is exchanged at

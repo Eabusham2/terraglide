@@ -3,7 +3,7 @@ import { cheats } from '../core/cheats.js';
 import { clamp, damp } from '../core/math.js';
 import { FixedStep } from '../core/perf.js';
 import { settings } from '../core/settings.js';
-import { TICK, stepGlide, stepGlideMinecraft, stepRocket } from './elytra.js';
+import { TICK, stepGlide, stepGlideMinecraft, stepGlideSoaring, stepRocket } from './elytra.js';
 
 /**
  * Movement, collision and the two flight modes.
@@ -196,7 +196,9 @@ export class PlayerController {
 
     // Two wings to choose from: the energy-honest one, and Minecraft's own
     // with its free energy intact. See stepGlideMinecraft.
-    const glide = settings.get('glideModel') === 'minecraft' ? stepGlideMinecraft : stepGlide;
+    const model = settings.get('glideModel');
+    const glide =
+      model === 'minecraft' ? stepGlideMinecraft : model === 'honest' ? stepGlide : stepGlideSoaring;
     glide(player.velocity, this.look, player.pitch);
     player.airborneSeconds += step;
 

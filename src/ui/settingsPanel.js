@@ -72,7 +72,8 @@ const SECTIONS = [
       { key: 'bingKey', label: 'Bing Maps key', type: 'secret', help: 'Bing aerial imagery. Microsoft is retiring this into Azure Maps, but the coverage is not identical yet.' },
       { key: 'azureKey', label: 'Azure Maps key', type: 'secret', help: 'Azure Maps subscription key, for Microsoft satellite imagery. Azure serves no 3D data.' },
       { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation.' },
-      { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'Only for the Cesium route into photorealistic 3D.' },
+      { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'One token, two uses: the Cesium route into photorealistic 3D, and ion imagery below.' },
+      { key: 'cesiumImageryAsset', label: 'Cesium ion imagery asset', type: 'range', min: 1, max: 10000, step: 1, showWhen: () => settings.get('imageryProvider') === 'cesium-ion', help: 'Which raster asset in your ion account to fly over. 2 is Bing Aerial, which most accounts have.' },
       { key: 'mapillaryToken', label: 'Mapillary token', type: 'secret' },
       { key: 'maxarConnectId', label: 'Maxar SecureWatch connect ID', type: 'secret', help: 'Maxar\u2019s own imagery service. An enterprise credential \u2014 Esri, Bing and Google all serve Maxar scenes without one.' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },
@@ -193,13 +194,16 @@ const SECTIONS = [
         label: 'Glide model',
         type: 'select',
         options: () => [
-          { value: 'honest', label: 'Energy-honest (recommended)' },
-          { value: 'minecraft', label: "Minecraft's own — climbing for free" },
+          { value: 'soaring', label: 'Soaring \u2014 the 45/45 holds you up (recommended)' },
+          { value: 'minecraft', label: "Minecraft's own, tick for tick" },
+          { value: 'honest', label: 'Energy-honest \u2014 nothing for free' },
         ],
         help: (value) =>
           value === 'minecraft'
-            ? "Minecraft's elytra, transcribed tick for tick: gravity discounted while you are level, a sinking glide credited part of its own sink, and a pull-up paid over three times the speed it costs. One dive and zoom flown well ends about twenty metres higher than it began \u2014 so with no rocket at all you can keep climbing, for as long as you keep flying it right."
-            : 'Gravity in full every tick, and a wing that can only ever turn the speed gravity gave you. Seven metres forward per metre down, and never a metre for free.',
+            ? "Minecraft's elytra transcribed exactly: a 3.92 block-per-tick dive terminal and a ten-to-one glide, both its own numbers. Fly the 45/45 \u2014 dive about thirty-five degrees, pull up about thirty-five, repeat \u2014 and you will sink at about one metre a second instead of three, which is a glide stretched to nearly three times its length. It still ends."
+            : value === 'honest'
+              ? 'Gravity in full every tick, and a wing that can only ever turn the speed gravity gave you. Seven metres forward per metre down, and never a metre for free.'
+              : "Minecraft's tick with one number changed: a pull-up buys 3.6 times the speed it spends instead of 3.2, which is the least it takes to close the loop. Fly the 45/45 and you hold your altitude indefinitely; fly it well and you climb. Hold the stick still and you sink at three metres a second like anyone else, so it is a technique rather than a gift.",
       },
       {
         key: 'units',

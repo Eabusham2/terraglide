@@ -150,6 +150,25 @@ export function stepRocket(velocity, look, power = 1, spent = 0) {
 }
 
 /**
+ * The climb trade: how much height a pull-up buys with the speed it spends.
+ *
+ * Vanilla's number is 3.2, and 3.2 does not quite close the loop. Flying the
+ * 45/45 manoeuvre — dive to build speed, pull up to spend it, repeat — through
+ * this model at every angle and every rhythm, the best you can do is a sink of
+ * 1.1 m/s against 3.0 m/s for holding level. That is a glide stretched to
+ * nearly three times its length, and it is still a glide: it ends.
+ *
+ * 3.6 is the smallest value that closes it. At 3.6 a well-flown oscillation
+ * holds altitude and a slightly better one gains slowly, while everything else
+ * about the model is untouched — level flight still sinks at three metres a
+ * second, because the term only pays when the nose is up. So the manoeuvre is
+ * worth flying and holding the stick still is not, which is the whole point of
+ * a technique having a name.
+ */
+const CLIMB_TRADE_VANILLA = 3.2;
+const CLIMB_TRADE_SOARING = 3.6;
+
+/**
  * Minecraft's elytra, tick for tick.
  *
  * Everything above is built so that it cannot cheat. This is the other one:
@@ -168,6 +187,18 @@ export function stepRocket(velocity, look, power = 1, spent = 0) {
  * transcription negates it wherever the original reads xRot.
  */
 export function stepGlideMinecraft(velocity, look, pitch) {
+  stepGlideVanilla(velocity, look, pitch, CLIMB_TRADE_VANILLA);
+}
+
+/**
+ * The same tick, with the climb trade raised just far enough that the 45/45
+ * manoeuvre sustains. See CLIMB_TRADE_SOARING for why 3.6 and not 3.2.
+ */
+export function stepGlideSoaring(velocity, look, pitch) {
+  stepGlideVanilla(velocity, look, pitch, CLIMB_TRADE_SOARING);
+}
+
+function stepGlideVanilla(velocity, look, pitch, climbTrade) {
   let vx = velocity.x * TO_TICK;
   let vy = velocity.y * TO_TICK;
   let vz = velocity.z * TO_TICK;
@@ -189,7 +220,7 @@ export function stepGlideMinecraft(velocity, look, pitch) {
   // Looking up trades horizontal speed for height, at a rate no wing has.
   if (pitch > 0 && horizLook > 0) {
     const trade = horizSpeed * Math.sin(pitch) * 0.04;
-    vy += trade * 3.2;
+    vy += trade * climbTrade;
     vx -= (look.x * trade) / horizLook;
     vz -= (look.z * trade) / horizLook;
   }

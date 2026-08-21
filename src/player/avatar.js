@@ -49,7 +49,15 @@ const BODY_TURN = 8;
  * Enough to look *over* your chest, and no more: push it further and glancing
  * down shows the ground where your legs ought to be.
  */
-const BODY_BACK = 0.07;
+/**
+ * Zero, now that the camera moves forward instead.
+ *
+ * Walking the whole body backwards cleared the chest and put the feet behind
+ * you, which is the wrong trade: you look down far more often than you look at
+ * your own back. The rig leans the camera out to where a face is instead —
+ * see EYE_FORWARD — and the body stays where the body is.
+ */
+const BODY_BACK = 0;
 /**
  * Where the glide pose turns, as a fraction of height.
  *
@@ -619,21 +627,31 @@ export class Avatar {
     // can see. Chest and legs stay while you are on your feet or falling and
     // go in a glide, where they are behind your head rather than below you and
     // only ever appear as a shape passing through the near plane.
+    // First person is the whole body, less the head you are looking out of.
+    //
+    // Hiding the chest and the arms and drawing a hand in the corner instead
+    // fixed one problem and caused a worse one: looking down showed a pair of
+    // boots with nothing above them and a firework floating off to one side,
+    // which is not what a first-person body mod looks like. What those mods
+    // do is simpler — draw everything, and put the camera where the eyes are,
+    // which is at the *front* of the head rather than on the spine. That last
+    // part is what keeps the chest out of your face, and the camera rig does
+    // it now, so the chest can come back.
+    //
+    // The wings stay off. They are strapped across your back a hand's width
+    // behind your skull, and no offset makes a metre of canvas at that range
+    // into something you can see rather than something you are inside.
     const inside = this.firstPerson;
     const prone = inside && this.glideBlend > 0.5;
-    this.armL.pivot.visible = !inside;
-    this.armR.pivot.visible = !inside;
-    // The chest goes too. It is a half-metre box a hand's width under your
-    // eye, so looking down it is not a chest, it is a khaki wall across the
-    // bottom third of the screen with your legs, your feet and the firework in
-    // your hand all behind it. Legs and boots are what the first-person body
-    // was for, and with the chest gone they are what you get.
-    this.torso.visible = !inside;
+    this.armL.pivot.visible = true;
+    this.armR.pivot.visible = true;
+    this.torso.visible = true;
     this.legL.pivot.visible = !prone;
     this.legR.pivot.visible = !prone;
 
-    this.viewModel.visible = inside;
-    if (inside) this.updateHand(player, dt, camera);
+    // No separate view model: the rocket is already in the hand of the arm you
+    // can see, which is the whole idea.
+    this.viewModel.visible = false;
 
     this.aimRocket(player);
   }

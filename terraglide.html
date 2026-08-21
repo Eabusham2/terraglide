@@ -82470,7 +82470,12 @@ const DEFAULT_SETTINGS = {
   graphics: 'high',
   renderDistanceKm: 16,
   distantMode: false,
-  glideModel: 'honest',
+  /**
+   * 'soaring' | 'minecraft' | 'honest'. See src/player/elytra.js.
+   * Soaring is Minecraft's tick with the climb trade raised from 3.2 to 3.6,
+   * which is the smallest change that lets the 45/45 manoeuvre hold altitude.
+   */
+  glideModel: 'soaring',
   fov: 78,
   freecamFov: 85,
   speedFovKick: true,
@@ -82499,6 +82504,11 @@ const DEFAULT_SETTINGS = {
    * says so when it does.
    */
   autoQuality: true,
+  /**
+   * Which Cesium ion asset the ion imagery provider asks for. 2 is Bing
+   * Aerial, which is what most accounts have; any raster asset you own works.
+   */
+  cesiumImageryAsset: 2,
   meshDetail: 1.2,
   showFps: false,
 
@@ -83585,6 +83595,13 @@ const { settings } = __tg_require("src/core/settings.js");
  */
 
 const PITCH_LIMIT = Math.PI / 2 - 0.02;
+/**
+ * How far in front of the body's axis the eyes sit, as a fraction of height.
+ * A sixth of a height is about thirty centimetres on a grown adult, which is
+ * roughly a head's depth plus the chest's — enough that the chest reads as a
+ * chest below you rather than as a surface you are pressed against.
+ */
+const EYE_FORWARD = 0.16;
 /** One barrel roll, in seconds. */
 const ROLL_TIME = 0.8;
 /** Frequency of the rocket shove, in hertz. Low enough to read as a push. */
@@ -83706,6 +83723,22 @@ class CameraRig {
     // The drawn position, not the physics one — see Player.renderPosition.
     const at = player.renderPosition;
     this._target.set(at.x, at.y + eye, at.z);
+
+    // Your eyes are in your face, not on your spine.
+    //
+    // Sitting the first-person camera on the body's own axis puts the chest
+    // directly beneath it, so looking down is a wall of jacket rather than a
+    // view of yourself — which is why the body used to be cut in half to get
+    // out of the way. Moving the camera forward to where a face is instead
+    // keeps the whole body and still leaves the chest a comfortable distance
+    // below and behind. Horizontal only, and along the compass heading rather
+    // than the look vector, so pitching down does not walk the camera through
+    // your own ribs.
+    if (settings.get('perspective') === 'first') {
+      const lean = player.height * EYE_FORWARD;
+      this._target.x += Math.sin(player.yaw) * lean;
+      this._target.z += -Math.cos(player.yaw) * lean;
+    }
 
     const perspective = settings.get('perspective');
     if (perspective === 'third' || perspective === 'second') {
@@ -85085,6 +85118,25 @@ function stepRocket(velocity, look, power = 1, spent = 0) {
 }
 
 /**
+ * The climb trade: how much height a pull-up buys with the speed it spends.
+ *
+ * Vanilla's number is 3.2, and 3.2 does not quite close the loop. Flying the
+ * 45/45 manoeuvre — dive to build speed, pull up to spend it, repeat — through
+ * this model at every angle and every rhythm, the best you can do is a sink of
+ * 1.1 m/s against 3.0 m/s for holding level. That is a glide stretched to
+ * nearly three times its length, and it is still a glide: it ends.
+ *
+ * 3.6 is the smallest value that closes it. At 3.6 a well-flown oscillation
+ * holds altitude and a slightly better one gains slowly, while everything else
+ * about the model is untouched — level flight still sinks at three metres a
+ * second, because the term only pays when the nose is up. So the manoeuvre is
+ * worth flying and holding the stick still is not, which is the whole point of
+ * a technique having a name.
+ */
+const CLIMB_TRADE_VANILLA = 3.2;
+const CLIMB_TRADE_SOARING = 3.6;
+
+/**
  * Minecraft's elytra, tick for tick.
  *
  * Everything above is built so that it cannot cheat. This is the other one:
@@ -85103,6 +85155,18 @@ function stepRocket(velocity, look, power = 1, spent = 0) {
  * transcription negates it wherever the original reads xRot.
  */
 function stepGlideMinecraft(velocity, look, pitch) {
+  stepGlideVanilla(velocity, look, pitch, CLIMB_TRADE_VANILLA);
+}
+
+/**
+ * The same tick, with the climb trade raised just far enough that the 45/45
+ * manoeuvre sustains. See CLIMB_TRADE_SOARING for why 3.6 and not 3.2.
+ */
+function stepGlideSoaring(velocity, look, pitch) {
+  stepGlideVanilla(velocity, look, pitch, CLIMB_TRADE_SOARING);
+}
+
+function stepGlideVanilla(velocity, look, pitch, climbTrade) {
   let vx = velocity.x * TO_TICK;
   let vy = velocity.y * TO_TICK;
   let vz = velocity.z * TO_TICK;
@@ -85124,7 +85188,7 @@ function stepGlideMinecraft(velocity, look, pitch) {
   // Looking up trades horizontal speed for height, at a rate no wing has.
   if (pitch > 0 && horizLook > 0) {
     const trade = horizSpeed * Math.sin(pitch) * 0.04;
-    vy += trade * 3.2;
+    vy += trade * climbTrade;
     vx -= (look.x * trade) / horizLook;
     vz -= (look.z * trade) / horizLook;
   }
@@ -85183,6 +85247,7 @@ __tg_exports["TICK"] = TICK;
 __tg_exports["stepGlide"] = stepGlide;
 __tg_exports["stepRocket"] = stepRocket;
 __tg_exports["stepGlideMinecraft"] = stepGlideMinecraft;
+__tg_exports["stepGlideSoaring"] = stepGlideSoaring;
 __tg_exports["rocketTicks"] = rocketTicks;
 __tg_exports["rocketPowerFor"] = rocketPowerFor;
 __tg_exports["bestGlideSpeed"] = bestGlideSpeed;
@@ -85529,7 +85594,15 @@ const BODY_TURN = 8;
  * Enough to look *over* your chest, and no more: push it further and glancing
  * down shows the ground where your legs ought to be.
  */
-const BODY_BACK = 0.07;
+/**
+ * Zero, now that the camera moves forward instead.
+ *
+ * Walking the whole body backwards cleared the chest and put the feet behind
+ * you, which is the wrong trade: you look down far more often than you look at
+ * your own back. The rig leans the camera out to where a face is instead —
+ * see EYE_FORWARD — and the body stays where the body is.
+ */
+const BODY_BACK = 0;
 /**
  * Where the glide pose turns, as a fraction of height.
  *
@@ -86099,21 +86172,31 @@ class Avatar {
     // can see. Chest and legs stay while you are on your feet or falling and
     // go in a glide, where they are behind your head rather than below you and
     // only ever appear as a shape passing through the near plane.
+    // First person is the whole body, less the head you are looking out of.
+    //
+    // Hiding the chest and the arms and drawing a hand in the corner instead
+    // fixed one problem and caused a worse one: looking down showed a pair of
+    // boots with nothing above them and a firework floating off to one side,
+    // which is not what a first-person body mod looks like. What those mods
+    // do is simpler — draw everything, and put the camera where the eyes are,
+    // which is at the *front* of the head rather than on the spine. That last
+    // part is what keeps the chest out of your face, and the camera rig does
+    // it now, so the chest can come back.
+    //
+    // The wings stay off. They are strapped across your back a hand's width
+    // behind your skull, and no offset makes a metre of canvas at that range
+    // into something you can see rather than something you are inside.
     const inside = this.firstPerson;
     const prone = inside && this.glideBlend > 0.5;
-    this.armL.pivot.visible = !inside;
-    this.armR.pivot.visible = !inside;
-    // The chest goes too. It is a half-metre box a hand's width under your
-    // eye, so looking down it is not a chest, it is a khaki wall across the
-    // bottom third of the screen with your legs, your feet and the firework in
-    // your hand all behind it. Legs and boots are what the first-person body
-    // was for, and with the chest gone they are what you get.
-    this.torso.visible = !inside;
+    this.armL.pivot.visible = true;
+    this.armR.pivot.visible = true;
+    this.torso.visible = true;
     this.legL.pivot.visible = !prone;
     this.legR.pivot.visible = !prone;
 
-    this.viewModel.visible = inside;
-    if (inside) this.updateHand(player, dt, camera);
+    // No separate view model: the rocket is already in the hand of the arm you
+    // can see, which is the whole idea.
+    this.viewModel.visible = false;
 
     this.aimRocket(player);
   }
@@ -86224,7 +86307,7 @@ const { cheats } = __tg_require("src/core/cheats.js");
 const { clamp, damp } = __tg_require("src/core/math.js");
 const { FixedStep } = __tg_require("src/core/perf.js");
 const { settings } = __tg_require("src/core/settings.js");
-const { TICK, stepGlide, stepGlideMinecraft, stepRocket } = __tg_require("src/player/elytra.js");
+const { TICK, stepGlide, stepGlideMinecraft, stepGlideSoaring, stepRocket } = __tg_require("src/player/elytra.js");
 
 /**
  * Movement, collision and the two flight modes.
@@ -86417,7 +86500,9 @@ class PlayerController {
 
     // Two wings to choose from: the energy-honest one, and Minecraft's own
     // with its free energy intact. See stepGlideMinecraft.
-    const glide = settings.get('glideModel') === 'minecraft' ? stepGlideMinecraft : stepGlide;
+    const model = settings.get('glideModel');
+    const glide =
+      model === 'minecraft' ? stepGlideMinecraft : model === 'honest' ? stepGlide : stepGlideSoaring;
     glide(player.velocity, this.look, player.pitch);
     player.airborneSeconds += step;
 
@@ -87283,6 +87368,20 @@ const IMAGERY_PROVIDERS = [
       + 'credit them.',
   },
   {
+    id: 'cesium-ion',
+    label: 'Cesium ion imagery',
+    kind: 'ion',
+    needsKey: 'cesiumToken',
+    maxZoom: 19,
+    attribution: 'Imagery served by Cesium ion',
+    note:
+      'Anything raster in your Cesium ion account, on the same token the '
+      + 'photorealistic 3D option uses \u2014 Bing Aerial is asset 2 and is what '
+      + 'this asks for unless you change it in Settings. ion meters it per '
+      + 'account, which is why it needs the token: there is no keyless door to '
+      + 'it, and the API says so itself if you knock without one.',
+  },
+  {
     id: 'mapbox',
     label: 'Mapbox Satellite',
     kind: 'xyz',
@@ -87492,6 +87591,9 @@ class TileSource {
     this.substitutedFor = null;
     this.bingTemplate = null;
     this.vectorTemplate = null;
+    this.ionTemplate = null;
+    /** Whatever ion says has to be shown for this asset. */
+    this.ionAttribution = '';
     this.state = 'idle'; // idle | preparing | ready | needs-key | error
     this.error = '';
     this.googleSession = null;
@@ -87544,6 +87646,7 @@ class TileSource {
         if (this.descriptor.kind === 'bing') await this.prepareBing();
         else if (this.descriptor.kind === 'google') await this.prepareGoogle();
         else if (this.descriptor.kind === 'openmaptiles') await this.prepareOpenMapTiles();
+        else if (this.descriptor.kind === 'ion') await this.prepareIon();
         this.state = 'ready';
         this.error = '';
       } catch (err) {
@@ -87582,6 +87685,54 @@ class TileSource {
     const template = data?.tiles?.[0];
     if (!template) throw new Error('OpenFreeMap TileJSON had no tile template');
     this.vectorTemplate = template;
+  }
+
+  /**
+   * Cesium ion, for imagery rather than for the photogrammetry.
+   *
+   * Same door as the 3D route already knocks on: a token is exchanged for a
+   * short-lived one plus wherever the tiles actually live. ion serves two
+   * shapes through it and which you get depends on the asset — its own rasters
+   * come back as a template to fill in, and the ones it resells from Bing come
+   * back as Bing's own quadkey URL with a key attached. Both are handled;
+   * anything else is reported rather than guessed at.
+   */
+  async prepareIon() {
+    const asset = this.keys.cesiumImageryAsset || 2;
+    const res = await fetch(
+      `https://api.cesium.com/v1/assets/${encodeURIComponent(asset)}/endpoint` +
+        `?access_token=${encodeURIComponent(this.key)}`,
+    );
+    if (!res.ok) throw new Error(`Cesium ion asset ${asset} refused the token (${res.status})`);
+    const data = await res.json();
+
+    if (data.externalType === 'BING' || data.options?.mapStyle) {
+      const base = (data.options?.url ?? 'https://dev.virtualearth.net').replace(/\/$/, '');
+      const key = data.options?.key ?? '';
+      const meta = await fetch(
+        `${base}/REST/v1/Imagery/Metadata/Aerial?output=json&include=ImageryProviders` +
+          `&uriScheme=https&key=${encodeURIComponent(key)}`,
+      );
+      if (!meta.ok) throw new Error(`Bing metadata via ion failed (${meta.status})`);
+      const resource = (await meta.json())?.resourceSets?.[0]?.resources?.[0];
+      if (!resource?.imageUrl) throw new Error('Bing metadata via ion had no imageUrl');
+      this.bingTemplate = resource.imageUrl;
+      this.bingSubdomains = resource.imageUrlSubdomains ?? [''];
+      this.ionTemplate = null;
+    } else if (data.url) {
+      // An ion-hosted raster: a tile scheme under a base URL, with the
+      // short-lived token on every request.
+      const token = data.accessToken ? `?access_token=${encodeURIComponent(data.accessToken)}` : '';
+      this.ionTemplate = `${data.url.replace(/\/$/, '')}/{z}/{x}/{y}.png${token}`;
+    } else {
+      throw new Error(`Cesium ion asset ${asset} is not raster imagery`);
+    }
+    if (Array.isArray(data.attributions) && data.attributions.length > 0) {
+      this.ionAttribution = data.attributions
+        .map((a) => String(a.html ?? a.text ?? '').replace(/<[^>]*>/g, '').trim())
+        .filter(Boolean)
+        .join(' · ');
+    }
   }
 
   async prepareGoogle() {
@@ -87631,6 +87782,18 @@ class TileSource {
         'https://maps.googleapis.com/maps/api/elevation/json?locations=enc:' +
         `${encodeURIComponent(encoded)}&key=${encodeURIComponent(this.key)}`
       );
+    }
+    if (d.kind === 'ion') {
+      // Bing-backed assets come out as Bing tiles; ion's own as a template.
+      if (this.bingTemplate) {
+        const subs = this.bingSubdomains ?? [''];
+        return this.bingTemplate
+          .replace('{subdomain}', subs[(tile.x + tile.y) % subs.length])
+          .replace('{quadkey}', quadKey(tile))
+          .replace('{culture}', 'en-US');
+      }
+      if (!this.ionTemplate) return null;
+      return fillTemplate(this.ionTemplate, tile, this.key);
     }
     if (d.kind === 'openmaptiles') {
       if (!this.vectorTemplate) return null;
@@ -94881,7 +95044,8 @@ const SECTIONS = [
       { key: 'bingKey', label: 'Bing Maps key', type: 'secret', help: 'Bing aerial imagery. Microsoft is retiring this into Azure Maps, but the coverage is not identical yet.' },
       { key: 'azureKey', label: 'Azure Maps key', type: 'secret', help: 'Azure Maps subscription key, for Microsoft satellite imagery. Azure serves no 3D data.' },
       { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation.' },
-      { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'Only for the Cesium route into photorealistic 3D.' },
+      { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'One token, two uses: the Cesium route into photorealistic 3D, and ion imagery below.' },
+      { key: 'cesiumImageryAsset', label: 'Cesium ion imagery asset', type: 'range', min: 1, max: 10000, step: 1, showWhen: () => settings.get('imageryProvider') === 'cesium-ion', help: 'Which raster asset in your ion account to fly over. 2 is Bing Aerial, which most accounts have.' },
       { key: 'mapillaryToken', label: 'Mapillary token', type: 'secret' },
       { key: 'maxarConnectId', label: 'Maxar SecureWatch connect ID', type: 'secret', help: 'Maxar\u2019s own imagery service. An enterprise credential \u2014 Esri, Bing and Google all serve Maxar scenes without one.' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },
@@ -95002,13 +95166,16 @@ const SECTIONS = [
         label: 'Glide model',
         type: 'select',
         options: () => [
-          { value: 'honest', label: 'Energy-honest (recommended)' },
-          { value: 'minecraft', label: "Minecraft's own — climbing for free" },
+          { value: 'soaring', label: 'Soaring \u2014 the 45/45 holds you up (recommended)' },
+          { value: 'minecraft', label: "Minecraft's own, tick for tick" },
+          { value: 'honest', label: 'Energy-honest \u2014 nothing for free' },
         ],
         help: (value) =>
           value === 'minecraft'
-            ? "Minecraft's elytra, transcribed tick for tick: gravity discounted while you are level, a sinking glide credited part of its own sink, and a pull-up paid over three times the speed it costs. One dive and zoom flown well ends about twenty metres higher than it began \u2014 so with no rocket at all you can keep climbing, for as long as you keep flying it right."
-            : 'Gravity in full every tick, and a wing that can only ever turn the speed gravity gave you. Seven metres forward per metre down, and never a metre for free.',
+            ? "Minecraft's elytra transcribed exactly: a 3.92 block-per-tick dive terminal and a ten-to-one glide, both its own numbers. Fly the 45/45 \u2014 dive about thirty-five degrees, pull up about thirty-five, repeat \u2014 and you will sink at about one metre a second instead of three, which is a glide stretched to nearly three times its length. It still ends."
+            : value === 'honest'
+              ? 'Gravity in full every tick, and a wing that can only ever turn the speed gravity gave you. Seven metres forward per metre down, and never a metre for free.'
+              : "Minecraft's tick with one number changed: a pull-up buys 3.6 times the speed it spends instead of 3.2, which is the least it takes to close the loop. Fly the 45/45 and you hold your altitude indefinitely; fly it well and you climb. Hold the stick still and you sink at three metres a second like anyone else, so it is a technique rather than a gift.",
       },
       {
         key: 'units',

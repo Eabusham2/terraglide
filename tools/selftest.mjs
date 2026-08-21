@@ -653,21 +653,33 @@ console.log('\nThe body you can see');
     ok('the head always faces where you look', worst > 0.99, `worst alignment ${worst.toFixed(3)}`);
   }
 
-  // In first person the model steps back so you look over your chest, not
-  // into it. The invariant: the front face of the torso must not sit in front
-  // of the eye. Get this wrong and glancing down fills the screen with jacket.
+  // First person draws the whole body and puts the camera where the eyes are,
+  // which is in front of the spine. That lean is what keeps the chest out of
+  // your face; get it wrong and glancing down is a wall of jacket.
   {
     const player = makePlayer();
     avatar.setFirstPerson(true);
     settle(player);
+    const rig = readFileSync(new URL('../src/camera/cameraRig.js', import.meta.url), 'utf8');
+    const lean = Number(/const EYE_FORWARD = ([\d.]+)/.exec(rig)?.[1]);
     const torsoHalfDepth = 0.15 / 2;
-    const chestFront = avatar.body.position.z - torsoHalfDepth;
-    ok('first person keeps the chest behind the eye', chestFront > -0.02,
-      `chest front at z=${chestFront.toFixed(3)}, forward is -Z`);
-    // ...but only just. Push it further and the legs leave the view entirely
-    // when you look down, which loses the point of drawing a body at all.
-    ok('and not so far back that the legs vanish', avatar.body.position.z < 0.11,
-      `offset ${avatar.body.position.z.toFixed(3)} of height`);
+    ok('the camera leans out to where a face is', lean > 0,
+      `${lean} of height`);
+    ok('far enough that the chest front is behind it', lean - torsoHalfDepth > 0.05,
+      `${(lean - torsoHalfDepth).toFixed(3)} of height clear`);
+    // ...but only just. Push it further and your own feet end up behind you.
+    ok('and not so far that your feet are behind you', lean < 0.25, `${lean}`);
+    ok('the body itself stays where the body is', Math.abs(avatar.body.position.z) < 0.01,
+      avatar.body.position.z.toFixed(3));
+
+    // The whole body, minus the head you are looking out of. This is the
+    // thing the mod does and the thing that was wrong before: a pair of
+    // floating boots is not a first-person body.
+    ok('the chest is drawn', avatar.torso.visible);
+    ok('both arms are drawn', avatar.armL.pivot.visible && avatar.armR.pivot.visible);
+    ok('the legs are drawn', avatar.legL.pivot.visible && avatar.legR.pivot.visible);
+    ok('the head is not, because you are inside it', !avatar.head.visible);
+    ok('and there is no second arm floating in the corner', !avatar.viewModel.visible);
 
     avatar.setFirstPerson(false);
     settle(player);
@@ -1000,6 +1012,90 @@ console.log('\nGenerated art stays where it belongs');
     const path = new URL(`../assets/${file}`, import.meta.url);
     ok(`${file} is present`, existsSync(path) && statSync(path).size > 1024);
   }
+}
+
+console.log('\nThe 45/45, and what it takes to make it hold');
+{
+  const { stepGlide, stepGlideMinecraft, stepGlideSoaring, TICK: T } =
+    await import('../src/player/elytra.js');
+
+  // Hold one attitude until the speed settles, and report where it settles.
+  const settle = (step, pitchDeg, from = 30, seconds = 150) => {
+    const pitch = (pitchDeg * Math.PI) / 180;
+    const look = { x: 0, y: Math.sin(pitch), z: -Math.cos(pitch) };
+    const v = { x: 0, y: 0, z: -from };
+    for (let t = 0; t < 20 * seconds; t++) step(v, look, pitch);
+    return v;
+  };
+
+  // Minecraft publishes two numbers for the elytra and the transcription has
+  // to land on both of them, or it is not a transcription.
+  {
+    const level = settle(stepGlideMinecraft, 0);
+    ok('vanilla level flight sinks about a sixth of a block a tick',
+      near(-level.y * T, 0.15, 0.01), `${(-level.y * T).toFixed(4)} b/t`);
+    ok('and glides about ten to one',
+      near(-level.z / -level.y, 10.1, 0.4), `${(-level.z / -level.y).toFixed(2)}:1`);
+    const dive = settle(stepGlideMinecraft, -90, 0);
+    ok('and a vertical dive terminates at 3.92 blocks a tick, which is its own figure',
+      near(Math.hypot(dive.x, dive.y, dive.z) * T, 3.92, 0.02),
+      `${(Math.hypot(dive.x, dive.y, dive.z) * T).toFixed(3)} b/t`);
+  }
+
+  // The manoeuvre, flown the way anyone flies it: pull up when you are fast,
+  // push the nose over when you run out of speed.
+  const manoeuvre = (step, { angle = 40, low = 20, high = 50, minutes = 6 } = {}) => {
+    const v = { x: 0, y: 0, z: -high };
+    let y = 0, up = true, pitch = (angle * Math.PI) / 180, markY = 0;
+    const markT = 20 * 60, total = 20 * 60 * minutes;
+    for (let t = 0; t < total; t++) {
+      const look = { x: 0, y: Math.sin(pitch), z: -Math.cos(pitch) };
+      step(v, look, pitch);
+      y += v.y * T;
+      if (t === markT) markY = y;
+      const sp = Math.hypot(v.x, v.y, v.z);
+      if (up && sp < low) { up = false; pitch = (-angle * Math.PI) / 180; }
+      else if (!up && sp > high) { up = true; pitch = (angle * Math.PI) / 180; }
+    }
+    return (y - markY) / ((total - markT) * T);
+  };
+
+  const soaring = manoeuvre(stepGlideSoaring);
+  ok('flying the 45/45 in the soaring model holds you up', soaring > 0,
+    `${soaring >= 0 ? '+' : ''}${soaring.toFixed(2)} m/s`);
+  const vanilla = manoeuvre(stepGlideMinecraft);
+  ok('the same manoeuvre in vanilla still loses height, which is why the model exists',
+    vanilla < 0, `${vanilla.toFixed(2)} m/s`);
+  ok('and soaring beats vanilla by more than a metre a second',
+    soaring - vanilla > 1, `${(soaring - vanilla).toFixed(2)} m/s better`);
+
+  // The point of the number chosen: it pays for the technique, not for
+  // sitting still. Holding level has to stay a losing proposition.
+  const levelSoar = settle(stepGlideSoaring, 0);
+  ok('holding the stick still still sinks about three metres a second',
+    levelSoar.y < -2.5 && levelSoar.y > -3.5, `${levelSoar.y.toFixed(2)} m/s`);
+  ok('so soaring level is no better than vanilla level',
+    near(levelSoar.y, settle(stepGlideMinecraft, 0).y, 0.01));
+
+  // The window has to be findable rather than a knife edge.
+  let holds = 0, tried = 0;
+  for (const angle of [30, 35, 40, 45]) {
+    for (const low of [20, 25, 30]) {
+      for (const high of [50, 60, 70]) {
+        tried++;
+        if (manoeuvre(stepGlideSoaring, { angle, low, high, minutes: 4 }) > -0.05) holds++;
+      }
+    }
+  }
+  ok('and a good spread of angles and rhythms works, not one exact recipe',
+    holds >= 6, `${holds} of ${tried} combinations hold altitude`);
+
+  // The energy-honest model must remain exactly that.
+  ok('the honest model still refuses to climb for free',
+    manoeuvre(stepGlide, { minutes: 4 }) < -1, `${manoeuvre(stepGlide, { minutes: 4 }).toFixed(2)} m/s`);
+
+  const { DEFAULT_SETTINGS: DS } = await import('../src/core/settings.js');
+  ok('soaring is what you get unless you ask otherwise', DS.glideModel === 'soaring');
 }
 
 console.log('\nPut back on the ground when the ground turns up');
@@ -1590,10 +1686,13 @@ console.log('\nTwo wings: one honest, one Minecraft\u2019s');
     honest < 3, `${honest.toFixed(1)} m at best`);
   ok("and Minecraft's can, by a lot", minecraft > 10,
     `${minecraft.toFixed(1)} m, which is what makes endless climbing possible`);
-  ok('the two are actually different models',
-    /settings\.get\('glideModel'\) === 'minecraft' \? stepGlideMinecraft/.test(
-      readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8'),
-    ));
+  {
+    const controller = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');
+    ok('all three models are reachable from the setting',
+      /'minecraft' \? stepGlideMinecraft/.test(controller) &&
+      /'honest' \? stepGlide/.test(controller) &&
+      /stepGlideSoaring/.test(controller));
+  }
 }
 
 console.log('\nWalking, jumping and falling like Minecraft');

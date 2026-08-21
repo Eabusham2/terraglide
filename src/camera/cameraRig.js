@@ -19,6 +19,13 @@ import { settings } from '../core/settings.js';
  */
 
 const PITCH_LIMIT = Math.PI / 2 - 0.02;
+/**
+ * How far in front of the body's axis the eyes sit, as a fraction of height.
+ * A sixth of a height is about thirty centimetres on a grown adult, which is
+ * roughly a head's depth plus the chest's — enough that the chest reads as a
+ * chest below you rather than as a surface you are pressed against.
+ */
+const EYE_FORWARD = 0.16;
 /** One barrel roll, in seconds. */
 const ROLL_TIME = 0.8;
 /** Frequency of the rocket shove, in hertz. Low enough to read as a push. */
@@ -140,6 +147,22 @@ export class CameraRig {
     // The drawn position, not the physics one — see Player.renderPosition.
     const at = player.renderPosition;
     this._target.set(at.x, at.y + eye, at.z);
+
+    // Your eyes are in your face, not on your spine.
+    //
+    // Sitting the first-person camera on the body's own axis puts the chest
+    // directly beneath it, so looking down is a wall of jacket rather than a
+    // view of yourself — which is why the body used to be cut in half to get
+    // out of the way. Moving the camera forward to where a face is instead
+    // keeps the whole body and still leaves the chest a comfortable distance
+    // below and behind. Horizontal only, and along the compass heading rather
+    // than the look vector, so pitching down does not walk the camera through
+    // your own ribs.
+    if (settings.get('perspective') === 'first') {
+      const lean = player.height * EYE_FORWARD;
+      this._target.x += Math.sin(player.yaw) * lean;
+      this._target.z += -Math.cos(player.yaw) * lean;
+    }
 
     const perspective = settings.get('perspective');
     if (perspective === 'third' || perspective === 'second') {

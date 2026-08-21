@@ -48,7 +48,12 @@ export const DEFAULT_SETTINGS = {
   graphics: 'high',
   renderDistanceKm: 16,
   distantMode: false,
-  glideModel: 'honest',
+  /**
+   * 'soaring' | 'minecraft' | 'honest'. See src/player/elytra.js.
+   * Soaring is Minecraft's tick with the climb trade raised from 3.2 to 3.6,
+   * which is the smallest change that lets the 45/45 manoeuvre hold altitude.
+   */
+  glideModel: 'soaring',
   fov: 78,
   freecamFov: 85,
   speedFovKick: true,
@@ -77,6 +82,11 @@ export const DEFAULT_SETTINGS = {
    * says so when it does.
    */
   autoQuality: true,
+  /**
+   * Which Cesium ion asset the ion imagery provider asks for. 2 is Bing
+   * Aerial, which is what most accounts have; any raster asset you own works.
+   */
+  cesiumImageryAsset: 2,
   meshDetail: 1.2,
   showFps: false,
 

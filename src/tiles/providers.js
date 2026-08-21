@@ -128,6 +128,20 @@ export const IMAGERY_PROVIDERS = [
       + 'credit them.',
   },
   {
+    id: 'cesium-ion',
+    label: 'Cesium ion imagery',
+    kind: 'ion',
+    needsKey: 'cesiumToken',
+    maxZoom: 19,
+    attribution: 'Imagery served by Cesium ion',
+    note:
+      'Anything raster in your Cesium ion account, on the same token the '
+      + 'photorealistic 3D option uses \u2014 Bing Aerial is asset 2 and is what '
+      + 'this asks for unless you change it in Settings. ion meters it per '
+      + 'account, which is why it needs the token: there is no keyless door to '
+      + 'it, and the API says so itself if you knock without one.',
+  },
+  {
     id: 'mapbox',
     label: 'Mapbox Satellite',
     kind: 'xyz',
@@ -337,6 +351,9 @@ export class TileSource {
     this.substitutedFor = null;
     this.bingTemplate = null;
     this.vectorTemplate = null;
+    this.ionTemplate = null;
+    /** Whatever ion says has to be shown for this asset. */
+    this.ionAttribution = '';
     this.state = 'idle'; // idle | preparing | ready | needs-key | error
     this.error = '';
     this.googleSession = null;
@@ -389,6 +406,7 @@ export class TileSource {
         if (this.descriptor.kind === 'bing') await this.prepareBing();
         else if (this.descriptor.kind === 'google') await this.prepareGoogle();
         else if (this.descriptor.kind === 'openmaptiles') await this.prepareOpenMapTiles();
+        else if (this.descriptor.kind === 'ion') await this.prepareIon();
         this.state = 'ready';
         this.error = '';
       } catch (err) {
@@ -427,6 +445,54 @@ export class TileSource {
     const template = data?.tiles?.[0];
     if (!template) throw new Error('OpenFreeMap TileJSON had no tile template');
     this.vectorTemplate = template;
+  }
+
+  /**
+   * Cesium ion, for imagery rather than for the photogrammetry.
+   *
+   * Same door as the 3D route already knocks on: a token is exchanged for a
+   * short-lived one plus wherever the tiles actually live. ion serves two
+   * shapes through it and which you get depends on the asset — its own rasters
+   * come back as a template to fill in, and the ones it resells from Bing come
+   * back as Bing's own quadkey URL with a key attached. Both are handled;
+   * anything else is reported rather than guessed at.
+   */
+  async prepareIon() {
+    const asset = this.keys.cesiumImageryAsset || 2;
+    const res = await fetch(
+      `https://api.cesium.com/v1/assets/${encodeURIComponent(asset)}/endpoint` +
+        `?access_token=${encodeURIComponent(this.key)}`,
+    );
+    if (!res.ok) throw new Error(`Cesium ion asset ${asset} refused the token (${res.status})`);
+    const data = await res.json();
+
+    if (data.externalType === 'BING' || data.options?.mapStyle) {
+      const base = (data.options?.url ?? 'https://dev.virtualearth.net').replace(/\/$/, '');
+      const key = data.options?.key ?? '';
+      const meta = await fetch(
+        `${base}/REST/v1/Imagery/Metadata/Aerial?output=json&include=ImageryProviders` +
+          `&uriScheme=https&key=${encodeURIComponent(key)}`,
+      );
+      if (!meta.ok) throw new Error(`Bing metadata via ion failed (${meta.status})`);
+      const resource = (await meta.json())?.resourceSets?.[0]?.resources?.[0];
+      if (!resource?.imageUrl) throw new Error('Bing metadata via ion had no imageUrl');
+      this.bingTemplate = resource.imageUrl;
+      this.bingSubdomains = resource.imageUrlSubdomains ?? [''];
+      this.ionTemplate = null;
+    } else if (data.url) {
+      // An ion-hosted raster: a tile scheme under a base URL, with the
+      // short-lived token on every request.
+      const token = data.accessToken ? `?access_token=${encodeURIComponent(data.accessToken)}` : '';
+      this.ionTemplate = `${data.url.replace(/\/$/, '')}/{z}/{x}/{y}.png${token}`;
+    } else {
+      throw new Error(`Cesium ion asset ${asset} is not raster imagery`);
+    }
+    if (Array.isArray(data.attributions) && data.attributions.length > 0) {
+      this.ionAttribution = data.attributions
+        .map((a) => String(a.html ?? a.text ?? '').replace(/<[^>]*>/g, '').trim())
+        .filter(Boolean)
+        .join(' · ');
+    }
   }
 
   async prepareGoogle() {
@@ -476,6 +542,18 @@ export class TileSource {
         'https://maps.googleapis.com/maps/api/elevation/json?locations=enc:' +
         `${encodeURIComponent(encoded)}&key=${encodeURIComponent(this.key)}`
       );
+    }
+    if (d.kind === 'ion') {
+      // Bing-backed assets come out as Bing tiles; ion's own as a template.
+      if (this.bingTemplate) {
+        const subs = this.bingSubdomains ?? [''];
+        return this.bingTemplate
+          .replace('{subdomain}', subs[(tile.x + tile.y) % subs.length])
+          .replace('{quadkey}', quadKey(tile))
+          .replace('{culture}', 'en-US');
+      }
+      if (!this.ionTemplate) return null;
+      return fillTemplate(this.ionTemplate, tile, this.key);
     }
     if (d.kind === 'openmaptiles') {
       if (!this.vectorTemplate) return null;
