@@ -84319,8 +84319,77 @@ const geocoder = new Geocoder();
 __tg_exports["Geocoder"] = Geocoder;
 __tg_exports["geocoder"] = geocoder;
 };
+__tg_modules["src/tiles/noData.js"] = function (__tg_exports) {
+/** OffscreenCanvas in a worker, a normal canvas on the main thread. */
+function makeCanvas(width, height) {
+  if (typeof OffscreenCanvas === 'function') return new OffscreenCanvas(width, height);
+  if (typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+  }
+  throw new Error('no canvas available');
+}
+
+/**
+ * Is this tile a provider's "nothing here" card rather than a photograph?
+ *
+ * Esri answers a request for ground it has never imaged with HTTP 200 and a
+ * picture of the words "Map data not yet available" on a flat grey field.
+ * Every check we have says the tile arrived fine, so it gets drawn, and the
+ * result is the pale rectangles with text across the world and the minimap.
+ * The availability endpoint does not help — it reports the placeholder as
+ * present, because it *is* present.
+ *
+ * So look at it, and weigh it. Measured against the real thing:
+ *
+ *   the card        1.8–2.6 kB   mean 205–232   spread 0–19   variance 0.6–34
+ *   London          22 kB        mean 76        spread 26     variance 1225
+ *   Sahara          13 kB        mean 174       spread 110    variance 176
+ *   Greenland       2.6 kB       mean 53        spread 54     variance 2.8
+ *
+ * Bright, colourless, flat *and* tiny is a corner of that space nothing real
+ * sits in. The size test carries most of the weight — a 256-pixel JPEG of
+ * anything with texture in it does not compress to two kilobytes — and the
+ * pixels stop a genuinely featureless snowfield being thrown away for it.
+ */
+function isNoDataCard(bitmap, bytes) {
+  if (bytes > 6000) return false;
+  try {
+    const size = 8;
+    const canvas = makeCanvas(size, size);
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return false;
+    ctx.drawImage(bitmap, 0, 0, size, size);
+    const { data } = ctx.getImageData(0, 0, size, size);
+    let sum = 0;
+    let sumSq = 0;
+    let maxSpread = 0;
+    const n = size * size;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const lum = (r + g + b) / 3;
+      sum += lum;
+      sumSq += lum * lum;
+      maxSpread = Math.max(maxSpread, Math.max(r, g, b) - Math.min(r, g, b));
+    }
+    const mean = sum / n;
+    const variance = sumSq / n - mean * mean;
+    return mean > 195 && maxSpread <= 24 && variance < 80;
+  } catch {
+    return false;
+  }
+}
+
+
+__tg_exports["isNoDataCard"] = isNoDataCard;
+};
 __tg_modules["src/geo/water.js"] = function (__tg_exports) {
 const { clamp } = __tg_require("src/core/math.js");
+const { isNoDataCard } = __tg_require("src/tiles/noData.js");
 const { destination, latToNormY, lonToNormX, tileKey, wrapTileX } = __tg_require("src/geo/mercator.js");
 
 /**
@@ -84344,8 +84413,9 @@ class WaterMap {
     this.pending = new Map();
   }
 
-  setSource(source) {
+  setSource(source, standbys = []) {
     this.source = source;
+    this.standbys = standbys.filter(Boolean);
     this.masks.clear();
     this.pending.clear();
   }
@@ -84416,14 +84486,33 @@ class WaterMap {
   }
 
   async buildMask(tile) {
-    if (!this.source) return null;
-    if (!this.source.ready) await this.source.prepare();
-    const url = this.source.urlFor(tile);
-    if (!url) return null;
-
-    const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
-    if (!res.ok) throw new Error(`probe ${res.status}`);
-    const bitmap = await createImageBitmap(await res.blob());
+    // Every provider in turn, because the answer to "is this the sea" must not
+    // depend on whether one company has flown over it. Esri answers ground it
+    // has never imaged with a grey card reading "Map data not yet available",
+    // and a grey card is not blue — so the whole Southern Ocean read as dry
+    // land, and a random teleport happily dropped you into it.
+    const chain = [this.source, ...(this.standbys ?? [])].filter(Boolean);
+    let bitmap = null;
+    for (const source of chain) {
+      if (!source.ready) await source.prepare();
+      const url = source.urlFor(tile);
+      if (!url) continue;
+      try {
+        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+        if (!res.ok) throw new Error(`probe ${res.status}`);
+        const blob = await res.blob();
+        const candidate = await createImageBitmap(blob);
+        if (isNoDataCard(candidate, blob.size)) {
+          candidate.close();
+          continue;
+        }
+        bitmap = candidate;
+        break;
+      } catch {
+        /* next provider */
+      }
+    }
+    if (!bitmap) return null;
 
     const canvas = document.createElement('canvas');
     canvas.width = MASK;
@@ -85667,7 +85756,13 @@ class Avatar {
 
     // Wings sit on the back, which is +Z.
     this.wings = new THREE.Group();
-    this.wings.position.set(0, 0.76, 0.08);
+    // Behind the back, not inside it. The torso is 0.15 deep about its own
+    // axis, so its back face is at 0.075 — parking the wings at 0.08 left five
+    // thousandths of a height between them, which at human scale is a
+    // centimetre, and the spars and the folded canvas ate straight through it.
+    // That is the elytra "halfway in the player". A further four centimetres
+    // clears the jacket at every pose.
+    this.wings.position.set(0, 0.76, 0.115);
     body.add(this.wings);
     const wingMat = mat(WING);
     this.wingL = this.makeWing(wingMat, mat(WING_EDGE), -1);
@@ -88420,6 +88515,7 @@ __tg_exports["STATE_READY"] = STATE_READY;
 __tg_exports["STATE_FAILED"] = STATE_FAILED;
 };
 __tg_modules["src/tiles/tileJobs.js"] = function (__tg_exports) {
+const { isNoDataCard } = __tg_require("src/tiles/noData.js");
 const { decodeBingElevation, decodeGoogleElevation } = __tg_require("src/tiles/elevationGrid.js");
 
 /**
@@ -88488,7 +88584,11 @@ async function fetchBitmap(jobKey, url) {
   inflight.set(jobKey, controller);
   const res = await fetch(url, { signal: controller.signal, mode: 'cors', credentials: 'omit' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return createImageBitmap(await res.blob());
+  const blob = await res.blob();
+  const bitmap = await createImageBitmap(blob);
+  // The byte count comes back too: it is the cheapest half of telling a
+  // photograph from a provider's "nothing here" card. See looksLikeNoDataCard.
+  return { bitmap, bytes: blob.size };
 }
 
 /** Same cancellation handling as fetchBitmap, for the JSON elevation services. */
@@ -88504,7 +88604,14 @@ async function handleImagery(msg, jobKey, post) {
   // No URL used to mean "make one up". Nothing here makes anything up any
   // more, so a job without a URL is a caller bug and is reported as one.
   if (!msg.url) throw new Error('no imagery URL for this tile');
-  const bitmap = await fetchBitmap(jobKey, msg.url);
+  const { bitmap, bytes } = await fetchBitmap(jobKey, msg.url);
+  if (msg.checkBlank !== false && isNoDataCard(bitmap, bytes)) {
+    bitmap.close();
+    // Reported as a failure so the streamer moves down its standby list. A
+    // provider saying "not available" is exactly what standbys are for, and
+    // Sentinel-2 behind it has cover everywhere.
+    throw new Error('provider has no imagery here');
+  }
   post({ ok: true, channel: msg.channel, id: msg.id, bitmap }, [bitmap]);
 }
 
@@ -88519,7 +88626,7 @@ async function handleElevation(msg, jobKey, post) {
   } else if (msg.decode === 'google-elevation') {
     heights = decodeGoogleElevation(await fetchJson(jobKey, msg.url), size);
   } else {
-    const bitmap = await fetchBitmap(jobKey, msg.url);
+    const { bitmap } = await fetchBitmap(jobKey, msg.url);
     heights = decodeHeights(bitmap, msg.decode, size);
     bitmap.close();
   }
@@ -88539,7 +88646,7 @@ async function handlePanoStitch(msg, jobKey, post) {
   const height = msg.height || 1024;
   const faces = [];
   for (const url of msg.urls) {
-    const bitmap = await fetchBitmap(jobKey, url);
+    const { bitmap } = await fetchBitmap(jobKey, url);
     const canvas = makeCanvas(bitmap.width, bitmap.height);
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(bitmap, 0, 0);
@@ -89208,6 +89315,7 @@ __tg_exports["renderVectorTile"] = renderVectorTile;
 };
 __tg_modules["src/ui/mapTiles.js"] = function (__tg_exports) {
 const { tileKey, wrapTileX } = __tg_require("src/geo/mercator.js");
+const { isNoDataCard } = __tg_require("src/tiles/noData.js");
 const { renderVectorTile } = __tg_require("src/ui/vectorMap.js");
 
 /**
@@ -89491,10 +89599,22 @@ class MapTileCache {
         if (!res.ok) throw new Error(String(res.status));
         // Vector tiles arrive as geometry rather than as a picture, so the
         // drawing happens here instead of at the far end of a wire.
-        const bitmap =
-          source.decode === 'vector'
-            ? await renderVectorTile(await res.arrayBuffer(), tile.z)
-            : await createImageBitmap(await res.blob());
+        let bitmap;
+        if (source.decode === 'vector') {
+          bitmap = await renderVectorTile(await res.arrayBuffer(), tile.z);
+        } else {
+          const blob = await res.blob();
+          bitmap = await createImageBitmap(blob);
+          // Esri answers ground it has never imaged with a picture of the
+          // words "Map data not yet available" and an HTTP 200. That is the
+          // grey lettered rectangle across the map, and it is why the next
+          // provider was never asked: as far as everything else was concerned
+          // the tile arrived perfectly.
+          if (isNoDataCard(bitmap, blob.size)) {
+            bitmap.close();
+            throw new Error('no imagery here');
+          }
+        }
         if (i > 0 && ++this.fallbackRescues >= 4) this.usingFallback = true;
         return bitmap;
       } catch (err) {
@@ -96861,7 +96981,9 @@ class Game {
         createImagerySource({ ...settings.values, imageryProvider: 'openfreemap' }),
       ]);
     }
-    waterMap.setSource(this.imagerySource);
+    // The water probe gets the standbys too: whether somewhere is the sea must
+    // not depend on which company has flown over it.
+    waterMap.setSource(this.imagerySource, this.streamer.standbys ?? []);
     if (rebuild) this.terrain.rebase();
     this.imagerySource.prepare();
     this.elevationSource.prepare();

@@ -364,7 +364,9 @@ export class Game {
         createImagerySource({ ...settings.values, imageryProvider: 'openfreemap' }),
       ]);
     }
-    waterMap.setSource(this.imagerySource);
+    // The water probe gets the standbys too: whether somewhere is the sea must
+    // not depend on which company has flown over it.
+    waterMap.setSource(this.imagerySource, this.streamer.standbys ?? []);
     if (rebuild) this.terrain.rebase();
     this.imagerySource.prepare();
     this.elevationSource.prepare();

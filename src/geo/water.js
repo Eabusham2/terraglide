@@ -1,4 +1,5 @@
 import { clamp } from '../core/math.js';
+import { isNoDataCard } from '../tiles/noData.js';
 import { destination, latToNormY, lonToNormX, tileKey, wrapTileX } from './mercator.js';
 
 /**
@@ -22,8 +23,9 @@ export class WaterMap {
     this.pending = new Map();
   }
 
-  setSource(source) {
+  setSource(source, standbys = []) {
     this.source = source;
+    this.standbys = standbys.filter(Boolean);
     this.masks.clear();
     this.pending.clear();
   }
@@ -94,14 +96,33 @@ export class WaterMap {
   }
 
   async buildMask(tile) {
-    if (!this.source) return null;
-    if (!this.source.ready) await this.source.prepare();
-    const url = this.source.urlFor(tile);
-    if (!url) return null;
-
-    const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
-    if (!res.ok) throw new Error(`probe ${res.status}`);
-    const bitmap = await createImageBitmap(await res.blob());
+    // Every provider in turn, because the answer to "is this the sea" must not
+    // depend on whether one company has flown over it. Esri answers ground it
+    // has never imaged with a grey card reading "Map data not yet available",
+    // and a grey card is not blue — so the whole Southern Ocean read as dry
+    // land, and a random teleport happily dropped you into it.
+    const chain = [this.source, ...(this.standbys ?? [])].filter(Boolean);
+    let bitmap = null;
+    for (const source of chain) {
+      if (!source.ready) await source.prepare();
+      const url = source.urlFor(tile);
+      if (!url) continue;
+      try {
+        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+        if (!res.ok) throw new Error(`probe ${res.status}`);
+        const blob = await res.blob();
+        const candidate = await createImageBitmap(blob);
+        if (isNoDataCard(candidate, blob.size)) {
+          candidate.close();
+          continue;
+        }
+        bitmap = candidate;
+        break;
+      } catch {
+        /* next provider */
+      }
+    }
+    if (!bitmap) return null;
 
     const canvas = document.createElement('canvas');
     canvas.width = MASK;

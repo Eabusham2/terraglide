@@ -1,3 +1,4 @@
+import { isNoDataCard } from './noData.js';
 import { decodeBingElevation, decodeGoogleElevation } from './elevationGrid.js';
 
 /**
@@ -66,7 +67,11 @@ async function fetchBitmap(jobKey, url) {
   inflight.set(jobKey, controller);
   const res = await fetch(url, { signal: controller.signal, mode: 'cors', credentials: 'omit' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return createImageBitmap(await res.blob());
+  const blob = await res.blob();
+  const bitmap = await createImageBitmap(blob);
+  // The byte count comes back too: it is the cheapest half of telling a
+  // photograph from a provider's "nothing here" card. See looksLikeNoDataCard.
+  return { bitmap, bytes: blob.size };
 }
 
 /** Same cancellation handling as fetchBitmap, for the JSON elevation services. */
@@ -82,7 +87,14 @@ async function handleImagery(msg, jobKey, post) {
   // No URL used to mean "make one up". Nothing here makes anything up any
   // more, so a job without a URL is a caller bug and is reported as one.
   if (!msg.url) throw new Error('no imagery URL for this tile');
-  const bitmap = await fetchBitmap(jobKey, msg.url);
+  const { bitmap, bytes } = await fetchBitmap(jobKey, msg.url);
+  if (msg.checkBlank !== false && isNoDataCard(bitmap, bytes)) {
+    bitmap.close();
+    // Reported as a failure so the streamer moves down its standby list. A
+    // provider saying "not available" is exactly what standbys are for, and
+    // Sentinel-2 behind it has cover everywhere.
+    throw new Error('provider has no imagery here');
+  }
   post({ ok: true, channel: msg.channel, id: msg.id, bitmap }, [bitmap]);
 }
 
@@ -97,7 +109,7 @@ async function handleElevation(msg, jobKey, post) {
   } else if (msg.decode === 'google-elevation') {
     heights = decodeGoogleElevation(await fetchJson(jobKey, msg.url), size);
   } else {
-    const bitmap = await fetchBitmap(jobKey, msg.url);
+    const { bitmap } = await fetchBitmap(jobKey, msg.url);
     heights = decodeHeights(bitmap, msg.decode, size);
     bitmap.close();
   }
@@ -117,7 +129,7 @@ async function handlePanoStitch(msg, jobKey, post) {
   const height = msg.height || 1024;
   const faces = [];
   for (const url of msg.urls) {
-    const bitmap = await fetchBitmap(jobKey, url);
+    const { bitmap } = await fetchBitmap(jobKey, url);
     const canvas = makeCanvas(bitmap.width, bitmap.height);
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(bitmap, 0, 0);

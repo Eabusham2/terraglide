@@ -1,4 +1,5 @@
 import { tileKey, wrapTileX } from '../geo/mercator.js';
+import { isNoDataCard } from '../tiles/noData.js';
 import { renderVectorTile } from './vectorMap.js';
 
 /**
@@ -282,10 +283,22 @@ export class MapTileCache {
         if (!res.ok) throw new Error(String(res.status));
         // Vector tiles arrive as geometry rather than as a picture, so the
         // drawing happens here instead of at the far end of a wire.
-        const bitmap =
-          source.decode === 'vector'
-            ? await renderVectorTile(await res.arrayBuffer(), tile.z)
-            : await createImageBitmap(await res.blob());
+        let bitmap;
+        if (source.decode === 'vector') {
+          bitmap = await renderVectorTile(await res.arrayBuffer(), tile.z);
+        } else {
+          const blob = await res.blob();
+          bitmap = await createImageBitmap(blob);
+          // Esri answers ground it has never imaged with a picture of the
+          // words "Map data not yet available" and an HTTP 200. That is the
+          // grey lettered rectangle across the map, and it is why the next
+          // provider was never asked: as far as everything else was concerned
+          // the tile arrived perfectly.
+          if (isNoDataCard(bitmap, blob.size)) {
+            bitmap.close();
+            throw new Error('no imagery here');
+          }
+        }
         if (i > 0 && ++this.fallbackRescues >= 4) this.usingFallback = true;
         return bitmap;
       } catch (err) {

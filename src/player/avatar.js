@@ -178,7 +178,13 @@ export class Avatar {
 
     // Wings sit on the back, which is +Z.
     this.wings = new THREE.Group();
-    this.wings.position.set(0, 0.76, 0.08);
+    // Behind the back, not inside it. The torso is 0.15 deep about its own
+    // axis, so its back face is at 0.075 — parking the wings at 0.08 left five
+    // thousandths of a height between them, which at human scale is a
+    // centimetre, and the spars and the folded canvas ate straight through it.
+    // That is the elytra "halfway in the player". A further four centimetres
+    // clears the jacket at every pose.
+    this.wings.position.set(0, 0.76, 0.115);
     body.add(this.wings);
     const wingMat = mat(WING);
     this.wingL = this.makeWing(wingMat, mat(WING_EDGE), -1);
