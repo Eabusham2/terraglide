@@ -111,6 +111,13 @@ const HAND_GLIDE = [0.62, 0.62, 0.85, -1.3, 0.42, 0.1];
 const CLOTH_TINT = 0xffffff;
 
 /** The firework mesh runs along its own +Y; these are what it gets aimed at. */
+/**
+ * Closer than this to the eye and a part of your own body is not visible, it
+ * is something you are inside. A third of a metre on a person of average
+ * height, scaled with you — about the distance from your eye to the tip of
+ * your nose plus a hand.
+ */
+const TOO_CLOSE_M = 0.34;
 const ROCKET_AXIS = new THREE.Vector3(0, 1, 0);
 /**
  * Where the held one points, in view space.
@@ -234,6 +241,7 @@ export class Avatar {
     this.backBlend = 0;
     /** Scratch for aiming the firework along the thrust. */
     this._aim = new THREE.Vector3();
+    this._world = new THREE.Vector3();
     this._aimQuat = new THREE.Quaternion();
     this._holdQuat = new THREE.Quaternion();
     /** Where the shoulders point. Its own value, not a copy of the camera's. */
@@ -385,7 +393,10 @@ export class Avatar {
     if (!settings.get('detailedPlayerModel')) return false;
     if (this.model) return true;
     try {
-      const { GLTFLoader } = await import('../../vendor/three/loaders/GLTFLoader.js');
+      const inline = globalThis.__TERRAGLIDE_REQUIRE__;
+      const { GLTFLoader } = inline
+        ? inline('vendor/three/loaders/GLTFLoader.js')
+        : await import('../../vendor/three/loaders/GLTFLoader.js');
       const gltf = await new Promise((resolve, reject) =>
         new GLTFLoader().load(`${base}player.glb`, resolve, undefined, reject),
       );
@@ -570,9 +581,17 @@ export class Avatar {
     this.armR.pivot.rotation.x = fore * 0.8;
 
     // Arms reach out in front in the air — which is what you see of yourself.
+    //
+    // Not as far in front from inside your own head. The pose turns about your
+    // eyes, so a shoulder swung a hundred and forty degrees brings the hand up
+    // past your face, and what you are holding in it arrives on the lens: a
+    // firework three centimetres from your eye, filling a quarter of the
+    // screen as a pale disc. From outside the same sweep is right — a glider
+    // reaches.
     const tuck = this.glideBlend;
-    this.armL.pivot.rotation.x = this.armL.pivot.rotation.x * (1 - tuck) - 2.5 * tuck;
-    this.armR.pivot.rotation.x = this.armR.pivot.rotation.x * (1 - tuck) - 2.5 * tuck;
+    const reach = this.firstPerson ? -1.85 : -2.5;
+    this.armL.pivot.rotation.x = this.armL.pivot.rotation.x * (1 - tuck) + reach * tuck;
+    this.armR.pivot.rotation.x = this.armR.pivot.rotation.x * (1 - tuck) + reach * tuck;
     // In first person the arms are swept wider so they frame the view instead
     // of filling it — you should see the world, with your arms at the edges.
     // From outside they go wider still: a glider seen from behind is mostly
@@ -654,6 +673,33 @@ export class Avatar {
     this.viewModel.visible = false;
 
     this.aimRocket(player);
+    // Last, because it measures against where the camera actually is.
+    this.hideWhatIsInYourEye(camera);
+  }
+
+  /**
+   * Nothing of yours may be drawn inside your own eye.
+   *
+   * A backstop rather than a fix: the arm sweep is tuned so the hand stays out
+   * of the frame, but attitudes compound — a hard pull-up while looking over
+   * your shoulder puts things where no single number predicted. Anything of
+   * your own body closer than arm's reach is not something you would see, it
+   * is something you would be inside, so it is simply not drawn. The distance
+   * is measured from the camera the rig actually placed, which is why this
+   * runs after the pose rather than as part of it.
+   */
+  hideWhatIsInYourEye(camera) {
+    if (!camera || !this.firstPerson) {
+      if (this.rocket) this.rocket.visible = true;
+      return;
+    }
+    this.root.updateMatrixWorld(true);
+    const limit = TOO_CLOSE_M * (this.root.scale.x || 1);
+    for (const part of [this.rocket]) {
+      if (!part) continue;
+      part.getWorldPosition(this._world);
+      part.visible = this._world.distanceTo(camera.position) > limit;
+    }
   }
 
   /**

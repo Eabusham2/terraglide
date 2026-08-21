@@ -143,7 +143,13 @@ async function load(path) {
   let body = out.join('\n');
   // `import.meta` is a syntax error in a classic script; nothing in the bundle
   // reaches for a worker URL because the inline flag is set.
-  body = body.replace(/import\.meta\.url/g, "''");
+  //
+  // The document's own address rather than an empty string, because an empty
+  // string is not a valid base and `new URL(path, '')` throws. Three's Draco
+  // loader builds three of those at module scope, so the empty string turned
+  // the whole module into an exception the moment it was required — which is
+  // exactly the module the photorealistic tiles need.
+  body = body.replace(/import\.meta\.url/g, '__tg_base');
 
   modules.set(
     id,
@@ -153,7 +159,27 @@ async function load(path) {
   return id;
 }
 
+/**
+ * Modules the entry never statically imports, and which therefore have to be
+ * named here or they simply are not in the file.
+ *
+ * They are loaded with `await import()` at runtime so that a player who never
+ * turns them on never downloads them, which is right for the served copy and
+ * impossible in a single one: there is no module loader behind a file:// URL
+ * to resolve the specifier with. The bundle registers them under their own ids
+ * and hands the page a resolver, so the same call finds them without a network.
+ *
+ * This is what used to make the one-file build say "photorealistic 3D is not
+ * in the single-file build" — which read, reasonably, as the feature being
+ * make-believe rather than as a packaging limitation.
+ */
+const DYNAMIC = [
+  'src/world/tiles3d.js',
+  'vendor/three/loaders/GLTFLoader.js',
+];
+
 const entryId = await load(ENTRY);
+for (const id of DYNAMIC) await load(join(ROOT, id));
 const css = await readFile(join(ROOT, 'styles/main.css'), 'utf8');
 const html = await readFile(join(ROOT, 'index.html'), 'utf8');
 
@@ -166,6 +192,8 @@ const body = html
 const runtime = `
 var __tg_modules = {};
 var __tg_cache = {};
+// Stands in for import.meta.url, which a classic script has no equivalent of.
+var __tg_base = (typeof document !== 'undefined' && document.baseURI) || 'about:blank';
 function __tg_require(id) {
   var cached = __tg_cache[id];
   if (cached) return cached.exports;
@@ -205,6 +233,15 @@ ${body}
 window.__TERRAGLIDE_INLINE_WORKER__ = true;
 ${runtime}
 ${order.map((id) => modules.get(id)).join('\n')}
+// Everything the game loads on demand is in here too. Code that would say
+// \`await import('./world/tiles3d.js')\` asks this instead when it exists, so
+// the on-demand features are on-demand rather than absent.
+window.__TERRAGLIDE_REQUIRE__ = function (id) {
+  var path = String(id);
+  while (path.indexOf('../') === 0) path = path.slice(3);
+  if (path.indexOf('./') === 0) path = path.slice(2);
+  return __tg_require(path);
+};
 __tg_require(${JSON.stringify(entryId)});
 </script>
 </body>

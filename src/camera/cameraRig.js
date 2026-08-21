@@ -21,11 +21,18 @@ import { settings } from '../core/settings.js';
 const PITCH_LIMIT = Math.PI / 2 - 0.02;
 /**
  * How far in front of the body's axis the eyes sit, as a fraction of height.
- * A sixth of a height is about thirty centimetres on a grown adult, which is
- * roughly a head's depth plus the chest's — enough that the chest reads as a
- * chest below you rather than as a surface you are pressed against.
+ *
+ * The chest is a box fifteen hundredths of a height deep, so its front face is
+ * seven and a half hundredths forward of the spine. A sixth of a height put
+ * the camera a further eight hundredths in front of *that* — outside your own
+ * jacket — and the result was that looking down showed you nothing at all
+ * until you were pointing almost straight at your boots, and then showed you
+ * the tops of your shoulders from above. Ten hundredths is twenty centimetres
+ * on a grown adult: just clear of the chest, so glancing down finds your
+ * chest, then your legs, then your feet, the way it does in the mod this is
+ * meant to look like.
  */
-const EYE_FORWARD = 0.16;
+const EYE_FORWARD = 0.1;
 /** One barrel roll, in seconds. */
 const ROLL_TIME = 0.8;
 /** Frequency of the rocket shove, in hertz. Low enough to read as a push. */

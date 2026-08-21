@@ -15,6 +15,12 @@
  */
 
 function moduleRelative(path, fallback) {
+  // The one-file build has no folders of its own next to it, whatever its own
+  // address suggests — it *is* the whole game, sitting in a downloads folder.
+  // Resolving against the document there produces a real-looking path to
+  // nothing, so it goes straight to the published copy. The flag is set by the
+  // bundler and by nothing else.
+  if (globalThis.__TERRAGLIDE_INLINE_WORKER__) return fallback;
   try {
     return new URL(path, import.meta.url).href;
   } catch {
@@ -34,3 +40,14 @@ export const PUBLISHED_BASE = 'https://eabusham2.github.io/terraglide/';
 
 /** Folder holding the optional generated textures and the player mesh. */
 export const ASSET_BASE = moduleRelative('../../assets/', `${PUBLISHED_BASE}assets/`);
+
+/**
+ * Folder holding the Draco decoder.
+ *
+ * A megabyte of WebAssembly, which is why it is not inlined into the
+ * single-file build even though the code that needs it now is. Photorealistic
+ * 3D tiles are Draco-compressed, so without this there is nothing to decode
+ * them with — and asking the published site for it is what lets a downloaded
+ * copy of the game fly the scanned world too, as long as it has a network.
+ */
+export const DRACO_BASE = moduleRelative('../../vendor/draco/', `${PUBLISHED_BASE}vendor/draco/`);

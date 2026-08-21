@@ -359,18 +359,19 @@ export class Game {
         : 'Photorealistic 3D needs a Google Maps Platform key';
       return null;
     }
-    if (globalThis.__TERRAGLIDE_INLINE_WORKER__) {
-      this.notice3d = 'Photorealistic 3D is not in the single-file build — use the served copy';
-      this.toast(this.notice3d, 'warn');
-      return null;
-    }
-
     this.loading3d = true;
     // We have a credential and we are about to use it; whatever the panel was
     // complaining about is answered, and the status line takes over from here.
     this.notice3d = '';
     try {
-      const module = await import('./world/tiles3d.js');
+      // The single-file build has no module loader to resolve a specifier
+      // with, so the bundler registers the on-demand modules and leaves a
+      // resolver behind. It used to simply refuse here, which read as the
+      // feature being make-believe rather than as a packaging limitation.
+      const inline = globalThis.__TERRAGLIDE_REQUIRE__;
+      const module = inline
+        ? inline('src/world/tiles3d.js')
+        : await import('./world/tiles3d.js');
       this.tiles3d = new module.Tiles3D({
         scene: this.scene,
         frame: this.frame,

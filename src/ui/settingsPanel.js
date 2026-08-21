@@ -51,16 +51,16 @@ const SECTIONS = [
         label: 'Photorealistic 3D',
         type: 'select',
         options: () => [
-          { value: 'off', label: 'Off — imagery, elevation and OpenStreetMap' },
-          { value: 'google', label: 'Google Photorealistic 3D Tiles (needs a Google key)' },
-          { value: 'cesium', label: 'The same, via Cesium ion (needs an ion token)' },
+          { value: 'off', label: 'Off \u2014 imagery, elevation and OpenStreetMap (recommended, keyless)' },
+          { value: 'google', label: 'Google Photorealistic 3D Tiles (needs a key)' },
+          { value: 'cesium', label: 'The same, via Cesium ion (needs a key)' },
         ],
         help: (value) =>
           value === 'off'
-            ? 'Real satellite imagery, real elevation and real OpenStreetMap buildings and woodland — all of it keyless. Falls back to a generated world with no network at all.'
+            ? 'Real satellite imagery, real elevation and real OpenStreetMap buildings and woodland \u2014 all of it keyless, and what nearly everyone should be flying. Falls back to a generated world only when there is no network at all.'
             : value === 'cesium'
-              ? 'The same scanned world as the Google option, served through Cesium ion on an ion access token — a different account and a different quota. Terrain and scenery step aside where it loads.'
-              : 'The actual scanned world: buildings, trees and bridges are in the mesh, built from aerial photogrammetry. Needs a Google Maps Platform key with the Map Tiles API enabled, and it is not cheap to run. Terrain and scenery step aside where it loads.',
+              ? 'The same scanned world as the Google option, served through Cesium ion on an ion access token \u2014 a different account and a different quota. Terrain and scenery step aside where it loads. Test providers will tell you whether the token is working.'
+              : 'Not a stylised world and not a generated one: aeroplanes flew over with cameras, and the buildings, trees and bridges you see are the mesh they measured, wearing the photographs they took. It is the most real thing here, and it is the one thing that cannot be keyless \u2014 Google meters it. Needs a Google Maps Platform key with the Map Tiles API enabled, and it is not cheap to run. Terrain and scenery step aside where it loads.',
       },
       {
         key: 'world3dDetail',

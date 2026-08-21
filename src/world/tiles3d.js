@@ -1,6 +1,7 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { GLTFLoader } from '../../vendor/three/loaders/GLTFLoader.js';
 import { DRACOLoader } from '../../vendor/three/loaders/DRACOLoader.js';
+import { DRACO_BASE } from '../core/paths.js';
 import { settings } from '../core/settings.js';
 import { boundingSphereOf, ecefToLocalMatrix, screenSpaceError } from '../geo/ecef.js';
 
@@ -99,7 +100,9 @@ export class Tiles3D {
 
     this.loader = new GLTFLoader();
     const draco = new DRACOLoader();
-    draco.setDecoderPath('./vendor/draco/');
+    // Module-relative when served, and the published site when this is the
+    // one-file build, which has no vendor folder next to it. See DRACO_BASE.
+    draco.setDecoderPath(DRACO_BASE);
     this.loader.setDRACOLoader(draco);
     this.draco = draco;
 

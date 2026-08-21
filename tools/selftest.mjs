@@ -665,11 +665,19 @@ console.log('\nThe body you can see');
     const rig = readFileSync(new URL('../src/camera/cameraRig.js', import.meta.url), 'utf8');
     const lean = Number(/const EYE_FORWARD = ([\d.]+)/.exec(rig)?.[1]);
     const torsoHalfDepth = 0.15 / 2;
-    ok('the camera leans out to where a face is', lean > 0,
-      `${lean} of height`);
-    ok('far enough that the chest front is behind it', lean - torsoHalfDepth > 0.05,
-      `${(lean - torsoHalfDepth).toFixed(3)} of height clear`);
-    // ...but only just. Push it further and your own feet end up behind you.
+    ok('the camera leans out to where a face is', lean > torsoHalfDepth,
+      `${lean} of height, chest front at ${torsoHalfDepth}`);
+    // ...but only just, and this is the number that decides whether looking
+    // down finds a body. The chest top sits 0.13 of a height below the eye and
+    // its front face 0.075 in front of the spine, so the angle at which the
+    // chest enters the view is atan(0.13 / (lean - 0.075)) below horizontal —
+    // and with a vertical field of view of 78 degrees the bottom of the frame
+    // is only 39 degrees below wherever you are pointing. Lean too far and
+    // that angle goes past ninety: the chest is *behind* the camera and no
+    // amount of looking down will find it, which is what used to happen.
+    const chestAngle = (Math.atan2(0.94 - 0.81, lean - torsoHalfDepth) * 180) / Math.PI;
+    ok('and close enough that glancing down finds your chest', chestAngle < 80,
+      `chest enters the view ${chestAngle.toFixed(0)}\u00b0 below level`);
     ok('and not so far that your feet are behind you', lean < 0.25, `${lean}`);
     ok('the body itself stays where the body is', Math.abs(avatar.body.position.z) < 0.01,
       avatar.body.position.z.toFixed(3));
