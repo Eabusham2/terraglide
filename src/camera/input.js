@@ -195,6 +195,18 @@ export class InputManager extends Emitter {
     if (target instanceof HTMLElement) {
       const tag = target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
+      // A button that still has focus turns Space and Enter into a click on
+      // it. That is why jumping on a fresh boot opened the controls card and
+      // teleported you somewhere else: the HUD's own buttons were focused, and
+      // Space pressed whichever one you had last touched. Preventing the
+      // default is not enough on its own — the focus has to go, or every
+      // subsequent Space is a coin toss.
+      if (tag === 'BUTTON' || tag === 'A') {
+        target.blur();
+        if (event.code === 'Space' || event.code === 'Enter' || event.code === 'NumpadEnter') {
+          event.preventDefault();
+        }
+      }
     }
 
     // Let the browser keep its own shortcuts when a modifier is held — but not

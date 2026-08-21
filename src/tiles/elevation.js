@@ -230,7 +230,7 @@ export class ElevationField {
    * tiles: invented ground may wear invented paint, measured ground may not.
    */
   get invented() {
-    return !this.source || this.source.synthetic || this.unreachable;
+    return !this.source || this.unreachable;
   }
 
   /**

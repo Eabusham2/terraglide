@@ -499,14 +499,39 @@ export class Game {
   async start() {
     this.onStatus('Finding a place to stand');
     const saved = readJSON(POSITION_KEY, null);
-    const spawn = saved && Number.isFinite(saved.lat) ? saved : DEFAULT_SPAWN;
-    await this.teleportTo(spawn.lat, spawn.lon, { reason: 'spawn', quiet: true });
+    if (saved && Number.isFinite(saved.lat)) {
+      await this.teleportTo(saved.lat, saved.lon, { reason: 'spawn', quiet: true });
+    } else {
+      // First run: somewhere new, not the same Swiss valley for everybody
+      // forever. The same search a random teleport uses, so it lands on
+      // land, near something, and not in the middle of an ocean.
+      await this.randomTeleport({ quiet: true });
+    }
 
     this.running = true;
     this.lastTime = performance.now();
     requestAnimationFrame((t) => this.loop(t));
 
     if (this.help.firstRun) this.help.show();
+  }
+
+  /**
+   * A stand-in camera parked where the player is, facing where they face.
+   *
+   * Used while the freecam is out, so the world keeps loading around the
+   * person rather than around the roaming eye.
+   */
+  streamCamera(player) {
+    const cam = this._streamCamera ?? (this._streamCamera = this.camera.clone());
+    cam.fov = this.camera.fov;
+    cam.aspect = this.camera.aspect;
+    cam.near = this.camera.near;
+    cam.far = this.camera.far;
+    cam.position.set(player.position.x, player.position.y + player.eyeHeight, player.position.z);
+    cam.rotation.set(player.pitch, -player.yaw, 0, 'YXZ');
+    cam.updateMatrixWorld(true);
+    cam.updateProjectionMatrix();
+    return cam;
   }
 
   resize() {
@@ -614,15 +639,17 @@ export class Game {
 
     this.rig.update(player, dt, this.terrain);
 
-    // Invented imagery is only allowed over invented relief; see
-    // ImageryStreamer.mayGenerate. And the terrain shader needs to know
-    // whether there is any relief at all, because sand and bare rock are
-    // statements about height and slope that mean nothing on a flat plate.
-    this.streamer.setMayGenerate(this.elevation.invented);
+    // The shader shades unphotographed ground by slope, which means nothing
+    // on a flat plate, so it needs to know whether any relief has arrived.
     this.shared.uHasRelief.value = this.elevation.hasRelief ? 1 : 0;
 
     const budget = this.perf.budgetMs();
-    this.terrain.update(this.camera, budget);
+    // Freecam looks around the world; it does not go and fetch more of it.
+    // Streaming from the free camera meant flying it a hundred kilometres out
+    // pulled a hundred kilometres of new tiles down behind it — which is the
+    // opposite of what a look-around camera is for, and the reason it could
+    // stall the game. The terrain keeps streaming around the player.
+    this.terrain.update(this.rig.isFreecam ? this.streamCamera(player) : this.camera, budget);
     this.terrain.invalidateStale(this.camera.position.x, this.camera.position.z);
 
     const groundHeight = player.groundHeight;
@@ -966,15 +993,17 @@ export class Game {
     this.teleporting = false;
   }
 
-  async randomTeleport() {
+  async randomTeleport({ quiet = false } = {}) {
     if (this.rtpBusy) return;
     this.rtpBusy = true;
-    this.toast('Looking for somewhere to land…');
+    if (!quiet) this.toast('Looking for somewhere to land…');
     try {
       const destination = await pickRandomDestination({ waterMap });
       await this.teleportTo(destination.lat, destination.lon, { reason: 'rtp', quiet: true });
       const where = formatLatLon(destination.lat, destination.lon, 4);
-      if (!destination.onLand && !settings.get('exploreSeas')) {
+      if (quiet) {
+        /* the first arrival of a session announces itself in the HUD already */
+      } else if (!destination.onLand && !settings.get('exploreSeas')) {
         this.toast(`Dropped at ${where} — could not confirm dry land`, 'warn');
       } else if (destination.place) {
         this.toast(`Dropped near ${destination.place} · ${where}`);
@@ -1201,20 +1230,23 @@ export class Game {
         : null;
       if (!this.elevation.hasRelief) {
         parts.push(reliefName ? `${reliefName}: loading` : 'elevation loading — flat for now');
-      } else if (this.elevation.invented && !relief?.synthetic) {
+      } else if (this.elevation.unreachable) {
         parts.push(
-          reliefName
-            ? `${reliefName}: unreachable, generated relief`
-            : 'elevation unreachable — generated relief',
+          reliefName ? `${reliefName}: unreachable` : 'elevation unreachable — flat ground',
         );
       } else if (reliefName) {
         parts.push(reliefName);
       }
-      if (Number.isFinite(this.streamer.depthLimit)) {
-        parts.push(`imagery stops at z${this.streamer.depthLimit} here`);
+      // Only worth saying when it actually bites. A provider that stops at 19
+      // is not a fault, and announcing it every time you land was the "map
+      // data not yet available" noise: the ground you are on *is* that
+      // provider's photograph, stretched, which is a different thing from
+      // having none.
+      if (Number.isFinite(this.streamer.depthLimit) && this.streamer.depthLimit < 15) {
+        parts.push(`this provider only has z${this.streamer.depthLimit} here`);
       }
-      if (!this.streamer.mayGenerate && this.streamer.degraded) {
-        parts.push('no imagery here — ground coloured from the elevation');
+      if (this.streamer.degraded) {
+        parts.push('no provider answered — ground shaded from the relief');
       }
     }
     if (this.tiles3d) {

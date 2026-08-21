@@ -80,7 +80,10 @@ export class Terrain {
 
   get gridSize() {
     const preset = settings.preset();
-    return clamp(Math.round(preset.tileGridSize * settings.get('meshDetail')), 5, 65);
+    // The detail dial scales the mesh with everything else, so one control
+    // does the whole job rather than three that have to be kept in step.
+    const detail = clamp(settings.get('detailLimit') / 100, 0.25, 1);
+    return clamp(Math.round(preset.tileGridSize * settings.get('meshDetail') * detail), 5, 65);
   }
 
   /** How aggressively tiles subdivide; derived from the graphics preset. */

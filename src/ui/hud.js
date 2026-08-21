@@ -1,4 +1,5 @@
 import { clamp } from '../core/math.js';
+import { SPEED_MODE_COOLDOWN_S, SPEED_MODE_SECONDS } from '../player/player.js';
 import { keybinds } from '../core/keybinds.js';
 import { settings } from '../core/settings.js';
 import {
@@ -105,6 +106,13 @@ export class HUD {
     });
 
     this.onAction = null;
+    // Nothing in the HUD keeps the keyboard after you click it. See the note
+    // in input.js: a focused button turns the next Space into a press of
+    // itself, which is how jumping teleported you.
+    this.element.addEventListener('pointerup', (event) => {
+      const button = event.target instanceof HTMLElement ? event.target.closest('button') : null;
+      if (button) button.blur();
+    });
     this.element.addEventListener('click', (event) => {
       const button = event.target.closest('[data-action]');
       if (!button || !this.onAction) return;

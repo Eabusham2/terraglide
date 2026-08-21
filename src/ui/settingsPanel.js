@@ -31,6 +31,7 @@ const SECTIONS = [
         type: 'select',
         options: () => IMAGERY_PROVIDERS.filter((p) => !p.hidden).map((p) => ({ value: p.id, label: providerLabel(p) })),
         help: (value) => providerNote(IMAGERY_PROVIDERS, value),
+        test: 'imagery',
       },
       {
         key: 'elevationProvider',
@@ -38,6 +39,7 @@ const SECTIONS = [
         type: 'select',
         options: () => ELEVATION_PROVIDERS.map((p) => ({ value: p.id, label: providerLabel(p) })),
         help: (value) => providerNote(ELEVATION_PROVIDERS, value),
+        test: 'elevation',
       },
       {
         key: 'panoramaProvider',
@@ -121,7 +123,7 @@ const SECTIONS = [
         help: 'Where OpenStreetMap has nothing mapped — or Overpass is busy — read the aerial photograph instead: trees where it is green, rock where it is bare. Off means only surveyed ground grows anything.',
       },
       { key: 'weather', label: 'Clouds and rain', type: 'toggle', help: 'Cloud cover and precipitation for where and when you are, from the same climate model as the temperature.' },
-      { key: 'resolutionScale', label: 'Render scale', type: 'range', min: 0.5, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%` },
+      { key: 'resolutionScale', label: 'Render scale', type: 'range', min: 0.5, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%`, help: 'How many pixels the world is drawn with, against your screen\u2019s own. A hundred per cent is native \u2014 every pixel your display has. Above that is supersampling: sharper still, and expensive.' },
       { key: 'detailLimit', label: 'Detail limit', type: 'range', min: 25, max: 100, step: 5, format: (v) => `${v}%`, help: 'Scales tile detail, mesh detail and how deep the ground zooms, all together. One dial to pull when the frame rate is short instead of five. A hundred per cent is the preset as designed.' },
       { key: 'fpsTarget', label: 'Frame rate target', type: 'range', min: 30, max: 144, step: 5, unit: ' fps' },
       { key: 'showFps', label: 'Show performance readout', type: 'toggle' },
@@ -384,7 +386,10 @@ export class SettingsPanel {
     if (section.keybinds) parts.push(this.renderKeybinds());
     this.content.innerHTML = parts.join('');
     this.bindFields(section);
-    if (section.id === 'providers') this.bindProviderTest();
+    if (section.id === 'providers') {
+      this.bindProviderTest();
+      this.bindOneTest();
+    }
     if (section.id === 'graphics') this.bindBenchmark();
   }
 
@@ -419,11 +424,21 @@ export class SettingsPanel {
     }
 
     const help = typeof field.help === 'function' ? field.help(value) : field.help;
+    // A field may carry its own test button — "does the thing I just picked
+    // actually answer me?" is a different question from "do any of them", and
+    // it is the one you want after pasting a key.
+    const one = field.test
+      ? `<button type="button" class="field-test" data-test-one="${escapeHtml(field.test)}">Test this one</button>`
+      : '';
+    const result = field.test && this.oneResult?.[field.test]
+      ? `<small class="provider-${escapeHtml(this.oneResult[field.test].state)}">${escapeHtml(this.oneResult[field.test].detail)}</small>`
+      : '';
     return `
       <div class="field field-${field.type}">
         <label for="${id}">${escapeHtml(field.label)}</label>
-        ${control}
+        ${control}${one}
         ${help ? `<small>${escapeHtml(help)}</small>` : ''}
+        ${result}
       </div>`;
   }
 
@@ -542,6 +557,24 @@ export class SettingsPanel {
         <small>Fetches one real tile from each, here, using whatever keys you have saved. One tile is nothing against anybody's quota, and nothing is sent anywhere but to the provider itself.</small>
         ${body}
       </div>`;
+  }
+
+  bindOneTest() {
+    this.content.querySelectorAll('[data-test-one]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const which = button.dataset.testOne;
+        const list = which === 'elevation' ? ELEVATION_PROVIDERS : IMAGERY_PROVIDERS;
+        const id = settings.get(which === 'elevation' ? 'elevationProvider' : 'imageryProvider');
+        const descriptor = list.find((p) => p.id === id);
+        if (!descriptor) return;
+        this.oneResult = { ...(this.oneResult ?? {}), [which]: { state: 'checking', detail: 'asking\u2026' } };
+        this.render();
+        const tile = this.testTile ? this.testTile() : { z: 12, x: 2138, y: 1420 };
+        const [result] = await testProviders([descriptor], settings.values, tile);
+        this.oneResult = { ...(this.oneResult ?? {}), [which]: result };
+        this.render();
+      });
+    });
   }
 
   bindProviderTest() {

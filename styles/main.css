@@ -1498,3 +1498,11 @@ body.touch-active .hud-crosshair {
 .provider-test .provider-no-key b { color: #fcd34d; }
 .provider-test .provider-no-cover b { color: #93c5fd; }
 .provider-test .provider-checking b { color: var(--text-faint); }
+
+/* "Test this one", beside the provider it tests. */
+.field-test {
+  grid-column: 2;
+  justify-self: start;
+  font-size: 11px;
+  padding: 2px 8px;
+}

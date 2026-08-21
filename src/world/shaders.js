@@ -73,64 +73,23 @@ const TERRAIN_FRAG = /* glsl */ `
   varying float vBed;
   varying vec3 vWorld;
 
-  float detailHash(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-  }
-
-  float detailNoise(vec2 p) {
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    vec2 u = f * f * (3.0 - 2.0 * f);
-    return mix(mix(detailHash(i), detailHash(i + vec2(1.0, 0.0)), u.x),
-               mix(detailHash(i + vec2(0.0, 1.0)), detailHash(i + vec2(1.0, 1.0)), u.x), u.y);
-  }
-
   /**
-   * What the ground looks like when there is no photograph of it.
+   * What the ground looks like when there is no photograph of it yet.
    *
-   * Everything here comes off the real elevation tile and the real latitude:
-   * how high the surface is, how far the sea floor is below it, how steep the
-   * slope is, how warm and how dry that band of the planet runs. Nothing is
-   * invented — it is the same reasoning a relief map uses, done per pixel.
+   * A single neutral tone, darkened a little on slopes so the relief still
+   * reads. Nothing else — no biome guessed from latitude, no sand along a
+   * waterline, no rock on anything steep. All of that was invention: it
+   * painted an orange desert across ground the imagery had simply not reached
+   * yet, and half a hillside would be a plausible-looking lie sitting next to
+   * the photograph of the other half.
    *
-   * It replaces one flat olive fill, which is what made unphotographed ground
-   * read as a tan sheet, and it is why the sea is blue and the land is not:
-   * the depth under the surface decides, not a guess from the height alone.
+   * It should also be rare. A tile with no imagery of its own stretches its
+   * nearest loaded ancestor, and the streamer asks for those ancestors ahead
+   * of the sharp tiles precisely so that this is what you see for a moment
+   * rather than what you fly over.
    */
-  vec3 groundWithoutImagery(float surface, float depth, float flatness) {
-    float lat = abs(uLatitude);
-    float warmth = clamp(1.0 - lat / 62.0, 0.0, 1.0);
-    float dryness = clamp(1.0 - abs(lat - 25.0) / 22.0, 0.0, 1.0);
-    // Slow noise so neighbouring ground is not all one colour and one biome
-    // fades into the next instead of meeting it at a tile edge.
-    float blend = detailNoise(vWorld.xz * 0.00008) - 0.5;
-
-    if (depth < -0.5) {
-      vec3 deep = vec3(0.05, 0.13, 0.24);
-      vec3 shallow = vec3(0.16, 0.35, 0.46);
-      return mix(shallow, deep, clamp(-depth / 900.0, 0.0, 1.0));
-    }
-
-    vec3 grass = vec3(0.33, 0.42, 0.25);
-    vec3 forest = vec3(0.20, 0.29, 0.19);
-    vec3 arid = vec3(0.58, 0.49, 0.35);
-    vec3 sand = vec3(0.70, 0.65, 0.52);
-    vec3 rock = vec3(0.42, 0.40, 0.38);
-
-    vec3 green = mix(grass, forest, clamp(warmth * 0.85 + blend * 0.6, 0.0, 1.0));
-    vec3 vegetation = mix(green, arid, clamp(dryness * 0.8 + blend * 0.5, 0.0, 1.0));
-    // Sand along the waterline, bare rock on anything steep or high. Both are
-    // statements about relief, so both are switched off when there is none to
-    // read: with no elevation the whole world is exactly sea level, and a
-    // beach test on that paints the entire planet as one tan sheet — which is
-    // precisely what it used to do.
-    float shore = smoothstep(7.0, 0.5, surface) * uHasRelief;
-    vec3 low = mix(vegetation, sand, shore);
-    float bare = clamp(
-      ((1.0 - flatness) * 1.15 + smoothstep(1100.0, 2800.0, surface) * 0.8) * uHasRelief,
-      0.0, 1.0
-    );
-    return mix(low, rock, bare);
+  vec3 groundNotLoaded(float flatness) {
+    return mix(vec3(0.24, 0.25, 0.26), vec3(0.34, 0.35, 0.36), flatness);
   }
 
   void main() {
@@ -138,25 +97,13 @@ const TERRAIN_FRAG = /* glsl */ `
     vec3 n = normalize(vNormalW);
     float flatness = smoothstep(0.30, 0.92, n.y);
     vec2 uv = uUvOffset + clamp(vUv, 0.0, 1.0) * uUvScale;
-    vec3 albedo = mix(
-      groundWithoutImagery(vHeight, vBed, flatness),
-      texture2D(uMap, uv).rgb,
-      uHasTexture
-    );
+    vec3 albedo = mix(groundNotLoaded(flatness), texture2D(uMap, uv).rgb, uHasTexture);
 
-    // Ground detail.
-    //
-    // Up close there is nothing left in the imagery: either the provider has
-    // no tile at this zoom and we are stretching its parent, or the pixel is
-    // simply a flat expanse of snow or sand. Either way it reads as a blank
-    // white or grey wash. Two octaves of ground-locked noise, faded in over the
-    // last couple of hundred metres, give the surface something to hold on to
-    // without inventing features that are not there.
-    float near = 1.0 - smoothstep(30.0, 260.0, vDist);
-    if (near > 0.001) {
-      float grain = detailNoise(vWorld.xz * 0.9) * 0.6 + detailNoise(vWorld.xz * 3.7) * 0.4;
-      albedo *= 1.0 + (grain - 0.5) * 0.3 * near;
-    }
+    // There used to be two octaves of noise multiplied over the ground here,
+    // to give a stretched or flat-white tile something to hold on to. It is
+    // gone: it is a pattern nobody surveyed, printed over a photograph of
+    // somewhere real, and up close it is the thing that made bare rock look
+    // like carpet.
 
     float lambert = max(dot(n, uSunDir), 0.0);
     // Soft wrap keeps shaded slopes readable instead of crushing them to black.
@@ -171,9 +118,7 @@ const TERRAIN_FRAG = /* glsl */ `
     // kilometre of height, drifts about with the ground so the line is never
     // straight, sheds off any real slope, and only ever tints what is already
     // there rather than painting over it.
-    float drift = (detailNoise(vWorld.xz * 0.0035) - 0.5) * 460.0
-                + (detailNoise(vWorld.xz * 0.02) - 0.5) * 90.0;
-    float snow = smoothstep(uSnowLine + drift, uSnowLine + drift + 1000.0, vHeight) * flatness;
+    float snow = smoothstep(uSnowLine, uSnowLine + 1000.0, vHeight) * flatness;
     vec3 snowColour = vec3(0.86, 0.88, 0.92) * (uAmbient + uSunColor * wrapped);
     lit = mix(lit, snowColour, snow * 0.45);
 

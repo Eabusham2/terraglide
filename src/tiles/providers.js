@@ -220,19 +220,6 @@ export const ELEVATION_PROVIDERS = [
       + 'key, not because it is sharper.',
   },
   {
-    id: 'google-elevation',
-    label: 'Google Maps elevation',
-    kind: 'google-elevation',
-    needsKey: 'googleKey',
-    maxZoom: 12,
-    attribution: 'Elevation © Google',
-    note:
-      'The Google Elevation API, on a Maps Platform key. It takes a list of points '
-      + 'rather than an area, so a tile is sent as an encoded polyline of 22 by 22 '
-      + 'samples \u2014 coarse, and billed per request on your own account. Google\u2019s '
-      + 'real terrain detail is in the photorealistic 3D tiles, not here.',
-  },
-  {
     id: 'terrarium',
     label: 'AWS Terrain Tiles (Terrarium)',
     kind: 'terrarium',
@@ -306,6 +293,29 @@ export function providerLabel(descriptor) {
  * the world. Three days back is always there.
  */
 const GIBS_LAG_DAYS = 3;
+
+/**
+ * The human-readable half of a Google API refusal.
+ *
+ * Their errors are JSON with a `error.message` that names the actual problem —
+ * "Requests to this API tile.googleapis.com method … are blocked", "API key
+ * not valid", "Referer restrictions" — and it is far more use than the status
+ * code on its own.
+ */
+async function googleReason(res) {
+  try {
+    const body = await res.json();
+    const message = body?.error?.message ?? body?.error_message;
+    if (message) return String(message);
+  } catch {
+    /* not JSON; fall through */
+  }
+  if (res.status === 403) {
+    return 'check that the Map Tiles API is enabled on the project and that the key\u2019s '
+      + 'referrer restrictions allow this page';
+  }
+  return 'no explanation given';
+}
 
 export function gibsDate(now = Date.now()) {
   return new Date(now - GIBS_LAG_DAYS * 86400000).toISOString().slice(0, 10);
@@ -488,10 +498,22 @@ export class TileSource {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mapType: 'satellite', language: 'en-US', region: 'US' }),
+        // No region. Pinning it to the United States is a statement about
+        // which country's borders and labels you want, not about where you are
+        // flying, and it is not needed for satellite imagery at all.
+        body: JSON.stringify({ mapType: 'satellite', language: 'en-US' }),
       },
     );
-    if (!res.ok) throw new Error(`Google session failed (${res.status})`);
+    if (!res.ok) {
+      // Google says exactly what is wrong in the body and this used to throw
+      // it away, leaving "Google session failed (403)" — which reads as the
+      // option being broken when it is nearly always one of three specific
+      // and fixable things: the Map Tiles API is not enabled on the project,
+      // the key has an HTTP-referrer restriction that does not list this
+      // page's origin, or the key is restricted to other APIs. Passing their
+      // message through turns a dead end into an instruction.
+      throw new Error(`Google session failed (${res.status}) \u2014 ${await googleReason(res)}`);
+    }
     const data = await res.json();
     if (!data.session) throw new Error('Google session token missing');
     this.googleSession = data.session;

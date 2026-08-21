@@ -754,10 +754,11 @@ console.log('\nReal data first, invention last');
   ok('and the ground falls through to a standby before it gives up',
     /setStandbys\(/.test(read('game.js')));
   const shaderSrc = read('world/shaders.js');
-  ok('bare ground is coloured from the elevation, not from a flat fill',
-    /groundWithoutImagery/.test(shaderSrc) && !/uFallbackColor/.test(shaderSrc));
-  ok('and the sea is decided by the depth under it, not the height of it',
-    /if \(depth < -0\.5\)/.test(shaderSrc));
+  ok('ground with no photograph yet is neutral, not a guessed biome',
+    /groundNotLoaded/.test(shaderSrc) &&
+    !/vec3 arid|vec3 sand|vec3 grass|vec3 forest/.test(shaderSrc));
+  ok('and there is no invented pattern printed over the real imagery',
+    !/detailNoise/.test(shaderSrc));
 
   // Photogrammetry, where a key allows it, replaces all of the above.
   const game = read('game.js');
@@ -1651,17 +1652,14 @@ console.log('\nElevation that arrives as numbers rather than pixels');
     bingUrl.includes(`bounds=${bounds.south.toFixed(6)},${bounds.west.toFixed(6)}`) &&
     bingUrl.includes('rows=32&cols=32'));
   ok('and the worker is told to read it as a grid', bingSource.decode === 'bing-elevation');
-  const googleSource = new TileSource(findProvider(ELEVATION_PROVIDERS, 'google-elevation'), keys);
-  const googleUrl = googleSource.urlFor(tile);
-  // Four hundred and eighty-four points written out longhand is about eleven
-  // kilobytes of URL; encoded and escaped it is a quarter of that, which is
-  // what makes one request per tile possible at all.
-  ok('the Google URL sends its points encoded rather than one by one',
-    googleUrl.includes('locations=enc:') && googleUrl.length < 8192,
-    `${googleUrl.length} characters for ${grid.GOOGLE_SIDE ** 2} points`);
-  ok('both are capped shallow, because each tile costs a request',
-    findProvider(ELEVATION_PROVIDERS, 'bing-elevation').maxZoom <= 12 &&
-    findProvider(ELEVATION_PROVIDERS, 'google-elevation').maxZoom <= 12);
+  ok('it is capped shallow, because each tile costs a request',
+    findProvider(ELEVATION_PROVIDERS, 'bing-elevation').maxZoom <= 12);
+  // Google's Elevation API sends no CORS headers at all — it is a server-side
+  // API, and a browser cannot call it whatever key you hold. It was in the
+  // list and it could only ever fail with "Failed to fetch", so it is not in
+  // the list any more.
+  ok('and Google elevation is not offered, because a browser cannot reach it',
+    !ELEVATION_PROVIDERS.some((p) => p.id === 'google-elevation'));
 }
 
 console.log('\nDive and zoom: what a pull-up is worth');

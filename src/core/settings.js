@@ -7,7 +7,7 @@ import { readJSON, removeKey, writeJSON } from './storage.js';
  *
  * imageryProvider:   'esri' | 'sentinel2' | 'usgs' | 'gibs' | 'google' | 'bing'
  *                    | 'azure' | 'maxar' | 'cesium-ion' | 'mapbox'
- * elevationProvider: 'terrarium' | 'mapbox' | 'bing-elevation' | 'google-elevation'
+ * elevationProvider: 'terrarium' | 'mapbox' | 'bing-elevation'
  * panoramaProvider:  'none' | 'google' | 'mapillary'
  * graphics:          'low' | 'medium' | 'high' | 'ultra'
  * mouseMode:         'locked' | 'pan'
@@ -70,6 +70,14 @@ export const DEFAULT_SETTINGS = {
   scenery: true,
   sceneryFromImagery: true,
   maxTileZoom: 22,
+  /**
+   * Detail ceiling, as a percentage of the preset's own budgets.
+   *
+   * One dial that scales tile detail, mesh detail and how deep the ground
+   * zooms, all together — so there is a single thing to pull when the frame
+   * rate is short rather than five. A hundred is the preset as designed.
+   */
+  detailLimit: 100,
   /**
    * Which Cesium ion asset the ion imagery provider asks for. 2 is Bing
    * Aerial, which is what most accounts have; any raster asset you own works.
