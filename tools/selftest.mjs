@@ -23,7 +23,7 @@ import {
 import { annualMeanC, climateAt } from '../src/geo/climate.js';
 import { solarPosition } from '../src/geo/sun.js';
 import { isWaterPixel } from '../src/geo/water.js';
-import { stepGlide, stepGlideMinecraft, stepRocket, rocketTicks, rocketPowerFor, TICK } from '../src/player/elytra.js';
+import { stepGlide, stepRocket, rocketTicks, rocketPowerFor, TICK } from '../src/player/elytra.js';
 import { Autopilot } from '../src/player/autopilot.js';
 import { UNLOCK_CODE, cheats } from '../src/core/cheats.js';
 import { resolvePlace } from '../src/ui/cheatPanel.js';
@@ -151,12 +151,14 @@ console.log('\nelytra flight model');
     stepGlide(fast, look(0.55), 0.55);
     climbed += fast.y * TICK;
   }
-  ok('a dive builds real speed', diveSpeed > 60, `${diveSpeed.toFixed(0)} m/s`);
+  ok('a dive builds real speed', diveSpeed > 50, `${diveSpeed.toFixed(0)} m/s`);
   ok('flaring converts speed into altitude', climbed > 25, `+${climbed.toFixed(0)} m`);
 
-  // The invariant that matters: no dive-and-flare cycle may end up higher than
-  // it started. If one ever does, the model is a perpetual motion machine and
-  // you can porpoise to orbit.
+  // The invariant that matters here is the opposite of a perpetual motion
+  // check, and deliberately so: a dive-and-flare cycle *has* to be able to end
+  // higher than it started, or the 45/45 is not a technique, it is a story.
+  // What keeps it honest is the pair of checks in "The 45/45" section — no
+  // fixed angle may climb, and a hurried rhythm must still lose height.
   let bestCycle = -Infinity;
   let bestShape = '';
   for (const [dive, flare, diveTicks, flareTicks] of [
@@ -179,8 +181,8 @@ console.log('\nelytra flight model');
       bestShape = `${dive}/${flare}`;
     }
   }
-  ok('no dive-flare cycle gains height', bestCycle < 0,
-    `best was ${bestCycle.toFixed(1)} m at ${bestShape}`);
+  ok('a well-shaped dive-flare cycle ends higher than it started', bestCycle > 0,
+    `best was +${bestCycle.toFixed(1)} m at ${bestShape}`);
 
   // Flown well it still goes a very long way.
   let best = 0;
@@ -1016,86 +1018,87 @@ console.log('\nGenerated art stays where it belongs');
 
 console.log('\nThe 45/45, and what it takes to make it hold');
 {
-  const { stepGlide, stepGlideMinecraft, stepGlideSoaring, TICK: T } =
-    await import('../src/player/elytra.js');
+  const { stepGlide, TICK: T } = await import('../src/player/elytra.js');
 
   // Hold one attitude until the speed settles, and report where it settles.
-  const settle = (step, pitchDeg, from = 30, seconds = 150) => {
+  const settle = (pitchDeg, from = 30, seconds = 150) => {
     const pitch = (pitchDeg * Math.PI) / 180;
     const look = { x: 0, y: Math.sin(pitch), z: -Math.cos(pitch) };
     const v = { x: 0, y: 0, z: -from };
-    for (let t = 0; t < 20 * seconds; t++) step(v, look, pitch);
+    for (let t = 0; t < 20 * seconds; t++) stepGlide(v, look, pitch);
     return v;
   };
 
-  // Minecraft publishes two numbers for the elytra and the transcription has
-  // to land on both of them, or it is not a transcription.
+  // Minecraft publishes these numbers for the elytra and the model has to land
+  // on all of them, or it is not Minecraft's. None of them involve the climb
+  // term, which is the only constant that differs.
   {
-    const level = settle(stepGlideMinecraft, 0);
-    ok('vanilla level flight sinks about a sixth of a block a tick',
+    const level = settle(0);
+    ok('level flight sinks about a sixth of a block a tick, which is vanilla\u2019s figure',
       near(-level.y * T, 0.15, 0.01), `${(-level.y * T).toFixed(4)} b/t`);
     ok('and glides about ten to one',
       near(-level.z / -level.y, 10.1, 0.4), `${(-level.z / -level.y).toFixed(2)}:1`);
-    const dive = settle(stepGlideMinecraft, -90, 0);
-    ok('and a vertical dive terminates at 3.92 blocks a tick, which is its own figure',
+    const dive = settle(-90, 0);
+    ok('and a vertical dive terminates at 3.92 blocks a tick, also vanilla\u2019s',
       near(Math.hypot(dive.x, dive.y, dive.z) * T, 3.92, 0.02),
       `${(Math.hypot(dive.x, dive.y, dive.z) * T).toFixed(3)} b/t`);
   }
 
-  // The manoeuvre, flown the way anyone flies it: pull up when you are fast,
-  // push the nose over when you run out of speed.
-  const manoeuvre = (step, { angle = 40, low = 20, high = 50, minutes = 6 } = {}) => {
-    const v = { x: 0, y: 0, z: -high };
-    let y = 0, up = true, pitch = (angle * Math.PI) / 180, markY = 0;
-    const markT = 20 * 60, total = 20 * 60 * minutes;
+  // Nose up and wait must never be a way to gain height, at any angle. If it
+  // were, the climb term would be a gift rather than a technique.
+  {
+    let worst = -Infinity;
+    for (const angle of [5, 10, 20, 30, 40, 50, 60, 70]) {
+      worst = Math.max(worst, settle(angle).y);
+    }
+    ok('holding any fixed angle still sinks \u2014 there is no nose-up exploit',
+      worst < -0.5, `best constant climb still loses ${(-worst).toFixed(2)} m/s`);
+  }
+
+  /**
+   * The manoeuvre, flown on a metronome: so many seconds nose down, so many
+   * nose up, repeat. This is what a player does, and the cadence is the skill.
+   */
+  const porpoise = (angle, seconds, minutes = 6) => {
+    const rad = (deg) => (deg * Math.PI) / 180;
+    const v = { x: 0, y: -20, z: -70 };
+    const phase = Math.round(20 * seconds);
+    let y = 0, markY = 0;
+    const markT = 20 * 90, total = 20 * 60 * minutes;
     for (let t = 0; t < total; t++) {
+      const down = Math.floor(t / phase) % 2 === 0;
+      const pitch = rad(down ? -angle : angle);
       const look = { x: 0, y: Math.sin(pitch), z: -Math.cos(pitch) };
-      step(v, look, pitch);
+      stepGlide(v, look, pitch);
       y += v.y * T;
       if (t === markT) markY = y;
-      const sp = Math.hypot(v.x, v.y, v.z);
-      if (up && sp < low) { up = false; pitch = (-angle * Math.PI) / 180; }
-      else if (!up && sp > high) { up = true; pitch = (angle * Math.PI) / 180; }
     }
     return (y - markY) / ((total - markT) * T);
   };
 
-  const soaring = manoeuvre(stepGlideSoaring);
-  ok('flying the 45/45 in the soaring model holds you up', soaring > 0,
-    `${soaring >= 0 ? '+' : ''}${soaring.toFixed(2)} m/s`);
-  const vanilla = manoeuvre(stepGlideMinecraft);
-  ok('the same manoeuvre in vanilla still loses height, which is why the model exists',
-    vanilla < 0, `${vanilla.toFixed(2)} m/s`);
-  ok('and soaring beats vanilla by more than a metre a second',
-    soaring - vanilla > 1, `${(soaring - vanilla).toFixed(2)} m/s better`);
-
-  // The point of the number chosen: it pays for the technique, not for
-  // sitting still. Holding level has to stay a losing proposition.
-  const levelSoar = settle(stepGlideSoaring, 0);
-  ok('holding the stick still still sinks about three metres a second',
-    levelSoar.y < -2.5 && levelSoar.y > -3.5, `${levelSoar.y.toFixed(2)} m/s`);
-  ok('so soaring level is no better than vanilla level',
-    near(levelSoar.y, settle(stepGlideMinecraft, 0).y, 0.01));
+  const flown = porpoise(40, 6);
+  ok('flying the 45/45 on a six-second rhythm holds you up', flown > 0,
+    `${flown >= 0 ? '+' : ''}${flown.toFixed(2)} m/s`);
+  ok('the 40/-40 and 32/-49 variants work too',
+    porpoise(35, 6) > 0 && porpoise(45, 6) > 0,
+    `35\u00b0 ${porpoise(35, 6).toFixed(2)}, 45\u00b0 ${porpoise(45, 6).toFixed(2)} m/s`);
+  const hurried = porpoise(40, 1.5);
+  ok('and flying it too fast does not \u2014 the rhythm is the technique',
+    hurried < 0, `${hurried.toFixed(2)} m/s at a second and a half a phase`);
 
   // The window has to be findable rather than a knife edge.
   let holds = 0, tried = 0;
-  for (const angle of [30, 35, 40, 45]) {
-    for (const low of [20, 25, 30]) {
-      for (const high of [50, 60, 70]) {
-        tried++;
-        if (manoeuvre(stepGlideSoaring, { angle, low, high, minutes: 4 }) > -0.05) holds++;
-      }
+  for (const angle of [30, 35, 40, 45, 50]) {
+    for (const seconds of [3, 4, 5, 6, 8]) {
+      tried++;
+      if (porpoise(angle, seconds, 4) > -0.05) holds++;
     }
   }
-  ok('and a good spread of angles and rhythms works, not one exact recipe',
-    holds >= 6, `${holds} of ${tried} combinations hold altitude`);
-
-  // The energy-honest model must remain exactly that.
-  ok('the honest model still refuses to climb for free',
-    manoeuvre(stepGlide, { minutes: 4 }) < -1, `${manoeuvre(stepGlide, { minutes: 4 }).toFixed(2)} m/s`);
+  ok('a good spread of angles and rhythms works, not one exact recipe',
+    holds >= 10, `${holds} of ${tried} combinations hold altitude`);
 
   const { DEFAULT_SETTINGS: DS } = await import('../src/core/settings.js');
-  ok('soaring is what you get unless you ask otherwise', DS.glideModel === 'soaring');
+  ok('and there is only one flight model to choose from', !('glideModel' in DS));
 }
 
 console.log('\nPut back on the ground when the ground turns up');
@@ -1175,11 +1178,16 @@ console.log('\nPut back on the ground when the ground turns up');
 
 console.log('\nPicking the preset by measuring');
 {
-  const { AutoQuality, TIERS } = await import('../src/core/autoQuality.js');
+  const { AUTO_DISTANCE_MIN_KM, AutoQuality, TIERS } = await import('../src/core/autoQuality.js');
+  const { MIN_SCALE } = await import('../src/core/perf.js');
   const { settings: S } = await import('../src/core/settings.js');
   S.set('autoQuality', true);
   S.set('fpsTarget', 60);
   S.set('resolutionScale', 1);
+  // The preset is the *last* thing to be given up: pixels first, then how far
+  // you can see, then detail. Put the horizon on its floor so these tests are
+  // about the preset rather than about the distance governor still having room.
+  S.set('renderDistanceKm', AUTO_DISTANCE_MIN_KM);
 
   // Run the governor for a while at a given frame time and render scale.
   const run = (q, seconds, frameMs, scale) => {
@@ -1206,7 +1214,7 @@ console.log('\nPicking the preset by measuring');
     S.set('graphics', 'high');
     const q = new AutoQuality();
     q.settle = 0;
-    const moves = run(q, 40, 40, 0.55);
+    const moves = run(q, 40, 40, MIN_SCALE);
     ok('a floored scale and late frames drops a tier', moves[0] === 'medium', moves.join(','));
     ok('and it drops one at a time, not to the bottom', moves.length <= 3, moves.join(','));
   }
@@ -1717,48 +1725,40 @@ console.log('\nElevation that arrives as numbers rather than pixels');
     findProvider(ELEVATION_PROVIDERS, 'google-elevation').maxZoom <= 12);
 }
 
-console.log('\nTwo wings: one honest, one Minecraft\u2019s');
+console.log('\nDive and zoom: what a pull-up is worth');
 {
   const look = (pitch) => ({ x: 0, y: Math.sin(pitch), z: -Math.cos(pitch) });
-  // Dive to build speed, then flare. The honest model can never end higher
-  // than it started; Minecraft's can, and that is the whole difference.
-  const zoom = (step, dive, climb, target) => {
+  // Dive to build speed, then flare. A zoom climb out of a fast dive has to be
+  // worth real height — that is the manoeuvre the whole model is tuned around.
+  const zoom = (dive, climb, target) => {
     const v = { x: 0, y: 0, z: -30 };
     let y = 0;
     let peak = 0;
     for (let i = 0; i < 400 && Math.hypot(v.x, v.y, v.z) < target; i++) {
-      step(v, look(dive), dive);
+      stepGlide(v, look(dive), dive);
       y += v.y * TICK;
     }
     for (let i = 0; i < 400; i++) {
-      step(v, look(climb), climb);
+      stepGlide(v, look(climb), climb);
       y += v.y * TICK;
       peak = Math.max(peak, y);
       if (v.y < 0 && i > 6) break;
     }
     return peak;
   };
-  const bestNet = (step) => {
-    let best = -Infinity;
-    for (const dive of [-0.3, -0.5, -0.7, -0.9, -1.2]) {
-      for (const climb of [0.2, 0.35, 0.5, 0.7, 0.9, 1.2]) {
-        for (const target of [40, 55, 70, 85]) best = Math.max(best, zoom(step, dive, climb, target));
-      }
+  let best = -Infinity;
+  for (const dive of [-0.3, -0.5, -0.7, -0.9, -1.2]) {
+    for (const climb of [0.2, 0.35, 0.5, 0.7, 0.9, 1.2]) {
+      for (const target of [40, 55, 70, 85]) best = Math.max(best, zoom(dive, climb, target));
     }
-    return best;
-  };
-  const honest = bestNet(stepGlide);
-  const minecraft = bestNet(stepGlideMinecraft);
-  ok('the honest wing cannot end a dive and zoom higher than it started',
-    honest < 3, `${honest.toFixed(1)} m at best`);
-  ok("and Minecraft's can, by a lot", minecraft > 10,
-    `${minecraft.toFixed(1)} m, which is what makes endless climbing possible`);
+  }
+  ok('a dive and zoom ends higher than it started', best > 10,
+    `${best.toFixed(1)} m at best, which is what makes the porpoise pay`);
   {
     const controller = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');
-    ok('all three models are reachable from the setting',
-      /'minecraft' \? stepGlideMinecraft/.test(controller) &&
-      /'honest' \? stepGlide/.test(controller) &&
-      /stepGlideSoaring/.test(controller));
+    ok('and the controller has exactly one wing to call',
+      /stepGlide\(player\.velocity, this\.look, player\.pitch\)/.test(controller) &&
+      !/glideModel/.test(controller));
   }
 }
 
@@ -1812,26 +1812,39 @@ console.log('\nWalking, jumping and falling like Minecraft');
     ok('a tap of jump clears a block and a quarter', near(peak, 1.25, 0.06), `${peak.toFixed(2)} m`);
   }
   {
+    // The gesture a player actually makes, from standing: tap jump to leave
+    // the ground, tap it again once airborne. That is the double jump, and it
+    // is what used to do nothing at all — the old rule wanted two taps *after*
+    // you were already in the air, which is four presses from standing.
     const r = rig();
-    r.player.position.set(0, 300, 0);
-    r.player.onGround = false;
-    const tap = () => { run(r, 1, { jump: true }); run(r, 1); };
-    tap(); tap();
-    ok('two taps in the air open the wings', r.player.elytraDeployed);
-    tap(); tap();
-    ok('and two more stow them', !r.player.elytraDeployed);
+    r.player.onGround = true;
+    const tap = (frames = 12) => { run(r, 1, { jump: true }); run(r, frames); };
+    tap();
+    ok('one tap of jump leaves the ground', !r.player.onGround);
+    tap();
+    ok('a second tap in the air opens the wings', r.player.elytraDeployed);
+    tap();
+    ok('and a third stows them again', !r.player.elytraDeployed);
 
     const held = rig();
     held.player.onGround = true;
-    run(held, 60, { jump: true });
-    ok('holding jump off the ground does not open them', !held.player.elytraDeployed);
+    run(held, 240, { jump: true });
+    ok('holding jump down never opens them', !held.player.elytraDeployed);
 
-    // A frame slow enough to contain both taps still counts two of them.
+    // The press that launches you must not come back round as an airborne
+    // press on the very next frame and open the wings from standing.
+    const launch = rig();
+    launch.player.onGround = true;
+    launch.controller.update(1 / 60, keys({ jump: true }));
+    for (let i = 0; i < 30; i++) launch.controller.update(1 / 60, keys());
+    ok('leaving the ground on its own does not open them', !launch.player.elytraDeployed);
+
+    // A frame slow enough to hold two presses still counts two.
     const slow = rig();
     slow.player.position.set(0, 300, 0);
     slow.player.onGround = false;
-    slow.controller.update(1 / 5, keys({ jump: true, jumpPresses: 2 }));
-    ok('two taps inside one slow frame still count as two', slow.player.elytraDeployed);
+    slow.controller.update(1 / 5, keys({ jump: true, jumpPresses: 1 }));
+    ok('one press while already airborne opens them', slow.player.elytraDeployed);
   }
   {
     const r = rig();

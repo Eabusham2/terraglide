@@ -47,13 +47,16 @@ export const DEFAULT_SETTINGS = {
   /* graphics */
   graphics: 'high',
   renderDistanceKm: 16,
-  distantMode: false,
   /**
-   * 'soaring' | 'minecraft' | 'honest'. See src/player/elytra.js.
-   * Soaring is Minecraft's tick with the climb trade raised from 3.2 to 3.6,
-   * which is the smallest change that lets the 45/45 manoeuvre hold altitude.
+   * Let the horizon find its own distance by measuring the frame clock.
+   *
+   * The number above is then a starting point rather than a setting, the same
+   * way the graphics preset is when autoQuality is on: it climbs while there
+   * is headroom and comes back in when there is not. Turning this off pins the
+   * distance to whatever the slider says.
    */
-  glideModel: 'soaring',
+  renderDistanceAuto: true,
+  distantMode: true,
   fov: 78,
   freecamFov: 85,
   speedFovKick: true,
@@ -162,7 +165,7 @@ export const GRAPHICS_PRESETS = {
     anisotropy: 4,
     buildingRadiusM: 750,
     sceneryRadiusM: 700,
-    pixelRatioCap: 1.25,
+    pixelRatioCap: 1.5,
   },
   high: {
     sseThreshold: 1.25,
@@ -172,7 +175,11 @@ export const GRAPHICS_PRESETS = {
     anisotropy: 8,
     buildingRadiusM: 1200,
     sceneryRadiusM: 1200,
-    pixelRatioCap: 1.5,
+    // Draw at the screen's own resolution. Capping this below the display's
+    // device pixel ratio renders the world smaller than the screen and lets
+    // the browser stretch it back up, which is exactly the soft, stepped
+    // picture a sharp display makes so obvious.
+    pixelRatioCap: 2,
   },
   ultra: {
     sseThreshold: 0.85,
@@ -182,7 +189,7 @@ export const GRAPHICS_PRESETS = {
     anisotropy: 16,
     buildingRadiusM: 1800,
     sceneryRadiusM: 1900,
-    pixelRatioCap: 2,
+    pixelRatioCap: 3,
   },
 };
 

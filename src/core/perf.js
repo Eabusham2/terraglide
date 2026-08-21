@@ -3,9 +3,18 @@ import { settings } from './settings.js';
 
 /**
  * Frame timing plus an adaptive resolution governor. The governor nudges the
- * render scale between 55% and 100% so heavy scenes stay smooth instead of
- * dropping frames — the "no lag" requirement is mostly this plus tile budgets.
+ * render scale so heavy scenes stay smooth instead of dropping frames — the
+ * "no lag" requirement is mostly this plus tile budgets.
+ *
+ * It will not go below MIN_SCALE, and that floor is deliberately high. Pixels
+ * are the cheapest thing to give up right up until the point where the picture
+ * starts looking like a different, worse game: below about three quarters the
+ * stretch back to screen size is plainly visible, edges crawl, and distant
+ * ground turns to mush. Past that floor the tile budgets and the graphics
+ * preset give things up instead, because a smaller world drawn sharply looks
+ * far better than the whole world drawn softly.
  */
+export const MIN_SCALE = 0.75;
 export class PerfGovernor {
   constructor() {
     this.fps = 60;
@@ -39,9 +48,9 @@ export class PerfGovernor {
     const sorted = [...this.samples].sort((a, b) => a - b);
     const p80 = sorted[Math.floor(sorted.length * 0.8)] ?? budget;
 
-    if (p80 > budget * 1.25) this.scale = clamp(this.scale - 0.08, 0.55, target);
-    else if (p80 < budget * 0.75) this.scale = clamp(this.scale + 0.05, 0.55, target);
-    else this.scale = clamp(this.scale, 0.55, target);
+    if (p80 > budget * 1.25) this.scale = clamp(this.scale - 0.05, MIN_SCALE, target);
+    else if (p80 < budget * 0.75) this.scale = clamp(this.scale + 0.05, MIN_SCALE, target);
+    else this.scale = clamp(this.scale, MIN_SCALE, target);
   }
 
   /** Milliseconds of streaming / geometry work this frame can still afford. */

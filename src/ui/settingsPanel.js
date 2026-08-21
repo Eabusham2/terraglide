@@ -103,7 +103,8 @@ const SECTIONS = [
         ],
         help: 'Sets terrain detail, texture cache and how many tiles load at once.',
       },
-      { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 1024, step: 4, unit: ' km', help: 'How far the ground is drawn. Far tiles stay coarse, so the cost grows far more slowly than the number does \u2014 but it does grow.' },
+      { key: 'renderDistanceAuto', label: 'Render distance: as far as the machine allows', type: 'toggle', help: 'Finds the distance by measuring the frame clock instead of asking you for a number \u2014 pushes the horizon out while there is headroom, pulls it back in the moment there is not. The slider below becomes the starting point.' },
+      { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 2048, step: 4, unit: ' km', help: 'How far the ground is drawn. Far tiles stay coarse, so the cost grows far more slowly than the number does \u2014 but it does grow.' },
       { key: 'distantMode', label: 'Draw twice as far over country you have seen', type: 'toggle', help: 'Past the render distance the ground keeps going, but only where the explored map says you have already been. Somewhere new still stops at the edge, so this never doubles what an unflown world costs to stream.' },
       { key: 'maxTileZoomAuto', label: 'Ground detail: as sharp as the provider allows', type: 'toggle', help: 'No ceiling of your own. What you get is whatever the provider actually serves here, which the streamer works out by watching which zoom levels answer.' },
       { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 12, max: 22, step: 1, showWhen: () => !settings.get('maxTileZoomAuto'), help: 'How close the ground can get before it stops sharpening. Higher is sharper underfoot and costs more to stream. Twenty-two is the deepest any provider here goes.' },
@@ -189,22 +190,6 @@ const SECTIONS = [
     id: 'world',
     label: 'World',
     fields: [
-      {
-        key: 'glideModel',
-        label: 'Glide model',
-        type: 'select',
-        options: () => [
-          { value: 'soaring', label: 'Soaring \u2014 the 45/45 holds you up (recommended)' },
-          { value: 'minecraft', label: "Minecraft's own, tick for tick" },
-          { value: 'honest', label: 'Energy-honest \u2014 nothing for free' },
-        ],
-        help: (value) =>
-          value === 'minecraft'
-            ? "Minecraft's elytra transcribed exactly: a 3.92 block-per-tick dive terminal and a ten-to-one glide, both its own numbers. Fly the 45/45 \u2014 dive about thirty-five degrees, pull up about thirty-five, repeat \u2014 and you will sink at about one metre a second instead of three, which is a glide stretched to nearly three times its length. It still ends."
-            : value === 'honest'
-              ? 'Gravity in full every tick, and a wing that can only ever turn the speed gravity gave you. Seven metres forward per metre down, and never a metre for free.'
-              : "Minecraft's tick with one number changed: a pull-up buys 3.6 times the speed it spends instead of 3.2, which is the least it takes to close the loop. Fly the 45/45 and you hold your altitude indefinitely; fly it well and you climb. Hold the stick still and you sink at three metres a second like anyone else, so it is a technique rather than a gift.",
-      },
       {
         key: 'units',
         label: 'Units',

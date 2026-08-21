@@ -1,3 +1,4 @@
+import { MIN_SCALE } from './perf.js';
 import { settings } from './settings.js';
 
 /**
@@ -71,7 +72,11 @@ export class AutoQuality {
     const ms = perf.frameMs;
     // "Nothing left to give" and "room to spare" are both about the resolution
     // governor, not about the frame time alone.
-    const floored = perf.scale <= 0.57;
+    // The floor moved when the resolution governor stopped being allowed to
+    // render a soft picture, so read it from there rather than repeating the
+    // number: a stale copy here meant "nothing left to give" was never true
+    // and the preset could not drop at all.
+    const floored = perf.scale <= MIN_SCALE + 0.02 && distanceSpent();
     const full = perf.scale >= settings.get('resolutionScale') - 0.01;
 
     if (ms > budget * LATE && floored) {
@@ -125,5 +130,130 @@ export class AutoQuality {
     this.underFor = 0;
     this.ceiling = null;
     this.settle = SETTLE_S;
+  }
+}
+
+/**
+ * Has the render distance already been given up on?
+ *
+ * The preset is the last thing to go, because dropping a tier changes how
+ * everything looks everywhere. Pulling the horizon in changes how much world
+ * there is and nothing about the part of it you are looking at, so it goes
+ * first — and the preset should not start dropping tiers while there is still
+ * horizon to give back.
+ */
+function distanceSpent() {
+  if (!settings.get('renderDistanceAuto')) return true;
+  return settings.get('renderDistanceKm') <= AUTO_DISTANCE_MIN_KM + 0.5;
+}
+
+/** The shortest the automatic horizon will pull itself in to, in kilometres. */
+export const AUTO_DISTANCE_MIN_KM = 6;
+/** And the furthest it will push itself out to on its own. */
+export const AUTO_DISTANCE_MAX_KM = 256;
+/** Seconds late before the horizon comes in; seconds spare before it goes out. */
+const DISTANCE_DROP_AFTER_S = 3;
+const DISTANCE_RAISE_AFTER_S = 6;
+/** Quiet period after a move, so the new distance is judged on its own frames. */
+const DISTANCE_SETTLE_S = 4;
+
+/**
+ * Choosing how far you can see by measuring, the same way the preset is chosen.
+ *
+ * "Auto" for a distance means something different from auto for a preset: there
+ * is no ladder of named steps, just a number, and the useful behaviour is to
+ * keep pushing the horizon out while the machine can still afford it and pull
+ * it back the moment it cannot. So this walks the number by a fifth at a time
+ * in both directions, quickly inward and slowly outward, and stops climbing
+ * once a distance has proved too expensive.
+ *
+ * It sits between the resolution governor and the preset: pixels are given up
+ * first because they cost the least to lose, then world, then detail.
+ */
+export class AutoDistance {
+  constructor() {
+    this.overFor = 0;
+    this.underFor = 0;
+    this.settle = 0;
+    /** The shortest distance known to be too expensive, or null. */
+    this.ceilingKm = null;
+    this.ceilingAge = 0;
+    /** The last distance this governor wrote, so its own writes are known. */
+    this.lastSet = null;
+  }
+
+  /** Was this value written by the governor rather than by a person? */
+  wrote(km) {
+    return this.lastSet !== null && km === this.lastSet;
+  }
+
+  /**
+   * @param {number} dt seconds
+   * @param {{frameMs: number, scale: number}} perf the resolution governor
+   * @returns {number|null} the distance just moved to, in km, or null
+   */
+  update(dt, perf) {
+    if (!settings.get('renderDistanceAuto')) {
+      this.overFor = 0;
+      this.underFor = 0;
+      return null;
+    }
+    this.settle = Math.max(0, this.settle - dt);
+    if (this.ceilingKm !== null) {
+      this.ceilingAge += dt;
+      if (this.ceilingAge > CEILING_MEMORY_S) this.ceilingKm = null;
+    }
+
+    const budget = 1000 / Math.max(30, settings.get('fpsTarget'));
+    const ms = perf.frameMs;
+    const floored = perf.scale <= MIN_SCALE + 0.02;
+    const full = perf.scale >= settings.get('resolutionScale') - 0.01;
+
+    if (ms > budget * LATE && floored) {
+      this.overFor += dt;
+      this.underFor = 0;
+    } else if (ms < budget * SPARE && full) {
+      this.underFor += dt;
+      this.overFor = 0;
+    } else {
+      this.overFor = Math.max(0, this.overFor - dt);
+      this.underFor = Math.max(0, this.underFor - dt);
+    }
+
+    if (this.settle > 0) return null;
+    const km = settings.get('renderDistanceKm');
+
+    if (this.overFor >= DISTANCE_DROP_AFTER_S && km > AUTO_DISTANCE_MIN_KM) {
+      this.ceilingKm = km;
+      this.ceilingAge = 0;
+      return this.moveTo(Math.max(AUTO_DISTANCE_MIN_KM, Math.round(km / 1.2)));
+    }
+    if (this.underFor >= DISTANCE_RAISE_AFTER_S && km < AUTO_DISTANCE_MAX_KM) {
+      const next = Math.min(AUTO_DISTANCE_MAX_KM, Math.max(km + 2, Math.round(km * 1.2)));
+      if (this.ceilingKm !== null && next >= this.ceilingKm) return null;
+      return this.moveTo(next);
+    }
+    return null;
+  }
+
+  moveTo(km) {
+    // Remembered so the settings hook can tell this write apart from a hand
+    // on the slider. Without it the governor's own move looked like you had
+    // set the distance yourself, which cleared the ceiling it had just learned
+    // and let it climb straight back into a distance it knew was too far.
+    this.lastSet = km;
+    settings.set('renderDistanceKm', km);
+    this.settle = DISTANCE_SETTLE_S;
+    this.overFor = 0;
+    this.underFor = 0;
+    return km;
+  }
+
+  /** Setting the distance by hand is a statement; take it as the new start. */
+  reset() {
+    this.overFor = 0;
+    this.underFor = 0;
+    this.ceilingKm = null;
+    this.settle = DISTANCE_SETTLE_S;
   }
 }

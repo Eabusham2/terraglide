@@ -3,7 +3,7 @@ import { cheats } from '../core/cheats.js';
 import { clamp, damp } from '../core/math.js';
 import { FixedStep } from '../core/perf.js';
 import { settings } from '../core/settings.js';
-import { TICK, stepGlide, stepGlideMinecraft, stepGlideSoaring, stepRocket } from './elytra.js';
+import { TICK, stepGlide, stepRocket } from './elytra.js';
 
 /**
  * Movement, collision and the two flight modes.
@@ -43,16 +43,15 @@ const SWIM_SINK = 0.9;
 const SWIM_RISE = 3.2;
 const WATER_DRAG = 5.5;
 /**
- * How long the second tap of a double jump may arrive after the first.
+ * How soon after one jump press the next one may touch the wings.
  *
- * Generous on purpose. The gap is measured between the frames the two presses
- * are *seen* on, not between the presses themselves, so on a machine drawing
- * at four frames a second a pair of taps a seventh of a second apart arrives
- * half a second apart — and a window tight enough to feel crisp at 60 Hz is a
- * window that does not work at all on a slow one. Browsers allow half a second
- * for a double click for the same reason.
+ * Only there to keep a single press from doing both jobs. The press that
+ * launches you off the ground is spent on the jump; a hundredth of a second
+ * later the feet have left the floor, and without this the *same* press would
+ * come back round as an airborne press and open the wings from standing. Short
+ * enough that a deliberate second tap is never swallowed.
  */
-const DOUBLE_TAP_S = 0.55;
+const WING_LOCKOUT_S = 0.12;
 /** How long a jump press waits for a tick that finds you on the ground. */
 const JUMP_BUFFER_S = 0.16;
 /**
@@ -87,6 +86,13 @@ export class PlayerController {
     this.jumpQueued = false;
     this.jumpQueuedAt = -Infinity;
     this.lastJumpTap = -Infinity;
+    /**
+     * The last floor height that came from data rather than from a guess.
+     *
+     * Held so that flying into a square whose elevation has not arrived does
+     * not drop the floor to sea level under you. See groundHeightAt.
+     */
+    this.lastKnownFloor = NaN;
   }
 
   /**
@@ -194,12 +200,8 @@ export class PlayerController {
       player.rocketTicksLeft--;
     }
 
-    // Two wings to choose from: the energy-honest one, and Minecraft's own
-    // with its free energy intact. See stepGlideMinecraft.
-    const model = settings.get('glideModel');
-    const glide =
-      model === 'minecraft' ? stepGlideMinecraft : model === 'honest' ? stepGlide : stepGlideSoaring;
-    glide(player.velocity, this.look, player.pitch);
+    // One set of wings. See src/player/elytra.js.
+    stepGlide(player.velocity, this.look, player.pitch);
     player.airborneSeconds += step;
 
     // Crouch pulls the nose down a touch — handy for shedding altitude.
@@ -307,14 +309,20 @@ export class PlayerController {
   }
 
   /**
-   * The jump key's edges: buffer one press for the next ground tick, and turn
-   * two presses in the air into the wings opening — or closing again.
+   * The jump key's edges: buffer one press for the next ground tick, and let a
+   * press made in the air open the wings — or close them again.
    *
-   * Holding jump used to open the wings on its own, which is one key doing two
-   * things at once: every ordinary jump ends with jump still held, so a
-   * quarter of a second later the wings snapped out whether you wanted them or
-   * not. A double tap is a deliberate thing to do, and it reads the same in
-   * both directions — the gesture that opens them closes them.
+   * This is Minecraft's own rule, and it is worth spelling out because the
+   * obvious reading of "double jump" is the wrong one. Pressing jump on the
+   * ground jumps; pressing it *again while off the ground* opens the wings.
+   * Two presses in total, which is what a double jump is — not two presses
+   * after you are already airborne, which is four presses from standing and is
+   * why the wings would not come out.
+   *
+   * Holding the key does nothing on its own: only the press edge counts, and
+   * an ordinary jump ends with the key still held, so the wings never snap out
+   * unasked. Pressing it once more in a glide stows them, exactly as it does
+   * in the game this borrows from.
    */
   readJumpEdges(dt, input) {
     const player = this.player;
@@ -330,10 +338,14 @@ export class PlayerController {
     const presses = Math.max(edge ? 1 : 0, input.jumpPresses ?? 0);
 
     for (let i = 0; i < presses; i++) {
-      if (!player.onGround && this.clock - this.lastJumpTap < DOUBLE_TAP_S) {
+      if (!player.onGround) {
+        // A press made in the air is about the wings, never about jumping.
+        // Guard the frame you leave the ground on: the buffered jump has not
+        // been spent yet, and toggling on the same press that launched you
+        // would open the wings from standing.
+        if (this.clock - this.lastJumpTap < WING_LOCKOUT_S) continue;
         player.toggleElytra(!player.elytraDeployed);
-        // A third tap starts a fresh pair rather than toggling straight back.
-        this.lastJumpTap = -Infinity;
+        this.lastJumpTap = this.clock;
         continue;
       }
       this.lastJumpTap = this.clock;
@@ -485,12 +497,34 @@ export class PlayerController {
   groundHeightAt(x, z, referenceY, colliders) {
     let ground = this.terrain.heightAt(x, z);
 
-    // Stand on the ground you can see. The elevation field is finer than the
-    // mesh built from it, so on broken ground the drawn surface sits a little
-    // above the sampled height — which is what left you shin-deep in a hill.
+    // Stand on the ground you can see.
+    //
+    // Two different things go wrong here and they need the same answer. The
+    // small one: the elevation field is finer than the mesh built from it, so
+    // on broken ground the drawn surface sits a little above the sampled
+    // height, and standing at the sample leaves you shin-deep in a hill. The
+    // large one: the field for a square can be *missing* — never fetched, or
+    // evicted from under you — and a missing sample reads back as exactly sea
+    // level while the mesh you are looking at is still four hundred metres up.
+    //
+    // This used to only trust the mesh when the two agreed to within
+    // twenty-five metres, which handled the first case and made the second one
+    // worse: the bigger the disagreement, the more certain it is that the
+    // field is the one that is wrong, and that is precisely when the clamp
+    // gave up and dropped you through the world. The mesh is what exists.
     if (this.terrain.meshHeightAt) {
       const drawn = this.terrain.meshHeightAt(x, z);
-      if (drawn !== null && drawn > ground && drawn - ground < 25) ground = drawn;
+      if (drawn !== null && drawn > ground) ground = drawn;
+      // Nothing drawn here at all — the tile has not been built yet. Sea level
+      // is a guess, and it is the one guess that drops you inside a mountain,
+      // so carry the last floor we actually stood on instead until the ground
+      // arrives. Only while it is genuinely unknown: real sea is measured, and
+      // measured sea reads as data.
+      else if (drawn === null && !this.terrain.hasElevationAt(x, z)) {
+        if (Number.isFinite(this.lastKnownFloor)) ground = Math.max(ground, this.lastKnownFloor);
+      } else {
+        this.lastKnownFloor = ground;
+      }
     }
     const list =
       colliders ?? (this.buildings ? this.buildings.collidersNear(x, z, this.player.radius + 1) : []);

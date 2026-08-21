@@ -2,7 +2,7 @@ import * as THREE from '../vendor/three/three.module.js';
 import { cheats } from './core/cheats.js';
 import { clamp, damp } from './core/math.js';
 import { PerfGovernor } from './core/perf.js';
-import { AutoQuality } from './core/autoQuality.js';
+import { AutoDistance, AutoQuality } from './core/autoQuality.js';
 import { settings } from './core/settings.js';
 import { readJSON, writeJSON } from './core/storage.js';
 import { formatDistance, formatLatLon } from './core/units.js';
@@ -63,6 +63,7 @@ export class Game {
     this.lastTime = 0;
     this.perf = new PerfGovernor();
     this.autoQuality = new AutoQuality();
+    this.autoDistance = new AutoDistance();
     this.settleUntil = 0;
     this._holdY = NaN;
     this.teleporting = false;
@@ -73,9 +74,16 @@ export class Game {
     this.notice = '';
 
     this.onStatus('Creating renderer');
+    // Antialiasing is decided when the context is created and can never be
+    // switched on afterwards, so it is always asked for. Tying it to the
+    // graphics preset meant that booting on a slow machine — or letting the
+    // automatic preset drop a tier and then reloading — left the world with
+    // permanently stepped edges and no setting anywhere that would bring them
+    // back. Multisampling is one of the cheapest things on this list; the
+    // preset gives up tile detail and pixels instead.
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: settings.get('graphics') !== 'low',
+      antialias: true,
       powerPreference: 'high-performance',
       stencil: false,
       logarithmicDepthBuffer: true,
@@ -398,6 +406,10 @@ export class Game {
     if (key === 'graphics' || key === 'fpsTarget' || key === 'autoQuality') {
       this.autoQuality.reset();
     }
+    if (key === 'fpsTarget' || key === 'renderDistanceAuto') this.autoDistance.reset();
+    if (key === 'renderDistanceKm' && !this.autoDistance.wrote(settings.get('renderDistanceKm'))) {
+      this.autoDistance.reset();
+    }
     if (key === 'meshDetail') this.terrain.rebase();
     if (key === 'mouseMode' && settings.get('mouseMode') === 'locked') this.input.requestPointerLock();
   }
@@ -499,6 +511,11 @@ export class Game {
     // The resolution governor gives up pixels first because they are the
     // cheapest thing to give up. This only acts once that has run out of room
     // in either direction — see src/core/autoQuality.js.
+    // Then the horizon, which is the next cheapest thing to give up: it takes
+    // world away rather than detail, and none of what is left looks any worse
+    // for it.
+    this.autoDistance.update(elapsed, this.perf);
+    // The preset last, because a tier changes how everything looks everywhere.
     const tier = this.autoQuality.update(elapsed, this.perf);
     if (tier) {
       this.toast(
@@ -1098,7 +1115,7 @@ export class Game {
       player.toggleElytra(false);
       this.toast(player.onGround ? 'Wings stowed' : 'Wings stowed — falling');
     } else if (!player.onGround) {
-      this.toast('Falling — hold jump to open the wings', 'warn');
+      this.toast('Falling — press jump again to open the wings', 'warn');
     }
   }
 
