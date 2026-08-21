@@ -679,10 +679,12 @@ export async function bestProviderFor(list, values, at, onProgress) {
     } catch {
       continue;
     }
-    // Down from the deepest it claims, until something real comes back. Three
-    // levels is enough to tell "no cover at all" from "shallower than it says".
+    // Down from the deepest it claims, until something real comes back. Six
+    // levels covers everything from "shallower than it says" to "only has the
+    // continental view of this place", which over an ocean is the true answer
+    // rather than a failure.
     const top = descriptor.maxZoom ?? 16;
-    for (let z = top; z >= Math.max(4, top - 3); z--) {
+    for (let z = top; z >= Math.max(3, top - 6); z--) {
       const n = Math.pow(2, z);
       const tile = {
         z,

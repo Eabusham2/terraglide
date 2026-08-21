@@ -88,9 +88,15 @@ export class CameraRig {
     player.pitch = clamp(player.pitch - dy, -PITCH_LIMIT, PITCH_LIMIT);
   }
 
-  /** Start a barrel roll, if the option is on and one is not already running. */
+  /**
+   * Start a barrel roll, unless one is already running.
+   *
+   * It used to be behind a setting that was off by default, which meant the
+   * key did nothing and there was no way to discover why. A key you pressed
+   * deliberately is the permission.
+   */
   startBarrelRoll() {
-    if (!settings.get('barrelRoll') || this.rolling) return false;
+    if (this.rolling) return false;
     this.rolling = 0.0001;
     return true;
   }
@@ -195,8 +201,13 @@ export class CameraRig {
       const floor = terrain ? terrain.heightAt(desired.x, desired.z) + player.height * 0.35 : -Infinity;
       this._floor = Number.isFinite(this._floor) ? damp(this._floor, floor, 6, dt) : floor;
       desired.y = Math.max(desired.y, this._floor);
-      // Tight enough that the view is where you pointed it, not trailing it.
-      camera.position.lerpVectors(camera.position, desired, 1 - Math.exp(-24 * dt));
+      // Tight enough that the view is where you pointed it, not trailing it —
+      // and tighter the faster you go. A fixed rate lags a fast-moving target
+      // and then catches up, and lag-then-catch-up at eighty metres a second
+      // is exactly the third-person jitter: the figure swims about in the
+      // frame instead of sitting in it. At speed the camera is rigid.
+      const chase = 24 + clamp(player.horizontalSpeed, 0, 90) * 0.9;
+      camera.position.lerpVectors(camera.position, desired, 1 - Math.exp(-chase * dt));
       camera.lookAt(this._target);
       if (this.roll) camera.rotateZ(this.roll);
     } else {

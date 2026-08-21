@@ -105,7 +105,6 @@ export const DEFAULT_SETTINGS = {
   perspective: 'first',
   showBody: true,
   detailedPlayerModel: false,
-  barrelRoll: false,
 
   /* player */
   playerHeightM: 1.98, // 6 ft 6 in

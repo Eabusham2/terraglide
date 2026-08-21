@@ -551,12 +551,18 @@ export class Avatar {
     // the head off the camera.
     const lean = gliding || flying ? glidePitch : -(player.groundSlope ?? 0) * 0.45;
     this.body.rotation.x = damp(this.body.rotation.x, lean, 9, dt);
-    this.body.rotation.z = damp(
-      this.body.rotation.z,
-      gliding || flying ? 0 : clamp(sideSpeed * 0.05, -0.25, 0.25),
-      8,
-      dt,
-    );
+    // A barrel roll turns you, not just the view. Rolling the camera alone
+    // left the figure flying serenely level while the horizon spun, which
+    // reads as a broken camera rather than as a manoeuvre.
+    const roll = this.rollSource ? this.rollSource() : 0;
+    this.body.rotation.z = roll
+      ? roll
+      : damp(
+          this.body.rotation.z,
+          gliding || flying ? 0 : clamp(sideSpeed * 0.05, -0.25, 0.25),
+          8,
+          dt,
+        );
     // Turn the pose about the base of the neck rather than about the origin
     // under the feet, so that whatever the body does the head stays where the
     // eyes are and the spine trails out behind it. See POSE_PIVOT. The lift

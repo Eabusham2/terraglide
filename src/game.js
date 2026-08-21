@@ -750,6 +750,9 @@ export class Game {
     // hangs off the camera rather than off the avatar root, and it is drawn in
     // first person whatever the body setting says — the same way every game
     // that has a first-person body still draws the thing in your hand.
+    // The avatar rolls with the camera, so a barrel roll is something you do
+    // rather than something that happens to the horizon.
+    this.avatar.rollSource = () => this.rig.roll;
     this.avatar.update(player, dt, this.camera);
 
     exploration.visit(player.lat, player.lon, player.altitudeAboveGround, this.seenRadius());
