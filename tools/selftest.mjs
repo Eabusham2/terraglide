@@ -1002,6 +1002,72 @@ console.log('\nGenerated art stays where it belongs');
   }
 }
 
+console.log('\nSpeed mode, fireworks and the pause key');
+{
+  const { Player } = await import('../src/player/player.js');
+  const { settings: S } = await import('../src/core/settings.js');
+  const frame = { setAnchor() {}, toGeo: () => ({ lat: 0, lon: 0 }) };
+  const player = new Player(frame);
+
+  ok('at rest the multiplier is one', near(player.speedMultiplier, 1, 1e-9));
+  const restingRocket = player.rocketPower;
+
+  // Speed mode comes on like a switch: the blend runs up over a moment, so
+  // step the clock rather than expecting it instantly.
+  player.startSpeedMode();
+  for (let i = 0; i < 200; i++) player.tickTimers(1 / 60);
+  ok('speed mode doubles the running', near(player.speedMultiplier, 2, 1e-6),
+    `${player.speedMultiplier}`);
+  ok('and doubles the firework on top of it',
+    near(player.rocketPower, restingRocket * 2, 1e-6),
+    `${player.rocketPower} vs ${restingRocket}`);
+
+  // A stronger slot multiplies with it rather than replacing it: that is the
+  // reason to save a Rocket V for the burst.
+  player.selectSlot(4);
+  const strong = player.rocketPower;
+  player.speedBlend = 1;
+  ok('a stronger slot and the burst multiply', near(strong, player.rocketPower * 2, 1e-6),
+    `${strong} vs ${player.rocketPower}`);
+
+  // Dropping the burst bleeds away rather than halving between two frames,
+  // and a burning firework holds it up while it does.
+  player.speedBlend = 2;
+  player.speedActive = false;
+  player.rocketTicksLeft = 0;
+  for (let i = 0; i < 30; i++) player.tickTimers(1 / 60);
+  const freeFall = player.speedBlend;
+  player.speedBlend = 2;
+  player.rocketTicksLeft = 100;
+  for (let i = 0; i < 30; i++) player.tickTimers(1 / 60);
+  ok('and a firework still burning slows the bleed', player.speedBlend > freeFall,
+    `${player.speedBlend.toFixed(3)} burning vs ${freeFall.toFixed(3)} not`);
+
+  // Escape is the pause key, and a menu is what pausing looks like.
+  const gameSource = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  ok('any modal panel counts as paused',
+    /get paused\(\)[\s\S]{0,220}settingsPanel\.open[\s\S]{0,120}worldmap\.open/.test(gameSource));
+  ok('and a paused frame advances the clock by nothing',
+    /this\.update\(this\.paused \? 0 : elapsed \* cheats\.gameSpeed\)/.test(gameSource));
+  ok('the frame is still drawn while paused, so tiles keep arriving',
+    /this\.paused \? 0[\s\S]{0,120}renderer\.render/.test(gameSource));
+  const binds = readFileSync(new URL('../src/core/keybinds.js', import.meta.url), 'utf8');
+  ok('Escape is the key that does it', /settings: 'Escape'/.test(binds));
+
+  // The menu has to say which providers cost you an account.
+  const { providerLabel, IMAGERY_PROVIDERS: LIST } = await import('../src/tiles/providers.js');
+  const esri = LIST.find((p) => p.id === 'esri');
+  ok('a keyless provider says so', /keyless/.test(providerLabel(esri)), providerLabel(esri));
+  ok('and still says it is recommended', /recommended/.test(providerLabel(esri)));
+  const google = LIST.find((p) => p.id === 'google');
+  ok('a keyed one says that instead', /needs a key/.test(providerLabel(google)),
+    providerLabel(google));
+  const offline = LIST.find((p) => p.id === 'offline');
+  ok('and the generated world claims neither', !/key/.test(providerLabel(offline)),
+    providerLabel(offline));
+  S.reset?.();
+}
+
 console.log('\nVector tiles, read by hand');
 {
   const { decodeVectorTile, POLYGON } = await import('../src/tiles/vectorTile.js');

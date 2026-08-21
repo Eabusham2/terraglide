@@ -285,10 +285,20 @@ export function recommendedProvider(list) {
 }
 
 /**
- * Label for a provider in a menu, with the recommendation on the end.
+ * Label for a provider in a menu.
+ *
+ * Two things are worth knowing before you pick one and both belong on the line
+ * rather than three clicks away: whether it is the one to take if you have no
+ * opinion, and whether choosing it means going and getting a key. "Keyless" is
+ * the more useful of the two most of the time — this whole project is built so
+ * that you never have to sign up for anything, and a menu that does not say
+ * which entries honour that makes you find out the hard way.
  */
 export function providerLabel(descriptor) {
-  return descriptor.recommended ? `${descriptor.label} (recommended)` : descriptor.label;
+  const notes = [];
+  if (descriptor.recommended) notes.push('recommended');
+  if (descriptor.kind !== 'synthetic') notes.push(descriptor.needsKey ? 'needs a key' : 'keyless');
+  return notes.length ? `${descriptor.label} (${notes.join(', ')})` : descriptor.label;
 }
 
 /**

@@ -495,16 +495,31 @@ export class Game {
       this.appliedScale = this.perf.scale;
       this.resize();
     }
-    this.update(elapsed * cheats.gameSpeed);
+    // A menu pauses the world, the way it does in Minecraft. The frame is
+    // still built and tiles still stream — you want the ground to have
+    // finished arriving when you close the menu, not to start then — but the
+    // clock that drives movement, timers and the burn on a firework stops, so
+    // opening the settings mid-glide does not cost you the glide.
+    this.update(this.paused ? 0 : elapsed * cheats.gameSpeed);
     this.renderer.render(this.scene, this.camera);
   }
 
   /* ------------------------------------------------------------------ tick */
 
+  /**
+   * Anything modal on screen means the world is stopped. Escape is the key
+   * that gets you here and the key that gets you out, and while you are here
+   * nothing moves, nothing burns down and nothing lands on you.
+   */
+  get paused() {
+    return Boolean(
+      this.settingsPanel.open || this.worldmap.open || this.help.open || this.cheatPanel.open,
+    );
+  }
+
   update(dt) {
     const player = this.player;
-    const panelOpen =
-      this.settingsPanel.open || this.worldmap.open || this.help.open || this.cheatPanel.open;
+    const panelOpen = this.paused;
     if (panelOpen !== this.uiSuspended) {
       this.uiSuspended = panelOpen;
       this.input.setSuspended(panelOpen);
@@ -1004,6 +1019,9 @@ export class Game {
         settings.set('hudVisible', !settings.get('hudVisible'));
         break;
       case 'settings':
+        // Escape is the pause key: it closes whatever is open, and when
+        // nothing is, it opens the settings — which is the pause menu, since
+        // any menu stops the world. See `paused`.
         if (this.worldmap.open) this.worldmap.close();
         else if (this.help.open) this.help.close();
         else if (this.cheatPanel.open) this.cheatPanel.close();
@@ -1085,6 +1103,7 @@ export class Game {
 
   statusLine() {
     const parts = [];
+    if (this.paused) parts.push('paused — Esc to carry on');
     const source = this.imagerySource;
     if (source) {
       const name = source.substitutedFor

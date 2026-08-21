@@ -141,10 +141,20 @@ export class Player extends Emitter {
     return this.speedBlend * cheats.playerSpeed;
   }
 
-  /** Firework thrust: the slot's powder and any cheat on top. */
+  /**
+   * Firework thrust: the slot's powder, speed mode, and any cheat on top.
+   *
+   * Speed mode doubles the rocket as well as the running, which is the whole
+   * reason to save one for it — light a Rocket V inside the burst and you get
+   * the two multiplied rather than the better of the two. It reads the same
+   * blend the movement does, not a hard two, so a rocket lit while the boost
+   * is bleeding away gets whatever is left of it. That is also what lets a
+   * firework hold the boost up past the end of the burst: the burn slows the
+   * bleed, and the bleed is what the rocket is multiplied by.
+   */
   get rocketPower() {
     const slot = this.selectedItem;
-    return (slot ? slot.power : 1) * cheats.rocketPower;
+    return (slot ? slot.power : 1) * this.speedBlend * cheats.rocketPower;
   }
 
   /** How far through the current burn we are, 0 at ignition and 1 at burnout. */
