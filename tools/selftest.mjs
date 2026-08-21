@@ -1228,6 +1228,22 @@ console.log('\nSpeed mode, fireworks and the pause key');
   S.reset?.();
 }
 
+console.log('\nA map falls through rather than inventing');
+{
+  const source = readFileSync(new URL('../src/ui/mapTiles.js', import.meta.url), 'utf8');
+  // A provider with no URL is either the generated world, which has none by
+  // design, or a real one whose handshake failed. Painting procedural noise
+  // where a street map belongs is not a fallback.
+  ok('only a synthetic source may invent a tile',
+    /kind === 'synthetic'\) return invent\(\)/.test(source));
+  ok('and a real one that is not ready falls through to the next',
+    /not ready`\);\s*continue;/.test(source));
+  ok('the chain is first choice, then standbys',
+    /\[this\.source, \.\.\.this\.fallbacks\]/.test(source));
+  ok('and it never asks a provider for a zoom it does not serve',
+    /tile\.z > \(source\.descriptor\?\.maxZoom \?\? Infinity\)\) continue/.test(source));
+}
+
 console.log('\nVector tiles, read by hand');
 {
   const { decodeVectorTile, POLYGON } = await import('../src/tiles/vectorTile.js');

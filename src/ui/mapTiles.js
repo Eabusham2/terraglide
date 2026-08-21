@@ -250,7 +250,17 @@ export class MapTileCache {
       if (source.prepare && !source.ready) await source.prepare();
       if (tile.z > (source.descriptor?.maxZoom ?? Infinity)) continue;
       const url = source.urlFor(tile);
-      if (!url) return invent();
+      if (!url) {
+        // No URL means one of two very different things. The generated world
+        // has none by design and invented ground is the whole point of it. A
+        // real provider with none has failed its handshake — no key, or a
+        // metadata call that did not answer — and painting procedural noise
+        // where a street map belongs is not a fallback, it is a lie with a
+        // texture on it. Fall through to the next provider instead.
+        if (source.descriptor?.kind === 'synthetic') return invent();
+        error = error ?? new Error(`${source.descriptor?.id ?? 'provider'} not ready`);
+        continue;
+      }
       try {
         const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
         if (!res.ok) throw new Error(String(res.status));
