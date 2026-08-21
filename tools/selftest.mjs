@@ -962,6 +962,105 @@ console.log('\nGenerated art stays where it belongs');
   }
 }
 
+console.log('\nA provider only gets asked as deep as it answers');
+{
+  const { ImageryStreamer } = await import('../src/tiles/streamer.js');
+  const worker = { addEventListener() {}, postMessage() {} };
+  const make = (maxZoom = 19) => {
+    const s = new ImageryStreamer(worker, null);
+    s.source = { maxZoom, synthetic: false, urlFor: () => 'x', ready: true };
+    return s;
+  };
+  const fail = (s, z, n) => {
+    for (let i = 0; i < n; i++) {
+      s.zoomRecord(z).failed++;
+      s.reviewDepth(z);
+    }
+  };
+
+  {
+    const s = make();
+    s.zoomRecord(16).loaded = 3;
+    fail(s, 17, 8);
+    ok('a level that refuses everything while the one above answers is dropped',
+      s.maxUsefulZoom === 16, `z${s.maxUsefulZoom}`);
+  }
+  {
+    // A regional provider refuses every level outside its coverage. That is
+    // not a depth problem and lowering the zoom would not help.
+    const s = make();
+    fail(s, 17, 20);
+    fail(s, 16, 20);
+    fail(s, 15, 20);
+    ok('a provider with no coverage here is not mistaken for a shallow one',
+      s.maxUsefulZoom === 19, `z${s.maxUsefulZoom}`);
+  }
+  {
+    const s = make();
+    s.zoomRecord(16).loaded = 3;
+    fail(s, 17, 8);
+    s.zoomRecord(17).loaded = 1;
+    s.reviewDepth(17);
+    ok('and one tile arriving puts the level back', s.maxUsefulZoom === 19, `z${s.maxUsefulZoom}`);
+  }
+  {
+    const s = make(15);
+    ok('the published maximum still applies', s.maxUsefulZoom === 15);
+  }
+  ok('the terrain asks for the smaller of the setting and what is served',
+    /Math\.min\(settings\.get\('maxTileZoom'\), this\.streamer\.maxUsefulZoom\)/.test(
+      readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8'),
+    ));
+}
+
+console.log('\nThe wheel, in whole steps');
+{
+  const { WheelSteps } = await import('../src/ui/wheel.js');
+  const notch = (w, deltaY, deltaMode = 0, t = 0) =>
+    w.read({ deltaY, deltaMode, timeStamp: t });
+
+  {
+    // A mouse: one notch is 100 pixels, and two of them make a step.
+    const w = new WheelSteps(2);
+    ok('one notch of a mouse wheel is not yet a step', notch(w, -100, 0, 0) === 0);
+    ok('and the second one is', notch(w, -100, 0, 100) === 1);
+  }
+  {
+    // Down then up has to get back to where it started. Rounding finer than
+    // the step is what let the world map zoom in but never out.
+    const w = new WheelSteps(2);
+    let z = 6;
+    for (const [d, t] of [[-100, 0], [-100, 100], [100, 200], [100, 300]]) z += notch(w, d, 0, t) * 0.5;
+    ok('two notches out undo two notches in', near(z, 6, 1e-9), `${z}`);
+  }
+  {
+    // A trackpad: a flick is a stream of small deltas, not one big one.
+    const w = new WheelSteps(2);
+    let steps = 0;
+    for (let i = 0; i < 20; i++) steps += Math.abs(notch(w, -12, 0, i * 12));
+    ok('a trackpad flick moves a couple of levels, not twenty',
+      steps >= 1 && steps <= 2, `${steps} steps from 20 events`);
+  }
+  {
+    // Lines and pages are notches too, not pixels.
+    const w = new WheelSteps(1);
+    ok('a line-mode wheel counts as a notch', notch(w, -3, 1, 0) === 1);
+    const p = new WheelSteps(1);
+    ok('and a page-mode one does too', notch(p, -1, 2, 0) === 1);
+  }
+  {
+    // One enormous delta is still one gesture.
+    const w = new WheelSteps(1);
+    ok('a single huge delta cannot skip the whole range', notch(w, -4000, 0, 0) <= 3);
+  }
+  {
+    // Half a notch left over from a minute ago is not part of this gesture.
+    const w = new WheelSteps(2);
+    notch(w, -100, 0, 0);
+    ok('a stale part-notch is forgotten', notch(w, -100, 0, 5000) === 0);
+  }
+}
+
 console.log('\nElevation that arrives as numbers rather than pixels');
 {
   const grid = await import('../src/tiles/elevationGrid.js');

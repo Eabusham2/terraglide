@@ -1097,6 +1097,9 @@ export class Game {
       } else if (reliefName) {
         parts.push(reliefName);
       }
+      if (Number.isFinite(this.streamer.depthLimit)) {
+        parts.push(`imagery stops at z${this.streamer.depthLimit} here`);
+      }
       if (!this.streamer.mayGenerate && this.streamer.degraded) {
         parts.push('no imagery here — ground coloured from the elevation');
       }

@@ -47,6 +47,16 @@ export class ImageryStreamer extends Emitter {
     /** Set when a provider is unreachable. */
     this.degraded = false;
     /**
+     * What each zoom level has actually done for us: how many tiles arrived,
+     * and how many were refused. A provider's published maximum zoom is a
+     * promise about the deepest tile that *can* exist, not about the ground
+     * you happen to be over, and asking past what it will serve turns into a
+     * stream of 404s — which is how the minimap ended up showing imagery for
+     * ground the world said it had none for. See `reviewDepth`.
+     */
+    this.byZoom = new Map();
+    this.depthLimit = Infinity;
+    /**
      * May a tile be invented when there is nothing real to fetch?
      *
      * Only when the *elevation* is invented too. The generator paints its own
@@ -108,6 +118,50 @@ export class ImageryStreamer extends Emitter {
     this.stats.failed = 0;
     this.consecutiveFailures = 0;
     this.degraded = false;
+    this.byZoom.clear();
+    this.depthLimit = Infinity;
+  }
+
+  /** The tally for one zoom level, created on demand. */
+  zoomRecord(z) {
+    let record = this.byZoom.get(z);
+    if (!record) {
+      record = { loaded: 0, failed: 0 };
+      this.byZoom.set(z, record);
+    }
+    return record;
+  }
+
+  /**
+   * Work out how deep this provider is really willing to go.
+   *
+   * The test is deliberately narrow: a level counts as too deep only when it
+   * has refused a good number of tiles, has never once succeeded, and the
+   * level *above* it is succeeding. That last clause is what separates "this
+   * provider stops at zoom 17" from "this provider has no coverage here at
+   * all" — a regional source like the USGS one refuses every level over
+   * Europe, and lowering the zoom would not help with that. One tile arriving
+   * at a written-off level puts it back.
+   */
+  reviewDepth(z) {
+    const here = this.zoomRecord(z);
+    if (here.loaded > 0) {
+      if (this.depthLimit < z) this.depthLimit = Infinity;
+      return;
+    }
+    if (here.failed < 6) return;
+    const above = this.byZoom.get(z - 1);
+    if (!above || above.loaded === 0) return;
+    if (z - 1 < this.depthLimit) {
+      this.depthLimit = z - 1;
+      this.emit('depth', { zoom: this.depthLimit });
+    }
+  }
+
+  /** The deepest zoom worth asking this provider for, right now. */
+  get maxUsefulZoom() {
+    const published = this.source ? this.source.maxZoom : 19;
+    return Math.min(published, this.depthLimit);
   }
 
   beginFrame() {
@@ -230,6 +284,8 @@ export class ImageryStreamer extends Emitter {
       entry.retryAt = performance.now() + (msg.aborted ? 0 : 20000);
       this.stats.failed++;
       if (!msg.aborted) {
+        this.zoomRecord(entry.tile.z).failed++;
+        this.reviewDepth(entry.tile.z);
         this.consecutiveFailures++;
         // A provider that will not answer at all (offline, blocked host, bad
         // key) should not leave the world as blank ground. Generate tiles
@@ -262,6 +318,9 @@ export class ImageryStreamer extends Emitter {
     entry.state = STATE_READY;
     this.tileSizeHint = msg.bitmap.width || this.tileSizeHint;
     this.stats.loaded++;
+    this.zoomRecord(entry.tile.z).loaded++;
+    // One tile arriving at a level that had been written off puts it back.
+    if (entry.tile.z > this.depthLimit) this.depthLimit = Infinity;
     this.emit('tile', entry);
   }
 

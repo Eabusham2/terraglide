@@ -131,10 +131,11 @@ export class Terrain {
 
   update(camera, budgetMs) {
     const preset = settings.preset();
-    const maxZoom = Math.min(
-      settings.get('maxTileZoom'),
-      this.streamer.source ? this.streamer.source.maxZoom : 19,
-    );
+    // Never ask deeper than the provider is actually serving. The setting is
+    // what you want; `maxUsefulZoom` is what you can have, and it comes down
+    // on its own when a level starts refusing every tile while the one above
+    // it keeps answering.
+    const maxZoom = Math.min(settings.get('maxTileZoom'), this.streamer.maxUsefulZoom);
     const renderDistance = this.renderDistance;
     // Distant mode: keep drawing past the render distance, but only over
     // country you have already flown across. Ground you have never seen stops

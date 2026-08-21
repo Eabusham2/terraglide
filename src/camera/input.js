@@ -1,4 +1,5 @@
 import { Emitter } from '../core/events.js';
+import { WheelSteps } from '../ui/wheel.js';
 import { keybinds } from '../core/keybinds.js';
 import { settings } from '../core/settings.js';
 
@@ -14,7 +15,21 @@ import { settings } from '../core/settings.js';
  *           buttons can be swapped in Settings.
  */
 
-const DRAG_THRESHOLD = 4; // pixels before a click becomes a drag
+/**
+ * How far the pointer may wander before a press counts as a drag rather than
+ * a click.
+ *
+ * Four pixels was too tight to be reliable. The distance is *accumulated* from
+ * every mousemove between press and release — not the straight line from one
+ * to the other — so a hand resting on a mouse, or any trackpad at all, spends
+ * it on noise before you have let go. A click that misses is a click that does
+ * nothing, which is why stowing the wings in pan mode worked about half the
+ * time.
+ */
+const DRAG_THRESHOLD = 9;
+/** A press this short is a click even if the pointer wandered further. */
+const CLICK_TIME_MS = 220;
+const CLICK_SLOP = 26;
 
 export class InputManager extends Emitter {
   constructor(canvas) {
@@ -41,6 +56,7 @@ export class InputManager extends Emitter {
     this.dragButton = -1;
     this.suspended = false;
     this.lastPointer = { x: 0, y: 0 };
+    this.wheel = new WheelSteps(1);
 
     this.onKeyDown = this.onKeyDown.bind(this);
     this.onKeyUp = this.onKeyUp.bind(this);
@@ -246,6 +262,7 @@ export class InputManager extends Emitter {
       event.preventDefault();
       this.dragging = true;
       this.dragMoved = 0;
+      this.dragStartedAt = performance.now();
       this.dragButton = event.button;
       this.lastPointer.x = event.clientX;
       this.lastPointer.y = event.clientY;
@@ -261,10 +278,13 @@ export class InputManager extends Emitter {
     this.dragging = false;
     this.dragButton = -1;
     this.canvas.classList.remove('dragging');
-    if (this.dragMoved < DRAG_THRESHOLD && !this.suspended) {
-      // A click rather than a drag: that is the "land" action in pan mode.
-      this.emit('land', {});
-    }
+    // A click rather than a drag: that is the "land" action in pan mode.
+    // Short *or* small counts, because the two failure modes are different —
+    // a mouse gives you a tiny slow click and a trackpad a quick messy one.
+    const held = performance.now() - (this.dragStartedAt ?? 0);
+    const click =
+      this.dragMoved < DRAG_THRESHOLD || (held < CLICK_TIME_MS && this.dragMoved < CLICK_SLOP);
+    if (click && !this.suspended) this.emit('land', {});
   }
 
   onMouseMove(event) {
@@ -293,6 +313,12 @@ export class InputManager extends Emitter {
   onWheel(event) {
     if (this.suspended) return;
     event.preventDefault();
-    this.emit('wheel', { delta: Math.sign(event.deltaY), shift: event.shiftKey });
+    // One hotbar slot per notch, accumulated — a trackpad sends a stream of
+    // small deltas for one flick and this used to step on every one of them,
+    // so a light gesture ran through the whole hotbar.
+    const steps = this.wheel.read(event);
+    for (let i = 0; i < Math.abs(steps); i++) {
+      this.emit('wheel', { delta: steps > 0 ? -1 : 1, shift: event.shiftKey });
+    }
   }
 }

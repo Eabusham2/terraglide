@@ -1,3 +1,4 @@
+import { WheelSteps } from './wheel.js';
 import { cheats } from '../core/cheats.js';
 import { clamp } from '../core/math.js';
 import { settings } from '../core/settings.js';
@@ -134,13 +135,18 @@ export class WorldMap {
       this.dragging = false;
       canvas.classList.remove('dragging');
     });
+    // Two notches of wheel per half level. The step used to be a quarter of a
+    // level while setZoom rounded to halves, so zooming *out* from any settled
+    // value rounded straight back to where it started and did nothing at all —
+    // which is why the map zoomed about half the time, and moved twice as far
+    // as intended when it did.
+    this.wheel = new WheelSteps(2);
     canvas.addEventListener(
       'wheel',
       (event) => {
         event.preventDefault();
-        // A quarter of a level per notch. Anything faster flies past the scale
-        // you were looking for before you can let go of the wheel.
-        this.setZoom(this.zoom + (event.deltaY > 0 ? -0.25 : 0.25));
+        const steps = this.wheel.read(event);
+        if (steps) this.setZoom(this.zoom + steps * 0.5);
       },
       { passive: false },
     );
@@ -244,6 +250,8 @@ export class WorldMap {
   }
 
   setZoom(zoom) {
+    // Quantised to the same half level the wheel steps in, so a step always
+    // lands somewhere new. Rounding finer than the step is what stalled it.
     this.zoom = clamp(Math.round(zoom * 2) / 2, 2, 19);
     this.dirty = true;
   }

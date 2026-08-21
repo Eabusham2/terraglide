@@ -1,3 +1,4 @@
+import { WheelSteps } from './wheel.js';
 import { keybinds } from '../core/keybinds.js';
 import { clamp } from '../core/math.js';
 import { settings } from '../core/settings.js';
@@ -70,12 +71,16 @@ export class Minimap {
     this.canvas.addEventListener('click', () => {
       if (this.onOpenMap) this.onOpenMap();
     });
+    // Whole levels here, one per two notches: the minimap has nine of them to
+    // cover and a trackpad flick used to run through the lot.
+    this.wheel = new WheelSteps(2);
     this.element.addEventListener(
       'wheel',
       (event) => {
         event.preventDefault();
         event.stopPropagation();
-        this.zoomBy(event.deltaY > 0 ? -1 : 1);
+        const steps = this.wheel.read(event);
+        if (steps) this.zoomBy(steps);
       },
       { passive: false },
     );
