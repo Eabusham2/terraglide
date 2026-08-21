@@ -66,6 +66,27 @@ export class ElevationField {
     return false;
   }
 
+  /**
+   * The finest zoom with real data at this point, or -1 for none.
+   *
+   * What it is for: a terrain mesh built from a zoom-6 elevation tile is a
+   * plateau — one height across a whole square kilometre — and when the zoom-14
+   * tile for the same ground arrives the mesh is simply wrong, not merely
+   * coarse. Comparing the zoom a mesh was built from against the zoom available
+   * now says exactly when it is worth rebuilding, without rebuilding everything
+   * every time any tile anywhere lands.
+   */
+  zoomAt(nx, ny) {
+    const x = nx - Math.floor(nx);
+    const y = clamp(ny, 0, 0.999999);
+    for (let z = this.maxZoom; z >= 3; z--) {
+      const n = Math.pow(2, z);
+      const entry = this.tiles.get(tileKey(z, Math.floor(x * n), Math.floor(y * n)));
+      if (entry && entry.state === STATE_READY) return z;
+    }
+    return -1;
+  }
+
   /** Height in metres at a normalised mercator point. */
   sampleNorm(nx, ny) {
     const x = nx - Math.floor(nx);

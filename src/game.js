@@ -166,7 +166,7 @@ export class Game {
     this.input.on('action', ({ id, repeat }) => this.onAction(id, repeat));
     this.input.on('look', ({ dx, dy }) => this.rig.applyLook(this.player, dx, dy));
     this.input.on('boost', () => this.fireRocket());
-    this.input.on('land', () => this.land());
+    this.input.on('land', () => this.toggleWings());
     this.input.on('wheel', ({ delta }) => {
       if (this.rig.isFreecam) {
         const speed = this.rig.adjustFreecamSpeed(delta);
@@ -1061,8 +1061,8 @@ export class Game {
         else if (this.cheatPanel.open) this.cheatPanel.close();
         else this.settingsPanel.toggle();
         break;
-      case 'stowWings':
-        this.land();
+      case 'wings':
+        this.toggleWings();
         break;
       case 'help':
         this.help.toggle();
@@ -1105,18 +1105,34 @@ export class Game {
   }
 
   /**
-   * Fold the wings away. In the air that means you stop gliding and start
-   * falling, which is the point — you can drop out of a glide deliberately
-   * instead of having to fly all the way down to something solid.
+   * Open the wings, or fold them away again.
+   *
+   * One key that always does the obvious thing, and the reason it exists is
+   * timing. The double jump is Minecraft's gesture and it is the right default,
+   * but it asks you to land a second press inside the half second you are off
+   * the ground — and on a machine drawing at a handful of frames a second that
+   * window can be shorter than the gap between two frames, so the press arrives
+   * after you have already come back down and spends itself on another jump.
+   * This key has no window at all: press it and the wings are out.
+   *
+   * Folding them in the air is the other half of it — you can drop out of a
+   * glide deliberately rather than flying all the way down to something solid.
    */
-  land() {
+  toggleWings() {
     const player = this.player;
+    if (this.rig.isFreecam) return;
+    this.releaseSettle();
     if (player.elytraDeployed) {
       player.toggleElytra(false);
       this.toast(player.onGround ? 'Wings stowed' : 'Wings stowed — falling');
-    } else if (!player.onGround) {
-      this.toast('Falling — press jump again to open the wings', 'warn');
+      return;
     }
+    if (player.onGround) {
+      this.toast('Jump first — wings only open off the ground', 'warn');
+      return;
+    }
+    player.toggleElytra(true);
+    this.toast('Wings out');
   }
 
   async copyCoords() {

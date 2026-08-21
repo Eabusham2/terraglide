@@ -38,6 +38,12 @@ const SEA_LEVEL = 0;
 const KEEP_FACTOR = 1.5;
 /** How much further distant mode reaches than the render distance proper. */
 const DISTANT_FACTOR = 2;
+/**
+ * The most tiles one frame will rebuild for being plainly wrong rather than
+ * merely out of date. High enough that arriving somewhere new sorts itself out
+ * within a second or two, low enough that it cannot stall a frame outright.
+ */
+const REBUILD_CEILING = 48;
 
 export class Terrain {
   constructor({ scene, frame, streamer, elevation, shared }) {
@@ -118,6 +124,12 @@ export class Terrain {
   hasElevationAt(x, z) {
     this.frame.worldToNorm(x, z, this._norm);
     return this.elevation.hasDataAt(this._norm.nx, this._norm.ny);
+  }
+
+  /** Finest elevation zoom with real data at a world position, or -1. */
+  elevationZoomAt(x, z) {
+    this.frame.worldToNorm(x, z, this._norm);
+    return this.elevation.zoomAt(this._norm.nx, this._norm.ny);
   }
 
   /** True when this spot is open water (DEM at or below sea level). */
@@ -340,14 +352,46 @@ export class Terrain {
     const key = tileKey(tile.z, tile.x, tile.y);
     let node = this.nodes.get(key);
 
+    // A mesh made from coarser elevation than is now available is not merely
+    // coarse — it is a plateau. Zoom 6 gives one height per square kilometre,
+    // so a tile built from it is a flat plate, and once the finer relief lands
+    // that plate stands there cutting through the hillside around it: the pale
+    // and black wedges across the mountain, at the wrong height, wearing a
+    // stretched texture.
+    //
+    // The round-robin refresh could not clear them. It marks a few nodes a
+    // frame, and on arriving somewhere new every one of four hundred wants
+    // rebuilding at once. So the check happens here, on tiles that are
+    // actually being drawn, and it compares the zoom the mesh was built from
+    // against the zoom the field can offer now — which is a real improvement,
+    // unlike "some tile somewhere has landed".
+    const bestZoom = this.elevationZoomAt(x0 + size / 2, z0 + size / 2);
+    const builtFrom = node?.builtElevZoom ?? -1;
+    if (node && !node.dirty && bestZoom > builtFrom) node.dirty = true;
+    // Two levels coarser is a mesh that is merely soft. Three or more is a
+    // plateau standing in for a hillside, and no budget is worth leaving one
+    // of those in front of you: it is the wrong shape, at the wrong height,
+    // and it cuts through the ground either side of it.
+    const wrong = node && node.dirty && bestZoom - builtFrom >= 3;
+
     if (!node || node.dirty) {
       const spent = performance.now() - this.budget.start;
       // Always afford the first few tiles of a frame: those are the nearest
       // ones now that the walk is ordered by distance.
-      const affordable = spent < this.budget.ms || this.budget.built < 3;
+      const affordable = wrong
+        ? this.budget.built < REBUILD_CEILING
+        : spent < this.budget.ms || this.budget.built < 3;
       if (!affordable) {
-        // Out of build time this frame: show the nearest built ancestor so the
-        // ground stays continuous, and try again next frame.
+        // Out of build time this frame. A tile that already has a mesh keeps
+        // showing it — an out-of-date surface is far better than swapping the
+        // ground under your feet for its grandparent every time the budget
+        // runs out, which is a pop you can see.
+        if (node && node.mesh) {
+          this.show(node, tile, distance);
+          return;
+        }
+        // Nothing built here yet, so show the nearest built ancestor and try
+        // again next frame.
         const ancestor = this.findBuiltAncestor(tile);
         if (ancestor) {
           this.show(ancestor, tile, distance);
@@ -409,6 +453,13 @@ export class Terrain {
     } else {
       uniforms.uHasTexture.value = 0;
       this.streamer.request(node.tile, priority);
+      // Nothing loaded anywhere above this tile either, so there is no
+      // photograph to stretch and the ground is drawn from the relief alone.
+      // Ask for the coarse ancestors as well: one tile six levels up covers
+      // this one and four thousand of its neighbours, so it is by far the
+      // cheapest way to stop a whole hillside being blank while the sharp
+      // tiles trickle in one at a time.
+      this.streamer.requestAncestors(node.tile, priority);
     }
 
     // Keep a matching elevation tile alive for this area.
@@ -548,6 +599,8 @@ export class Terrain {
     node.tile = tile;
     node.minY = minY - 5;
     node.maxY = maxY + 5;
+    // The finest elevation this mesh could have been made from. See draw().
+    node.builtElevZoom = this.elevation.zoomAt(nx0 + (grid / 2) * step, ny0 + (grid / 2) * step);
     node.dirty = false;
     node.builtVersion = this.elevation.version ?? 0;
     node.used = this.streamer.frame;
@@ -596,7 +649,7 @@ export class Terrain {
    * relief arrived — so the nodes most in need of a rebuild were exactly the
    * ones the loop could not see.
    */
-  invalidateStale(camX, camZ, maxPerFrame = 3) {
+  invalidateStale(camX, camZ, maxPerFrame = 12) {
     const version = this.elevation.version ?? 0;
     let marked = 0;
     for (const node of this.nodes.values()) {

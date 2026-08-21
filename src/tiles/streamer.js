@@ -190,6 +190,35 @@ export class ImageryStreamer extends Emitter {
     return entry;
   }
 
+  /**
+   * Ask for the coarse tiles above this one as well.
+   *
+   * Called when a tile has nothing to draw and no loaded ancestor to stretch
+   * either — which is what happens the moment you arrive somewhere new, because
+   * the quadtree only ever asks for the leaves it is drawing and the levels
+   * above them were never anybody's leaf. One coarse tile covers thousands of
+   * fine ones, so a handful of these turns a blank hillside into a soft one
+   * within a single round trip, and the sharp tiles replace it as they land.
+   */
+  requestAncestors(tile, priority, steps = 8) {
+    let z = tile.z;
+    let x = tile.x;
+    let y = tile.y;
+    for (let i = 0; i < steps && z > 1; i++) {
+      z -= 1;
+      x >>= 1;
+      y >>= 1;
+      // Ahead of the leaf that asked for them, and the coarser the further
+      // ahead. That looks backwards and is not: this is only called when there
+      // is nothing to draw at all, and one tile eight levels up covers this
+      // leaf and four thousand of its neighbours. Leaving them behind the
+      // leaves in the queue meant they were never dispatched — the queue is
+      // rebuilt every frame and the sharp tiles refill it from the front — so
+      // whole hillsides stayed blank while single sharp tiles trickled in.
+      this.request({ z, x, y }, priority * Math.pow(0.5, i + 1));
+    }
+  }
+
   /** Mark a tile as still in use without requesting a load. */
   touch(tile) {
     const entry = this.entries.get(tileKey(tile.z, tile.x, tile.y));
@@ -200,8 +229,15 @@ export class ImageryStreamer extends Emitter {
   /**
    * Best available texture for a tile: itself, or the nearest loaded ancestor
    * with the UV window that shows the right quarter/sixteenth of it.
+   *
+   * It walks all the way to the root. Stopping six levels short sounds
+   * reasonable and is not: the quadtree draws leaves nineteen levels down and
+   * its roots sit around eight, so the one texture that *was* loaded — the
+   * coarse one covering the whole view — was eleven steps away and never
+   * found. The loop is twenty-odd map lookups; the alternative was blank
+   * ground.
    */
-  resolve(tile, maxSteps = 6) {
+  resolve(tile, maxSteps = 24) {
     let z = tile.z;
     let x = tile.x;
     let y = tile.y;
