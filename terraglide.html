@@ -1516,6 +1516,14 @@ body.touch-active .hud-crosshair {
 .provider-test .provider-no-cover b { color: #93c5fd; }
 .provider-test .provider-checking b { color: var(--text-faint); }
 
+/* "Test this one", beside the provider it tests. */
+.field-test {
+  grid-column: 2;
+  justify-self: start;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
 </style>
 </head>
 <body>
@@ -82250,12 +82258,22 @@ const CHEAT_DEFAULTS = {
   mapUnlocked: false,
   /** Speed mode never runs out and never needs to recharge. */
   speedFree: false,
+  /**
+   * How big you are, as a multiple of your real height.
+   *
+   * This lived in Settings, next to the field of view and the units, which
+   * made growing to forty times human size an ordinary preference rather than
+   * what it is. It is a cheat, so it is in here with the other cheats, and it
+   * goes back to one on a refresh like everything else on this list.
+   */
+  playerScale: 1,
 };
 
 const LIMITS = {
   playerSpeed: [0.1, 12],
   gameSpeed: [0.1, 8],
   rocketPower: [0.1, 12],
+  playerScale: [0.25, 40],
 };
 
 class Cheats extends Emitter {
@@ -82463,8 +82481,9 @@ const { readJSON, removeKey, writeJSON } = __tg_require("src/core/storage.js");
  * Every persisted option in the game. Defaults are chosen so a fresh browser
  * with no API keys and no network still boots into something playable.
  *
- * imageryProvider:   'offline' | 'esri' | 'google' | 'bing' | 'azure' | 'mapbox'
- * elevationProvider: 'procedural' | 'mapbox' | 'terrarium'
+ * imageryProvider:   'esri' | 'sentinel2' | 'usgs' | 'gibs' | 'google' | 'bing'
+ *                    | 'azure' | 'maxar' | 'cesium-ion' | 'mapbox'
+ * elevationProvider: 'terrarium' | 'mapbox' | 'bing-elevation'
  * panoramaProvider:  'none' | 'google' | 'mapillary'
  * graphics:          'low' | 'medium' | 'high' | 'ultra'
  * mouseMode:         'locked' | 'pan'
@@ -82489,6 +82508,16 @@ const DEFAULT_SETTINGS = {
    * 'cesium' — the same dataset through Cesium ion, on an ion token instead.
    */
   world3d: 'off',
+  /**
+   * Which Cesium ion dataset the ion route asks for.
+   *
+   * 'photoreal' is Google's aerial photogrammetry — the buildings and trees
+   * are the mesh somebody flew over and measured. 'osm-buildings' is every
+   * OpenStreetMap building on Earth extruded from its recorded height: not
+   * photographed, so grey rather than textured, but a real survey and it
+   * covers ground the photogrammetry has never been flown over.
+   */
+  world3dAsset: 'photoreal',
   world3dDetail: 'high',
   cesiumToken: '',
   bingKey: '',
@@ -82499,50 +82528,42 @@ const DEFAULT_SETTINGS = {
   maxarConnectId: '',
   addressLookup: true,
   buildings: true,
-  structuresNeedHeight: false,
   streetLevel: true,
 
   /* graphics */
   graphics: 'high',
-  renderDistanceKm: 16,
+  renderDistanceKm: 24,
   /**
-   * Let the horizon find its own distance by measuring the frame clock.
+   * How far to keep drawing ground you have already flown over, in km.
    *
-   * The number above is then a starting point rather than a setting, the same
-   * way the graphics preset is when autoQuality is on: it climbs while there
-   * is headroom and comes back in when there is not. Turning this off pins the
-   * distance to whatever the slider says.
+   * Two different numbers on purpose. The first is how far the world is drawn
+   * in full anywhere, and it stops at 64 km because that is a real horizon and
+   * everything past it costs streaming for country you may never look at. This
+   * one only applies where the explored map says you have been, so the tiles
+   * are already cached and the cost is drawing rather than fetching — which is
+   * why it can run all the way to 1024.
    */
-  renderDistanceAuto: true,
+  distantDistanceKm: 256,
   distantMode: true,
   fov: 78,
   freecamFov: 85,
   speedFovKick: true,
   resolutionScale: 1,
-  adaptiveResolution: true,
+  adaptiveResolution: false,
   fpsTarget: 60,
   fog: true,
   weather: true,
   scenery: true,
   sceneryFromImagery: true,
-  maxTileZoom: 20,
+  maxTileZoom: 22,
   /**
-   * Ask for the ground as sharp as the provider will serve it.
+   * Detail ceiling, as a percentage of the preset's own budgets.
    *
-   * The number above is a ceiling you set; this says do not set one. What you
-   * actually get is then whatever the provider answers, which the streamer
-   * works out for itself by watching which zoom levels come back and which
-   * only ever 404 — so this is "as detailed as possible" in the literal sense
-   * rather than a guess at a number that is right for one provider and wrong
-   * for the next.
+   * One dial that scales tile detail, mesh detail and how deep the ground
+   * zooms, all together — so there is a single thing to pull when the frame
+   * rate is short rather than five. A hundred is the preset as designed.
    */
-  maxTileZoomAuto: true,
-  /**
-   * Pick the graphics preset by measuring the frame clock against fpsTarget.
-   * See src/core/autoQuality.js — it only ever moves one tier at a time and
-   * says so when it does.
-   */
-  autoQuality: true,
+  detailLimit: 100,
   /**
    * Which Cesium ion asset the ion imagery provider asks for. 2 is Bing
    * Aerial, which is what most accounts have; any raster asset you own works.
@@ -82564,9 +82585,6 @@ const DEFAULT_SETTINGS = {
 
   /* player */
   playerHeightM: 1.98, // 6 ft 6 in
-  playerScale: 1,
-  speedModeDurationS: 10,
-  speedModeCooldownS: 45,
 
   /* world / exploration */
   units: 'metric',
@@ -82575,9 +82593,7 @@ const DEFAULT_SETTINGS = {
   seaDistanceKm: 501,
   /** Random teleport arrives high with the wings out. */
   rtpSkySpawn: true,
-  /** Prefer arriving where there is street-level imagery, and inside a building. */
-  spawnStreetLevel: true,
-  spawnInBuilding: true,
+
   /** 'anywhere' | 'populated' — where random teleport is allowed to drop you. */
   rtpTarget: 'anywhere',
   timeMode: 'day',
@@ -82775,9 +82791,23 @@ class PerfGovernor {
   }
 }
 
-/** Fixed-timestep accumulator so physics stay identical at any frame rate. */
+/**
+ * Fixed-timestep accumulator so physics stay identical at any frame rate.
+ *
+ * `maxSteps` is the catch-up ceiling, and it was six — three tenths of a
+ * second. That is fine at sixty frames a second and a disaster below about
+ * three, because everything past the ceiling is *thrown away*: the game clock
+ * simply runs slower than the wall clock, and the whole world moves in slow
+ * motion. Falling too slowly, gliding too slowly, a jump that hangs — all one
+ * bug, and it only shows up on the machines least able to afford it.
+ *
+ * Thirty steps is a second and a half of catch-up, which covers a frame rate
+ * down to about one. It is still a ceiling rather than no ceiling, because
+ * without one a machine that cannot keep up spends longer simulating than
+ * drawing and never recovers.
+ */
 class FixedStep {
-  constructor(step, maxSteps = 6) {
+  constructor(step, maxSteps = 30) {
     this.step = step;
     this.maxSteps = maxSteps;
     this.acc = 0;
@@ -82803,272 +82833,111 @@ __tg_exports["MIN_SCALE"] = MIN_SCALE;
 __tg_exports["PerfGovernor"] = PerfGovernor;
 __tg_exports["FixedStep"] = FixedStep;
 };
-__tg_modules["src/core/autoQuality.js"] = function (__tg_exports) {
-const { MIN_SCALE } = __tg_require("src/core/perf.js");
-const { settings } = __tg_require("src/core/settings.js");
+__tg_modules["src/core/benchmark.js"] = function (__tg_exports) {
+const { GRAPHICS_PRESETS, settings } = __tg_require("src/core/settings.js");
 
 /**
- * Choosing the graphics preset by measuring instead of guessing.
+ * Test this machine and pick settings for it.
  *
- * A benchmark you run once at startup measures a menu, an empty sky or
- * whatever happened to be on screen for two seconds — none of which is what
- * the game costs. The honest test is the game itself, so this watches the real
- * frame clock and moves the preset when the machine has been telling you the
- * same thing for long enough to believe it.
+ * The automatic version of this was worse than useless. It watched the frame
+ * clock forever and moved things underneath you — the world got quietly softer
+ * while you were flying it, the horizon crept in and out, and there was no way
+ * to tell a machine that was struggling from a machine that had just been
+ * handed a city. Worse, it made the game look bad by default on exactly the
+ * hardware where you would blame the game.
  *
- * It sits *above* the resolution governor rather than beside it. That one
- * absorbs the small stuff by rendering fewer pixels, which is the cheapest
- * thing to give up and the first thing to take back; this one only acts once
- * that has run out of room — the scale is on the floor and the frames are
- * still late, or the scale is back at full and there is real headroom spare.
- * Two knobs both reacting to the same overshoot would fight.
+ * So: a button. It runs each preset for a fixed spell, measures the frames
+ * that actually arrive, and stops at the heaviest one that holds the target.
+ * Nothing moves unless you press it, and what it picks is what you keep.
  *
- * The rest is hysteresis, because the failure mode of anything adaptive is
- * hunting. Dropping a tier is quick and taking one back is slow; a tier that
- * has proved too heavy becomes a ceiling, so the loop cannot climb straight
- * back into it; and the ceiling forgets after a couple of minutes, because
- * flying into a city is not the same fact about your machine as flying out of
- * one again.
+ * The measurement is the real game — the real terrain, the real shaders, the
+ * real tile budget, wherever you happen to be standing. A synthetic loop would
+ * measure a synthetic loop.
  */
 
-/** Lightest first. The order is the ladder. */
+/** Lightest first; the ladder the benchmark walks up. */
 const TIERS = ['low', 'medium', 'high', 'ultra'];
+/** Seconds spent on each tier. Long enough to average out a stutter. */
+const SAMPLE_S = 2.2;
+/** Frames thrown away after a change, while caches and shaders settle. */
+const WARMUP_FRAMES = 12;
 
-/** Seconds over budget, with nothing left to give, before dropping a tier. */
-const DROP_AFTER_S = 8;
-/** Seconds of real headroom before taking one back. Deliberately far longer. */
-const RAISE_AFTER_S = 22;
-/** Quiet period after any change, so a tier is judged on its own frames. */
-const SETTLE_S = 12;
-/** How long a tier stays marked too heavy. */
-const CEILING_MEMORY_S = 150;
-/** Late enough to count as late, and early enough to count as spare. */
-const LATE = 1.25;
-const SPARE = 0.72;
-
-class AutoQuality {
+class Benchmark {
   constructor() {
-    this.overFor = 0;
-    this.underFor = 0;
-    this.settle = 0;
-    /** Index of the lightest tier known to be too heavy, or null. */
-    this.ceiling = null;
-    this.ceilingAge = 0;
+    this.running = false;
+    this.results = [];
+    this.onProgress = null;
   }
 
   /**
-   * @param {number} dt seconds
-   * @param {{frameMs: number, scale: number}} perf the resolution governor
-   * @returns {string|null} the tier just moved to, or null for no change
+   * @param {{frameMs: number}} perf the frame clock
+   * @param {() => Promise<void>} nextFrame resolves on the next drawn frame
+   * @param {number} targetFps frames a second to hold
    */
-  update(dt, perf) {
-    if (!settings.get('autoQuality')) {
-      this.overFor = 0;
-      this.underFor = 0;
-      return null;
+  async run(perf, nextFrame, targetFps = settings.get('fpsTarget')) {
+    if (this.running) return null;
+    this.running = true;
+    const before = {
+      graphics: settings.get('graphics'),
+      resolutionScale: settings.get('resolutionScale'),
+      detailLimit: settings.get('detailLimit'),
+    };
+    // Measure at full resolution and full detail, so what is being compared is
+    // the preset rather than the preset times whatever else was turned down.
+    settings.set('resolutionScale', 1);
+    settings.set('detailLimit', 100);
+    this.results = [];
+
+    try {
+      for (const tier of TIERS) {
+        settings.set('graphics', tier);
+        this.report(`Testing ${tier}\u2026`);
+        for (let i = 0; i < WARMUP_FRAMES; i++) await nextFrame();
+        let elapsed = 0;
+        let frames = 0;
+        let worst = 0;
+        while (elapsed < SAMPLE_S) {
+          const ms = await nextFrame();
+          elapsed += ms / 1000;
+          frames++;
+          worst = Math.max(worst, ms);
+        }
+        const fps = frames / Math.max(elapsed, 0.001);
+        this.results.push({ tier, fps, worstMs: worst });
+      }
+    } finally {
+      settings.set('resolutionScale', before.resolutionScale);
+      settings.set('detailLimit', before.detailLimit);
+      this.running = false;
     }
 
-    this.settle = Math.max(0, this.settle - dt);
-    if (this.ceiling !== null) {
-      this.ceilingAge += dt;
-      if (this.ceilingAge > CEILING_MEMORY_S) this.ceiling = null;
+    // The heaviest tier that held the target. If none did, the lightest one,
+    // and the detail dial takes over from there.
+    const held = this.results.filter((r) => r.fps >= targetFps * 0.92);
+    const pick = held.length > 0 ? held[held.length - 1] : this.results[0];
+    settings.set('graphics', pick.tier);
+    if (held.length === 0) {
+      // Nothing held even at Low. Give the detail dial the difference rather
+      // than leaving the frame rate on the floor.
+      const ratio = pick.fps / Math.max(targetFps, 1);
+      settings.set('detailLimit', Math.max(25, Math.round((ratio * 100) / 5) * 5));
     }
-
-    const budget = 1000 / Math.max(30, settings.get('fpsTarget'));
-    const ms = perf.frameMs;
-    // "Nothing left to give" and "room to spare" are both about the resolution
-    // governor, not about the frame time alone.
-    // The floor moved when the resolution governor stopped being allowed to
-    // render a soft picture, so read it from there rather than repeating the
-    // number: a stale copy here meant "nothing left to give" was never true
-    // and the preset could not drop at all.
-    const floored = perf.scale <= MIN_SCALE + 0.02 && distanceSpent();
-    const full = perf.scale >= settings.get('resolutionScale') - 0.01;
-
-    if (ms > budget * LATE && floored) {
-      this.overFor += dt;
-      this.underFor = 0;
-    } else if (ms < budget * SPARE && full) {
-      this.underFor += dt;
-      this.overFor = 0;
-    } else {
-      // Neither: let both timers bleed off rather than resetting them, so a
-      // machine that is marginal still gets there eventually.
-      this.overFor = Math.max(0, this.overFor - dt);
-      this.underFor = Math.max(0, this.underFor - dt);
-    }
-
-    if (this.settle > 0) return null;
-    const index = TIERS.indexOf(settings.get('graphics'));
-    if (index < 0) return null;
-
-    if (this.overFor >= DROP_AFTER_S && index > 0) {
-      this.ceiling = index;
-      this.ceilingAge = 0;
-      return this.moveTo(index - 1);
-    }
-    if (this.underFor >= RAISE_AFTER_S && index < TIERS.length - 1) {
-      if (this.ceiling !== null && index + 1 >= this.ceiling) return null;
-      return this.moveTo(index + 1);
-    }
-    return null;
+    this.report(null);
+    return { pick: pick.tier, results: this.results };
   }
 
-  moveTo(index) {
-    const tier = TIERS[index];
-    settings.set('graphics', tier);
-    this.settle = SETTLE_S;
-    this.overFor = 0;
-    this.underFor = 0;
-    return tier;
-  }
-
-  /**
-   * Treat a hand-picked preset as the new starting point.
-   *
-   * Choosing one yourself is a statement about what you want, so it clears the
-   * ceiling and the timers — otherwise picking Ultra on a machine that dropped
-   * to High an hour ago would be undone within seconds and look like the
-   * setting had not saved.
-   */
-  reset() {
-    this.overFor = 0;
-    this.underFor = 0;
-    this.ceiling = null;
-    this.settle = SETTLE_S;
+  report(status) {
+    this.status = status;
+    if (this.onProgress) this.onProgress(status, this.results);
   }
 }
 
-/**
- * Has the render distance already been given up on?
- *
- * The preset is the last thing to go, because dropping a tier changes how
- * everything looks everywhere. Pulling the horizon in changes how much world
- * there is and nothing about the part of it you are looking at, so it goes
- * first — and the preset should not start dropping tiers while there is still
- * horizon to give back.
- */
-function distanceSpent() {
-  if (!settings.get('renderDistanceAuto')) return true;
-  return settings.get('renderDistanceKm') <= AUTO_DISTANCE_MIN_KM + 0.5;
-}
-
-/** The shortest the automatic horizon will pull itself in to, in kilometres. */
-const AUTO_DISTANCE_MIN_KM = 6;
-/** And the furthest it will push itself out to on its own. */
-const AUTO_DISTANCE_MAX_KM = 256;
-/** Seconds late before the horizon comes in; seconds spare before it goes out. */
-const DISTANCE_DROP_AFTER_S = 3;
-const DISTANCE_RAISE_AFTER_S = 6;
-/** Quiet period after a move, so the new distance is judged on its own frames. */
-const DISTANCE_SETTLE_S = 4;
-
-/**
- * Choosing how far you can see by measuring, the same way the preset is chosen.
- *
- * "Auto" for a distance means something different from auto for a preset: there
- * is no ladder of named steps, just a number, and the useful behaviour is to
- * keep pushing the horizon out while the machine can still afford it and pull
- * it back the moment it cannot. So this walks the number by a fifth at a time
- * in both directions, quickly inward and slowly outward, and stops climbing
- * once a distance has proved too expensive.
- *
- * It sits between the resolution governor and the preset: pixels are given up
- * first because they cost the least to lose, then world, then detail.
- */
-class AutoDistance {
-  constructor() {
-    this.overFor = 0;
-    this.underFor = 0;
-    this.settle = 0;
-    /** The shortest distance known to be too expensive, or null. */
-    this.ceilingKm = null;
-    this.ceilingAge = 0;
-    /** The last distance this governor wrote, so its own writes are known. */
-    this.lastSet = null;
-  }
-
-  /** Was this value written by the governor rather than by a person? */
-  wrote(km) {
-    return this.lastSet !== null && km === this.lastSet;
-  }
-
-  /**
-   * @param {number} dt seconds
-   * @param {{frameMs: number, scale: number}} perf the resolution governor
-   * @returns {number|null} the distance just moved to, in km, or null
-   */
-  update(dt, perf) {
-    if (!settings.get('renderDistanceAuto')) {
-      this.overFor = 0;
-      this.underFor = 0;
-      return null;
-    }
-    this.settle = Math.max(0, this.settle - dt);
-    if (this.ceilingKm !== null) {
-      this.ceilingAge += dt;
-      if (this.ceilingAge > CEILING_MEMORY_S) this.ceilingKm = null;
-    }
-
-    const budget = 1000 / Math.max(30, settings.get('fpsTarget'));
-    const ms = perf.frameMs;
-    const floored = perf.scale <= MIN_SCALE + 0.02;
-    const full = perf.scale >= settings.get('resolutionScale') - 0.01;
-
-    if (ms > budget * LATE && floored) {
-      this.overFor += dt;
-      this.underFor = 0;
-    } else if (ms < budget * SPARE && full) {
-      this.underFor += dt;
-      this.overFor = 0;
-    } else {
-      this.overFor = Math.max(0, this.overFor - dt);
-      this.underFor = Math.max(0, this.underFor - dt);
-    }
-
-    if (this.settle > 0) return null;
-    const km = settings.get('renderDistanceKm');
-
-    if (this.overFor >= DISTANCE_DROP_AFTER_S && km > AUTO_DISTANCE_MIN_KM) {
-      this.ceilingKm = km;
-      this.ceilingAge = 0;
-      return this.moveTo(Math.max(AUTO_DISTANCE_MIN_KM, Math.round(km / 1.2)));
-    }
-    if (this.underFor >= DISTANCE_RAISE_AFTER_S && km < AUTO_DISTANCE_MAX_KM) {
-      const next = Math.min(AUTO_DISTANCE_MAX_KM, Math.max(km + 2, Math.round(km * 1.2)));
-      if (this.ceilingKm !== null && next >= this.ceilingKm) return null;
-      return this.moveTo(next);
-    }
-    return null;
-  }
-
-  moveTo(km) {
-    // Remembered so the settings hook can tell this write apart from a hand
-    // on the slider. Without it the governor's own move looked like you had
-    // set the distance yourself, which cleared the ceiling it had just learned
-    // and let it climb straight back into a distance it knew was too far.
-    this.lastSet = km;
-    settings.set('renderDistanceKm', km);
-    this.settle = DISTANCE_SETTLE_S;
-    this.overFor = 0;
-    this.underFor = 0;
-    return km;
-  }
-
-  /** Setting the distance by hand is a statement; take it as the new start. */
-  reset() {
-    this.overFor = 0;
-    this.underFor = 0;
-    this.ceilingKm = null;
-    this.settle = DISTANCE_SETTLE_S;
-  }
-}
+/** Every preset name, for the settings menu. */
+const PRESET_NAMES = Object.keys(GRAPHICS_PRESETS);
 
 __tg_exports["TIERS"] = TIERS;
-__tg_exports["AutoQuality"] = AutoQuality;
-__tg_exports["AUTO_DISTANCE_MIN_KM"] = AUTO_DISTANCE_MIN_KM;
-__tg_exports["AUTO_DISTANCE_MAX_KM"] = AUTO_DISTANCE_MAX_KM;
-__tg_exports["AutoDistance"] = AutoDistance;
+__tg_exports["Benchmark"] = Benchmark;
+__tg_exports["PRESET_NAMES"] = PRESET_NAMES;
 };
 __tg_modules["src/core/units.js"] = function (__tg_exports) {
 const M_PER_FT = 0.3048;
@@ -83264,6 +83133,7 @@ const ACTIONS = [
   { id: 'mouseMode', label: 'Swap mouse mode', group: 'View' },
   { id: 'toggleHud', label: 'Toggle HUD', group: 'System' },
   { id: 'settings', label: 'Settings', group: 'System' },
+  { id: 'pause', label: 'Pause \u2014 stop the world without opening anything', group: 'System' },
   { id: 'help', label: 'Controls help', group: 'System' },
   { id: 'debug', label: 'Debug overlay', group: 'System' },
   { id: 'hotbar1', label: 'Hotbar 1', group: 'Hotbar' },
@@ -83299,6 +83169,7 @@ const DEFAULT_BINDS = {
   mouseMode: 'KeyL',
   toggleHud: 'F1',
   settings: 'Escape',
+  pause: 'KeyO',
   help: 'F2',
   debug: 'F3',
   hotbar1: 'Digit1',
@@ -83629,6 +83500,18 @@ class InputManager extends Emitter {
     if (target instanceof HTMLElement) {
       const tag = target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
+      // A button that still has focus turns Space and Enter into a click on
+      // it. That is why jumping on a fresh boot opened the controls card and
+      // teleported you somewhere else: the HUD's own buttons were focused, and
+      // Space pressed whichever one you had last touched. Preventing the
+      // default is not enough on its own — the focus has to go, or every
+      // subsequent Space is a coin toss.
+      if (tag === 'BUTTON' || tag === 'A') {
+        target.blur();
+        if (event.code === 'Space' || event.code === 'Enter' || event.code === 'NumpadEnter') {
+          event.preventDefault();
+        }
+      }
     }
 
     // Let the browser keep its own shortcuts when a modifier is held — but not
@@ -84436,246 +84319,8 @@ const geocoder = new Geocoder();
 __tg_exports["Geocoder"] = Geocoder;
 __tg_exports["geocoder"] = geocoder;
 };
-__tg_modules["src/tiles/procedural.js"] = function (__tg_exports) {
-/**
- * Offline world generator.
- *
- * With no provider key and no network TerraGlide still has to be a place you
- * can fly around, so imagery and elevation both fall back to this: a seamless
- * fractal over the mercator square, shaded like a satellite photo. It is
- * invented terrain — it is never presented as a real location.
- */
-
-const SEA_LEVEL = 0.505;
-const MAX_ELEVATION = 7200;
-const OCEAN_DEPTH = 5200;
-
-function hash2(xi, yi) {
-  let h = Math.imul(xi | 0, 374761393) ^ Math.imul(yi | 0, 668265263);
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
-
-function smooth(t) {
-  return t * t * (3 - 2 * t);
-}
-
-/** Value noise on a lattice that wraps every `period` cells in x. */
-function vnoise(x, y, period) {
-  const xi = Math.floor(x);
-  const yi = Math.floor(y);
-  const fx = smooth(x - xi);
-  const fy = smooth(y - yi);
-  const x0 = ((xi % period) + period) % period;
-  const x1 = (x0 + 1) % period;
-  const a = hash2(x0, yi);
-  const b = hash2(x1, yi);
-  const c = hash2(x0, yi + 1);
-  const d = hash2(x1, yi + 1);
-  const top = a + (b - a) * fx;
-  const bottom = c + (d - c) * fx;
-  return top + (bottom - top) * fy;
-}
-
-const BASE_CELLS = 10;
-
-function fbm(nx, ny, octaves, startFreq = 1, gain = 0.55) {
-  let sum = 0;
-  let amp = 1;
-  let total = 0;
-  let freq = startFreq;
-  for (let o = 0; o < octaves; o++) {
-    const cells = BASE_CELLS * freq;
-    sum += vnoise(nx * cells, ny * cells, cells) * amp;
-    total += amp;
-    amp *= gain;
-    freq *= 2;
-  }
-  return sum / total;
-}
-
-/**
- * Continent/ocean mask in [0,1].
- *
- * Plain fractal noise gives blobby islands that read as noise rather than as
- * geography, so the sample point is warped by a second, coarser noise field
- * first. That one trick is what bends coastlines into peninsulas and bays
- * instead of circles.
- */
-function continentField(nx, ny) {
-  const warpX = (fbm(nx + 0.37, ny + 0.11, 3) - 0.5) * 0.22;
-  const warpY = (fbm(nx + 0.71, ny + 0.53, 3) - 0.5) * 0.22;
-  return fbm(nx + warpX, ny + warpY, 5);
-}
-
-/**
- * Ridged fractal used for mountain chains. Warped as well, so ranges run in
- * long arcs the way real orogenic belts do rather than scattering as lumps.
- */
-function ridgeField(nx, ny, octaves) {
-  const warpX = (fbm(nx + 5.1, ny + 2.3, 2, 2) - 0.5) * 0.06;
-  const warpY = (fbm(nx + 1.7, ny + 8.9, 2, 2) - 0.5) * 0.06;
-  let sum = 0;
-  let amp = 1;
-  let total = 0;
-  let freq = 4;
-  for (let o = 0; o < octaves; o++) {
-    const cells = BASE_CELLS * freq;
-    const n = vnoise((nx + warpX) * cells, (ny + warpY) * cells, cells);
-    const ridge = 1 - Math.abs(n * 2 - 1);
-    sum += ridge * ridge * amp;
-    total += amp;
-    amp *= 0.52;
-    freq *= 2;
-  }
-  return sum / total;
-}
-
-/** Fine detail added at close range so the ground is not glassy. */
-function detailField(nx, ny, startOctave, octaves) {
-  let sum = 0;
-  let amp = 1;
-  let total = 0;
-  let freq = Math.pow(2, startOctave);
-  for (let o = 0; o < octaves; o++) {
-    const cells = BASE_CELLS * freq;
-    sum += (vnoise(nx * cells, ny * cells, cells) - 0.5) * amp;
-    total += amp;
-    amp *= 0.5;
-    freq *= 2;
-  }
-  return total > 0 ? sum / total : 0;
-}
-
-/**
- * Elevation in metres for a point in normalised mercator space.
- * `detail` (0-10) controls how many octaves of fine relief are added.
- */
-function proceduralElevation(nx, ny, detail = 6) {
-  const wrappedX = nx - Math.floor(nx);
-  const clampedY = Math.min(0.9999, Math.max(0.0001, ny));
-
-  const continent = continentField(wrappedX, clampedY);
-  const land = continent - SEA_LEVEL;
-
-  if (land <= 0) {
-    // Ocean floor: a shallow shelf near the coast, then a drop to the abyss.
-    const depth = Math.min(1, -land / 0.35);
-    const shelf = Math.pow(depth, 1.6);
-    const relief = detailField(wrappedX, clampedY, 3, 3) * 220;
-    return -shelf * OCEAN_DEPTH + relief * depth;
-  }
-
-  // A wide, gently rising coastal plain instead of a wall at the waterline.
-  const shore = Math.pow(Math.min(1, land / 0.05), 1.4);
-  const mountains = ridgeField(wrappedX, clampedY, Math.min(7, 3 + detail));
-  const uplift = Math.pow(Math.min(1, land / 0.26), 1.5);
-  const base = land * 700;
-  const peaks = Math.pow(mountains, 2.4) * MAX_ELEVATION * uplift;
-
-  // Valleys: subtract a smooth channel field so ranges are cut by drainage
-  // rather than being solid domes.
-  const valley = Math.abs(fbm(wrappedX, clampedY, 3, 6) - 0.5) * 2;
-  const carve = (1 - Math.pow(valley, 0.6)) * 320 * uplift;
-
-  const fine = detailField(wrappedX, clampedY, 6, Math.max(0, detail)) * (45 + 260 * uplift);
-
-  return Math.max(0.5, (base + peaks - carve + fine) * shore);
-}
-
-/** Latitude (deg) from a normalised mercator y, for climate-driven colouring. */
-function latFromNormY(ny) {
-  return (2 * Math.atan(Math.exp((0.5 - ny) * 2 * Math.PI)) - Math.PI / 2) * (180 / Math.PI);
-}
-
-function mix(a, b, t) {
-  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-}
-
-const DEEP = [16, 38, 66];
-const SHALLOW = [38, 86, 118];
-const SAND = [178, 166, 132];
-const GRASS = [86, 106, 66];
-const FOREST = [56, 76, 52];
-const ARID = [148, 124, 88];
-const ROCK = [104, 100, 94];
-const SNOW = [226, 228, 232];
-
-/**
- * Paint one procedural imagery tile.
- * @returns {ImageData-like} {data: Uint8ClampedArray, width, height}
- */
-function proceduralImagery(tile, size = 128) {
-  const n = Math.pow(2, tile.z);
-  const data = new Uint8ClampedArray(size * size * 4);
-  const detail = Math.max(0, Math.min(8, tile.z - 6));
-  const step = 1 / (n * size);
-
-  for (let py = 0; py < size; py++) {
-    const ny = (tile.y + (py + 0.5) / size) / n;
-    const lat = latFromNormY(ny);
-    const warmth = Math.max(0, 1 - Math.abs(lat) / 62);
-    const dryness = Math.max(0, 1 - Math.abs(Math.abs(lat) - 25) / 22);
-    for (let px = 0; px < size; px++) {
-      const nx = (tile.x + (px + 0.5) / size) / n;
-      const h = proceduralElevation(nx, ny, detail);
-      const hx = proceduralElevation(nx + step, ny, detail);
-      const hy = proceduralElevation(nx, ny + step, detail);
-      const metresPerStep = Math.max(1, 40075017 / (n * size));
-      const slope = Math.min(1, Math.hypot(h - hx, h - hy) / metresPerStep);
-
-      let colour;
-      if (h < -140) colour = mix(DEEP, SHALLOW, Math.min(1, (h + 3200) / 3060));
-      else if (h < 0) colour = mix(SHALLOW, SAND, Math.min(1, (h + 140) / 140));
-      else if (h < 24) colour = mix(SAND, GRASS, h / 24);
-      else {
-        const green = mix(GRASS, FOREST, Math.min(1, warmth * 1.15));
-        const vegetation = mix(green, ARID, dryness * 0.75);
-        const treeLine = 1500 + 1900 * warmth;
-        const snowLine = 2600 + 2400 * warmth;
-        if (h < treeLine) colour = mix(vegetation, ROCK, Math.min(1, (h / treeLine) * 0.75 + slope * 0.5));
-        else if (h < snowLine) colour = mix(ROCK, SNOW, (h - treeLine) / Math.max(1, snowLine - treeLine));
-        else colour = mix(SNOW, ROCK, Math.min(0.55, slope));
-      }
-
-      // Break up the flat fill so the ground reads as photography, not paint.
-      const grain = (hash2(tile.x * size + px, tile.y * size + py) - 0.5) * 18;
-      const shade = 1 - slope * 0.35;
-      const i = (py * size + px) * 4;
-      data[i] = colour[0] * shade + grain;
-      data[i + 1] = colour[1] * shade + grain;
-      data[i + 2] = colour[2] * shade + grain;
-      data[i + 3] = 255;
-    }
-  }
-  return { data, width: size, height: size };
-}
-
-/** Elevation grid for a tile, used when no elevation provider is configured. */
-function proceduralHeights(tile, size = 65) {
-  const n = Math.pow(2, tile.z);
-  const out = new Float32Array(size * size);
-  const detail = Math.max(0, Math.min(8, tile.z - 5));
-  for (let py = 0; py < size; py++) {
-    const ny = (tile.y + py / (size - 1)) / n;
-    for (let px = 0; px < size; px++) {
-      const nx = (tile.x + px / (size - 1)) / n;
-      out[py * size + px] = proceduralElevation(nx, ny, detail);
-    }
-  }
-  return out;
-}
-
-const PROCEDURAL_SEA_LEVEL = 0;
-
-__tg_exports["proceduralElevation"] = proceduralElevation;
-__tg_exports["proceduralImagery"] = proceduralImagery;
-__tg_exports["proceduralHeights"] = proceduralHeights;
-__tg_exports["PROCEDURAL_SEA_LEVEL"] = PROCEDURAL_SEA_LEVEL;
-};
 __tg_modules["src/geo/water.js"] = function (__tg_exports) {
 const { clamp } = __tg_require("src/core/math.js");
-const { proceduralElevation } = __tg_require("src/tiles/procedural.js");
 const { destination, latToNormY, lonToNormX, tileKey, wrapTileX } = __tg_require("src/geo/mercator.js");
 
 /**
@@ -84707,15 +84352,12 @@ class WaterMap {
 
   /** @returns {Promise<boolean>} */
   async isWater(lat, lon) {
-    if (!this.source || this.source.synthetic) {
-      return proceduralElevation(lonToNormX(lon), latToNormY(lat), 4) <= 0;
-    }
     const mask = await this.maskFor(lat, lon);
-    if (!mask) {
-      // The imagery could not be read (offline, blocked, no CORS). Fall back to
-      // the generated world's own sea level rather than guessing.
-      return proceduralElevation(lonToNormX(lon), latToNormY(lat), 4) <= 0;
-    }
+    // No imagery to read — offline, blocked, or no CORS. There used to be a
+    // generated coastline to fall back on; there is not one now, and inventing
+    // a sea is exactly the kind of thing that put you in open water on dry
+    // land. Unknown reads as land, which is the answer that does no harm.
+    if (!mask) return false;
     const n = Math.pow(2, PROBE_ZOOM);
     const nx = lonToNormX(lon) * n;
     const ny = latToNormY(lat) * n;
@@ -84820,6 +84462,139 @@ const waterMap = new WaterMap();
 __tg_exports["WaterMap"] = WaterMap;
 __tg_exports["isWaterPixel"] = isWaterPixel;
 __tg_exports["waterMap"] = waterMap;
+};
+__tg_modules["src/geo/observed.js"] = function (__tg_exports) {
+/**
+ * The weather that is actually happening, where you are standing.
+ *
+ * Everything else in this file's neighbourhood is a climatology: a good model
+ * of what a place *tends* to get in a given month, computed from latitude and
+ * season with no network at all. That is a fair thing to show when nothing
+ * better is available, and it is a poor thing to show when something better
+ * is — "Cloudy, light rain" over a place that is in bright sun today is
+ * exactly the kind of made-up statistic this project is not supposed to have.
+ *
+ * Open-Meteo publishes current conditions for anywhere on Earth, keyless,
+ * CORS-open and free for non-commercial use. It is one request per place you
+ * arrive at, cached, so flying about does not hammer it.
+ *
+ * If it cannot be reached the caller falls back to the climatology and the
+ * readout says "seasonal average", so the two are never confused.
+ */
+
+const ENDPOINT = 'https://api.open-meteo.com/v1/forecast';
+/** How long an observation is good for. They publish every quarter of an hour. */
+const FRESH_MS = 10 * 60 * 1000;
+/**
+ * How far you may move before the observation is somebody else's weather.
+ * Half a degree is roughly fifty kilometres, which is a weather front's worth.
+ */
+const NEAR_DEG = 0.5;
+
+/**
+ * WMO weather codes, in the words a person would use.
+ *
+ * The full table is longer than this; these are the groups that matter for
+ * something you can see out of a window.
+ */
+function describeCode(code, cloudPercent) {
+  if (code === 0) return 'Clear';
+  if (code === 1) return 'Mostly clear';
+  if (code === 2) return 'Partly cloudy';
+  if (code === 3) return 'Overcast';
+  if (code === 45 || code === 48) return 'Fog';
+  if (code >= 51 && code <= 57) return 'Drizzle';
+  if (code >= 61 && code <= 67) return 'Rain';
+  if (code >= 71 && code <= 77) return 'Snow';
+  if (code >= 80 && code <= 82) return 'Showers';
+  if (code === 85 || code === 86) return 'Snow showers';
+  if (code >= 95) return 'Thunderstorm';
+  return cloudPercent > 70 ? 'Overcast' : cloudPercent > 30 ? 'Partly cloudy' : 'Clear';
+}
+
+/** Rain, snow or nothing — what the sky is actually dropping. */
+function precipitationKind(code, snowfallCm, rainMm) {
+  if (snowfallCm > 0 || (code >= 71 && code <= 77) || code === 85 || code === 86) return 'snow';
+  if (rainMm > 0 || (code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code >= 95) {
+    return 'rain';
+  }
+  return 'none';
+}
+
+class ObservedWeather {
+  constructor() {
+    this.current = null;
+    this.pending = null;
+    this.failed = false;
+  }
+
+  /** True when what we hold is recent enough and close enough to be yours. */
+  fresh(lat, lon) {
+    const w = this.current;
+    if (!w) return false;
+    if (Date.now() - w.at > FRESH_MS) return false;
+    return Math.abs(w.lat - lat) < NEAR_DEG && Math.abs(w.lon - lon) < NEAR_DEG;
+  }
+
+  /**
+   * Fetch, unless we already hold something good for here.
+   *
+   * @returns {Promise<object|null>} the observation, or null if unreachable
+   */
+  async fetch(lat, lon) {
+    if (this.fresh(lat, lon)) return this.current;
+    if (this.pending) return this.pending;
+    const url =
+      `${ENDPOINT}?latitude=${lat.toFixed(3)}&longitude=${lon.toFixed(3)}` +
+      '&current=temperature_2m,apparent_temperature,is_day,precipitation,rain,snowfall,' +
+      'weather_code,cloud_cover,wind_speed_10m&timezone=UTC';
+    this.pending = (async () => {
+      try {
+        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = await res.json();
+        const c = body?.current;
+        if (!c || typeof c.temperature_2m !== 'number') throw new Error('no current block');
+        const cloudPercent = Number(c.cloud_cover ?? 0);
+        const kind = precipitationKind(
+          Number(c.weather_code ?? 0),
+          Number(c.snowfall ?? 0),
+          Number(c.rain ?? 0),
+        );
+        this.current = {
+          at: Date.now(),
+          lat,
+          lon,
+          observed: true,
+          tempC: Number(c.temperature_2m),
+          feelsC: Number(c.apparent_temperature ?? c.temperature_2m),
+          isDay: Number(c.is_day ?? 1) === 1,
+          cloudCover: cloudPercent / 100,
+          // Millimetres in the last quarter of an hour. A tenth of a
+          // millimetre is drizzle; two is heavy, and past that the difference
+          // is academic for something you are looking at rather than standing in.
+          precipitation: Math.min(1, Number(c.precipitation ?? 0) / 2),
+          kind,
+          windKph: Number(c.wind_speed_10m ?? 0),
+          label: describeCode(Number(c.weather_code ?? 0), cloudPercent),
+        };
+        this.failed = false;
+        return this.current;
+      } catch {
+        this.failed = true;
+        return null;
+      } finally {
+        this.pending = null;
+      }
+    })();
+    return this.pending;
+  }
+}
+
+const observedWeather = new ObservedWeather();
+
+__tg_exports["ObservedWeather"] = ObservedWeather;
+__tg_exports["observedWeather"] = observedWeather;
 };
 __tg_modules["src/geo/weather.js"] = function (__tg_exports) {
 const { clamp, smoothstep } = __tg_require("src/core/math.js");
@@ -85192,8 +84967,7 @@ __tg_modules["src/player/elytra.js"] = function (__tg_exports) {
  *   vertical dive    terminal 78.4 m/s
  *   rocket           accelerates you toward 1.5 blocks a tick along your look
  *
- * Exactly one constant differs from vanilla, and it is the one the 45/45
- * manoeuvre lives on. See CLIMB_TRADE.
+ * Nothing here differs from vanilla. Every constant is Minecraft's.
  *
  * Everything below runs at a fixed 20 steps a second in blocks-per-tick, the
  * units the constants were tuned in, then converts back to metres per second.
@@ -85205,34 +84979,19 @@ const GRAVITY_PER_TICK = 0.08; // blocks / tick^2  (~32 m/s^2)
 /**
  * How much height a pull-up buys with the speed it spends.
  *
- * Vanilla's number is 3.2, and at 3.2 the famous manoeuvre does not work.
- * That is not a guess — sweeping this model over every two-phase dive-and-climb
- * cycle, at every angle from one degree to eighty-five and every cadence from
- * a tenth of a second to twelve seconds, the best any of them manages at 3.2 is
- * a sink of 1.4 m/s. Better than the 3.0 m/s of holding level, and a glide
- * stretched to twice its length, but still a glide: it ends. Diving buys
- * *vertical* speed, only a tenth of that leaks into forward speed each tick,
- * and a pull-up spends forward speed — so the loop leaks faster than 3.2 can
- * refill it.
+ * Minecraft's own number, unchanged. It was briefly 4.5 here, chosen as the
+ * smallest value at which a dive-and-climb rhythm holds altitude, because the
+ * 45/45 manoeuvre does not close the loop at 3.2 — sweeping every angle from
+ * one degree to eighty-five and every cadence from a tenth of a second to
+ * twelve seconds, the best it manages is a sink of 1.4 m/s against 3.0 m/s for
+ * holding level. That is a glide stretched to twice its length and it still
+ * ends.
  *
- * 4.5 is where it closes, with room to be flown badly. What that changes and
- * what it deliberately does not:
- *
- *   unchanged   level glide, because this term only pays when the nose is up.
- *               Still 2.99 m/s of sink and still 10.1 : 1.
- *   unchanged   every dive, and so the 78.4 m/s terminal velocity.
- *   unchanged   holding *any* constant angle, which still sinks — 1.1 m/s at
- *               ten degrees up, 2.6 m/s at forty. There is no nose-up-and-wait
- *               exploit here; pointing at the sky is still the slowest way down.
- *   changed     a dive-and-pull cycle flown with a rhythm. Forty degrees down
- *               and forty up, six seconds each way, climbs at about 5 m/s.
- *               Three seconds each way barely holds. A second and a half each
- *               way still loses 2.6 m/s.
- *
- * So the technique is worth learning and the cadence is the skill in it, which
- * is what makes a manoeuvre worth having a name.
+ * It is 3.2 again because "exactly like Minecraft, no guesswork" is the
+ * clearer instruction and it beats a tuned number, even a well-measured one.
+ * Everything in this file is now vanilla's, tick for tick.
  */
-const CLIMB_TRADE = 4.5;
+const CLIMB_TRADE = 3.2;
 
 /**
  * Minecraft's own number: a rocket accelerates you toward 1.5 blocks per tick
@@ -85410,6 +85169,28 @@ const HOTBAR = [1, 2, 3, 4, 5].map((duration) => ({
   hint: `${duration}s · ×${rocketPowerFor(duration).toFixed(2)}`,
 }));
 
+/**
+ * How long speed mode runs, and how long it takes to recharge.
+ *
+ * Constants rather than sliders. They were both in Settings, which meant the
+ * game shipped with "make the boost last a minute and recharge in five
+ * seconds" sitting next to the choice of units — a cheat wearing a preference's
+ * clothes. The cheat panel can still turn the cost off entirely.
+ */
+/**
+ * Seconds of breath underwater, and how long you last after it runs out.
+ *
+ * Minecraft's own numbers: fifteen seconds of air, then damage every second.
+ * Ten hearts at one heart a second is ten more seconds, which is what the
+ * second constant stands in for — there is no health bar here, so running out
+ * ends with a teleport somewhere you can breathe rather than a death screen.
+ */
+const AIR_SECONDS = 15;
+const DROWNING_SECONDS = 10;
+
+const SPEED_MODE_SECONDS = 10;
+const SPEED_MODE_COOLDOWN_S = 45;
+
 class Player extends Emitter {
   constructor(frame) {
     super();
@@ -85445,6 +85226,14 @@ class Player extends Emitter {
 
     this.elytraDeployed = false;
     this.swimming = false;
+    /**
+     * Air left, in seconds. Minecraft gives you fifteen seconds of held
+     * breath and then hurts you twice a second; this holds the fifteen and
+     * spends the drowning on getting you out of the water rather than on a
+     * health bar the game does not otherwise have.
+     */
+    this.airSeconds = AIR_SECONDS;
+    this.drowned = false;
 
     this.rocketTicksLeft = 0;
     this.rocketTotalTicks = 0;
@@ -85466,7 +85255,8 @@ class Player extends Emitter {
   }
 
   get scale() {
-    return clamp(settings.get('playerScale'), 0.25, 60);
+    // A cheat now rather than a setting — see CHEAT_DEFAULTS.
+    return clamp(cheats.playerScale, 0.25, 60);
   }
 
   /** Standing height in metres (6 ft 6 in at scale 1). */
@@ -85609,7 +85399,7 @@ class Player extends Emitter {
     if (this.speedActive) return false;
     if (this.speedCooldown > 0 && !cheats.speedFree) return false;
     this.speedActive = true;
-    this.speedRemaining = settings.get('speedModeDurationS');
+    this.speedRemaining = SPEED_MODE_SECONDS;
     this.emit('speed', true);
     return true;
   }
@@ -85619,7 +85409,7 @@ class Player extends Emitter {
     if (!this.speedActive) return false;
     this.speedActive = false;
     this.speedRemaining = 0;
-    if (!cheats.speedFree) this.speedCooldown = settings.get('speedModeCooldownS');
+    if (!cheats.speedFree) this.speedCooldown = SPEED_MODE_COOLDOWN_S;
     this.emit('speed', false);
     return true;
   }
@@ -85638,24 +85428,62 @@ class Player extends Emitter {
 
     if (this.speedActive && cheats.speedFree) {
       // Unlimited: hold the gauge full rather than counting down.
-      this.speedRemaining = settings.get('speedModeDurationS');
+      this.speedRemaining = SPEED_MODE_SECONDS;
     } else if (this.speedActive) {
       this.speedRemaining -= dt;
       if (this.speedRemaining <= 0) {
         this.speedActive = false;
         this.speedRemaining = 0;
-        this.speedCooldown = settings.get('speedModeCooldownS');
+        this.speedCooldown = SPEED_MODE_COOLDOWN_S;
         this.emit('speed', false);
       }
     } else if (this.speedCooldown > 0) {
       this.speedCooldown = Math.max(0, this.speedCooldown - dt);
     }
+
+    this.tickBreath(dt);
   }
 
+  /**
+   * Air, while your head is under.
+   *
+   * Fifteen seconds of it, Minecraft's number, and then you are in trouble.
+   * Speed mode spends it four times as fast — you are covering four times the
+   * water in the same lungful, so the same lungful has to be worth a quarter
+   * of the distance or the boost would make diving *easier*.
+   */
+  tickBreath(dt) {
+    const under = this.submerged;
+    if (!under) {
+      // Out of the water: a full breath back in a couple of seconds.
+      this.airSeconds = Math.min(AIR_SECONDS, this.airSeconds + dt * (AIR_SECONDS / 2));
+      this.drowned = false;
+      return;
+    }
+    const burn = this.speedActive ? 4 : 1;
+    this.airSeconds -= dt * burn;
+    if (this.airSeconds > -DROWNING_SECONDS) return;
+    // Out of air and out of time. There is no health bar here, so this ends
+    // with getting you somewhere you can breathe rather than a death screen.
+    this.airSeconds = AIR_SECONDS;
+    if (!this.drowned) {
+      this.drowned = true;
+      this.emit('drowned', {});
+    }
+  }
+
+  /** Is your head under the water, rather than merely your feet? */
+  get submerged() {
+    return this.swimming && this.position.y + this.eyeHeight < 0;
+  }
 }
 
 __tg_exports["ROCKET_COLOURS"] = ROCKET_COLOURS;
 __tg_exports["HOTBAR"] = HOTBAR;
+__tg_exports["AIR_SECONDS"] = AIR_SECONDS;
+__tg_exports["DROWNING_SECONDS"] = DROWNING_SECONDS;
+__tg_exports["SPEED_MODE_SECONDS"] = SPEED_MODE_SECONDS;
+__tg_exports["SPEED_MODE_COOLDOWN_S"] = SPEED_MODE_COOLDOWN_S;
 __tg_exports["Player"] = Player;
 };
 __tg_modules["src/player/avatar.js"] = function (__tg_exports) {
@@ -87039,7 +86867,6 @@ __tg_exports["pointInPolygon"] = pointInPolygon;
 __tg_modules["src/tiles/elevation.js"] = function (__tg_exports) {
 const { bilinear, clamp } = __tg_require("src/core/math.js");
 const { latToNormY, lonToNormX, tileKey, wrapTileX } = __tg_require("src/geo/mercator.js");
-const { proceduralElevation } = __tg_require("src/tiles/procedural.js");
 
 /**
  * Elevation field.
@@ -87143,16 +86970,11 @@ class ElevationField {
         return bilinear(entry.heights, GRID, GRID, fx, fy);
       }
     }
-    // Nothing loaded here yet. With a generated world, invent the relief so the
-    // ground is continuous. With a real elevation provider, stay at sea level
-    // and let the terrain rise as data lands — inventing mountains under real
-    // satellite imagery would be worse than briefly flat ground.
-    //
-    // Once the provider has actually been given up on, though, dead flat is
-    // not honesty, it is an empty plate: there is no real ground coming and
-    // nothing left to contradict. The generator takes over then, and the
-    // imagery follows it so the two agree.
-    return this.invented ? proceduralElevation(x, y, 6) : 0;
+    // Nothing loaded here yet, and nothing to be done about it. There is no
+    // generator behind this any more: an unmeasured square reads as sea level
+    // and `hasDataAt` says so, and the things that stand on the ground wait
+    // for the real relief rather than being founded on an invention.
+    return 0;
   }
 
   sampleLatLon(lat, lon) {
@@ -87275,7 +87097,7 @@ class ElevationField {
    * tiles: invented ground may wear invented paint, measured ground may not.
    */
   get invented() {
-    return !this.source || this.source.synthetic || this.unreachable;
+    return !this.source || this.unreachable;
   }
 
   /**
@@ -87467,15 +87289,6 @@ const { BING_SIDE, GOOGLE_SIDE, encodePolyline, googleSamplePoints, tileBounds }
 
 const IMAGERY_PROVIDERS = [
   {
-    id: 'offline',
-    label: 'Offline (generated terrain)',
-    kind: 'synthetic',
-    needsKey: null,
-    maxZoom: 20,
-    attribution: 'Locally generated terrain — no map data',
-    note: 'Works with no account and no network. Terrain is invented, not real.',
-  },
-  {
     id: 'esri',
     label: 'Esri World Imagery',
     kind: 'xyz',
@@ -87659,15 +87472,6 @@ const IMAGERY_PROVIDERS = [
 
 const ELEVATION_PROVIDERS = [
   {
-    id: 'procedural',
-    label: 'Generated relief',
-    kind: 'synthetic',
-    needsKey: null,
-    maxZoom: 14,
-    attribution: '',
-    note: 'Plausible invented relief. No network, no key, never wrong-looking flat.',
-  },
-  {
     id: 'mapbox',
     label: 'Mapbox Terrain-RGB',
     kind: 'terrain-rgb',
@@ -87693,19 +87497,6 @@ const ELEVATION_PROVIDERS = [
       + 'heights rather than a picture, one request per tile against your own quota, '
       + 'and it is coarser than the raster sources \u2014 pick it because you have the '
       + 'key, not because it is sharper.',
-  },
-  {
-    id: 'google-elevation',
-    label: 'Google Maps elevation',
-    kind: 'google-elevation',
-    needsKey: 'googleKey',
-    maxZoom: 12,
-    attribution: 'Elevation © Google',
-    note:
-      'The Google Elevation API, on a Maps Platform key. It takes a list of points '
-      + 'rather than an area, so a tile is sent as an encoded polyline of 22 by 22 '
-      + 'samples \u2014 coarse, and billed per request on your own account. Google\u2019s '
-      + 'real terrain detail is in the photorealistic 3D tiles, not here.',
   },
   {
     id: 'terrarium',
@@ -87768,7 +87559,7 @@ function recommendedProvider(list) {
 function providerLabel(descriptor) {
   const notes = [];
   if (descriptor.recommended) notes.push('recommended');
-  if (descriptor.kind !== 'synthetic') notes.push(descriptor.needsKey ? 'needs a key' : 'keyless');
+  notes.push(descriptor.needsKey ? 'needs a key' : 'keyless');
   return notes.length ? `${descriptor.label} (${notes.join(', ')})` : descriptor.label;
 }
 
@@ -87781,6 +87572,29 @@ function providerLabel(descriptor) {
  * the world. Three days back is always there.
  */
 const GIBS_LAG_DAYS = 3;
+
+/**
+ * The human-readable half of a Google API refusal.
+ *
+ * Their errors are JSON with a `error.message` that names the actual problem —
+ * "Requests to this API tile.googleapis.com method … are blocked", "API key
+ * not valid", "Referer restrictions" — and it is far more use than the status
+ * code on its own.
+ */
+async function googleReason(res) {
+  try {
+    const body = await res.json();
+    const message = body?.error?.message ?? body?.error_message;
+    if (message) return String(message);
+  } catch {
+    /* not JSON; fall through */
+  }
+  if (res.status === 403) {
+    return 'check that the Map Tiles API is enabled on the project and that the key\u2019s '
+      + 'referrer restrictions allow this page';
+  }
+  return 'no explanation given';
+}
 
 function gibsDate(now = Date.now()) {
   return new Date(now - GIBS_LAG_DAYS * 86400000).toISOString().slice(0, 10);
@@ -87829,8 +87643,13 @@ class TileSource {
     return this.descriptor.attribution;
   }
 
+  /**
+   * Kept as a constant false so callers that still ask read something sane.
+   * There is no such thing as a generated provider any more: every source in
+   * the lists is a real survey or a real photograph of the real planet.
+   */
   get synthetic() {
-    return this.descriptor.kind === 'synthetic';
+    return false;
   }
 
   get key() {
@@ -87958,10 +87777,22 @@ class TileSource {
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mapType: 'satellite', language: 'en-US', region: 'US' }),
+        // No region. Pinning it to the United States is a statement about
+        // which country's borders and labels you want, not about where you are
+        // flying, and it is not needed for satellite imagery at all.
+        body: JSON.stringify({ mapType: 'satellite', language: 'en-US' }),
       },
     );
-    if (!res.ok) throw new Error(`Google session failed (${res.status})`);
+    if (!res.ok) {
+      // Google says exactly what is wrong in the body and this used to throw
+      // it away, leaving "Google session failed (403)" — which reads as the
+      // option being broken when it is nearly always one of three specific
+      // and fixable things: the Map Tiles API is not enabled on the project,
+      // the key has an HTTP-referrer restriction that does not list this
+      // page's origin, or the key is restricted to other APIs. Passing their
+      // message through turns a dead end into an instruction.
+      throw new Error(`Google session failed (${res.status}) \u2014 ${await googleReason(res)}`);
+    }
     const data = await res.json();
     if (!data.session) throw new Error('Google session token missing');
     this.googleSession = data.session;
@@ -88039,18 +87870,45 @@ class TileSource {
 }
 
 /**
+ * The order to try providers in, best first.
+ *
+ * Two rules, and the first one is the one that was asked for: **a provider you
+ * hold a key for goes before a free one.** You paid for it (or signed up for
+ * it), it is usually sharper, and it is metered against your own account
+ * rather than against somebody's community server. Free ones follow, deepest
+ * first, because a provider that publishes zoom 19 is more use than one that
+ * stops at 9 when you are stood in a field.
+ *
+ * The chosen provider is always first whatever else is true — picking one is a
+ * statement — and everything else is a standby for when it will not answer.
+ */
+function providerChain(list, chosenId, values) {
+  const chosen = findProvider(list, chosenId);
+  const rest = list.filter((p) => p.id !== chosen?.id && !p.hidden);
+  const usable = rest.filter((p) => !p.needsKey || values[p.needsKey]);
+  usable.sort((a, b) => {
+    const keyed = (p) => (p.needsKey ? 0 : 1);
+    if (keyed(a) !== keyed(b)) return keyed(a) - keyed(b);
+    return (b.maxZoom ?? 0) - (a.maxZoom ?? 0);
+  });
+  return [chosen, ...usable].filter(Boolean);
+}
+
+/**
  * Resolve a chosen provider to one that can actually serve tiles.
  *
  * Picking a provider and leaving its key blank used to mean no map at all: the
- * source sat in `needs-key` and the world fell back to generated terrain, even
- * though there is a perfectly good keyless provider sitting in the same list.
- * It substitutes now, and says so — the status line names both, so nobody is
+ * source sat in `needs-key` and the world fell back to generated terrain. There
+ * is no generated terrain any more, so it substitutes for real — the best of
+ * what is left, by the order above — and says so, because nobody should be
  * left thinking they are looking at Google's imagery when they are not.
  */
 function withKeylessFallback(list, descriptor, values) {
+  if (!descriptor) return null;
   if (!descriptor.needsKey || values[descriptor.needsKey]) return new TileSource(descriptor, values);
-  const fallback = recommendedProvider(list);
-  if (!fallback || fallback.id === descriptor.id) return new TileSource(descriptor, values);
+  const chain = providerChain(list, descriptor.id, values);
+  const fallback = chain.find((p) => p.id !== descriptor.id);
+  if (!fallback) return new TileSource(descriptor, values);
   const source = new TileSource(fallback, values);
   source.substitutedFor = descriptor;
   return source;
@@ -88164,6 +88022,7 @@ __tg_exports["recommendedProvider"] = recommendedProvider;
 __tg_exports["providerLabel"] = providerLabel;
 __tg_exports["gibsDate"] = gibsDate;
 __tg_exports["TileSource"] = TileSource;
+__tg_exports["providerChain"] = providerChain;
 __tg_exports["createImagerySource"] = createImagerySource;
 __tg_exports["createElevationSource"] = createElevationSource;
 __tg_exports["testProviders"] = testProviders;
@@ -88195,8 +88054,9 @@ const STATE_PENDING = 1;
 const STATE_READY = 2;
 const STATE_FAILED = 3;
 /**
- * Nothing real to fetch and nothing invented allowed. The tile stays bare and
- * the terrain shader colours it from the elevation instead — see mayGenerate.
+ * Nothing to fetch here. The tile stays bare and the terrain shader colours it
+ * from the elevation it is standing on, which is a statement about relief
+ * rather than a picture of somewhere that does not exist.
  */
 const STATE_BARE = 4;
 
@@ -88227,51 +88087,31 @@ class ImageryStreamer extends Emitter {
      */
     this.byZoom = new Map();
     this.depthLimit = Infinity;
-    /**
-     * May a tile be invented when there is nothing real to fetch?
-     *
-     * Only when the *elevation* is invented too. The generator paints its own
-     * coastlines from its own relief, so dropped on top of real elevation it
-     * puts oceans over mountains and beaches up hillsides — which is exactly
-     * how real ground ended up blue. When the ground underneath is real, the
-     * tile is left bare and the terrain shader colours it from the elevation
-     * it is actually standing on, which cannot fail to line up.
-     */
-    this.mayGenerate = true;
-
     this.worker.addEventListener('message', (event) => this.onWorkerMessage(event.data));
   }
 
   setSource(source) {
     this.source = source;
+    this.standbys = [];
     this.clear();
   }
 
   /**
-   * Turn invented tiles on or off. Called whenever the elevation source
-   * changes: generated relief may be dressed in generated imagery, real relief
-   * may not. Bare tiles are released so they get another go under the new rule.
+   * Providers to fall through to when the chosen one will not answer.
+   *
+   * The ground used to have exactly one source and no plan B: a provider that
+   * refused left the world bare, and before that it left the world invented.
+   * Now a tile that fails moves down the list — keyed providers first, then
+   * free ones — and only a tile that every one of them refuses stays bare.
    */
-  setMayGenerate(allowed) {
-    if (this.mayGenerate === allowed) return;
-    this.mayGenerate = allowed;
-    for (const entry of this.entries.values()) {
-      if (allowed) {
-        // Generation is back on: bare tiles get another go under the new rule.
-        if (entry.state === STATE_BARE) entry.state = 0;
-        continue;
-      }
-      // Generation is off because real relief arrived. Any tile still wearing
-      // an invented photograph is now an invented coastline over measured
-      // ground, so it goes — the shader colours the bare tile from the
-      // elevation instead, and that cannot disagree with itself.
-      if (!entry.generated) continue;
-      if (entry.texture) entry.texture.dispose();
-      entry.texture = null;
-      entry.generated = false;
-      entry.state = STATE_BARE;
-      this.stats.loaded = Math.max(0, this.stats.loaded - 1);
-    }
+  setStandbys(sources) {
+    this.standbys = (Array.isArray(sources) ? sources : [sources]).filter(Boolean);
+  }
+
+  /** The provider a given attempt should use. */
+  sourceFor(attempt) {
+    if (attempt <= 0) return this.source;
+    return this.standbys[attempt - 1] ?? null;
   }
 
   clear() {
@@ -88449,25 +88289,31 @@ class ImageryStreamer extends Emitter {
   }
 
   dispatch(entry) {
-    const source = this.source;
-    if (!source) return;
+    const attempt = entry.attempt ?? 0;
+    const source = this.sourceFor(attempt);
+    if (!source) {
+      // Every provider has been asked and none of them has this square. Bare
+      // is the honest answer; the shader colours it from the relief.
+      entry.state = STATE_BARE;
+      return;
+    }
     if (!source.ready) {
       source.prepare();
-      if (!source.synthetic) return;
+      return;
     }
     const tile = { z: entry.tile.z, x: wrapTileX(entry.tile.x, entry.tile.z), y: entry.tile.y };
     const url = this.degraded ? null : source.urlFor(tile);
-    if (url === null && !source.synthetic && !this.degraded) return;
-    if (url === null && !this.mayGenerate) {
+    // No URL means the provider has not handshaken (no key, metadata call
+    // unanswered) or does not serve this tile. Either way there is nothing to
+    // draw and nothing to invent: the tile stays bare and the ground under it
+    // is whatever the relief says, which is honest about not knowing.
+    if (url === null) {
       entry.state = STATE_BARE;
       return;
     }
 
     const id = this.nextId++;
     entry.state = STATE_PENDING;
-    // Remember whether this one was fetched or invented, so it can be thrown
-    // away the moment invented ground stops being allowed.
-    entry.generated = url === null;
     entry.jobId = id;
     this.jobs.set(id, entry);
     this.active++;
@@ -88487,16 +88333,28 @@ class ImageryStreamer extends Emitter {
     this.stats.pending = this.active;
 
     if (!msg.ok) {
-      entry.state = STATE_FAILED;
-      entry.retryAt = performance.now() + (msg.aborted ? 0 : 20000);
+      // Try the next provider before giving up on this square. A refusal is
+      // about one server, not about whether the ground exists, and the whole
+      // point of the standby list is that somebody else has a photograph of
+      // the same place.
+      const attempt = (entry.attempt ?? 0) + 1;
+      if (!msg.aborted && attempt <= this.standbys.length) {
+        entry.attempt = attempt;
+        entry.state = 0;
+        entry.retryAt = 0;
+        this.queue.push(entry);
+      } else {
+        entry.state = STATE_FAILED;
+        entry.retryAt = performance.now() + (msg.aborted ? 0 : 20000);
+      }
       this.stats.failed++;
       if (!msg.aborted) {
         this.zoomRecord(entry.tile.z).failed++;
         this.reviewDepth(entry.tile.z);
         this.consecutiveFailures++;
-        // A provider that will not answer at all (offline, blocked host, bad
-        // key) should not leave the world as blank ground. Generate tiles
-        // locally instead and say so in the status line.
+        // Every provider refusing is worth saying out loud. There is nothing
+        // to fall back to any more — no generator — so the ground is coloured
+        // from the relief and the status line explains why.
         if (!this.degraded && this.consecutiveFailures >= 10 && this.stats.loaded === 0) {
           this.degraded = true;
           this.emit('degraded', { error: msg.error });
@@ -88562,7 +88420,6 @@ __tg_exports["STATE_READY"] = STATE_READY;
 __tg_exports["STATE_FAILED"] = STATE_FAILED;
 };
 __tg_modules["src/tiles/tileJobs.js"] = function (__tg_exports) {
-const { proceduralHeights, proceduralImagery } = __tg_require("src/tiles/procedural.js");
 const { decodeBingElevation, decodeGoogleElevation } = __tg_require("src/tiles/elevationGrid.js");
 
 /**
@@ -88644,13 +88501,10 @@ async function fetchJson(jobKey, url) {
 }
 
 async function handleImagery(msg, jobKey, post) {
-  let bitmap;
-  if (!msg.url) {
-    const image = proceduralImagery(msg.tile, msg.size || 128);
-    bitmap = await createImageBitmap(new ImageData(image.data, image.width, image.height));
-  } else {
-    bitmap = await fetchBitmap(jobKey, msg.url);
-  }
+  // No URL used to mean "make one up". Nothing here makes anything up any
+  // more, so a job without a URL is a caller bug and is reported as one.
+  if (!msg.url) throw new Error('no imagery URL for this tile');
+  const bitmap = await fetchBitmap(jobKey, msg.url);
   post({ ok: true, channel: msg.channel, id: msg.id, bitmap }, [bitmap]);
 }
 
@@ -88659,7 +88513,7 @@ async function handleElevation(msg, jobKey, post) {
   let heights;
 
   if (!msg.url) {
-    heights = proceduralHeights(msg.tile, size);
+    throw new Error('no elevation URL for this tile');
   } else if (msg.decode === 'bing-elevation') {
     heights = decodeBingElevation(await fetchJson(jobKey, msg.url), size);
   } else if (msg.decode === 'google-elevation') {
@@ -89354,7 +89208,6 @@ __tg_exports["renderVectorTile"] = renderVectorTile;
 };
 __tg_modules["src/ui/mapTiles.js"] = function (__tg_exports) {
 const { tileKey, wrapTileX } = __tg_require("src/geo/mercator.js");
-const { proceduralImagery } = __tg_require("src/tiles/procedural.js");
 const { renderVectorTile } = __tg_require("src/ui/vectorMap.js");
 
 /**
@@ -89588,9 +89441,9 @@ class MapTileCache {
     this.active++;
     entry.state = 'loading';
     try {
-      // First choice, then the standbys, then invented ground. Once a standby
-      // has rescued enough tiles, stop asking the first one at all: a server
-      // that is refusing is not helped by being asked for every tile on screen.
+      // First choice, then the standbys. Once a standby has rescued enough
+      // tiles, stop asking the first one at all: a server that is refusing is
+      // not helped by being asked for every tile on screen.
       const chain =
         this.usingFallback && this.fallbacks.length > 0
           ? this.fallbacks
@@ -89612,17 +89465,14 @@ class MapTileCache {
   }
 
   /**
-   * One tile, from the first source that will give us one. Generated ground is
-   * the last answer rather than an error, because a hole in the map is worse
-   * than an approximation clearly labelled as one.
+   * One tile, from the first source that will give us one.
+   *
+   * If none of them will, the tile stays empty. That is the whole policy now:
+   * there is no generator behind this to paint noise where a street map
+   * belongs, so a square nobody has mapped is drawn as a square nobody has
+   * mapped rather than as somewhere that does not exist.
    */
   async fetchTile(tile, chain) {
-    const invent = async () => {
-      const image = proceduralImagery(tile, 128);
-      return createImageBitmap(new ImageData(image.data, image.width, image.height));
-    };
-    if (this.degraded) return invent();
-
     let error = null;
     for (let i = 0; i < chain.length; i++) {
       const source = chain[i];
@@ -89631,13 +89481,8 @@ class MapTileCache {
       if (tile.z > (source.descriptor?.maxZoom ?? Infinity)) continue;
       const url = source.urlFor(tile);
       if (!url) {
-        // No URL means one of two very different things. The generated world
-        // has none by design and invented ground is the whole point of it. A
-        // real provider with none has failed its handshake — no key, or a
-        // metadata call that did not answer — and painting procedural noise
-        // where a street map belongs is not a fallback, it is a lie with a
-        // texture on it. Fall through to the next provider instead.
-        if (source.descriptor?.kind === 'synthetic') return invent();
+        // A provider with no URL has failed its handshake — no key, or a
+        // metadata call that did not answer. Fall through to the next one.
         error = error ?? new Error(`${source.descriptor?.id ?? 'provider'} not ready`);
         continue;
       }
@@ -89656,8 +89501,7 @@ class MapTileCache {
         error = err;
       }
     }
-    if (error) throw error;
-    return invent();
+    throw error ?? new Error('no provider could serve this tile');
   }
 
   evict() {
@@ -89867,6 +89711,18 @@ const REFOUND_GAP_MS = 900;
 /** Ground movement worth re-founding for. Below this nobody could see it. */
 const REFOUND_MIN_M = 1;
 
+/**
+ * Only raise what the survey actually measured.
+ *
+ * This was a setting, defaulted off, and the default meant most of the world's
+ * buildings were extruded to a guessed height. A guessed height is a made-up
+ * building wearing a real footprint, and "the game should match reality one to
+ * one" settles it: a footprint with no recorded height and no measured
+ * neighbour is not drawn. Where you want every building, the photogrammetry
+ * option has them all, because somebody flew over and measured them.
+ */
+const STRUCTURES_NEED_HEIGHT = true;
+
 const DATA_ZOOM = 15;
 const STOREY_M = 3.2;
 /**
@@ -89922,11 +89778,10 @@ const LAYER_HEIGHT_M = 5.5;
  * not an invention of one: the survey says a mast stands here, and a mast that
  * exists has a height whether or not anyone tagged it.
  *
- * The distinction that matters, and the one that got roads deleted: a road at
- * ground level is already *shown* by the imagery, so geometry adds nothing. A
- * mast is not shown by a flat photograph at all — its existence is surveyed
- * and only its measurement is estimated. Turn on `structuresNeedHeight` to
- * refuse the estimate and draw only what is measured.
+ * They are no longer used for buildings — see STRUCTURES_NEED_HEIGHT — and
+ * remain here only for point-mapped masts and pylons, where the footprint is a
+ * single coordinate and there is nothing to extrude at all. Even those are
+ * refused unless the survey recorded a height.
  */
 const MAST_HEIGHT_M = {
   tower: 40,
@@ -90143,7 +89998,7 @@ class Buildings {
     const measured = this.stats.measured ?? 0;
     const estimated = this.stats.estimated ?? 0;
     if (measured + estimated === 0) return '';
-    if (settings.get('structuresNeedHeight')) {
+    if (STRUCTURES_NEED_HEIGHT) {
       return `structures: ${measured} measured, ${estimated} skipped`;
     }
     if (estimated === 0) return '';
@@ -90419,7 +90274,7 @@ class Buildings {
     // dropping things is worse than no readout.
     if (measured) this.stats.measured = (this.stats.measured ?? 0) + 1;
     else this.stats.estimated = (this.stats.estimated ?? 0) + 1;
-    if (!measured && settings.get('structuresNeedHeight')) return;
+    if (!measured) return;
     const height = clamp(measured || MAST_HEIGHT_M[kind] || 30, 4, 640);
     const base = this.terrain.heightAt(x, z);
     if (!Number.isFinite(base)) return;
@@ -90462,7 +90317,7 @@ class Buildings {
     const measured = taggedHeight > 0 || taggedLevels > 0;
     if (measured) this.stats.measured = (this.stats.measured ?? 0) + 1;
     else this.stats.estimated = (this.stats.estimated ?? 0) + 1;
-    if (!measured && settings.get('structuresNeedHeight')) return null;
+    if (!measured) return null;
 
     const levels = clamp(
       taggedLevels || Math.round(taggedHeight / STOREY_M) || this.tileLevels || DEFAULT_LEVELS,
@@ -90784,64 +90639,23 @@ const TERRAIN_FRAG = /* glsl */ `
   varying float vBed;
   varying vec3 vWorld;
 
-  float detailHash(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-  }
-
-  float detailNoise(vec2 p) {
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    vec2 u = f * f * (3.0 - 2.0 * f);
-    return mix(mix(detailHash(i), detailHash(i + vec2(1.0, 0.0)), u.x),
-               mix(detailHash(i + vec2(0.0, 1.0)), detailHash(i + vec2(1.0, 1.0)), u.x), u.y);
-  }
-
   /**
-   * What the ground looks like when there is no photograph of it.
+   * What the ground looks like when there is no photograph of it yet.
    *
-   * Everything here comes off the real elevation tile and the real latitude:
-   * how high the surface is, how far the sea floor is below it, how steep the
-   * slope is, how warm and how dry that band of the planet runs. Nothing is
-   * invented — it is the same reasoning a relief map uses, done per pixel.
+   * A single neutral tone, darkened a little on slopes so the relief still
+   * reads. Nothing else — no biome guessed from latitude, no sand along a
+   * waterline, no rock on anything steep. All of that was invention: it
+   * painted an orange desert across ground the imagery had simply not reached
+   * yet, and half a hillside would be a plausible-looking lie sitting next to
+   * the photograph of the other half.
    *
-   * It replaces one flat olive fill, which is what made unphotographed ground
-   * read as a tan sheet, and it is why the sea is blue and the land is not:
-   * the depth under the surface decides, not a guess from the height alone.
+   * It should also be rare. A tile with no imagery of its own stretches its
+   * nearest loaded ancestor, and the streamer asks for those ancestors ahead
+   * of the sharp tiles precisely so that this is what you see for a moment
+   * rather than what you fly over.
    */
-  vec3 groundWithoutImagery(float surface, float depth, float flatness) {
-    float lat = abs(uLatitude);
-    float warmth = clamp(1.0 - lat / 62.0, 0.0, 1.0);
-    float dryness = clamp(1.0 - abs(lat - 25.0) / 22.0, 0.0, 1.0);
-    // Slow noise so neighbouring ground is not all one colour and one biome
-    // fades into the next instead of meeting it at a tile edge.
-    float blend = detailNoise(vWorld.xz * 0.00008) - 0.5;
-
-    if (depth < -0.5) {
-      vec3 deep = vec3(0.05, 0.13, 0.24);
-      vec3 shallow = vec3(0.16, 0.35, 0.46);
-      return mix(shallow, deep, clamp(-depth / 900.0, 0.0, 1.0));
-    }
-
-    vec3 grass = vec3(0.33, 0.42, 0.25);
-    vec3 forest = vec3(0.20, 0.29, 0.19);
-    vec3 arid = vec3(0.58, 0.49, 0.35);
-    vec3 sand = vec3(0.70, 0.65, 0.52);
-    vec3 rock = vec3(0.42, 0.40, 0.38);
-
-    vec3 green = mix(grass, forest, clamp(warmth * 0.85 + blend * 0.6, 0.0, 1.0));
-    vec3 vegetation = mix(green, arid, clamp(dryness * 0.8 + blend * 0.5, 0.0, 1.0));
-    // Sand along the waterline, bare rock on anything steep or high. Both are
-    // statements about relief, so both are switched off when there is none to
-    // read: with no elevation the whole world is exactly sea level, and a
-    // beach test on that paints the entire planet as one tan sheet — which is
-    // precisely what it used to do.
-    float shore = smoothstep(7.0, 0.5, surface) * uHasRelief;
-    vec3 low = mix(vegetation, sand, shore);
-    float bare = clamp(
-      ((1.0 - flatness) * 1.15 + smoothstep(1100.0, 2800.0, surface) * 0.8) * uHasRelief,
-      0.0, 1.0
-    );
-    return mix(low, rock, bare);
+  vec3 groundNotLoaded(float flatness) {
+    return mix(vec3(0.24, 0.25, 0.26), vec3(0.34, 0.35, 0.36), flatness);
   }
 
   void main() {
@@ -90849,25 +90663,13 @@ const TERRAIN_FRAG = /* glsl */ `
     vec3 n = normalize(vNormalW);
     float flatness = smoothstep(0.30, 0.92, n.y);
     vec2 uv = uUvOffset + clamp(vUv, 0.0, 1.0) * uUvScale;
-    vec3 albedo = mix(
-      groundWithoutImagery(vHeight, vBed, flatness),
-      texture2D(uMap, uv).rgb,
-      uHasTexture
-    );
+    vec3 albedo = mix(groundNotLoaded(flatness), texture2D(uMap, uv).rgb, uHasTexture);
 
-    // Ground detail.
-    //
-    // Up close there is nothing left in the imagery: either the provider has
-    // no tile at this zoom and we are stretching its parent, or the pixel is
-    // simply a flat expanse of snow or sand. Either way it reads as a blank
-    // white or grey wash. Two octaves of ground-locked noise, faded in over the
-    // last couple of hundred metres, give the surface something to hold on to
-    // without inventing features that are not there.
-    float near = 1.0 - smoothstep(30.0, 260.0, vDist);
-    if (near > 0.001) {
-      float grain = detailNoise(vWorld.xz * 0.9) * 0.6 + detailNoise(vWorld.xz * 3.7) * 0.4;
-      albedo *= 1.0 + (grain - 0.5) * 0.3 * near;
-    }
+    // There used to be two octaves of noise multiplied over the ground here,
+    // to give a stretched or flat-white tile something to hold on to. It is
+    // gone: it is a pattern nobody surveyed, printed over a photograph of
+    // somewhere real, and up close it is the thing that made bare rock look
+    // like carpet.
 
     float lambert = max(dot(n, uSunDir), 0.0);
     // Soft wrap keeps shaded slopes readable instead of crushing them to black.
@@ -90882,9 +90684,7 @@ const TERRAIN_FRAG = /* glsl */ `
     // kilometre of height, drifts about with the ground so the line is never
     // straight, sheds off any real slope, and only ever tints what is already
     // there rather than painting over it.
-    float drift = (detailNoise(vWorld.xz * 0.0035) - 0.5) * 460.0
-                + (detailNoise(vWorld.xz * 0.02) - 0.5) * 90.0;
-    float snow = smoothstep(uSnowLine + drift, uSnowLine + drift + 1000.0, vHeight) * flatness;
+    float snow = smoothstep(uSnowLine, uSnowLine + 1000.0, vHeight) * flatness;
     vec3 snowColour = vec3(0.86, 0.88, 0.92) * (uAmbient + uSunColor * wrapped);
     lit = mix(lit, snowColour, snow * 0.45);
 
@@ -92793,7 +92593,6 @@ const SEA_LEVEL = 0;
  */
 const KEEP_FACTOR = 1.5;
 /** How much further distant mode reaches than the render distance proper. */
-const DISTANT_FACTOR = 2;
 /**
  * The most tiles one frame will rebuild for being plainly wrong rather than
  * merely out of date. High enough that arriving somewhere new sorts itself out
@@ -92837,7 +92636,10 @@ class Terrain {
 
   get gridSize() {
     const preset = settings.preset();
-    return clamp(Math.round(preset.tileGridSize * settings.get('meshDetail')), 5, 65);
+    // The detail dial scales the mesh with everything else, so one control
+    // does the whole job rather than three that have to be kept in step.
+    const detail = clamp(settings.get('detailLimit') / 100, 0.25, 1);
+    return clamp(Math.round(preset.tileGridSize * settings.get('meshDetail') * detail), 5, 65);
   }
 
   /** How aggressively tiles subdivide; derived from the graphics preset. */
@@ -92918,15 +92720,27 @@ class Terrain {
     // on its own when a level starts refusing every tile while the one above
     // it keeps answering. On auto there is no ceiling of your own at all, so
     // what you get is exactly as sharp as the provider is willing to go.
-    const wanted = settings.get('maxTileZoomAuto') ? Infinity : settings.get('maxTileZoom');
-    const maxZoom = Math.min(wanted, this.streamer.maxUsefulZoom);
+    // The ground always sharpens as far as the provider will actually serve
+    // here. The setting is a ceiling you may lower, not a target — there is no
+    // tick to forget to turn on any more — and the detail dial scales it down
+    // with everything else when the frame rate is short.
+    const detail = clamp(settings.get('detailLimit') / 100, 0.25, 1);
+    const ceiling = settings.get('maxTileZoom') - Math.round((1 - detail) * 4);
+    const maxZoom = Math.min(ceiling, this.streamer.maxUsefulZoom);
     const renderDistance = this.renderDistance;
     // Distant mode: keep drawing past the render distance, but only over
     // country you have already flown across. Ground you have never seen stops
     // at the edge as it always did, so the setting cannot quietly double what
     // an unexplored world costs to stream.
+    // Two distances, because they cost completely different things. The near
+    // one is ground drawn anywhere and every kilometre of it has to be
+    // fetched; the far one only applies where the explored map says you have
+    // already been, so those tiles are cached and the cost is drawing. That is
+    // why one stops at 64 km and the other can run to 1024.
     this.farDistance =
-      this.explored && settings.get('distantMode') ? renderDistance * DISTANT_FACTOR : renderDistance;
+      this.explored && settings.get('distantMode')
+        ? Math.max(renderDistance, settings.get('distantDistanceKm') * 1000)
+        : renderDistance;
     this.keepDistance = this.farDistance * KEEP_FACTOR;
     this.maxDrawn = MAX_DRAWN_TILES[settings.get('graphics')] ?? MAX_DRAWN_TILES.high;
     // Which way you are facing, flattened. Ground in front of you is what you
@@ -94365,7 +94179,48 @@ function drawMap(ctx, view, layers) {
   }
 
   ctx.restore();
+
+  // North, south, east and west, drawn last so nothing covers them and drawn
+  // *outside* the rotation so they stay where the compass points rather than
+  // where the map happens to be turned. Big, because the whole reason to want
+  // them is to know which way you are looking without reading a number.
+  if (options.compass) drawCompass(ctx, width, height, rotation, options.compassSize ?? 22);
+
   return { centre, toScreen };
+}
+
+/**
+ * The four cardinals, around the edge of the map.
+ *
+ * `rotation` is the map's own turn, so the letters counter-rotate: on a
+ * north-up map N sits at the top, and on a heading-up one it slides round to
+ * wherever north actually is.
+ */
+function drawCompass(ctx, width, height, rotation, size) {
+  const cx = width / 2;
+  const cy = height / 2;
+  const radius = Math.min(width, height) / 2 - size * 0.9;
+  const marks = [
+    { label: 'N', angle: 0, colour: '#f4b26a' },
+    { label: 'E', angle: Math.PI / 2, colour: '#e2e8f0' },
+    { label: 'S', angle: Math.PI, colour: '#e2e8f0' },
+    { label: 'W', angle: -Math.PI / 2, colour: '#e2e8f0' },
+  ];
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `600 ${size}px ui-sans-serif, system-ui, sans-serif`;
+  for (const mark of marks) {
+    const a = mark.angle + rotation - Math.PI / 2;
+    const x = cx + Math.cos(a) * radius;
+    const y = cy + Math.sin(a) * radius;
+    ctx.lineWidth = size * 0.28;
+    ctx.strokeStyle = 'rgba(15, 17, 20, 0.85)';
+    ctx.strokeText(mark.label, x, y);
+    ctx.fillStyle = mark.colour;
+    ctx.fillText(mark.label, x, y);
+  }
+  ctx.restore();
 }
 
 /**
@@ -94804,6 +94659,8 @@ class WorldMap {
           grid: this.zoom >= 12,
           playerSize: 9,
           pathWidth: 1.6,
+          compass: true,
+          compassSize: 30,
         },
       },
     );
@@ -94877,11 +94734,12 @@ const ROWS = [
   ['Drop a waypoint', ['waypoint']],
   ['Copy coordinates', ['copyCoords']],
   ['Minimap zoom', ['minimapZoomOut', 'minimapZoomIn']],
-  ['Freecam', ['freecam']],
+  ['Freecam \u2014 the wheel changes its speed', ['freecam']],
   ['Change perspective', ['perspective']],
   ['Grow / shrink', ['scaleDown', 'scaleUp']],
   ['Swap mouse mode', ['mouseMode']],
   ['Rockets I to V', ['hotbar1', 'hotbar5']],
+  ['Pause the world where it is', ['pause']],
   ['Settings', ['settings']],
 ];
 
@@ -94982,6 +94840,7 @@ __tg_exports["HelpCard"] = HelpCard;
 };
 __tg_modules["src/ui/hud.js"] = function (__tg_exports) {
 const { clamp } = __tg_require("src/core/math.js");
+const { AIR_SECONDS, SPEED_MODE_COOLDOWN_S, SPEED_MODE_SECONDS } = __tg_require("src/player/player.js");
 const { keybinds } = __tg_require("src/core/keybinds.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { compassPoint, formatAltitude, formatBearing, formatDistance, formatHeight, formatLatLon, formatSpeed, formatTemperature } = __tg_require("src/core/units.js");
@@ -95037,6 +94896,11 @@ class HUD {
           <div class="bar"><i data-id="speed-bar"></i></div>
           <span data-id="speed-text">Ready</span>
         </div>
+        <div class="gauge" data-id="air-gauge" hidden>
+          <label>Air</label>
+          <div class="bar"><i data-id="air-bar"></i></div>
+          <span data-id="air-text">—</span>
+        </div>
         <div class="gauge" data-id="scale-gauge">
           <label>Height<kbd data-key="scaleDown"></kbd><kbd data-key="scaleUp"></kbd></label>
           <span data-id="scale-text">—</span>
@@ -95079,6 +94943,13 @@ class HUD {
     });
 
     this.onAction = null;
+    // Nothing in the HUD keeps the keyboard after you click it. See the note
+    // in input.js: a focused button turns the next Space into a press of
+    // itself, which is how jumping teleported you.
+    this.element.addEventListener('pointerup', (event) => {
+      const button = event.target instanceof HTMLElement ? event.target.closest('button') : null;
+      if (button) button.blur();
+    });
     this.element.addEventListener('click', (event) => {
       const button = event.target.closest('[data-action]');
       if (!button || !this.onAction) return;
@@ -95156,12 +95027,18 @@ class HUD {
 
     // Climate corner.
     if (state.climate) {
-      this.setText('temp', formatTemperature(state.climate.avgC, units));
+      // The observed temperature when there is one, and the seasonal mean only
+      // when there is not — and the line underneath says which, every time, so
+      // a monthly average is never read as today's weather.
+      const observed = state.weather?.observed ? state.weather : null;
+      this.setText('temp', formatTemperature(observed ? observed.tempC : state.climate.avgC, units));
       this.setText('season', `${state.climate.monthName} · ${state.climate.season}`);
       const weather = state.weather ? `${state.weather.label} · ` : '';
       this.setText(
         'climate-sub',
-        `${weather}${state.climate.band} · seasonal average · annual ${formatTemperature(state.climate.annualC, units)}`,
+        observed
+          ? `${weather}now · feels ${formatTemperature(observed.feelsC, units)} · wind ${Math.round(observed.windKph)} km/h`
+          : `${weather}${state.climate.band} · seasonal average · annual ${formatTemperature(state.climate.annualC, units)}`,
       );
     }
 
@@ -95186,9 +95063,25 @@ class HUD {
     // Compass strip.
     if (settings.get('showCompass')) this.updateCompass(player.yaw);
 
+    // Air, and only when your head is actually under. A gauge that is always
+    // there is a gauge nobody reads.
+    const air = this.refs['air-gauge'];
+    if (air) {
+      air.hidden = !player.submerged;
+      if (player.submerged) {
+        const left = Math.max(0, player.airSeconds);
+        this.refs['air-bar'].style.width = `${clamp(left / AIR_SECONDS, 0, 1) * 100}%`;
+        air.dataset.state = player.airSeconds > 0 ? 'active' : 'cooling';
+        this.setText(
+          'air-text',
+          player.airSeconds > 0 ? `${left.toFixed(0)} s` : 'Drowning',
+        );
+      }
+    }
+
     const speedRatio = player.speedActive
-      ? player.speedRemaining / Math.max(1, settings.get('speedModeDurationS'))
-      : 1 - player.speedCooldown / Math.max(1, settings.get('speedModeCooldownS'));
+      ? player.speedRemaining / SPEED_MODE_SECONDS
+      : 1 - player.speedCooldown / SPEED_MODE_COOLDOWN_S;
     this.refs['speed-bar'].style.width = `${clamp(speedRatio, 0, 1) * 100}%`;
     this.refs['speed-gauge'].dataset.state = player.speedActive
       ? 'active'
@@ -95492,6 +95385,8 @@ class Minimap {
           labels: this.size >= 200,
           playerSize: 7,
           pathWidth: 1.3,
+          compass: true,
+          compassSize: Math.max(13, Math.round(this.size * 0.08)),
         },
       },
     );
@@ -95535,6 +95430,7 @@ const SECTIONS = [
         type: 'select',
         options: () => IMAGERY_PROVIDERS.filter((p) => !p.hidden).map((p) => ({ value: p.id, label: providerLabel(p) })),
         help: (value) => providerNote(IMAGERY_PROVIDERS, value),
+        test: 'imagery',
       },
       {
         key: 'elevationProvider',
@@ -95542,6 +95438,7 @@ const SECTIONS = [
         type: 'select',
         options: () => ELEVATION_PROVIDERS.map((p) => ({ value: p.id, label: providerLabel(p) })),
         help: (value) => providerNote(ELEVATION_PROVIDERS, value),
+        test: 'elevation',
       },
       {
         key: 'panoramaProvider',
@@ -95567,6 +95464,20 @@ const SECTIONS = [
               : 'Not a stylised world and not a generated one: aeroplanes flew over with cameras, and the buildings, trees and bridges you see are the mesh they measured, wearing the photographs they took. It is the most real thing here, and it is the one thing that cannot be keyless \u2014 Google meters it. Needs a Google Maps Platform key with the Map Tiles API enabled, and it is not cheap to run. Terrain and scenery step aside where it loads.',
       },
       {
+        key: 'world3dAsset',
+        label: '3D dataset',
+        type: 'select',
+        showWhen: () => settings.get('world3d') === 'cesium',
+        options: () => [
+          { value: 'photoreal', label: 'Google photogrammetry \u2014 the scanned world' },
+          { value: 'osm-buildings', label: 'OpenStreetMap buildings \u2014 every building, untextured' },
+        ],
+        help: (value) =>
+          value === 'osm-buildings'
+            ? 'Every building OpenStreetMap has, on Earth, extruded from its recorded height and served as real 3D tiles. Grey rather than photographed, because nobody flew over it \u2014 but it covers the enormous amount of the planet the photogrammetry never has.'
+            : 'Aerial photogrammetry: the buildings, the trees and the bridges are the mesh, wearing the photographs taken of them. The most real thing here, and the heaviest.',
+      },
+      {
         key: 'world3dDetail',
         label: '3D detail',
         type: 'select',
@@ -95588,12 +95499,6 @@ const SECTIONS = [
       { key: 'maxarConnectId', label: 'Maxar SecureWatch connect ID', type: 'secret', help: 'Maxar\u2019s own imagery service. An enterprise credential \u2014 Esri, Bing and Google all serve Maxar scenes without one.' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },
       { key: 'buildings', label: 'OpenStreetMap buildings', type: 'toggle', help: 'Extrudes real footprints near the ground. Interiors are generated.' },
-      {
-        key: 'structuresNeedHeight',
-        label: 'Only build what the data measures',
-        type: 'toggle',
-        help: 'OpenStreetMap records a height or a storey count for a minority of buildings. On, only those are raised — everything else is left flat, and cities will look sparse. Off, the rest are estimated from their class, which is what a flight simulator does outside its photogrammetry cities. Either way nothing is drawn where the survey says there is nothing.',
-      },
       { key: 'streetLevel', label: 'Blend street-level photos', type: 'toggle', help: 'Fades ground photography in when you stand still. Needs a key.' },
     ],
   },
@@ -95613,11 +95518,11 @@ const SECTIONS = [
         ],
         help: 'Sets terrain detail, texture cache and how many tiles load at once.',
       },
-      { key: 'renderDistanceAuto', label: 'Render distance: as far as the machine allows', type: 'toggle', help: 'Finds the distance by measuring the frame clock instead of asking you for a number \u2014 pushes the horizon out while there is headroom, pulls it back in the moment there is not. The slider below becomes the starting point.' },
-      { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 2048, step: 4, unit: ' km', help: 'How far the ground is drawn. Far tiles stay coarse, so the cost grows far more slowly than the number does \u2014 but it does grow.' },
+
+      { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 64, step: 1, unit: ' km', help: 'How far the ground is drawn anywhere. Far tiles stay coarse, so the cost grows more slowly than the number does \u2014 but every kilometre of it is country that has to be fetched.' },
+      { key: 'distantDistanceKm', label: 'Distant view over ground you have seen', type: 'range', min: 64, max: 1024, step: 8, unit: ' km', showWhen: () => settings.get('distantMode'), help: 'Past the render distance the ground keeps going, but only where the explored map says you have already been \u2014 those tiles are cached, so this costs drawing rather than fetching. Somewhere new still stops at the render distance.' },
       { key: 'distantMode', label: 'Draw twice as far over country you have seen', type: 'toggle', help: 'Past the render distance the ground keeps going, but only where the explored map says you have already been. Somewhere new still stops at the edge, so this never doubles what an unflown world costs to stream.' },
-      { key: 'maxTileZoomAuto', label: 'Ground detail: as sharp as the provider allows', type: 'toggle', help: 'No ceiling of your own. What you get is whatever the provider actually serves here, which the streamer works out by watching which zoom levels answer.' },
-      { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 12, max: 22, step: 1, showWhen: () => !settings.get('maxTileZoomAuto'), help: 'How close the ground can get before it stops sharpening. Higher is sharper underfoot and costs more to stream. Twenty-two is the deepest any provider here goes.' },
+      { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 12, max: 22, step: 1, help: 'A ceiling, not a target. The ground always sharpens as far as the provider will actually serve here \u2014 the streamer works that out by watching which zoom levels answer and which only ever 404 \u2014 and this only stops it going deeper than you want. Twenty-two is the deepest any provider here publishes.' },
       { key: 'meshDetail', label: 'Terrain mesh detail', type: 'range', min: 0.5, max: 1.6, step: 0.1, format: (v) => `${v.toFixed(1)}x` },
       { key: 'fov', label: 'Field of view', type: 'range', min: 55, max: 118, step: 1, unit: '°' },
       { key: 'freecamFov', label: 'Freecam field of view', type: 'range', min: 55, max: 118, step: 1, unit: '°' },
@@ -95631,9 +95536,8 @@ const SECTIONS = [
         help: 'Where OpenStreetMap has nothing mapped — or Overpass is busy — read the aerial photograph instead: trees where it is green, rock where it is bare. Off means only surveyed ground grows anything.',
       },
       { key: 'weather', label: 'Clouds and rain', type: 'toggle', help: 'Cloud cover and precipitation for where and when you are, from the same climate model as the temperature.' },
-      { key: 'resolutionScale', label: 'Render scale', type: 'range', min: 0.5, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%` },
-      { key: 'autoQuality', label: 'Pick the preset to hit the target', type: 'toggle', help: 'Watches the real frame clock and moves the preset one step when the machine has been saying the same thing for long enough to believe it. Drops quickly, takes one back slowly, and tells you when it does.' },
-      { key: 'adaptiveResolution', label: 'Adapt render scale to keep the frame rate', type: 'toggle' },
+      { key: 'resolutionScale', label: 'Render scale', type: 'range', min: 0.5, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%`, help: 'How many pixels the world is drawn with, against your screen\u2019s own. A hundred per cent is native \u2014 every pixel your display has. Above that is supersampling: sharper still, and expensive.' },
+      { key: 'detailLimit', label: 'Detail limit', type: 'range', min: 25, max: 100, step: 5, format: (v) => `${v}%`, help: 'Scales tile detail, mesh detail and how deep the ground zooms, all together. One dial to pull when the frame rate is short instead of five. A hundred per cent is the preset as designed.' },
       { key: 'fpsTarget', label: 'Frame rate target', type: 'range', min: 30, max: 144, step: 5, unit: ' fps' },
       { key: 'showFps', label: 'Show performance readout', type: 'toggle' },
     ],
@@ -95691,9 +95595,7 @@ const SECTIONS = [
         format: (v) => `${formatHeight(v, settings.get('units'))}`,
         help: 'Default is 6 ft 6 in.',
       },
-      { key: 'playerScale', label: 'Size', type: 'range', min: 0.25, max: 40, step: 0.05, format: (v) => `${v.toFixed(2)}x` },
-      { key: 'speedModeDurationS', label: 'Speed mode duration', type: 'range', min: 3, max: 60, step: 1, unit: ' s' },
-      { key: 'speedModeCooldownS', label: 'Speed mode cooldown', type: 'range', min: 5, max: 300, step: 5, unit: ' s' },
+
     ],
   },
   {
@@ -95736,8 +95638,7 @@ const SECTIONS = [
         help: 'Unlimited by default, so mid-ocean is fair game; wind it down to stay within reach of a coast.',
       },
       { key: 'rtpSkySpawn', label: 'Teleport keeps you doing what you were doing', type: 'toggle', help: 'On: teleport while flying and you arrive high with the wings out; teleport from the ground and you arrive on your feet. Off: you always arrive standing.' },
-      { key: 'spawnStreetLevel', label: 'Arrive where there is street-level imagery', type: 'toggle', help: 'Street-level photography is switched on for the arrival if the provider has any.' },
-      { key: 'spawnInBuilding', label: 'Arrive inside a building where there is one', type: 'toggle' },
+
       {
         key: 'timeMode',
         label: 'Time of day',
@@ -95894,10 +95795,15 @@ class SettingsPanel {
       parts.push(this.renderField(field));
     }
     if (section.id === 'providers') parts.push(this.renderProviderTest());
+    if (section.id === 'graphics') parts.push(this.renderBenchmark());
     if (section.keybinds) parts.push(this.renderKeybinds());
     this.content.innerHTML = parts.join('');
     this.bindFields(section);
-    if (section.id === 'providers') this.bindProviderTest();
+    if (section.id === 'providers') {
+      this.bindProviderTest();
+      this.bindOneTest();
+    }
+    if (section.id === 'graphics') this.bindBenchmark();
   }
 
   renderField(field) {
@@ -95931,11 +95837,21 @@ class SettingsPanel {
     }
 
     const help = typeof field.help === 'function' ? field.help(value) : field.help;
+    // A field may carry its own test button — "does the thing I just picked
+    // actually answer me?" is a different question from "do any of them", and
+    // it is the one you want after pasting a key.
+    const one = field.test
+      ? `<button type="button" class="field-test" data-test-one="${escapeHtml(field.test)}">Test this one</button>`
+      : '';
+    const result = field.test && this.oneResult?.[field.test]
+      ? `<small class="provider-${escapeHtml(this.oneResult[field.test].state)}">${escapeHtml(this.oneResult[field.test].detail)}</small>`
+      : '';
     return `
       <div class="field field-${field.type}">
         <label for="${id}">${escapeHtml(field.label)}</label>
-        ${control}
+        ${control}${one}
         ${help ? `<small>${escapeHtml(help)}</small>` : ''}
+        ${result}
       </div>`;
   }
 
@@ -96056,6 +95972,24 @@ class SettingsPanel {
       </div>`;
   }
 
+  bindOneTest() {
+    this.content.querySelectorAll('[data-test-one]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const which = button.dataset.testOne;
+        const list = which === 'elevation' ? ELEVATION_PROVIDERS : IMAGERY_PROVIDERS;
+        const id = settings.get(which === 'elevation' ? 'elevationProvider' : 'imageryProvider');
+        const descriptor = list.find((p) => p.id === id);
+        if (!descriptor) return;
+        this.oneResult = { ...(this.oneResult ?? {}), [which]: { state: 'checking', detail: 'asking\u2026' } };
+        this.render();
+        const tile = this.testTile ? this.testTile() : { z: 12, x: 2138, y: 1420 };
+        const [result] = await testProviders([descriptor], settings.values, tile);
+        this.oneResult = { ...(this.oneResult ?? {}), [which]: result };
+        this.render();
+      });
+    });
+  }
+
   bindProviderTest() {
     const button = this.content.querySelector('[data-test-providers]');
     if (!button) return;
@@ -96077,6 +96011,58 @@ class SettingsPanel {
         await testProviders(ELEVATION_PROVIDERS, values, tile, push);
       } finally {
         this.testing = false;
+        this.render();
+      }
+    });
+  }
+
+  /**
+   * The benchmark button.
+   *
+   * Replaces two governors that moved things underneath you while you flew.
+   * This measures each preset in the real game, in the real place you are
+   * standing, and stops at the heaviest one that holds your target — once,
+   * when you ask it to, and then leaves everything alone.
+   */
+  renderBenchmark() {
+    const rows = this.benchResults ?? [];
+    const body = rows.length
+      ? `<ul class="provider-test">${rows
+          .map(
+            (r) =>
+              `<li class="provider-${r.fps >= settings.get('fpsTarget') * 0.92 ? 'ok' : 'no-cover'}">` +
+              `<b>${escapeHtml(r.tier)}</b><span>${r.fps.toFixed(0)} fps, worst frame ${r.worstMs.toFixed(0)} ms</span></li>`,
+          )
+          .join('')}</ul>`
+      : '';
+    return `
+      <div class="field field-action">
+        <label>Test this machine</label>
+        <button type="button" data-benchmark ${this.benchmarking ? 'disabled' : ''}>
+          ${escapeHtml(this.benchStatus ?? (this.benchmarking ? 'Testing\u2026' : 'Test my system and pick'))}
+        </button>
+        <small>Runs each preset here for a couple of seconds, measures the frames that actually arrive, and settles on the heaviest one that holds your target. Nothing changes unless you press this.</small>
+        ${body}
+      </div>`;
+  }
+
+  bindBenchmark() {
+    const button = this.content.querySelector('[data-benchmark]');
+    if (!button || !this.onBenchmark) return;
+    button.addEventListener('click', async () => {
+      if (this.benchmarking) return;
+      this.benchmarking = true;
+      this.benchResults = [];
+      this.render();
+      try {
+        const result = await this.onBenchmark((status, results) => {
+          this.benchStatus = status;
+          this.benchResults = results ? [...results] : [];
+          this.render();
+        });
+        if (result) this.benchStatus = `Settled on ${result.pick}`;
+      } finally {
+        this.benchmarking = false;
         this.render();
       }
     });
@@ -96518,7 +96504,7 @@ const THREE = __tg_require("vendor/three/three.module.js");
 const { cheats } = __tg_require("src/core/cheats.js");
 const { clamp, damp } = __tg_require("src/core/math.js");
 const { PerfGovernor } = __tg_require("src/core/perf.js");
-const { AutoDistance, AutoQuality } = __tg_require("src/core/autoQuality.js");
+const { Benchmark } = __tg_require("src/core/benchmark.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { readJSON, writeJSON } = __tg_require("src/core/storage.js");
 const { formatDistance, formatLatLon } = __tg_require("src/core/units.js");
@@ -96528,13 +96514,14 @@ const { LocalFrame } = __tg_require("src/geo/frame.js");
 const { geocoder } = __tg_require("src/geo/geocode.js");
 const { haversine, latToNormY, lonToNormX } = __tg_require("src/geo/mercator.js");
 const { waterMap } = __tg_require("src/geo/water.js");
+const { observedWeather } = __tg_require("src/geo/observed.js");
 const { weatherAt } = __tg_require("src/geo/weather.js");
 const { Autopilot } = __tg_require("src/player/autopilot.js");
 const { Avatar } = __tg_require("src/player/avatar.js");
 const { PlayerController } = __tg_require("src/player/controller.js");
 const { Player } = __tg_require("src/player/player.js");
 const { ElevationField } = __tg_require("src/tiles/elevation.js");
-const { createElevationSource, createImagerySource } = __tg_require("src/tiles/providers.js");
+const { IMAGERY_PROVIDERS, createElevationSource, createImagerySource, providerChain } = __tg_require("src/tiles/providers.js");
 const { ImageryStreamer } = __tg_require("src/tiles/streamer.js");
 const { createTileWorker } = __tg_require("src/tiles/workerHost.js");
 const { Buildings } = __tg_require("src/world/buildings.js");
@@ -96578,8 +96565,9 @@ class Game {
     this.running = false;
     this.lastTime = 0;
     this.perf = new PerfGovernor();
-    this.autoQuality = new AutoQuality();
-    this.autoDistance = new AutoDistance();
+    this.benchmark = new Benchmark();
+    /** Resolves on the next drawn frame, with its length in ms. */
+    this.frameWaiters = [];
     this.settleUntil = 0;
     this._holdY = NaN;
     this.teleporting = false;
@@ -96683,6 +96671,12 @@ class Game {
     this.input.on('look', ({ dx, dy }) => this.rig.applyLook(this.player, dx, dy));
     this.input.on('boost', () => this.fireRocket());
     this.input.on('land', () => this.toggleWings());
+    // Out of air. Somewhere you can breathe, which is what a random teleport
+    // is for, and it says so rather than silently moving you.
+    this.player.on('drowned', () => {
+      this.toast('Out of air — surfacing somewhere else', 'bad');
+      this.randomTeleport();
+    });
     this.input.on('wheel', ({ delta }) => {
       if (this.rig.isFreecam) {
         const speed = this.rig.adjustFreecamSpeed(delta);
@@ -96737,6 +96731,10 @@ class Game {
     // Test the providers where you actually are. Asking about a fixed tile
     // somewhere in Europe would happily report USGS as broken while you stand
     // in Utah, and report it working while you stand in Rome.
+    this.settingsPanel.onBenchmark = (onProgress) => {
+      this.benchmark.onProgress = onProgress;
+      return this.benchmark.run(this.perf, () => new Promise((resolve) => this.frameWaiters.push(resolve)));
+    };
     this.settingsPanel.testTile = () => {
       const zoom = 14;
       const n = Math.pow(2, zoom);
@@ -96827,6 +96825,16 @@ class Game {
     this.imagerySource = createImagerySource(settings.values);
     this.elevationSource = createElevationSource(settings.values);
     this.streamer.setSource(this.imagerySource);
+    // Standbys for the ground itself, in the order asked for: providers you
+    // hold a key for first, then the free ones, deepest first. A tile the
+    // chosen provider will not serve moves down the list rather than leaving a
+    // bare square — and there is nothing invented behind the list any more.
+    this.streamer.setStandbys(
+      providerChain(IMAGERY_PROVIDERS, settings.get('imageryProvider'), settings.values)
+        .filter((p) => p.id !== this.imagerySource.descriptor.id)
+        .slice(0, 3)
+        .map((p) => createImagerySource({ ...settings.values, imageryProvider: p.id })),
+    );
     this.elevation.setSource(this.elevationSource);
     mapTiles.setSource(this.imagerySource);
     // Whatever you chose to fly over, the flat maps fall back to the keyless
@@ -96932,13 +96940,7 @@ class Game {
     // Choosing a preset by hand is a statement about what you want, so the
     // governor starts again from there rather than undoing it in a few
     // seconds and looking like the setting had not saved.
-    if (key === 'graphics' || key === 'fpsTarget' || key === 'autoQuality') {
-      this.autoQuality.reset();
-    }
-    if (key === 'fpsTarget' || key === 'renderDistanceAuto') this.autoDistance.reset();
-    if (key === 'renderDistanceKm' && !this.autoDistance.wrote(settings.get('renderDistanceKm'))) {
-      this.autoDistance.reset();
-    }
+
     if (key === 'meshDetail') this.terrain.rebase();
     if (key === 'mouseMode' && settings.get('mouseMode') === 'locked') this.input.requestPointerLock();
   }
@@ -97001,14 +97003,39 @@ class Game {
   async start() {
     this.onStatus('Finding a place to stand');
     const saved = readJSON(POSITION_KEY, null);
-    const spawn = saved && Number.isFinite(saved.lat) ? saved : DEFAULT_SPAWN;
-    await this.teleportTo(spawn.lat, spawn.lon, { reason: 'spawn', quiet: true });
+    if (saved && Number.isFinite(saved.lat)) {
+      await this.teleportTo(saved.lat, saved.lon, { reason: 'spawn', quiet: true });
+    } else {
+      // First run: somewhere new, not the same Swiss valley for everybody
+      // forever. The same search a random teleport uses, so it lands on
+      // land, near something, and not in the middle of an ocean.
+      await this.randomTeleport({ quiet: true });
+    }
 
     this.running = true;
     this.lastTime = performance.now();
     requestAnimationFrame((t) => this.loop(t));
 
     if (this.help.firstRun) this.help.show();
+  }
+
+  /**
+   * A stand-in camera parked where the player is, facing where they face.
+   *
+   * Used while the freecam is out, so the world keeps loading around the
+   * person rather than around the roaming eye.
+   */
+  streamCamera(player) {
+    const cam = this._streamCamera ?? (this._streamCamera = this.camera.clone());
+    cam.fov = this.camera.fov;
+    cam.aspect = this.camera.aspect;
+    cam.near = this.camera.near;
+    cam.far = this.camera.far;
+    cam.position.set(player.position.x, player.position.y + player.eyeHeight, player.position.z);
+    cam.rotation.set(player.pitch, -player.yaw, 0, 'YXZ');
+    cam.updateMatrixWorld(true);
+    cam.updateProjectionMatrix();
+    return cam;
   }
 
   resize() {
@@ -97030,26 +97057,24 @@ class Game {
     if (!this.running) return;
     requestAnimationFrame((t) => this.loop(t));
 
-    const elapsed = clamp((now - this.lastTime) / 1000, 0, 0.25);
+    // A second and a half, matching the fixed-step catch-up ceiling. A quarter
+    // of a second here meant a machine drawing at three frames a second threw
+    // three quarters of every second on the floor, and the whole world moved
+    // in slow motion — which is what 'falling too slowly' actually was.
+    const elapsed = clamp((now - this.lastTime) / 1000, 0, 1.5);
     this.lastTime = now;
     if (document.hidden) return;
 
     // The frame-rate governor wants real seconds; everything else runs on the
     // game clock, which the game-speed cheat is allowed to stretch.
     this.perf.update(elapsed);
-    // The resolution governor gives up pixels first because they are the
-    // cheapest thing to give up. This only acts once that has run out of room
-    // in either direction — see src/core/autoQuality.js.
-    // Then the horizon, which is the next cheapest thing to give up: it takes
-    // world away rather than detail, and none of what is left looks any worse
-    // for it.
-    this.autoDistance.update(elapsed, this.perf);
-    // The preset last, because a tier changes how everything looks everywhere.
-    const tier = this.autoQuality.update(elapsed, this.perf);
-    if (tier) {
-      this.toast(
-        `Graphics set to ${tier} to hold ${settings.get('fpsTarget')} fps — Settings to turn this off`,
-      );
+    // Anything waiting on a real drawn frame — the benchmark, and nothing else
+    // — is told how long this one took. Measuring the game is the only honest
+    // way to measure the game.
+    if (this.frameWaiters.length > 0) {
+      const waiters = this.frameWaiters;
+      this.frameWaiters = [];
+      for (const resolve of waiters) resolve(elapsed * 1000);
     }
     // The governor only decides a scale — something has to act on it. Applied
     // in steps, and only when it has really moved, so it never oscillates a
@@ -97075,8 +97100,16 @@ class Game {
    * nothing moves, nothing burns down and nothing lands on you.
    */
   get paused() {
+    // A menu stops the world, and so does the pause key on its own — there was
+    // no way to freeze the game and look at it without a panel over half the
+    // screen. The freecam is deliberately not on this list: looking around a
+    // stopped world is exactly what it is for.
     return Boolean(
-      this.settingsPanel.open || this.worldmap.open || this.help.open || this.cheatPanel.open,
+      this.pausedByKey ||
+        this.settingsPanel.open ||
+        this.worldmap.open ||
+        this.help.open ||
+        this.cheatPanel.open,
     );
   }
 
@@ -97118,15 +97151,17 @@ class Game {
 
     this.rig.update(player, dt, this.terrain);
 
-    // Invented imagery is only allowed over invented relief; see
-    // ImageryStreamer.mayGenerate. And the terrain shader needs to know
-    // whether there is any relief at all, because sand and bare rock are
-    // statements about height and slope that mean nothing on a flat plate.
-    this.streamer.setMayGenerate(this.elevation.invented);
+    // The shader shades unphotographed ground by slope, which means nothing
+    // on a flat plate, so it needs to know whether any relief has arrived.
     this.shared.uHasRelief.value = this.elevation.hasRelief ? 1 : 0;
 
     const budget = this.perf.budgetMs();
-    this.terrain.update(this.camera, budget);
+    // Freecam looks around the world; it does not go and fetch more of it.
+    // Streaming from the free camera meant flying it a hundred kilometres out
+    // pulled a hundred kilometres of new tiles down behind it — which is the
+    // opposite of what a look-around camera is for, and the reason it could
+    // stall the game. The terrain keeps streaming around the player.
+    this.terrain.update(this.rig.isFreecam ? this.streamCamera(player) : this.camera, budget);
     this.terrain.invalidateStale(this.camera.position.x, this.camera.position.z);
 
     const groundHeight = player.groundHeight;
@@ -97136,15 +97171,23 @@ class Game {
     this.scene.fog.density = this.shared.uFogDensity.value;
     this.renderer.setClearColor(this.sky.horizonColor, 1);
 
-    // Weather for where and when you are, from the same climate model as the
-    // temperature readout — no forecast service, no key.
-    this.weatherState = weatherAt({
-      lat: player.lat,
-      lon: player.lon,
-      date: this.sky.date,
-      avgC: this.sky.climate ? this.sky.climate.avgC : 12,
-      landFraction: this.landFraction,
-    });
+    // The weather that is actually happening here, if it can be reached.
+    //
+    // Open-Meteo is keyless and CORS-open, so this needs no account and no
+    // proxy: one request per place you arrive at, cached for ten minutes.
+    // Failing that, the climatology below — which is a good model of what this
+    // place tends to get in this month, and is labelled as one, so "light rain"
+    // over somewhere in bright sun is never presented as fact.
+    observedWeather.fetch(player.lat, player.lon);
+    this.weatherState = observedWeather.fresh(player.lat, player.lon)
+      ? observedWeather.current
+      : weatherAt({
+          lat: player.lat,
+          lon: player.lon,
+          date: this.sky.date,
+          avgC: this.sky.climate ? this.sky.climate.avgC : 12,
+          landFraction: this.landFraction,
+        });
     this.weather.setState(this.weatherState);
     this.weather.update(this.camera, dt, this.sky);
 
@@ -97370,7 +97413,10 @@ class Game {
     this.arrivalPending = false;
     const player = this.player;
 
-    if (settings.get('spawnInBuilding') && settings.get('buildings')) {
+    // Arriving indoors and arriving with street-level photography on are both
+    // simply what happens now. They were options, and an option nobody knew
+    // to turn on is a feature nobody has.
+    if (settings.get('buildings')) {
       const near = this.buildings.collidersNear(player.position.x, player.position.z, 90);
       const inside = near.find((collider) => collider.floors && collider.floors.length > 0);
       if (inside) {
@@ -97383,7 +97429,7 @@ class Game {
       }
     }
 
-    if (settings.get('spawnStreetLevel') && settings.get('panoramaProvider') !== 'none') {
+    if (settings.get('panoramaProvider') !== 'none') {
       settings.set('streetLevel', true);
     }
   }
@@ -97467,15 +97513,17 @@ class Game {
     this.teleporting = false;
   }
 
-  async randomTeleport() {
+  async randomTeleport({ quiet = false } = {}) {
     if (this.rtpBusy) return;
     this.rtpBusy = true;
-    this.toast('Looking for somewhere to land…');
+    if (!quiet) this.toast('Looking for somewhere to land…');
     try {
       const destination = await pickRandomDestination({ waterMap });
       await this.teleportTo(destination.lat, destination.lon, { reason: 'rtp', quiet: true });
       const where = formatLatLon(destination.lat, destination.lon, 4);
-      if (!destination.onLand && !settings.get('exploreSeas')) {
+      if (quiet) {
+        /* the first arrival of a session announces itself in the HUD already */
+      } else if (!destination.onLand && !settings.get('exploreSeas')) {
         this.toast(`Dropped at ${where} — could not confirm dry land`, 'warn');
       } else if (destination.place) {
         this.toast(`Dropped near ${destination.place} · ${where}`);
@@ -97590,6 +97638,10 @@ class Game {
         else if (this.cheatPanel.open) this.cheatPanel.close();
         else this.settingsPanel.toggle();
         break;
+      case 'pause':
+        this.pausedByKey = !this.pausedByKey;
+        this.toast(this.pausedByKey ? 'Paused' : 'Running');
+        break;
       case 'wings':
         this.toggleWings();
         break;
@@ -97702,20 +97754,23 @@ class Game {
         : null;
       if (!this.elevation.hasRelief) {
         parts.push(reliefName ? `${reliefName}: loading` : 'elevation loading — flat for now');
-      } else if (this.elevation.invented && !relief?.synthetic) {
+      } else if (this.elevation.unreachable) {
         parts.push(
-          reliefName
-            ? `${reliefName}: unreachable, generated relief`
-            : 'elevation unreachable — generated relief',
+          reliefName ? `${reliefName}: unreachable` : 'elevation unreachable — flat ground',
         );
       } else if (reliefName) {
         parts.push(reliefName);
       }
-      if (Number.isFinite(this.streamer.depthLimit)) {
-        parts.push(`imagery stops at z${this.streamer.depthLimit} here`);
+      // Only worth saying when it actually bites. A provider that stops at 19
+      // is not a fault, and announcing it every time you land was the "map
+      // data not yet available" noise: the ground you are on *is* that
+      // provider's photograph, stretched, which is a different thing from
+      // having none.
+      if (Number.isFinite(this.streamer.depthLimit) && this.streamer.depthLimit < 15) {
+        parts.push(`this provider only has z${this.streamer.depthLimit} here`);
       }
-      if (!this.streamer.mayGenerate && this.streamer.degraded) {
-        parts.push('no imagery here — ground coloured from the elevation');
+      if (this.streamer.degraded) {
+        parts.push('no provider answered — ground shaded from the relief');
       }
     }
     if (this.tiles3d) {
@@ -105610,6 +105665,25 @@ const GOOGLE_ROOT = 'https://tile.googleapis.com/v1/3dtiles/root.json';
  * the same room: different account, different quota, same scanned world.
  */
 const ION_ASSET = 2275207;
+/**
+ * Cesium ion assets worth flying, by id.
+ *
+ * All of these are real measurements of the real planet served as OGC 3D
+ * Tiles, on the same ion token:
+ *
+ *   2275207  Google Photorealistic 3D Tiles — aerial photogrammetry, the
+ *            buildings and the trees are in the mesh
+ *   96188    Cesium OSM Buildings — every OpenStreetMap building on Earth,
+ *            extruded from its recorded height. Not photogrammetry, so it is
+ *            grey rather than photographed, but it is a real survey and it
+ *            covers places the photogrammetry has never flown.
+ *
+ * Anything else in your own ion account works too; the number is the setting.
+ */
+const ION_ASSETS = {
+  photoreal: 2275207,
+  'osm-buildings': 96188,
+};
 const ION_ENDPOINT = 'https://api.cesium.com/v1/assets';
 /**
  * How hard to push the tile tree, by detail setting.
@@ -105655,6 +105729,9 @@ class Tiles3D {
     this.frame = frame;
     this.camera = camera;
     this.renderer = renderer;
+    // Which ion asset to fly. Photogrammetry by default; the setting can point
+    // at OpenStreetMap's buildings instead, or at anything in your own account.
+    this.ionAsset = ION_ASSETS[settings.get('world3dAsset')] ?? ION_ASSET;
 
     this.group = new THREE.Group();
     this.group.name = 'tiles3d';
@@ -105730,7 +105807,7 @@ class Tiles3D {
         // ion hands out a short-lived token and the real tileset URL; every
         // request after this one carries it as a bearer header.
         const endpoint = await fetchWithin(
-          `${ION_ENDPOINT}/${ION_ASSET}/endpoint?access_token=${encodeURIComponent(this.key)}`,
+          `${ION_ENDPOINT}/${this.ionAsset}/endpoint?access_token=${encodeURIComponent(this.key)}`,
         );
         if (!endpoint.ok) {
           throw new Error(
@@ -106021,6 +106098,7 @@ function stripTags(html) {
   return String(html).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+__tg_exports["ION_ASSETS"] = ION_ASSETS;
 __tg_exports["Tiles3D"] = Tiles3D;
 };
 // Everything the game loads on demand is in here too. Code that would say

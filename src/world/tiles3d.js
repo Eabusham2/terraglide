@@ -47,6 +47,25 @@ const GOOGLE_ROOT = 'https://tile.googleapis.com/v1/3dtiles/root.json';
  * the same room: different account, different quota, same scanned world.
  */
 const ION_ASSET = 2275207;
+/**
+ * Cesium ion assets worth flying, by id.
+ *
+ * All of these are real measurements of the real planet served as OGC 3D
+ * Tiles, on the same ion token:
+ *
+ *   2275207  Google Photorealistic 3D Tiles — aerial photogrammetry, the
+ *            buildings and the trees are in the mesh
+ *   96188    Cesium OSM Buildings — every OpenStreetMap building on Earth,
+ *            extruded from its recorded height. Not photogrammetry, so it is
+ *            grey rather than photographed, but it is a real survey and it
+ *            covers places the photogrammetry has never flown.
+ *
+ * Anything else in your own ion account works too; the number is the setting.
+ */
+export const ION_ASSETS = {
+  photoreal: 2275207,
+  'osm-buildings': 96188,
+};
 const ION_ENDPOINT = 'https://api.cesium.com/v1/assets';
 /**
  * How hard to push the tile tree, by detail setting.
@@ -92,6 +111,9 @@ export class Tiles3D {
     this.frame = frame;
     this.camera = camera;
     this.renderer = renderer;
+    // Which ion asset to fly. Photogrammetry by default; the setting can point
+    // at OpenStreetMap's buildings instead, or at anything in your own account.
+    this.ionAsset = ION_ASSETS[settings.get('world3dAsset')] ?? ION_ASSET;
 
     this.group = new THREE.Group();
     this.group.name = 'tiles3d';
@@ -167,7 +189,7 @@ export class Tiles3D {
         // ion hands out a short-lived token and the real tileset URL; every
         // request after this one carries it as a bearer header.
         const endpoint = await fetchWithin(
-          `${ION_ENDPOINT}/${ION_ASSET}/endpoint?access_token=${encodeURIComponent(this.key)}`,
+          `${ION_ENDPOINT}/${this.ionAsset}/endpoint?access_token=${encodeURIComponent(this.key)}`,
         );
         if (!endpoint.ok) {
           throw new Error(

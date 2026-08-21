@@ -174,6 +174,12 @@ export class Game {
     this.input.on('look', ({ dx, dy }) => this.rig.applyLook(this.player, dx, dy));
     this.input.on('boost', () => this.fireRocket());
     this.input.on('land', () => this.toggleWings());
+    // Out of air. Somewhere you can breathe, which is what a random teleport
+    // is for, and it says so rather than silently moving you.
+    this.player.on('drowned', () => {
+      this.toast('Out of air — surfacing somewhere else', 'bad');
+      this.randomTeleport();
+    });
     this.input.on('wheel', ({ delta }) => {
       if (this.rig.isFreecam) {
         const speed = this.rig.adjustFreecamSpeed(delta);
@@ -597,8 +603,16 @@ export class Game {
    * nothing moves, nothing burns down and nothing lands on you.
    */
   get paused() {
+    // A menu stops the world, and so does the pause key on its own — there was
+    // no way to freeze the game and look at it without a panel over half the
+    // screen. The freecam is deliberately not on this list: looking around a
+    // stopped world is exactly what it is for.
     return Boolean(
-      this.settingsPanel.open || this.worldmap.open || this.help.open || this.cheatPanel.open,
+      this.pausedByKey ||
+        this.settingsPanel.open ||
+        this.worldmap.open ||
+        this.help.open ||
+        this.cheatPanel.open,
     );
   }
 
@@ -1126,6 +1140,10 @@ export class Game {
         else if (this.help.open) this.help.close();
         else if (this.cheatPanel.open) this.cheatPanel.close();
         else this.settingsPanel.toggle();
+        break;
+      case 'pause':
+        this.pausedByKey = !this.pausedByKey;
+        this.toast(this.pausedByKey ? 'Paused' : 'Running');
         break;
       case 'wings':
         this.toggleWings();

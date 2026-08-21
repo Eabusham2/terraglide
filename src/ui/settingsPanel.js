@@ -65,6 +65,20 @@ const SECTIONS = [
               : 'Not a stylised world and not a generated one: aeroplanes flew over with cameras, and the buildings, trees and bridges you see are the mesh they measured, wearing the photographs they took. It is the most real thing here, and it is the one thing that cannot be keyless \u2014 Google meters it. Needs a Google Maps Platform key with the Map Tiles API enabled, and it is not cheap to run. Terrain and scenery step aside where it loads.',
       },
       {
+        key: 'world3dAsset',
+        label: '3D dataset',
+        type: 'select',
+        showWhen: () => settings.get('world3d') === 'cesium',
+        options: () => [
+          { value: 'photoreal', label: 'Google photogrammetry \u2014 the scanned world' },
+          { value: 'osm-buildings', label: 'OpenStreetMap buildings \u2014 every building, untextured' },
+        ],
+        help: (value) =>
+          value === 'osm-buildings'
+            ? 'Every building OpenStreetMap has, on Earth, extruded from its recorded height and served as real 3D tiles. Grey rather than photographed, because nobody flew over it \u2014 but it covers the enormous amount of the planet the photogrammetry never has.'
+            : 'Aerial photogrammetry: the buildings, the trees and the bridges are the mesh, wearing the photographs taken of them. The most real thing here, and the heaviest.',
+      },
+      {
         key: 'world3dDetail',
         label: '3D detail',
         type: 'select',

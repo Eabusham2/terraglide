@@ -32,6 +32,16 @@ export const DEFAULT_SETTINGS = {
    * 'cesium' — the same dataset through Cesium ion, on an ion token instead.
    */
   world3d: 'off',
+  /**
+   * Which Cesium ion dataset the ion route asks for.
+   *
+   * 'photoreal' is Google's aerial photogrammetry — the buildings and trees
+   * are the mesh somebody flew over and measured. 'osm-buildings' is every
+   * OpenStreetMap building on Earth extruded from its recorded height: not
+   * photographed, so grey rather than textured, but a real survey and it
+   * covers ground the photogrammetry has never been flown over.
+   */
+  world3dAsset: 'photoreal',
   world3dDetail: 'high',
   cesiumToken: '',
   bingKey: '',

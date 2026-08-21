@@ -1,5 +1,5 @@
 import { clamp } from '../core/math.js';
-import { SPEED_MODE_COOLDOWN_S, SPEED_MODE_SECONDS } from '../player/player.js';
+import { AIR_SECONDS, SPEED_MODE_COOLDOWN_S, SPEED_MODE_SECONDS } from '../player/player.js';
 import { keybinds } from '../core/keybinds.js';
 import { settings } from '../core/settings.js';
 import {
@@ -63,6 +63,11 @@ export class HUD {
           <label>Speed mode<kbd data-key="speedMode"></kbd></label>
           <div class="bar"><i data-id="speed-bar"></i></div>
           <span data-id="speed-text">Ready</span>
+        </div>
+        <div class="gauge" data-id="air-gauge" hidden>
+          <label>Air</label>
+          <div class="bar"><i data-id="air-bar"></i></div>
+          <span data-id="air-text">—</span>
         </div>
         <div class="gauge" data-id="scale-gauge">
           <label>Height<kbd data-key="scaleDown"></kbd><kbd data-key="scaleUp"></kbd></label>
@@ -225,6 +230,22 @@ export class HUD {
 
     // Compass strip.
     if (settings.get('showCompass')) this.updateCompass(player.yaw);
+
+    // Air, and only when your head is actually under. A gauge that is always
+    // there is a gauge nobody reads.
+    const air = this.refs['air-gauge'];
+    if (air) {
+      air.hidden = !player.submerged;
+      if (player.submerged) {
+        const left = Math.max(0, player.airSeconds);
+        this.refs['air-bar'].style.width = `${clamp(left / AIR_SECONDS, 0, 1) * 100}%`;
+        air.dataset.state = player.airSeconds > 0 ? 'active' : 'cooling';
+        this.setText(
+          'air-text',
+          player.airSeconds > 0 ? `${left.toFixed(0)} s` : 'Drowning',
+        );
+      }
+    }
 
     const speedRatio = player.speedActive
       ? player.speedRemaining / SPEED_MODE_SECONDS

@@ -1249,7 +1249,9 @@ console.log('\nSpeed mode, fireworks and the pause key');
   // Escape is the pause key, and a menu is what pausing looks like.
   const gameSource = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
   ok('any modal panel counts as paused',
-    /get paused\(\)[\s\S]{0,220}settingsPanel\.open[\s\S]{0,120}worldmap\.open/.test(gameSource));
+    /get paused\(\)[\s\S]{0,600}settingsPanel\.open[\s\S]{0,120}worldmap\.open/.test(gameSource));
+  ok('and so does the pause key on its own, with no panel over the view',
+    /pausedByKey/.test(gameSource) && /pause: 'Key/.test(readFileSync(new URL('../src/core/keybinds.js', import.meta.url), 'utf8')));
   ok('and a paused frame advances the clock by nothing',
     /this\.update\(this\.paused \? 0 : elapsed \* cheats\.gameSpeed\)/.test(gameSource));
   ok('the frame is still drawn while paused, so tiles keep arriving',

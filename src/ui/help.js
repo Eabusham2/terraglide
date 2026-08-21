@@ -20,11 +20,12 @@ const ROWS = [
   ['Drop a waypoint', ['waypoint']],
   ['Copy coordinates', ['copyCoords']],
   ['Minimap zoom', ['minimapZoomOut', 'minimapZoomIn']],
-  ['Freecam', ['freecam']],
+  ['Freecam \u2014 the wheel changes its speed', ['freecam']],
   ['Change perspective', ['perspective']],
   ['Grow / shrink', ['scaleDown', 'scaleUp']],
   ['Swap mouse mode', ['mouseMode']],
   ['Rockets I to V', ['hotbar1', 'hotbar5']],
+  ['Pause the world where it is', ['pause']],
   ['Settings', ['settings']],
 ];
 

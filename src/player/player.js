@@ -47,6 +47,17 @@ export const HOTBAR = [1, 2, 3, 4, 5].map((duration) => ({
  * seconds" sitting next to the choice of units — a cheat wearing a preference's
  * clothes. The cheat panel can still turn the cost off entirely.
  */
+/**
+ * Seconds of breath underwater, and how long you last after it runs out.
+ *
+ * Minecraft's own numbers: fifteen seconds of air, then damage every second.
+ * Ten hearts at one heart a second is ten more seconds, which is what the
+ * second constant stands in for — there is no health bar here, so running out
+ * ends with a teleport somewhere you can breathe rather than a death screen.
+ */
+export const AIR_SECONDS = 15;
+export const DROWNING_SECONDS = 10;
+
 export const SPEED_MODE_SECONDS = 10;
 export const SPEED_MODE_COOLDOWN_S = 45;
 
@@ -85,6 +96,14 @@ export class Player extends Emitter {
 
     this.elytraDeployed = false;
     this.swimming = false;
+    /**
+     * Air left, in seconds. Minecraft gives you fifteen seconds of held
+     * breath and then hurts you twice a second; this holds the fifteen and
+     * spends the drowning on getting you out of the water rather than on a
+     * health bar the game does not otherwise have.
+     */
+    this.airSeconds = AIR_SECONDS;
+    this.drowned = false;
 
     this.rocketTicksLeft = 0;
     this.rocketTotalTicks = 0;
@@ -291,6 +310,40 @@ export class Player extends Emitter {
     } else if (this.speedCooldown > 0) {
       this.speedCooldown = Math.max(0, this.speedCooldown - dt);
     }
+
+    this.tickBreath(dt);
   }
 
+  /**
+   * Air, while your head is under.
+   *
+   * Fifteen seconds of it, Minecraft's number, and then you are in trouble.
+   * Speed mode spends it four times as fast — you are covering four times the
+   * water in the same lungful, so the same lungful has to be worth a quarter
+   * of the distance or the boost would make diving *easier*.
+   */
+  tickBreath(dt) {
+    const under = this.submerged;
+    if (!under) {
+      // Out of the water: a full breath back in a couple of seconds.
+      this.airSeconds = Math.min(AIR_SECONDS, this.airSeconds + dt * (AIR_SECONDS / 2));
+      this.drowned = false;
+      return;
+    }
+    const burn = this.speedActive ? 4 : 1;
+    this.airSeconds -= dt * burn;
+    if (this.airSeconds > -DROWNING_SECONDS) return;
+    // Out of air and out of time. There is no health bar here, so this ends
+    // with getting you somewhere you can breathe rather than a death screen.
+    this.airSeconds = AIR_SECONDS;
+    if (!this.drowned) {
+      this.drowned = true;
+      this.emit('drowned', {});
+    }
+  }
+
+  /** Is your head under the water, rather than merely your feet? */
+  get submerged() {
+    return this.swimming && this.position.y + this.eyeHeight < 0;
+  }
 }
