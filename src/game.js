@@ -12,6 +12,7 @@ import { LocalFrame } from './geo/frame.js';
 import { geocoder } from './geo/geocode.js';
 import { haversine, latToNormY, lonToNormX } from './geo/mercator.js';
 import { waterMap } from './geo/water.js';
+import { observedWeather } from './geo/observed.js';
 import { weatherAt } from './geo/weather.js';
 import { Autopilot } from './player/autopilot.js';
 import { Avatar } from './player/avatar.js';
@@ -659,15 +660,23 @@ export class Game {
     this.scene.fog.density = this.shared.uFogDensity.value;
     this.renderer.setClearColor(this.sky.horizonColor, 1);
 
-    // Weather for where and when you are, from the same climate model as the
-    // temperature readout — no forecast service, no key.
-    this.weatherState = weatherAt({
-      lat: player.lat,
-      lon: player.lon,
-      date: this.sky.date,
-      avgC: this.sky.climate ? this.sky.climate.avgC : 12,
-      landFraction: this.landFraction,
-    });
+    // The weather that is actually happening here, if it can be reached.
+    //
+    // Open-Meteo is keyless and CORS-open, so this needs no account and no
+    // proxy: one request per place you arrive at, cached for ten minutes.
+    // Failing that, the climatology below — which is a good model of what this
+    // place tends to get in this month, and is labelled as one, so "light rain"
+    // over somewhere in bright sun is never presented as fact.
+    observedWeather.fetch(player.lat, player.lon);
+    this.weatherState = observedWeather.fresh(player.lat, player.lon)
+      ? observedWeather.current
+      : weatherAt({
+          lat: player.lat,
+          lon: player.lon,
+          date: this.sky.date,
+          avgC: this.sky.climate ? this.sky.climate.avgC : 12,
+          landFraction: this.landFraction,
+        });
     this.weather.setState(this.weatherState);
     this.weather.update(this.camera, dt, this.sky);
 

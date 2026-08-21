@@ -337,6 +337,8 @@ export class WorldMap {
           grid: this.zoom >= 12,
           playerSize: 9,
           pathWidth: 1.6,
+          compass: true,
+          compassSize: 30,
         },
       },
     );

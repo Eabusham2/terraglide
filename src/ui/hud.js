@@ -190,12 +190,18 @@ export class HUD {
 
     // Climate corner.
     if (state.climate) {
-      this.setText('temp', formatTemperature(state.climate.avgC, units));
+      // The observed temperature when there is one, and the seasonal mean only
+      // when there is not — and the line underneath says which, every time, so
+      // a monthly average is never read as today's weather.
+      const observed = state.weather?.observed ? state.weather : null;
+      this.setText('temp', formatTemperature(observed ? observed.tempC : state.climate.avgC, units));
       this.setText('season', `${state.climate.monthName} · ${state.climate.season}`);
       const weather = state.weather ? `${state.weather.label} · ` : '';
       this.setText(
         'climate-sub',
-        `${weather}${state.climate.band} · seasonal average · annual ${formatTemperature(state.climate.annualC, units)}`,
+        observed
+          ? `${weather}now · feels ${formatTemperature(observed.feelsC, units)} · wind ${Math.round(observed.windKph)} km/h`
+          : `${weather}${state.climate.band} · seasonal average · annual ${formatTemperature(state.climate.annualC, units)}`,
       );
     }
 

@@ -170,6 +170,8 @@ export class Minimap {
           labels: this.size >= 200,
           playerSize: 7,
           pathWidth: 1.3,
+          compass: true,
+          compassSize: Math.max(13, Math.round(this.size * 0.08)),
         },
       },
     );

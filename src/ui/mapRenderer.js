@@ -161,7 +161,48 @@ export function drawMap(ctx, view, layers) {
   }
 
   ctx.restore();
+
+  // North, south, east and west, drawn last so nothing covers them and drawn
+  // *outside* the rotation so they stay where the compass points rather than
+  // where the map happens to be turned. Big, because the whole reason to want
+  // them is to know which way you are looking without reading a number.
+  if (options.compass) drawCompass(ctx, width, height, rotation, options.compassSize ?? 22);
+
   return { centre, toScreen };
+}
+
+/**
+ * The four cardinals, around the edge of the map.
+ *
+ * `rotation` is the map's own turn, so the letters counter-rotate: on a
+ * north-up map N sits at the top, and on a heading-up one it slides round to
+ * wherever north actually is.
+ */
+function drawCompass(ctx, width, height, rotation, size) {
+  const cx = width / 2;
+  const cy = height / 2;
+  const radius = Math.min(width, height) / 2 - size * 0.9;
+  const marks = [
+    { label: 'N', angle: 0, colour: '#f4b26a' },
+    { label: 'E', angle: Math.PI / 2, colour: '#e2e8f0' },
+    { label: 'S', angle: Math.PI, colour: '#e2e8f0' },
+    { label: 'W', angle: -Math.PI / 2, colour: '#e2e8f0' },
+  ];
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `600 ${size}px ui-sans-serif, system-ui, sans-serif`;
+  for (const mark of marks) {
+    const a = mark.angle + rotation - Math.PI / 2;
+    const x = cx + Math.cos(a) * radius;
+    const y = cy + Math.sin(a) * radius;
+    ctx.lineWidth = size * 0.28;
+    ctx.strokeStyle = 'rgba(15, 17, 20, 0.85)';
+    ctx.strokeText(mark.label, x, y);
+    ctx.fillStyle = mark.colour;
+    ctx.fillText(mark.label, x, y);
+  }
+  ctx.restore();
 }
 
 /**
