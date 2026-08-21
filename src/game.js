@@ -291,6 +291,13 @@ export class Game {
     this.streamer.setSource(this.imagerySource);
     this.elevation.setSource(this.elevationSource);
     mapTiles.setSource(this.imagerySource);
+    // Whatever you chose to fly over, the flat maps fall back to the keyless
+    // cloudless mosaic rather than to nothing.
+    mapTiles.setFallback(
+      this.imagerySource.descriptor.id === 'sentinel2'
+        ? null
+        : createImagerySource({ ...settings.values, imageryProvider: 'sentinel2' }),
+    );
     mapTiles.setDegraded(false);
     // The unexplored-ground layer is always the drawn OSM map, whatever the
     // satellite provider is — it is a different question from which imagery
@@ -298,6 +305,15 @@ export class Game {
     if (!this.streetSource) {
       this.streetSource = createImagerySource({ ...settings.values, imageryProvider: 'osm' });
       streetTiles.setSource(this.streetSource);
+      // OSM's raster tiles come off one community server under a fair-use
+      // policy, so "busy" is a normal answer and there are two standbys behind
+      // it: Esri's street map, and then OpenFreeMap, which hands over the
+      // geometry to draw ourselves and is the only one of the three that is
+      // explicitly unmetered.
+      streetTiles.setFallback([
+        createImagerySource({ ...settings.values, imageryProvider: 'esri-street' }),
+        createImagerySource({ ...settings.values, imageryProvider: 'openfreemap' }),
+      ]);
     }
     waterMap.setSource(this.imagerySource);
     if (rebuild) this.terrain.rebase();

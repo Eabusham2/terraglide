@@ -82809,6 +82809,58 @@ __tg_exports["formatDms"] = formatDms;
 __tg_exports["compassPoint"] = compassPoint;
 __tg_exports["formatBearing"] = formatBearing;
 };
+__tg_modules["src/ui/wheel.js"] = function (__tg_exports) {
+/**
+ * Turning a wheel event into whole steps.
+ *
+ * Two things make a raw `deltaY` a bad thing to zoom with. It arrives in three
+ * different units depending on the device and the browser — pixels, lines or
+ * pages — so one notch of a mouse wheel is 100 on one machine and 3 on
+ * another. And a trackpad sends a stream of small deltas for one flick of two
+ * fingers, so anything that steps once per event flies through the whole zoom
+ * range before you have finished the gesture.
+ *
+ * So: normalise to notches, accumulate, and hand back whole steps only when
+ * enough has piled up. The remainder stays for next time, which is what makes
+ * a slow trackpad drag move by exactly one level rather than by nothing.
+ */
+
+/** Roughly one notch of a mouse wheel, in each of the three delta units. */
+const PER_UNIT = [100, 3, 1];
+
+class WheelSteps {
+  /** @param {number} perStep notches of wheel per step returned. */
+  constructor(perStep = 1) {
+    this.perStep = perStep;
+    this.accumulated = 0;
+    this.lastAt = 0;
+  }
+
+  /**
+   * @param {WheelEvent} event
+   * @returns {number} whole steps to apply — positive is "up", i.e. zoom in.
+   */
+  read(event) {
+    // A gap means a new gesture; a half-spent notch from thirty seconds ago
+    // should not add itself to this one.
+    const now = event.timeStamp || performance.now();
+    if (now - this.lastAt > 400) this.accumulated = 0;
+    this.lastAt = now;
+
+    const unit = PER_UNIT[event.deltaMode] ?? PER_UNIT[0];
+    // Cap the contribution of any single event: some browsers send one
+    // enormous delta for a fast flick, and one flick should not be ten levels.
+    const notches = Math.max(-3, Math.min(3, -event.deltaY / unit));
+    this.accumulated += notches;
+
+    const steps = Math.trunc(this.accumulated / this.perStep);
+    if (steps !== 0) this.accumulated -= steps * this.perStep;
+    return steps;
+  }
+}
+
+__tg_exports["WheelSteps"] = WheelSteps;
+};
 __tg_modules["src/core/keybinds.js"] = function (__tg_exports) {
 const { Emitter } = __tg_require("src/core/events.js");
 const { readJSON, removeKey, writeJSON } = __tg_require("src/core/storage.js");
@@ -83012,6 +83064,7 @@ __tg_exports["keybinds"] = keybinds;
 };
 __tg_modules["src/camera/input.js"] = function (__tg_exports) {
 const { Emitter } = __tg_require("src/core/events.js");
+const { WheelSteps } = __tg_require("src/ui/wheel.js");
 const { keybinds } = __tg_require("src/core/keybinds.js");
 const { settings } = __tg_require("src/core/settings.js");
 
@@ -83027,7 +83080,21 @@ const { settings } = __tg_require("src/core/settings.js");
  *           buttons can be swapped in Settings.
  */
 
-const DRAG_THRESHOLD = 4; // pixels before a click becomes a drag
+/**
+ * How far the pointer may wander before a press counts as a drag rather than
+ * a click.
+ *
+ * Four pixels was too tight to be reliable. The distance is *accumulated* from
+ * every mousemove between press and release — not the straight line from one
+ * to the other — so a hand resting on a mouse, or any trackpad at all, spends
+ * it on noise before you have let go. A click that misses is a click that does
+ * nothing, which is why stowing the wings in pan mode worked about half the
+ * time.
+ */
+const DRAG_THRESHOLD = 9;
+/** A press this short is a click even if the pointer wandered further. */
+const CLICK_TIME_MS = 220;
+const CLICK_SLOP = 26;
 
 class InputManager extends Emitter {
   constructor(canvas) {
@@ -83054,6 +83121,7 @@ class InputManager extends Emitter {
     this.dragButton = -1;
     this.suspended = false;
     this.lastPointer = { x: 0, y: 0 };
+    this.wheel = new WheelSteps(1);
 
     this.onKeyDown = this.onKeyDown.bind(this);
     this.onKeyUp = this.onKeyUp.bind(this);
@@ -83259,6 +83327,7 @@ class InputManager extends Emitter {
       event.preventDefault();
       this.dragging = true;
       this.dragMoved = 0;
+      this.dragStartedAt = performance.now();
       this.dragButton = event.button;
       this.lastPointer.x = event.clientX;
       this.lastPointer.y = event.clientY;
@@ -83274,10 +83343,13 @@ class InputManager extends Emitter {
     this.dragging = false;
     this.dragButton = -1;
     this.canvas.classList.remove('dragging');
-    if (this.dragMoved < DRAG_THRESHOLD && !this.suspended) {
-      // A click rather than a drag: that is the "land" action in pan mode.
-      this.emit('land', {});
-    }
+    // A click rather than a drag: that is the "land" action in pan mode.
+    // Short *or* small counts, because the two failure modes are different —
+    // a mouse gives you a tiny slow click and a trackpad a quick messy one.
+    const held = performance.now() - (this.dragStartedAt ?? 0);
+    const click =
+      this.dragMoved < DRAG_THRESHOLD || (held < CLICK_TIME_MS && this.dragMoved < CLICK_SLOP);
+    if (click && !this.suspended) this.emit('land', {});
   }
 
   onMouseMove(event) {
@@ -83306,7 +83378,13 @@ class InputManager extends Emitter {
   onWheel(event) {
     if (this.suspended) return;
     event.preventDefault();
-    this.emit('wheel', { delta: Math.sign(event.deltaY), shift: event.shiftKey });
+    // One hotbar slot per notch, accumulated — a trackpad sends a stream of
+    // small deltas for one flick and this used to step on every one of them,
+    // so a light gesture ran through the whole hotbar.
+    const steps = this.wheel.read(event);
+    for (let i = 0; i < Math.abs(steps); i++) {
+      this.emit('wheel', { delta: steps > 0 ? -1 : 1, shift: event.shiftKey });
+    }
   }
 }
 
@@ -84640,6 +84718,47 @@ class Autopilot {
 
 __tg_exports["Autopilot"] = Autopilot;
 };
+__tg_modules["src/core/paths.js"] = function (__tg_exports) {
+/**
+ * Where the game's own files live.
+ *
+ * There are three ways to run this and they disagree about what "./assets/"
+ * means. Served normally, the page and the modules sit in the same place and
+ * either answer works. In the single-file build there is no assets folder next
+ * to the document at all. And in the online single-file page the document is
+ * one small file that could be anywhere — a download in your home directory, a
+ * company intranet — while the modules are being loaded from the published
+ * site; there, a path relative to the *document* points at nothing, and a path
+ * relative to the *module* points at exactly the right folder.
+ *
+ * So: relative to the module, with the document as the fallback for the bundled
+ * build, where `import.meta` has been compiled away and `new URL` throws.
+ */
+
+function moduleRelative(path, fallback) {
+  try {
+    return new URL(path, '').href;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Where the published copy of this version lives.
+ *
+ * The offline bundle has no assets folder of its own, so it asks the site for
+ * one. That is a nicety rather than a dependency: when there is no network, or
+ * the host is blocked, the fetch fails and everything falls back to flat
+ * colour exactly as it did before.
+ */
+const PUBLISHED_BASE = 'https://eabusham2.github.io/terraglide/';
+
+/** Folder holding the optional generated textures and the player mesh. */
+const ASSET_BASE = moduleRelative('../../assets/', `${PUBLISHED_BASE}assets/`);
+
+__tg_exports["PUBLISHED_BASE"] = PUBLISHED_BASE;
+__tg_exports["ASSET_BASE"] = ASSET_BASE;
+};
 __tg_modules["src/player/elytra.js"] = function (__tg_exports) {
 /**
  * Elytra flight.
@@ -85178,6 +85297,7 @@ __tg_exports["Player"] = Player;
 __tg_modules["src/player/avatar.js"] = function (__tg_exports) {
 const THREE = __tg_require("vendor/three/three.module.js");
 const { clamp, damp, dampAngle, wrapAngle } = __tg_require("src/core/math.js");
+const { ASSET_BASE } = __tg_require("src/core/paths.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { ROCKET_COLOURS } = __tg_require("src/player/player.js");
 
@@ -85549,7 +85669,7 @@ class Avatar {
    * worse at everything else. That is a real trade, so it is offered as one
    * rather than chosen for you.
    */
-  async loadModel(base = './assets/') {
+  async loadModel(base = ASSET_BASE) {
     if (globalThis.__TERRAGLIDE_INLINE_WORKER__) return false;
     if (!settings.get('detailedPlayerModel')) return false;
     if (this.model) return true;
@@ -85593,7 +85713,7 @@ class Avatar {
    * files are not an error — the flat colours underneath are the fallback, and
    * they are what the single-file build ships with.
    */
-  async loadTextures(base = './assets/') {
+  async loadTextures(base = ASSET_BASE) {
     if (typeof document === 'undefined' || typeof fetch !== 'function') return;
     // The single-file build has no assets folder beside it, and asking for one
     // over file:// is a CORS error in the console rather than a 404. Don't ask.
@@ -86882,6 +87002,50 @@ const IMAGERY_PROVIDERS = [
     note: 'Keyless. Fair use only — do not bulk download.',
   },
   {
+    id: 'sentinel2',
+    label: 'Sentinel-2 cloudless',
+    kind: 'xyz',
+    needsKey: null,
+    maxZoom: 16,
+    template: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg',
+    attribution: 'Sentinel-2 cloudless by EOX IT Services, from modified Copernicus Sentinel data',
+    note:
+      'Keyless, whole planet, ten metres a pixel, and \u2014 the point of it \u2014 a '
+      + 'cloudless mosaic, so there is never a white smear where the weather was '
+      + 'on the day the satellite went over. Softer than Esri close up; better than '
+      + 'Esri anywhere Esri has only old low-resolution cover.',
+  },
+  {
+    id: 'usgs',
+    label: 'USGS imagery (United States)',
+    kind: 'xyz',
+    needsKey: null,
+    maxZoom: 16,
+    template:
+      'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Imagery courtesy of the U.S. Geological Survey, The National Map',
+    note:
+      'Keyless and very good, over the United States and nowhere else. Outside it '
+      + 'every tile is a 404 and you get generated ground, so this is one to pick '
+      + 'when you know where you are going.',
+  },
+  {
+    id: 'gibs',
+    label: 'NASA GIBS (this week\u2019s Earth)',
+    kind: 'xyz',
+    needsKey: null,
+    maxZoom: 9,
+    template:
+      'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor' +
+      '/default/{date}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg',
+    attribution: 'Imagery courtesy of NASA EOSDIS GIBS / VIIRS',
+    note:
+      'What the planet looked like a few days ago, cloud and snow and all, from '
+      + 'the VIIRS instrument. Keyless and global, but only nine zoom levels deep '
+      + '\u2014 about six hundred metres a pixel \u2014 so it is a view from orbit '
+      + 'rather than something to fly a valley in.',
+  },
+  {
     id: 'google',
     label: 'Google Maps (satellite)',
     kind: 'google',
@@ -86957,6 +87121,40 @@ const IMAGERY_PROVIDERS = [
     // draw unexplored ground with, which is what a street map is good for.
     hidden: true,
     note: 'Drawn map rather than photography. Used for unexplored ground on the maps.',
+  },
+  {
+    id: 'esri-street',
+    label: 'Esri World Street Map',
+    kind: 'xyz',
+    needsKey: null,
+    maxZoom: 19,
+    template:
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Map \u00a9 Esri',
+    // Same job as the OpenStreetMap layer above and offered for the same
+    // reason everything else here has a second option: OSM's raster server is
+    // one community machine with a fair-use policy, and when it says no the
+    // maps should still have a street map to draw.
+    hidden: true,
+    note: 'Drawn map. The standby for unexplored ground when the OSM tile server is busy.',
+  },
+  {
+    id: 'openfreemap',
+    label: 'OpenFreeMap (vector street map)',
+    kind: 'openmaptiles',
+    needsKey: null,
+    // The vectors stop at 14 and are drawn at any zoom above it: one tile of
+    // geometry covers every level below itself, which is the whole point of
+    // serving geometry instead of pictures.
+    maxZoom: 14,
+    attribution:
+      '\u00a9 OpenFreeMap \u00a9 OpenMapTiles, map data \u00a9 OpenStreetMap contributors',
+    hidden: true,
+    note:
+      'The roads and coastlines themselves rather than a picture of them, drawn '
+      + 'here. Keyless and explicitly unmetered, which the community raster '
+      + 'servers are not \u2014 so it is the one to lean on when a map is being '
+      + 'panned around rather than looked at once.',
   },
 ];
 
@@ -87065,11 +87263,26 @@ function providerLabel(descriptor) {
   return descriptor.recommended ? `${descriptor.label} (recommended)` : descriptor.label;
 }
 
+/**
+ * How far back to ask NASA for "today".
+ *
+ * The near-real-time products are published a few hours behind the pass, but
+ * not uniformly, and a date that has not finished processing answers with a
+ * transparent tile rather than an error — which looks exactly like a hole in
+ * the world. Three days back is always there.
+ */
+const GIBS_LAG_DAYS = 3;
+
+function gibsDate(now = Date.now()) {
+  return new Date(now - GIBS_LAG_DAYS * 86400000).toISOString().slice(0, 10);
+}
+
 function fillTemplate(template, tile, key) {
   return template
     .replace('{z}', String(tile.z))
     .replace('{x}', String(tile.x))
     .replace('{y}', String(tile.y))
+    .replace('{date}', gibsDate())
     .replace('{key}', encodeURIComponent(key ?? ''));
 }
 
@@ -87085,6 +87298,7 @@ class TileSource {
     /** Set when this provider is standing in for one that had no key. */
     this.substitutedFor = null;
     this.bingTemplate = null;
+    this.vectorTemplate = null;
     this.state = 'idle'; // idle | preparing | ready | needs-key | error
     this.error = '';
     this.googleSession = null;
@@ -87136,6 +87350,7 @@ class TileSource {
       try {
         if (this.descriptor.kind === 'bing') await this.prepareBing();
         else if (this.descriptor.kind === 'google') await this.prepareGoogle();
+        else if (this.descriptor.kind === 'openmaptiles') await this.prepareOpenMapTiles();
         this.state = 'ready';
         this.error = '';
       } catch (err) {
@@ -87160,6 +87375,20 @@ class TileSource {
     if (!resource?.imageUrl) throw new Error('Bing metadata had no imageUrl');
     this.bingTemplate = resource.imageUrl;
     this.bingSubdomains = resource.imageUrlSubdomains ?? [''];
+  }
+
+  /**
+   * OpenFreeMap republishes the planet every few weeks and puts the build date
+   * in the tile path, so there is no stable URL to hard-code — the TileJSON is
+   * the stable thing and it names the current one. Fetched once.
+   */
+  async prepareOpenMapTiles() {
+    const res = await fetch('https://tiles.openfreemap.org/planet');
+    if (!res.ok) throw new Error(`OpenFreeMap TileJSON failed (${res.status})`);
+    const data = await res.json();
+    const template = data?.tiles?.[0];
+    if (!template) throw new Error('OpenFreeMap TileJSON had no tile template');
+    this.vectorTemplate = template;
   }
 
   async prepareGoogle() {
@@ -87210,6 +87439,10 @@ class TileSource {
         `${encodeURIComponent(encoded)}&key=${encodeURIComponent(this.key)}`
       );
     }
+    if (d.kind === 'openmaptiles') {
+      if (!this.vectorTemplate) return null;
+      return fillTemplate(this.vectorTemplate, tile, this.key);
+    }
     if (!d.template) return null;
     return fillTemplate(d.template, tile, this.key);
   }
@@ -87225,6 +87458,9 @@ class TileSource {
     ) {
       return kind;
     }
+    // Geometry rather than a picture: the caller draws it. Only the flat maps
+    // know how, so this provider is not offered as flight imagery.
+    if (kind === 'openmaptiles') return 'vector';
     return 'imagery';
   }
 }
@@ -87263,6 +87499,7 @@ __tg_exports["PANORAMA_PROVIDERS"] = PANORAMA_PROVIDERS;
 __tg_exports["findProvider"] = findProvider;
 __tg_exports["recommendedProvider"] = recommendedProvider;
 __tg_exports["providerLabel"] = providerLabel;
+__tg_exports["gibsDate"] = gibsDate;
 __tg_exports["TileSource"] = TileSource;
 __tg_exports["createImagerySource"] = createImagerySource;
 __tg_exports["createElevationSource"] = createElevationSource;
@@ -87316,6 +87553,16 @@ class ImageryStreamer extends Emitter {
     this.consecutiveFailures = 0;
     /** Set when a provider is unreachable. */
     this.degraded = false;
+    /**
+     * What each zoom level has actually done for us: how many tiles arrived,
+     * and how many were refused. A provider's published maximum zoom is a
+     * promise about the deepest tile that *can* exist, not about the ground
+     * you happen to be over, and asking past what it will serve turns into a
+     * stream of 404s — which is how the minimap ended up showing imagery for
+     * ground the world said it had none for. See `reviewDepth`.
+     */
+    this.byZoom = new Map();
+    this.depthLimit = Infinity;
     /**
      * May a tile be invented when there is nothing real to fetch?
      *
@@ -87378,6 +87625,50 @@ class ImageryStreamer extends Emitter {
     this.stats.failed = 0;
     this.consecutiveFailures = 0;
     this.degraded = false;
+    this.byZoom.clear();
+    this.depthLimit = Infinity;
+  }
+
+  /** The tally for one zoom level, created on demand. */
+  zoomRecord(z) {
+    let record = this.byZoom.get(z);
+    if (!record) {
+      record = { loaded: 0, failed: 0 };
+      this.byZoom.set(z, record);
+    }
+    return record;
+  }
+
+  /**
+   * Work out how deep this provider is really willing to go.
+   *
+   * The test is deliberately narrow: a level counts as too deep only when it
+   * has refused a good number of tiles, has never once succeeded, and the
+   * level *above* it is succeeding. That last clause is what separates "this
+   * provider stops at zoom 17" from "this provider has no coverage here at
+   * all" — a regional source like the USGS one refuses every level over
+   * Europe, and lowering the zoom would not help with that. One tile arriving
+   * at a written-off level puts it back.
+   */
+  reviewDepth(z) {
+    const here = this.zoomRecord(z);
+    if (here.loaded > 0) {
+      if (this.depthLimit < z) this.depthLimit = Infinity;
+      return;
+    }
+    if (here.failed < 6) return;
+    const above = this.byZoom.get(z - 1);
+    if (!above || above.loaded === 0) return;
+    if (z - 1 < this.depthLimit) {
+      this.depthLimit = z - 1;
+      this.emit('depth', { zoom: this.depthLimit });
+    }
+  }
+
+  /** The deepest zoom worth asking this provider for, right now. */
+  get maxUsefulZoom() {
+    const published = this.source ? this.source.maxZoom : 19;
+    return Math.min(published, this.depthLimit);
   }
 
   beginFrame() {
@@ -87500,6 +87791,8 @@ class ImageryStreamer extends Emitter {
       entry.retryAt = performance.now() + (msg.aborted ? 0 : 20000);
       this.stats.failed++;
       if (!msg.aborted) {
+        this.zoomRecord(entry.tile.z).failed++;
+        this.reviewDepth(entry.tile.z);
         this.consecutiveFailures++;
         // A provider that will not answer at all (offline, blocked host, bad
         // key) should not leave the world as blank ground. Generate tiles
@@ -87532,6 +87825,9 @@ class ImageryStreamer extends Emitter {
     entry.state = STATE_READY;
     this.tileSizeHint = msg.bitmap.width || this.tileSizeHint;
     this.stats.loaded++;
+    this.zoomRecord(entry.tile.z).loaded++;
+    // One tile arriving at a level that had been written off puts it back.
+    if (entry.tile.z > this.depthLimit) this.depthLimit = Infinity;
     this.emit('tile', entry);
   }
 
@@ -87794,7 +88090,7 @@ function createTileWorker() {
     try {
       const url = new URL('./tileWorker.js', '');
       if (url.protocol !== 'file:') {
-        const worker = new Worker(url, { type: 'module' });
+        const worker = new Worker(workerUrl(url), { type: 'module' });
         worker.inline = false;
         return worker;
       }
@@ -87803,6 +88099,25 @@ function createTileWorker() {
     }
   }
   return new InlineWorker();
+}
+
+/**
+ * A worker script has to be same-origin, which the online single-file page is
+ * not: that page is one small file that could be sitting anywhere while the
+ * modules come off the published site. Handing `new Worker` a cross-origin URL
+ * is a SecurityError, and it would drop the whole tile pipeline onto the main
+ * thread.
+ *
+ * The way round it is a same-origin blob whose only job is to import the real
+ * thing. A module worker can do that, and the imported module's own relative
+ * imports resolve against *its* address rather than the blob's, so the rest of
+ * the worker loads normally. Needs the host to allow cross-origin reads, which
+ * GitHub Pages does.
+ */
+function workerUrl(url) {
+  if (url.origin === globalThis.location?.origin) return url;
+  const shim = `import ${JSON.stringify(url.href)};`;
+  return URL.createObjectURL(new Blob([shim], { type: 'text/javascript' }));
 }
 
 /** Same protocol as the worker, run in the page. */
@@ -87867,9 +88182,473 @@ class InlineWorker {
 
 __tg_exports["createTileWorker"] = createTileWorker;
 };
+__tg_modules["src/tiles/vectorTile.js"] = function (__tg_exports) {
+/**
+ * A small reader for Mapbox Vector Tiles.
+ *
+ * Vector tiles are the other half of how the world is served. A raster tile is
+ * a picture somebody already drew; a vector tile is the roads, coastlines and
+ * place names themselves, and you draw them. That matters here for one
+ * practical reason: the keyless raster map servers are community machines with
+ * fair-use policies, and a game that pans a map around is exactly the kind of
+ * traffic those policies are written about. OpenFreeMap hands out the vectors
+ * instead, unmetered and keyless, and one tile of them covers every zoom below
+ * it — so the same download that draws a country also draws a street in it.
+ *
+ * This is deliberately the smallest thing that can read one: enough protobuf to
+ * walk the tile, and the geometry command stream. No projection, no styling, no
+ * label placement — those live where they are used.
+ *
+ * The format is Mapbox Vector Tile 2.1, which is protocol buffers with this
+ * shape: a tile is a list of layers, a layer is a name, an extent, a list of
+ * features and two side tables holding the tag keys and values; a feature is a
+ * geometry type, a run of tag indices into those tables, and a stream of
+ * commands. Nothing else in it is needed to draw a map.
+ */
+
+/** Feature geometry types, as the format numbers them. */
+const POINT = 1;
+const LINE = 2;
+const POLYGON = 3;
+
+/** A tile's coordinate space, unless the layer says otherwise. */
+const DEFAULT_EXTENT = 4096;
+
+class Reader {
+  constructor(bytes) {
+    this.bytes = bytes;
+    this.pos = 0;
+    this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  }
+
+  get done() {
+    return this.pos >= this.bytes.length;
+  }
+
+  /**
+   * A base-128 varint. Seven bits of payload per byte, low group first, top
+   * bit set on every byte but the last.
+   */
+  varint() {
+    let result = 0;
+    let shift = 0;
+    for (;;) {
+      const byte = this.bytes[this.pos++];
+      result += (byte & 0x7f) * Math.pow(2, shift);
+      if ((byte & 0x80) === 0) return result;
+      shift += 7;
+      // Well past anything a tile holds: bail rather than spin on bad bytes.
+      if (shift > 63) return result;
+    }
+  }
+
+  /** Signed varint, in protobuf's zigzag encoding: -1, 1, -2, 2 … */
+  svarint() {
+    const value = this.varint();
+    return value % 2 === 1 ? -(value + 1) / 2 : value / 2;
+  }
+
+  /** Field header: the field number and how its value is laid out. */
+  tag() {
+    const key = this.varint();
+    return { field: key >> 3, wire: key & 0x7 };
+  }
+
+  bytesField() {
+    const length = this.varint();
+    const slice = this.bytes.subarray(this.pos, this.pos + length);
+    this.pos += length;
+    return slice;
+  }
+
+  string() {
+    return new TextDecoder('utf-8').decode(this.bytesField());
+  }
+
+  float() {
+    const value = this.view.getFloat32(this.pos, true);
+    this.pos += 4;
+    return value;
+  }
+
+  double() {
+    const value = this.view.getFloat64(this.pos, true);
+    this.pos += 8;
+    return value;
+  }
+
+  /** Step over a field we have no use for, whatever shape it is. */
+  skip(wire) {
+    if (wire === 0) this.varint();
+    else if (wire === 1) this.pos += 8;
+    else if (wire === 2) this.pos += this.varint();
+    else if (wire === 5) this.pos += 4;
+    else throw new Error(`unknown wire type ${wire}`);
+  }
+}
+
+function readValue(bytes) {
+  const r = new Reader(bytes);
+  while (!r.done) {
+    const { field, wire } = r.tag();
+    if (field === 1 && wire === 2) return r.string();
+    if (field === 2 && wire === 5) return r.float();
+    if (field === 3 && wire === 1) return r.double();
+    if (field === 4 && wire === 0) return r.varint();
+    if (field === 5 && wire === 0) return r.varint();
+    if (field === 6 && wire === 0) return r.svarint();
+    if (field === 7 && wire === 0) return r.varint() !== 0;
+    r.skip(wire);
+  }
+  return null;
+}
+
+/**
+ * The command stream, turned into rings of points.
+ *
+ * Coordinates are deltas from the last point, so this walks rather than
+ * indexes. A MoveTo starts a ring; LineTo extends it; ClosePath ends one. The
+ * count packed into each command says how many coordinate pairs follow, which
+ * is what lets a single MoveTo carry a whole layer's worth of points.
+ */
+function readGeometry(bytes) {
+  const r = new Reader(bytes);
+  const rings = [];
+  let ring = null;
+  let x = 0;
+  let y = 0;
+  while (!r.done) {
+    const header = r.varint();
+    const command = header & 0x7;
+    const count = header >> 3;
+    if (command === 1) {
+      for (let i = 0; i < count; i++) {
+        x += r.svarint();
+        y += r.svarint();
+        ring = [x, y];
+        rings.push(ring);
+      }
+    } else if (command === 2) {
+      if (!ring) return rings;
+      for (let i = 0; i < count; i++) {
+        x += r.svarint();
+        y += r.svarint();
+        ring.push(x, y);
+      }
+    } else if (command === 7) {
+      // Closing is implied by the ring being a polygon; nothing to record.
+      ring = null;
+    } else {
+      return rings;
+    }
+  }
+  return rings;
+}
+
+function readFeature(bytes, keys, values) {
+  const r = new Reader(bytes);
+  const feature = { type: 0, properties: {}, rings: [] };
+  let tags = null;
+  while (!r.done) {
+    const { field, wire } = r.tag();
+    if (field === 2 && wire === 2) {
+      const packed = new Reader(r.bytesField());
+      tags = [];
+      while (!packed.done) tags.push(packed.varint());
+    } else if (field === 3 && wire === 0) {
+      feature.type = r.varint();
+    } else if (field === 4 && wire === 2) {
+      feature.rings = readGeometry(r.bytesField());
+    } else {
+      r.skip(wire);
+    }
+  }
+  if (tags) {
+    for (let i = 0; i + 1 < tags.length; i += 2) {
+      const key = keys[tags[i]];
+      if (key !== undefined) feature.properties[key] = values[tags[i + 1]];
+    }
+  }
+  return feature;
+}
+
+function readLayer(bytes) {
+  const r = new Reader(bytes);
+  const layer = { name: '', extent: DEFAULT_EXTENT, features: [] };
+  const keys = [];
+  const values = [];
+  const featureBytes = [];
+  while (!r.done) {
+    const { field, wire } = r.tag();
+    if (field === 1 && wire === 2) layer.name = r.string();
+    else if (field === 2 && wire === 2) featureBytes.push(r.bytesField());
+    else if (field === 3 && wire === 2) keys.push(r.string());
+    else if (field === 4 && wire === 2) values.push(readValue(r.bytesField()));
+    else if (field === 5 && wire === 0) layer.extent = r.varint();
+    else r.skip(wire);
+  }
+  for (const slice of featureBytes) layer.features.push(readFeature(slice, keys, values));
+  return layer;
+}
+
+/**
+ * The layer's name without decoding the rest of it.
+ *
+ * Worth the second pass: a city tile is most of a megabyte and nine tenths of
+ * it is points of interest — every bench, postbox and hairdresser — which a
+ * background map does not draw. Reading the name first and then deciding turns
+ * a fifty-millisecond decode into a seven-millisecond one.
+ */
+function peekLayerName(bytes) {
+  const r = new Reader(bytes);
+  while (!r.done) {
+    const { field, wire } = r.tag();
+    if (field === 1 && wire === 2) return r.string();
+    r.skip(wire);
+  }
+  return '';
+}
+
+/**
+ * Decode one vector tile.
+ *
+ * @param {ArrayBuffer|Uint8Array} data
+ * @param {Set<string>|null} wanted layer names to keep, or null for all
+ * @returns {Map<string, {name: string, extent: number, features: Array}>}
+ */
+function decodeVectorTile(data, wanted = null) {
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  const r = new Reader(bytes);
+  const layers = new Map();
+  while (!r.done) {
+    const { field, wire } = r.tag();
+    if (field === 3 && wire === 2) {
+      const slice = r.bytesField();
+      if (wanted && !wanted.has(peekLayerName(slice))) continue;
+      const layer = readLayer(slice);
+      layers.set(layer.name, layer);
+    } else {
+      r.skip(wire);
+    }
+  }
+  return layers;
+}
+
+__tg_exports["POINT"] = POINT;
+__tg_exports["LINE"] = LINE;
+__tg_exports["POLYGON"] = POLYGON;
+__tg_exports["decodeVectorTile"] = decodeVectorTile;
+};
+__tg_modules["src/ui/vectorMap.js"] = function (__tg_exports) {
+const { POINT, POLYGON, decodeVectorTile } = __tg_require("src/tiles/vectorTile.js");
+
+/**
+ * Drawing a vector tile as a street map.
+ *
+ * The palette is deliberately close to the standard OpenStreetMap one, because
+ * this stands in for those tiles: the maps dim whatever they get for ground you
+ * have not visited, and a map that arrives in a different key would announce
+ * itself every time the two were next to each other.
+ *
+ * What is *not* here is as deliberate. No label halos placed by collision
+ * detection, no road names running along their roads, no shields: those want a
+ * text engine, and this is a background layer for a flight map, not a
+ * cartography product. Place names are drawn, because a map with no names on it
+ * is a diagram, and the canvas can already draw text.
+ */
+
+const WATER = '#a5c8e8';
+const PAPER = '#f2efe9';
+
+/**
+ * The only layers worth decoding. A city tile is most of a megabyte and nine
+ * tenths of that is points of interest — every bench and postbox — which a
+ * background map has no business drawing.
+ */
+const DRAWN_LAYERS = new Set([
+  'landcover',
+  'landuse',
+  'park',
+  'water',
+  'waterway',
+  'building',
+  'transportation',
+  'boundary',
+  'place',
+]);
+
+/** Fills, in the order they are painted. Later layers cover earlier ones. */
+const AREAS = [
+  { layer: 'landcover', match: { class: ['wood', 'forest'] }, fill: '#c6dfb8' },
+  { layer: 'landcover', match: { class: ['grass', 'meadow', 'farmland'] }, fill: '#ddedcd' },
+  { layer: 'landcover', match: { class: ['sand', 'desert'] }, fill: '#f2e5c4' },
+  { layer: 'landcover', match: { class: ['ice', 'glacier'] }, fill: '#e8f4f8' },
+  { layer: 'landuse', match: { class: ['residential', 'suburb', 'neighbourhood'] }, fill: '#e6e1d8' },
+  { layer: 'landuse', match: { class: ['industrial', 'commercial'] }, fill: '#e8dfe0' },
+  { layer: 'park', match: null, fill: '#d5e8ca' },
+  { layer: 'water', match: null, fill: WATER },
+  { layer: 'building', match: null, fill: '#d6cec5', minZoom: 13 },
+];
+
+/**
+ * Roads, widest class first so narrow ones draw on top of the wide ones they
+ * join. `casing` is the darker outline underneath; `width` is in screen pixels
+ * at the tile's own zoom.
+ */
+const ROADS = [
+  { classes: ['motorway'], width: 3.4, fill: '#e9a17c', casing: '#c4855f' },
+  { classes: ['trunk', 'primary'], width: 2.8, fill: '#f5d38a', casing: '#c9a86a' },
+  { classes: ['secondary', 'tertiary'], width: 2.2, fill: '#f7f4c8', casing: '#c7c39f' },
+  { classes: ['minor', 'service', 'street'], width: 1.4, fill: '#ffffff', casing: '#c9c3ba', minZoom: 13 },
+  { classes: ['path', 'track'], width: 0.9, fill: '#c0a68a', casing: null, minZoom: 14 },
+  { classes: ['rail', 'transit'], width: 0.7, fill: '#a8a8a8', casing: null, minZoom: 11 },
+];
+
+const PLACE_SIZE = {
+  city: 13,
+  town: 11,
+  village: 9.5,
+  suburb: 9.5,
+  hamlet: 8.5,
+};
+
+function matches(properties, match) {
+  if (!match) return true;
+  for (const [key, allowed] of Object.entries(match)) {
+    if (!allowed.includes(properties[key])) return false;
+  }
+  return true;
+}
+
+function tracePath(ctx, feature, scale) {
+  ctx.beginPath();
+  for (const ring of feature.rings) {
+    if (ring.length < 4) continue;
+    ctx.moveTo(ring[0] * scale, ring[1] * scale);
+    for (let i = 2; i + 1 < ring.length; i += 2) ctx.lineTo(ring[i] * scale, ring[i + 1] * scale);
+  }
+}
+
+function drawAreas(ctx, layers, scale, zoom) {
+  for (const spec of AREAS) {
+    if (spec.minZoom && zoom < spec.minZoom) continue;
+    const layer = layers.get(spec.layer);
+    if (!layer) continue;
+    ctx.fillStyle = spec.fill;
+    for (const feature of layer.features) {
+      if (feature.type !== POLYGON) continue;
+      if (!matches(feature.properties, spec.match)) continue;
+      tracePath(ctx, feature, scale);
+      ctx.fill('evenodd');
+    }
+  }
+}
+
+function drawRoads(ctx, layers, scale, zoom) {
+  const layer = layers.get('transportation');
+  if (!layer) return;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // Casings first, all of them, then the fills — otherwise every junction has
+  // a dark line drawn across it by the next road's casing.
+  for (const pass of ['casing', 'fill']) {
+    for (const spec of ROADS) {
+      if (spec.minZoom && zoom < spec.minZoom) continue;
+      const colour = pass === 'casing' ? spec.casing : spec.fill;
+      if (!colour) continue;
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = pass === 'casing' ? spec.width + 1.2 : spec.width;
+      for (const feature of layer.features) {
+        if (feature.type === POINT) continue;
+        if (!spec.classes.includes(feature.properties.class)) continue;
+        tracePath(ctx, feature, scale);
+        ctx.stroke();
+      }
+    }
+  }
+}
+
+function drawBoundaries(ctx, layers, scale) {
+  const layer = layers.get('boundary');
+  if (!layer) return;
+  ctx.save();
+  ctx.strokeStyle = '#9a7fa0';
+  ctx.setLineDash([5, 3]);
+  for (const feature of layer.features) {
+    const level = Number(feature.properties.admin_level ?? 10);
+    if (level > 4) continue;
+    ctx.lineWidth = level <= 2 ? 1.6 : 1;
+    tracePath(ctx, feature, scale);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawPlaces(ctx, layers, scale, size) {
+  const layer = layers.get('place');
+  if (!layer) return;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  const drawn = [];
+  for (const feature of layer.features) {
+    if (feature.type !== POINT) continue;
+    const name = feature.properties['name:en'] ?? feature.properties.name;
+    const fontSize = PLACE_SIZE[feature.properties.class];
+    if (!name || !fontSize) continue;
+    const ring = feature.rings[0];
+    if (!ring) continue;
+    const x = ring[0] * scale;
+    const y = ring[1] * scale;
+    if (x < 0 || y < 0 || x > size || y > size) continue;
+    // Cheap collision: keep names off each other without a real label engine.
+    if (drawn.some((p) => Math.abs(p.x - x) < 46 && Math.abs(p.y - y) < fontSize + 5)) continue;
+    drawn.push({ x, y });
+    ctx.font = `${fontSize}px system-ui, sans-serif`;
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.lineWidth = 3;
+    ctx.strokeText(name, x, y);
+    ctx.fillStyle = '#3a3a38';
+    ctx.fillText(name, x, y);
+  }
+}
+
+/**
+ * Draw one decoded vector tile into a bitmap.
+ *
+ * @param {ArrayBuffer|Uint8Array} data raw .pbf bytes
+ * @param {number} zoom the tile's own zoom, which decides what is worth drawing
+ * @param {number} size output pixels a side
+ */
+async function renderVectorTile(data, zoom, size = 256) {
+  const layers = decodeVectorTile(data, DRAWN_LAYERS);
+  const extent = layers.values().next().value?.extent ?? 4096;
+  const scale = size / extent;
+
+  const canvas =
+    typeof OffscreenCanvas === 'function'
+      ? new OffscreenCanvas(size, size)
+      : Object.assign(document.createElement('canvas'), { width: size, height: size });
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = PAPER;
+  ctx.fillRect(0, 0, size, size);
+
+  drawAreas(ctx, layers, scale, zoom);
+  drawRoads(ctx, layers, scale, zoom);
+  drawBoundaries(ctx, layers, scale);
+  drawPlaces(ctx, layers, scale, size);
+
+  return canvas.transferToImageBitmap
+    ? canvas.transferToImageBitmap()
+    : createImageBitmap(canvas);
+}
+
+__tg_exports["renderVectorTile"] = renderVectorTile;
+};
 __tg_modules["src/ui/mapTiles.js"] = function (__tg_exports) {
 const { tileKey, wrapTileX } = __tg_require("src/geo/mercator.js");
 const { proceduralImagery } = __tg_require("src/tiles/procedural.js");
+const { renderVectorTile } = __tg_require("src/ui/vectorMap.js");
 
 /**
  * A small ImageBitmap cache for the 2D maps (minimap and world map).
@@ -87895,6 +88674,29 @@ class MapTileCache {
     this.generation = 0;
     /** Mirrors the 3D streamer: draw generated tiles when a provider is down. */
     this.degraded = false;
+    /**
+     * Providers to try when the one before refuses.
+     *
+     * The keyless sources here are community and public endpoints with fair-use
+     * policies, which means "busy" is a normal answer rather than a fault. A
+     * map that goes blank because one server is having a moment is a map with
+     * no fallback, and everything else in this project has one.
+     */
+    this.fallbacks = [];
+    this.fallbackRescues = 0;
+    this.usingFallback = false;
+    /** Deepest zoom the current provider serves; see `resolve`. */
+    this.maxZoom = Infinity;
+  }
+
+  /**
+   * Providers to fall back to, tile by tile, in order of preference.
+   * Takes one or a list.
+   */
+  setFallback(sources) {
+    this.fallbacks = (Array.isArray(sources) ? sources : [sources]).filter(Boolean);
+    this.fallbackRescues = 0;
+    this.usingFallback = false;
   }
 
   /** Called whenever a tile finishes loading. Returns an unsubscribe function. */
@@ -87921,6 +88723,13 @@ class MapTileCache {
 
   setSource(source) {
     this.source = source;
+    // Deeper than the provider serves is a 404, and a 404 here is a hole in
+    // the map rather than a softer picture. `resolve` stops at this and
+    // stretches the last real tile instead, which is what every map does when
+    // you zoom past its data.
+    this.maxZoom = source?.descriptor?.maxZoom ?? Infinity;
+    this.fallbackRescues = 0;
+    this.usingFallback = false;
     for (const entry of this.tiles.values()) {
       if (entry.bitmap) entry.bitmap.close();
     }
@@ -87955,6 +88764,18 @@ class MapTileCache {
     let scale = 1;
     let ox = 0;
     let oy = 0;
+    // Walk up to the deepest level this provider actually has before asking
+    // for anything, so an over-zoomed map stretches its last real tile rather
+    // than requesting one that cannot exist. Costs nothing when it fits.
+    const limit = this.maxZoom ?? Infinity;
+    while (tz > limit) {
+      ox = (ox + (tx & 1)) * 0.5;
+      oy = (oy + (ty & 1)) * 0.5;
+      scale *= 0.5;
+      tx >>= 1;
+      ty >>= 1;
+      tz -= 1;
+    }
     for (let step = 0; step <= maxSteps && tz >= 0; step++) {
       const bitmap = step === 0 ? this.get(tz, tx, ty) : this.peek(tz, tx, ty);
       if (bitmap) return { bitmap, scale, ox, oy };
@@ -88035,16 +88856,14 @@ class MapTileCache {
     this.active++;
     entry.state = 'loading';
     try {
-      const url = this.source && !this.degraded ? this.source.urlFor(job.tile) : null;
-      let bitmap;
-      if (!url) {
-        const image = proceduralImagery(job.tile, 128);
-        bitmap = await createImageBitmap(new ImageData(image.data, image.width, image.height));
-      } else {
-        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
-        if (!res.ok) throw new Error(String(res.status));
-        bitmap = await createImageBitmap(await res.blob());
-      }
+      // First choice, then the standbys, then invented ground. Once a standby
+      // has rescued enough tiles, stop asking the first one at all: a server
+      // that is refusing is not helped by being asked for every tile on screen.
+      const chain =
+        this.usingFallback && this.fallbacks.length > 0
+          ? this.fallbacks
+          : [this.source, ...this.fallbacks];
+      const bitmap = await this.fetchTile(job.tile, chain);
       if (generation !== this.generation) {
         bitmap.close();
         return;
@@ -88058,6 +88877,45 @@ class MapTileCache {
       this.active--;
       if (this.queue.length > 0) this.pump();
     }
+  }
+
+  /**
+   * One tile, from the first source that will give us one. Generated ground is
+   * the last answer rather than an error, because a hole in the map is worse
+   * than an approximation clearly labelled as one.
+   */
+  async fetchTile(tile, chain) {
+    const invent = async () => {
+      const image = proceduralImagery(tile, 128);
+      return createImageBitmap(new ImageData(image.data, image.width, image.height));
+    };
+    if (this.degraded) return invent();
+
+    let error = null;
+    for (let i = 0; i < chain.length; i++) {
+      const source = chain[i];
+      if (!source) continue;
+      if (source.prepare && !source.ready) await source.prepare();
+      if (tile.z > (source.descriptor?.maxZoom ?? Infinity)) continue;
+      const url = source.urlFor(tile);
+      if (!url) return invent();
+      try {
+        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+        if (!res.ok) throw new Error(String(res.status));
+        // Vector tiles arrive as geometry rather than as a picture, so the
+        // drawing happens here instead of at the far end of a wire.
+        const bitmap =
+          source.decode === 'vector'
+            ? await renderVectorTile(await res.arrayBuffer(), tile.z)
+            : await createImageBitmap(await res.blob());
+        if (i > 0 && ++this.fallbackRescues >= 4) this.usingFallback = true;
+        return bitmap;
+      } catch (err) {
+        error = err;
+      }
+    }
+    if (error) throw error;
+    return invent();
   }
 
   evict() {
@@ -89987,6 +90845,7 @@ __tg_exports["COVER_KIND"] = COVER_KIND;
 __tg_modules["src/world/scatter.js"] = function (__tg_exports) {
 const THREE = __tg_require("vendor/three/three.module.js");
 const { clamp } = __tg_require("src/core/math.js");
+const { ASSET_BASE } = __tg_require("src/core/paths.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { latToNormY, lonToNormX, normXToLon, normYToLat, tileKey } = __tg_require("src/geo/mercator.js");
 const { classify, parseFeatures, pointInRing } = __tg_require("src/world/landcover.js");
@@ -90130,7 +90989,7 @@ class Scatter {
     }
   }
 
-  async loadTextures(base = './assets/') {
+  async loadTextures(base = ASSET_BASE) {
     if (typeof document === 'undefined' || typeof fetch !== 'function') return;
     // No assets folder in the single-file build, and over file:// the ask is a
     // CORS error rather than a quiet 404. Skip it and keep the flat colours.
@@ -91076,10 +91935,11 @@ class Terrain {
 
   update(camera, budgetMs) {
     const preset = settings.preset();
-    const maxZoom = Math.min(
-      settings.get('maxTileZoom'),
-      this.streamer.source ? this.streamer.source.maxZoom : 19,
-    );
+    // Never ask deeper than the provider is actually serving. The setting is
+    // what you want; `maxUsefulZoom` is what you can have, and it comes down
+    // on its own when a level starts refusing every tile while the one above
+    // it keeps answering.
+    const maxZoom = Math.min(settings.get('maxTileZoom'), this.streamer.maxUsefulZoom);
     const renderDistance = this.renderDistance;
     // Distant mode: keep drawing past the render distance, but only over
     // country you have already flown across. Ground you have never seen stops
@@ -92565,6 +93425,7 @@ __tg_exports["drawMap"] = drawMap;
 __tg_exports["metresPerPixel"] = metresPerPixel;
 };
 __tg_modules["src/ui/worldmap.js"] = function (__tg_exports) {
+const { WheelSteps } = __tg_require("src/ui/wheel.js");
 const { cheats } = __tg_require("src/core/cheats.js");
 const { clamp } = __tg_require("src/core/math.js");
 const { settings } = __tg_require("src/core/settings.js");
@@ -92701,13 +93562,18 @@ class WorldMap {
       this.dragging = false;
       canvas.classList.remove('dragging');
     });
+    // Two notches of wheel per half level. The step used to be a quarter of a
+    // level while setZoom rounded to halves, so zooming *out* from any settled
+    // value rounded straight back to where it started and did nothing at all —
+    // which is why the map zoomed about half the time, and moved twice as far
+    // as intended when it did.
+    this.wheel = new WheelSteps(2);
     canvas.addEventListener(
       'wheel',
       (event) => {
         event.preventDefault();
-        // A quarter of a level per notch. Anything faster flies past the scale
-        // you were looking for before you can let go of the wheel.
-        this.setZoom(this.zoom + (event.deltaY > 0 ? -0.25 : 0.25));
+        const steps = this.wheel.read(event);
+        if (steps) this.setZoom(this.zoom + steps * 0.5);
       },
       { passive: false },
     );
@@ -92811,6 +93677,8 @@ class WorldMap {
   }
 
   setZoom(zoom) {
+    // Quantised to the same half level the wheel steps in, so a step always
+    // lands somewhere new. Rounding finer than the step is what stalled it.
     this.zoom = clamp(Math.round(zoom * 2) / 2, 2, 19);
     this.dirty = true;
   }
@@ -93412,6 +94280,7 @@ function rocketIcon(colour) {
 __tg_exports["HUD"] = HUD;
 };
 __tg_modules["src/ui/minimap.js"] = function (__tg_exports) {
+const { WheelSteps } = __tg_require("src/ui/wheel.js");
 const { keybinds } = __tg_require("src/core/keybinds.js");
 const { clamp } = __tg_require("src/core/math.js");
 const { settings } = __tg_require("src/core/settings.js");
@@ -93484,12 +94353,16 @@ class Minimap {
     this.canvas.addEventListener('click', () => {
       if (this.onOpenMap) this.onOpenMap();
     });
+    // Whole levels here, one per two notches: the minimap has nine of them to
+    // cover and a trackpad flick used to run through the lot.
+    this.wheel = new WheelSteps(2);
     this.element.addEventListener(
       'wheel',
       (event) => {
         event.preventDefault();
         event.stopPropagation();
-        this.zoomBy(event.deltaY > 0 ? -1 : 1);
+        const steps = this.wheel.read(event);
+        if (steps) this.zoomBy(steps);
       },
       { passive: false },
     );
@@ -94845,6 +95718,13 @@ class Game {
     this.streamer.setSource(this.imagerySource);
     this.elevation.setSource(this.elevationSource);
     mapTiles.setSource(this.imagerySource);
+    // Whatever you chose to fly over, the flat maps fall back to the keyless
+    // cloudless mosaic rather than to nothing.
+    mapTiles.setFallback(
+      this.imagerySource.descriptor.id === 'sentinel2'
+        ? null
+        : createImagerySource({ ...settings.values, imageryProvider: 'sentinel2' }),
+    );
     mapTiles.setDegraded(false);
     // The unexplored-ground layer is always the drawn OSM map, whatever the
     // satellite provider is — it is a different question from which imagery
@@ -94852,6 +95732,15 @@ class Game {
     if (!this.streetSource) {
       this.streetSource = createImagerySource({ ...settings.values, imageryProvider: 'osm' });
       streetTiles.setSource(this.streetSource);
+      // OSM's raster tiles come off one community server under a fair-use
+      // policy, so "busy" is a normal answer and there are two standbys behind
+      // it: Esri's street map, and then OpenFreeMap, which hands over the
+      // geometry to draw ourselves and is the only one of the three that is
+      // explicitly unmetered.
+      streetTiles.setFallback([
+        createImagerySource({ ...settings.values, imageryProvider: 'esri-street' }),
+        createImagerySource({ ...settings.values, imageryProvider: 'openfreemap' }),
+      ]);
     }
     waterMap.setSource(this.imagerySource);
     if (rebuild) this.terrain.rebase();
@@ -95650,6 +96539,9 @@ class Game {
         );
       } else if (reliefName) {
         parts.push(reliefName);
+      }
+      if (Number.isFinite(this.streamer.depthLimit)) {
+        parts.push(`imagery stops at z${this.streamer.depthLimit} here`);
       }
       if (!this.streamer.mayGenerate && this.streamer.degraded) {
         parts.push('no imagery here — ground coloured from the elevation');

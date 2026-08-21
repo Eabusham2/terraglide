@@ -896,6 +896,46 @@ console.log('\nProviders and detail budgets');
     .map((p) => p.id);
   ok('every keyed provider names a real setting', missing.length === 0, missing.join(', '));
 
+  // Nothing may be drawn on screen without saying whose it is. That is the
+  // licence's condition and every provider's own, so it is checked rather
+  // than remembered.
+  const unattributed = IMAGERY_PROVIDERS
+    .filter((p) => p.kind !== 'synthetic' && !(p.attribution ?? '').trim())
+    .map((p) => p.id);
+  ok('every provider carries attribution', unattributed.length === 0, unattributed.join(', '));
+
+  const byId = Object.fromEntries(IMAGERY_PROVIDERS.map((p) => [p.id, p]));
+  // The point of the keyless additions: a good flight map with no account at
+  // all, and a second one anywhere the first has nothing.
+  for (const id of ['esri', 'sentinel2', 'usgs', 'gibs']) {
+    ok(`${id} is offered without a key`, byId[id] && byId[id].needsKey === null);
+  }
+  ok('exactly one provider is the recommended one',
+    IMAGERY_PROVIDERS.filter((p) => p.recommended).length === 1);
+  ok('and it needs no key',
+    IMAGERY_PROVIDERS.find((p) => p.recommended)?.needsKey === null);
+
+  // Drawn maps are not flight imagery: a street map draped over terrain looks
+  // like a mistake, so they are offered to the flat maps only.
+  for (const id of ['osm', 'esri-street', 'openfreemap']) {
+    ok(`${id} is kept out of the flight-imagery menu`, byId[id]?.hidden === true);
+  }
+
+  // NASA's near-real-time products lag the pass, and a date that has not
+  // finished processing answers with a transparent tile — a hole in the world
+  // rather than an error. The template is dated a few days back for that.
+  const { gibsDate } = await import('../src/tiles/providers.js');
+  ok('the GIBS template carries a date', /\{date\}/.test(byId.gibs?.template ?? ''));
+  const lag = (Date.now() - Date.parse(`${gibsDate()}T00:00:00Z`)) / 86400000;
+  ok('and the date asked for is safely in the past', lag >= 2.5 && lag <= 4.5, `${lag.toFixed(1)} days`);
+
+  // The vector provider hands over geometry; only the flat maps can draw it.
+  ok('OpenFreeMap decodes as vector', byId.openfreemap?.kind === 'openmaptiles');
+  const providerSource = readFileSync(new URL('../src/tiles/providers.js', import.meta.url), 'utf8');
+  ok('and the worker is told so', /kind === 'openmaptiles'\) return 'vector'/.test(providerSource));
+  ok('its tile template is fetched rather than hard-coded',
+    /prepareOpenMapTiles/.test(providerSource) && !/openfreemap\.org\/planet\/\d/.test(providerSource));
+
   // The detail dial has to be monotonic or the labels lie: lower detail must
   // mean a looser error target and a smaller memory ceiling, every step.
   const source = readFileSync(new URL('../src/world/tiles3d.js', import.meta.url), 'utf8');
@@ -960,6 +1000,74 @@ console.log('\nGenerated art stays where it belongs');
     const path = new URL(`../assets/${file}`, import.meta.url);
     ok(`${file} is present`, existsSync(path) && statSync(path).size > 1024);
   }
+}
+
+console.log('\nVector tiles, read by hand');
+{
+  const { decodeVectorTile, POLYGON } = await import('../src/tiles/vectorTile.js');
+  // A tile encoder, just big enough to make one to read back. Protocol
+  // buffers: a varint is base-128 low group first, a field header is the
+  // field number shifted up three with the wire type underneath.
+  const varint = (n) => {
+    const out = [];
+    while (n > 127) {
+      out.push((n & 127) | 128);
+      n = Math.floor(n / 128);
+    }
+    out.push(n);
+    return out;
+  };
+  const tag = (field, wire) => varint((field << 3) | wire);
+  const len = (bytes) => [...varint(bytes.length), ...bytes];
+  const str = (v) => [...new TextEncoder().encode(v)];
+  const zig = (n) => (n < 0 ? -n * 2 - 1 : n * 2);
+
+  // A ten-by-ten square, as the command stream encodes one: move, three
+  // lines, close, every coordinate a delta from the last.
+  const square = [
+    (1 << 3) | 1, ...varint(zig(0)), ...varint(zig(0)),
+    (3 << 3) | 2,
+    ...varint(zig(10)), ...varint(zig(0)),
+    ...varint(zig(0)), ...varint(zig(10)),
+    ...varint(zig(-10)), ...varint(zig(0)),
+    (1 << 3) | 7,
+  ];
+  const feature = [
+    ...tag(3, 0), ...varint(POLYGON),
+    ...tag(2, 2), ...len([...varint(0), ...varint(0)]),
+    ...tag(4, 2), ...len(square),
+  ];
+  const layer = (name) => [
+    ...tag(15, 0), ...varint(2),
+    ...tag(1, 2), ...len(str(name)),
+    ...tag(3, 2), ...len(str('class')),
+    ...tag(4, 2), ...len([...tag(1, 2), ...len(str('lake'))]),
+    ...tag(5, 0), ...varint(4096),
+    ...tag(2, 2), ...len(feature),
+  ];
+  const tile = new Uint8Array([
+    ...tag(3, 2), ...len(layer('water')),
+    ...tag(3, 2), ...len(layer('poi')),
+  ]);
+
+  const layers = decodeVectorTile(tile);
+  ok('both layers come back', layers.size === 2, [...layers.keys()].join(','));
+  const water = layers.get('water');
+  ok('the extent is read, not assumed', water.extent === 4096);
+  ok('one feature, a polygon', water.features.length === 1 && water.features[0].type === POLYGON);
+  ok('its tag resolves through both side tables',
+    water.features[0].properties.class === 'lake', JSON.stringify(water.features[0].properties));
+  const ring = water.features[0].rings[0];
+  ok('deltas accumulate into real coordinates',
+    ring.join(',') === '0,0,10,0,10,10,0,10', ring.join(','));
+
+  const filtered = decodeVectorTile(tile, new Set(['water']));
+  ok('a layer nobody draws is never decoded',
+    filtered.size === 1 && filtered.has('water'), [...filtered.keys()].join(','));
+
+  // Negative deltas are the case zigzag exists for, and getting the sign
+  // wrong draws a ring inside out rather than failing.
+  ok('a negative delta comes back negative', ring[6] === 0 && ring[4] === 10);
 }
 
 console.log('\nA provider only gets asked as deep as it answers');

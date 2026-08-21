@@ -1,5 +1,6 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { clamp, damp, dampAngle, wrapAngle } from '../core/math.js';
+import { ASSET_BASE } from '../core/paths.js';
 import { settings } from '../core/settings.js';
 import { ROCKET_COLOURS } from './player.js';
 
@@ -371,7 +372,7 @@ export class Avatar {
    * worse at everything else. That is a real trade, so it is offered as one
    * rather than chosen for you.
    */
-  async loadModel(base = './assets/') {
+  async loadModel(base = ASSET_BASE) {
     if (globalThis.__TERRAGLIDE_INLINE_WORKER__) return false;
     if (!settings.get('detailedPlayerModel')) return false;
     if (this.model) return true;
@@ -415,7 +416,7 @@ export class Avatar {
    * files are not an error — the flat colours underneath are the fallback, and
    * they are what the single-file build ships with.
    */
-  async loadTextures(base = './assets/') {
+  async loadTextures(base = ASSET_BASE) {
     if (typeof document === 'undefined' || typeof fetch !== 'function') return;
     // The single-file build has no assets folder beside it, and asking for one
     // over file:// is a CORS error in the console rather than a 404. Don't ask.

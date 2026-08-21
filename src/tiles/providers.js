@@ -30,6 +30,50 @@ export const IMAGERY_PROVIDERS = [
     note: 'Keyless. Fair use only — do not bulk download.',
   },
   {
+    id: 'sentinel2',
+    label: 'Sentinel-2 cloudless',
+    kind: 'xyz',
+    needsKey: null,
+    maxZoom: 16,
+    template: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg',
+    attribution: 'Sentinel-2 cloudless by EOX IT Services, from modified Copernicus Sentinel data',
+    note:
+      'Keyless, whole planet, ten metres a pixel, and \u2014 the point of it \u2014 a '
+      + 'cloudless mosaic, so there is never a white smear where the weather was '
+      + 'on the day the satellite went over. Softer than Esri close up; better than '
+      + 'Esri anywhere Esri has only old low-resolution cover.',
+  },
+  {
+    id: 'usgs',
+    label: 'USGS imagery (United States)',
+    kind: 'xyz',
+    needsKey: null,
+    maxZoom: 16,
+    template:
+      'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Imagery courtesy of the U.S. Geological Survey, The National Map',
+    note:
+      'Keyless and very good, over the United States and nowhere else. Outside it '
+      + 'every tile is a 404 and you get generated ground, so this is one to pick '
+      + 'when you know where you are going.',
+  },
+  {
+    id: 'gibs',
+    label: 'NASA GIBS (this week\u2019s Earth)',
+    kind: 'xyz',
+    needsKey: null,
+    maxZoom: 9,
+    template:
+      'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor' +
+      '/default/{date}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg',
+    attribution: 'Imagery courtesy of NASA EOSDIS GIBS / VIIRS',
+    note:
+      'What the planet looked like a few days ago, cloud and snow and all, from '
+      + 'the VIIRS instrument. Keyless and global, but only nine zoom levels deep '
+      + '\u2014 about six hundred metres a pixel \u2014 so it is a view from orbit '
+      + 'rather than something to fly a valley in.',
+  },
+  {
     id: 'google',
     label: 'Google Maps (satellite)',
     kind: 'google',
@@ -105,6 +149,40 @@ export const IMAGERY_PROVIDERS = [
     // draw unexplored ground with, which is what a street map is good for.
     hidden: true,
     note: 'Drawn map rather than photography. Used for unexplored ground on the maps.',
+  },
+  {
+    id: 'esri-street',
+    label: 'Esri World Street Map',
+    kind: 'xyz',
+    needsKey: null,
+    maxZoom: 19,
+    template:
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Map \u00a9 Esri',
+    // Same job as the OpenStreetMap layer above and offered for the same
+    // reason everything else here has a second option: OSM's raster server is
+    // one community machine with a fair-use policy, and when it says no the
+    // maps should still have a street map to draw.
+    hidden: true,
+    note: 'Drawn map. The standby for unexplored ground when the OSM tile server is busy.',
+  },
+  {
+    id: 'openfreemap',
+    label: 'OpenFreeMap (vector street map)',
+    kind: 'openmaptiles',
+    needsKey: null,
+    // The vectors stop at 14 and are drawn at any zoom above it: one tile of
+    // geometry covers every level below itself, which is the whole point of
+    // serving geometry instead of pictures.
+    maxZoom: 14,
+    attribution:
+      '\u00a9 OpenFreeMap \u00a9 OpenMapTiles, map data \u00a9 OpenStreetMap contributors',
+    hidden: true,
+    note:
+      'The roads and coastlines themselves rather than a picture of them, drawn '
+      + 'here. Keyless and explicitly unmetered, which the community raster '
+      + 'servers are not \u2014 so it is the one to lean on when a map is being '
+      + 'panned around rather than looked at once.',
   },
 ];
 
@@ -213,11 +291,26 @@ export function providerLabel(descriptor) {
   return descriptor.recommended ? `${descriptor.label} (recommended)` : descriptor.label;
 }
 
+/**
+ * How far back to ask NASA for "today".
+ *
+ * The near-real-time products are published a few hours behind the pass, but
+ * not uniformly, and a date that has not finished processing answers with a
+ * transparent tile rather than an error — which looks exactly like a hole in
+ * the world. Three days back is always there.
+ */
+const GIBS_LAG_DAYS = 3;
+
+export function gibsDate(now = Date.now()) {
+  return new Date(now - GIBS_LAG_DAYS * 86400000).toISOString().slice(0, 10);
+}
+
 function fillTemplate(template, tile, key) {
   return template
     .replace('{z}', String(tile.z))
     .replace('{x}', String(tile.x))
     .replace('{y}', String(tile.y))
+    .replace('{date}', gibsDate())
     .replace('{key}', encodeURIComponent(key ?? ''));
 }
 
@@ -233,6 +326,7 @@ export class TileSource {
     /** Set when this provider is standing in for one that had no key. */
     this.substitutedFor = null;
     this.bingTemplate = null;
+    this.vectorTemplate = null;
     this.state = 'idle'; // idle | preparing | ready | needs-key | error
     this.error = '';
     this.googleSession = null;
@@ -284,6 +378,7 @@ export class TileSource {
       try {
         if (this.descriptor.kind === 'bing') await this.prepareBing();
         else if (this.descriptor.kind === 'google') await this.prepareGoogle();
+        else if (this.descriptor.kind === 'openmaptiles') await this.prepareOpenMapTiles();
         this.state = 'ready';
         this.error = '';
       } catch (err) {
@@ -308,6 +403,20 @@ export class TileSource {
     if (!resource?.imageUrl) throw new Error('Bing metadata had no imageUrl');
     this.bingTemplate = resource.imageUrl;
     this.bingSubdomains = resource.imageUrlSubdomains ?? [''];
+  }
+
+  /**
+   * OpenFreeMap republishes the planet every few weeks and puts the build date
+   * in the tile path, so there is no stable URL to hard-code — the TileJSON is
+   * the stable thing and it names the current one. Fetched once.
+   */
+  async prepareOpenMapTiles() {
+    const res = await fetch('https://tiles.openfreemap.org/planet');
+    if (!res.ok) throw new Error(`OpenFreeMap TileJSON failed (${res.status})`);
+    const data = await res.json();
+    const template = data?.tiles?.[0];
+    if (!template) throw new Error('OpenFreeMap TileJSON had no tile template');
+    this.vectorTemplate = template;
   }
 
   async prepareGoogle() {
@@ -358,6 +467,10 @@ export class TileSource {
         `${encodeURIComponent(encoded)}&key=${encodeURIComponent(this.key)}`
       );
     }
+    if (d.kind === 'openmaptiles') {
+      if (!this.vectorTemplate) return null;
+      return fillTemplate(this.vectorTemplate, tile, this.key);
+    }
     if (!d.template) return null;
     return fillTemplate(d.template, tile, this.key);
   }
@@ -373,6 +486,9 @@ export class TileSource {
     ) {
       return kind;
     }
+    // Geometry rather than a picture: the caller draws it. Only the flat maps
+    // know how, so this provider is not offered as flight imagery.
+    if (kind === 'openmaptiles') return 'vector';
     return 'imagery';
   }
 }

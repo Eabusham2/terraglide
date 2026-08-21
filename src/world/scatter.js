@@ -1,5 +1,6 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { clamp } from '../core/math.js';
+import { ASSET_BASE } from '../core/paths.js';
 import { settings } from '../core/settings.js';
 import { latToNormY, lonToNormX, normXToLon, normYToLat, tileKey } from '../geo/mercator.js';
 import { classify, parseFeatures, pointInRing } from './landcover.js';
@@ -143,7 +144,7 @@ export class Scatter {
     }
   }
 
-  async loadTextures(base = './assets/') {
+  async loadTextures(base = ASSET_BASE) {
     if (typeof document === 'undefined' || typeof fetch !== 'function') return;
     // No assets folder in the single-file build, and over file:// the ask is a
     // CORS error rather than a quiet 404. Skip it and keep the flat colours.

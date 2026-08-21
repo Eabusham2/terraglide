@@ -15,7 +15,7 @@ export function createTileWorker() {
     try {
       const url = new URL('./tileWorker.js', import.meta.url);
       if (url.protocol !== 'file:') {
-        const worker = new Worker(url, { type: 'module' });
+        const worker = new Worker(workerUrl(url), { type: 'module' });
         worker.inline = false;
         return worker;
       }
@@ -24,6 +24,25 @@ export function createTileWorker() {
     }
   }
   return new InlineWorker();
+}
+
+/**
+ * A worker script has to be same-origin, which the online single-file page is
+ * not: that page is one small file that could be sitting anywhere while the
+ * modules come off the published site. Handing `new Worker` a cross-origin URL
+ * is a SecurityError, and it would drop the whole tile pipeline onto the main
+ * thread.
+ *
+ * The way round it is a same-origin blob whose only job is to import the real
+ * thing. A module worker can do that, and the imported module's own relative
+ * imports resolve against *its* address rather than the blob's, so the rest of
+ * the worker loads normally. Needs the host to allow cross-origin reads, which
+ * GitHub Pages does.
+ */
+function workerUrl(url) {
+  if (url.origin === globalThis.location?.origin) return url;
+  const shim = `import ${JSON.stringify(url.href)};`;
+  return URL.createObjectURL(new Blob([shim], { type: 'text/javascript' }));
 }
 
 /** Same protocol as the worker, run in the page. */

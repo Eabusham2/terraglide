@@ -31,7 +31,12 @@ your own quota. Read them before you turn a provider on.
 | Maxar SecureWatch | satellite tiles | yes (enterprise connect ID) | <https://www.maxar.com/legal> |
 | Mapbox (Satellite, Terrain-RGB) | satellite tiles, elevation | yes | <https://www.mapbox.com/legal/tos> |
 | Esri World Imagery | satellite tiles | no | <https://www.esri.com/en-us/legal/terms/full-master-agreement> |
+| Sentinel-2 cloudless (EOX IT Services) | satellite tiles | no | <https://s2maps.eu> |
+| USGS The National Map (imagery, United States) | satellite tiles | no | <https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits> |
+| NASA EOSDIS GIBS (VIIRS true colour) | satellite tiles | no | <https://nasa-gibs.github.io/gibs-api-docs/> |
+| Esri World Street Map | reference map layer | no | <https://www.esri.com/en-us/legal/terms/full-master-agreement> |
 | OpenStreetMap standard tiles | reference map layer | no | <https://operations.osmfoundation.org/policies/tiles/> |
+| OpenFreeMap (OpenMapTiles vector schema) | reference map layer | no | <https://openfreemap.org> |
 | Nominatim | reverse geocoding (address readout) | no | <https://operations.osmfoundation.org/policies/nominatim/> |
 | Overpass API | OpenStreetMap buildings, bridges, infrastructure and land cover | no | <https://dev.overpass-api.de/overpass-doc/en/preface/commons.html> |
 | Mapillary | street-level panoramas | yes (token) | <https://www.mapillary.com/terms> |
@@ -57,6 +62,26 @@ The keyless providers above are community or public endpoints with strict fair-u
 policies: they are rate limited in `src/tiles/providers.ts` and
 `src/geo/geocode.ts`, and those limits must not be raised for unattended or
 bulk use.
+
+Every layer has a standby behind it, because "busy" is a normal answer from a
+community server. The flat maps fall back from your chosen imagery to
+Sentinel-2 cloudless, and the drawn street map falls back from OpenStreetMap's
+raster tiles to Esri's street map and then to OpenFreeMap. Nothing is cached to
+disk on any of those routes.
+
+## Vector tiles
+
+OpenFreeMap serves the roads, coastlines and place names themselves rather than
+a picture of them, under the OpenMapTiles schema, keyless and explicitly
+unmetered. TerraGlide reads and draws them itself — `src/tiles/vectorTile.js` is
+a small Mapbox Vector Tile reader written for this project and
+`src/ui/vectorMap.js` draws the result. No third-party renderer is bundled: this
+is not MapLibre GL JS and does not include any of it. Only the flat maps use it;
+a drawn map draped over terrain looks like a mistake, so it is not offered as
+flight imagery.
+
+Attribution for it — OpenFreeMap, OpenMapTiles and OpenStreetMap — is carried in
+the provider descriptor and shown with the rest.
 
 ## Photorealistic 3D tiles
 

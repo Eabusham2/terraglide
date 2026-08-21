@@ -63,6 +63,11 @@ const server = createServer(async (req, res) => {
       'Content-Type': TYPES[extname(target).toLowerCase()] ?? 'application/octet-stream',
       'Content-Length': info.size,
       'Cache-Control': 'no-cache',
+      // GitHub Pages serves these files to anyone, which is what makes the
+      // online single-file page work at all: it is one small document that can
+      // sit anywhere while the modules come from the published site. Matching
+      // that here means the same page can be tried against a local copy.
+      'Access-Control-Allow-Origin': '*',
     });
     createReadStream(target).pipe(res);
   } catch (err) {

@@ -1,5 +1,6 @@
 import { tileKey, wrapTileX } from '../geo/mercator.js';
 import { proceduralImagery } from '../tiles/procedural.js';
+import { renderVectorTile } from './vectorMap.js';
 
 /**
  * A small ImageBitmap cache for the 2D maps (minimap and world map).
@@ -25,6 +26,29 @@ export class MapTileCache {
     this.generation = 0;
     /** Mirrors the 3D streamer: draw generated tiles when a provider is down. */
     this.degraded = false;
+    /**
+     * Providers to try when the one before refuses.
+     *
+     * The keyless sources here are community and public endpoints with fair-use
+     * policies, which means "busy" is a normal answer rather than a fault. A
+     * map that goes blank because one server is having a moment is a map with
+     * no fallback, and everything else in this project has one.
+     */
+    this.fallbacks = [];
+    this.fallbackRescues = 0;
+    this.usingFallback = false;
+    /** Deepest zoom the current provider serves; see `resolve`. */
+    this.maxZoom = Infinity;
+  }
+
+  /**
+   * Providers to fall back to, tile by tile, in order of preference.
+   * Takes one or a list.
+   */
+  setFallback(sources) {
+    this.fallbacks = (Array.isArray(sources) ? sources : [sources]).filter(Boolean);
+    this.fallbackRescues = 0;
+    this.usingFallback = false;
   }
 
   /** Called whenever a tile finishes loading. Returns an unsubscribe function. */
@@ -51,6 +75,13 @@ export class MapTileCache {
 
   setSource(source) {
     this.source = source;
+    // Deeper than the provider serves is a 404, and a 404 here is a hole in
+    // the map rather than a softer picture. `resolve` stops at this and
+    // stretches the last real tile instead, which is what every map does when
+    // you zoom past its data.
+    this.maxZoom = source?.descriptor?.maxZoom ?? Infinity;
+    this.fallbackRescues = 0;
+    this.usingFallback = false;
     for (const entry of this.tiles.values()) {
       if (entry.bitmap) entry.bitmap.close();
     }
@@ -85,6 +116,18 @@ export class MapTileCache {
     let scale = 1;
     let ox = 0;
     let oy = 0;
+    // Walk up to the deepest level this provider actually has before asking
+    // for anything, so an over-zoomed map stretches its last real tile rather
+    // than requesting one that cannot exist. Costs nothing when it fits.
+    const limit = this.maxZoom ?? Infinity;
+    while (tz > limit) {
+      ox = (ox + (tx & 1)) * 0.5;
+      oy = (oy + (ty & 1)) * 0.5;
+      scale *= 0.5;
+      tx >>= 1;
+      ty >>= 1;
+      tz -= 1;
+    }
     for (let step = 0; step <= maxSteps && tz >= 0; step++) {
       const bitmap = step === 0 ? this.get(tz, tx, ty) : this.peek(tz, tx, ty);
       if (bitmap) return { bitmap, scale, ox, oy };
@@ -165,16 +208,14 @@ export class MapTileCache {
     this.active++;
     entry.state = 'loading';
     try {
-      const url = this.source && !this.degraded ? this.source.urlFor(job.tile) : null;
-      let bitmap;
-      if (!url) {
-        const image = proceduralImagery(job.tile, 128);
-        bitmap = await createImageBitmap(new ImageData(image.data, image.width, image.height));
-      } else {
-        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
-        if (!res.ok) throw new Error(String(res.status));
-        bitmap = await createImageBitmap(await res.blob());
-      }
+      // First choice, then the standbys, then invented ground. Once a standby
+      // has rescued enough tiles, stop asking the first one at all: a server
+      // that is refusing is not helped by being asked for every tile on screen.
+      const chain =
+        this.usingFallback && this.fallbacks.length > 0
+          ? this.fallbacks
+          : [this.source, ...this.fallbacks];
+      const bitmap = await this.fetchTile(job.tile, chain);
       if (generation !== this.generation) {
         bitmap.close();
         return;
@@ -188,6 +229,45 @@ export class MapTileCache {
       this.active--;
       if (this.queue.length > 0) this.pump();
     }
+  }
+
+  /**
+   * One tile, from the first source that will give us one. Generated ground is
+   * the last answer rather than an error, because a hole in the map is worse
+   * than an approximation clearly labelled as one.
+   */
+  async fetchTile(tile, chain) {
+    const invent = async () => {
+      const image = proceduralImagery(tile, 128);
+      return createImageBitmap(new ImageData(image.data, image.width, image.height));
+    };
+    if (this.degraded) return invent();
+
+    let error = null;
+    for (let i = 0; i < chain.length; i++) {
+      const source = chain[i];
+      if (!source) continue;
+      if (source.prepare && !source.ready) await source.prepare();
+      if (tile.z > (source.descriptor?.maxZoom ?? Infinity)) continue;
+      const url = source.urlFor(tile);
+      if (!url) return invent();
+      try {
+        const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
+        if (!res.ok) throw new Error(String(res.status));
+        // Vector tiles arrive as geometry rather than as a picture, so the
+        // drawing happens here instead of at the far end of a wire.
+        const bitmap =
+          source.decode === 'vector'
+            ? await renderVectorTile(await res.arrayBuffer(), tile.z)
+            : await createImageBitmap(await res.blob());
+        if (i > 0 && ++this.fallbackRescues >= 4) this.usingFallback = true;
+        return bitmap;
+      } catch (err) {
+        error = err;
+      }
+    }
+    if (error) throw error;
+    return invent();
   }
 
   evict() {
