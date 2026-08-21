@@ -1,4 +1,5 @@
-import { quadKey } from '../geo/mercator.js';
+import { latToNormY, lonToNormX, quadKey } from '../geo/mercator.js';
+import { isNoDataCard } from './noData.js';
 import { BING_SIDE, GOOGLE_SIDE, encodePolyline, googleSamplePoints, tileBounds } from './elevationGrid.js';
 
 /**
@@ -643,6 +644,78 @@ export function createImagerySource(settingsValues) {
 export function createElevationSource(settingsValues) {
   const descriptor = findProvider(ELEVATION_PROVIDERS, settingsValues.elevationProvider);
   return withKeylessFallback(ELEVATION_PROVIDERS, descriptor, settingsValues);
+}
+
+/**
+ * Which provider actually serves the sharpest ground *here*.
+ *
+ * Coverage is not uniform and no list ordering can capture that. USGS is
+ * superb over Kansas and a 404 over Kent. Esri is excellent nearly everywhere
+ * and hands you a "Map data not yet available" card over the Southern Ocean.
+ * Sentinel-2 is everywhere and stops at ten metres a pixel.
+ *
+ * So this asks. For each candidate it walks down from the deepest zoom it
+ * publishes until one answers with a real tile — not a 404, not a no-data card
+ * — and remembers how deep that was. The winner is whoever got deepest, ties
+ * broken by preferring one you hold a key for. Roughly a dozen requests, once,
+ * when you press the button.
+ *
+ * @param {Array} list  IMAGERY_PROVIDERS
+ * @param {object} values the settings store's values, for the keys
+ * @param {{lat:number,lon:number}} at where you are standing
+ * @param {(text:string)=>void} [onProgress]
+ */
+export async function bestProviderFor(list, values, at, onProgress) {
+  const candidates = list.filter(
+    (p) => !p.hidden && (!p.needsKey || values[p.needsKey]),
+  );
+  let best = null;
+  for (const descriptor of candidates) {
+    onProgress?.(`Trying ${descriptor.label}\u2026`);
+    const source = new TileSource(descriptor, values);
+    try {
+      await source.prepare();
+      if (source.state === 'error') continue;
+    } catch {
+      continue;
+    }
+    // Down from the deepest it claims, until something real comes back. Three
+    // levels is enough to tell "no cover at all" from "shallower than it says".
+    const top = descriptor.maxZoom ?? 16;
+    for (let z = top; z >= Math.max(4, top - 3); z--) {
+      const n = Math.pow(2, z);
+      const tile = {
+        z,
+        x: Math.floor(lonToNormX(at.lon) * n),
+        y: Math.floor(clampUnit(latToNormY(at.lat)) * n),
+      };
+      const url = source.urlFor(tile);
+      if (!url) continue;
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        if (blob.size < 100) continue;
+        const bitmap = await createImageBitmap(blob);
+        const blank = isNoDataCard(bitmap, blob.size);
+        bitmap.close();
+        if (blank) continue;
+        const keyed = descriptor.needsKey ? 1 : 0;
+        if (!best || z > best.zoom || (z === best.zoom && keyed > best.keyed)) {
+          best = { id: descriptor.id, label: descriptor.label, zoom: z, keyed };
+        }
+        break;
+      } catch {
+        /* next zoom */
+      }
+    }
+  }
+  onProgress?.(null);
+  return best;
+}
+
+function clampUnit(value) {
+  return Math.min(0.999999, Math.max(0, value));
 }
 
 /**

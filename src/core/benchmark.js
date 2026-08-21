@@ -70,8 +70,6 @@ export class Benchmark {
         this.results.push({ tier, fps, worstMs: worst });
       }
     } finally {
-      settings.set('resolutionScale', before.resolutionScale);
-      settings.set('detailLimit', before.detailLimit);
       this.running = false;
     }
 
@@ -80,6 +78,8 @@ export class Benchmark {
     const held = this.results.filter((r) => r.fps >= targetFps * 0.92);
     const pick = held.length > 0 ? held[held.length - 1] : this.results[0];
     settings.set('graphics', pick.tier);
+    settings.set('resolutionScale', before.resolutionScale);
+    settings.set('detailLimit', before.detailLimit);
     if (held.length === 0) {
       // Nothing held even at Low. Give the detail dial the difference rather
       // than leaving the frame rate on the floor.

@@ -5,6 +5,7 @@ import {
   ELEVATION_PROVIDERS,
   IMAGERY_PROVIDERS,
   PANORAMA_PROVIDERS,
+  bestProviderFor,
   providerLabel,
   testProviders,
 } from '../tiles/providers.js';
@@ -395,7 +396,10 @@ export class SettingsPanel {
       if (field.showWhen && !field.showWhen()) continue;
       parts.push(this.renderField(field));
     }
-    if (section.id === 'providers') parts.push(this.renderProviderTest());
+    if (section.id === 'providers') {
+      parts.push(this.renderAutoProvider());
+      parts.push(this.renderProviderTest());
+    }
     if (section.id === 'graphics') parts.push(this.renderBenchmark());
     if (section.keybinds) parts.push(this.renderKeybinds());
     this.content.innerHTML = parts.join('');
@@ -403,6 +407,7 @@ export class SettingsPanel {
     if (section.id === 'providers') {
       this.bindProviderTest();
       this.bindOneTest();
+      this.bindAutoProvider();
     }
     if (section.id === 'graphics') this.bindBenchmark();
   }
@@ -571,6 +576,50 @@ export class SettingsPanel {
         <small>Fetches one real tile from each, here, using whatever keys you have saved. One tile is nothing against anybody's quota, and nothing is sent anywhere but to the provider itself.</small>
         ${body}
       </div>`;
+  }
+
+  /**
+   * "Find the sharpest one here".
+   *
+   * A list cannot tell you which provider has the best imagery of the field
+   * you are standing in — coverage is patchy and different for every one of
+   * them. This asks, once, and switches to the winner.
+   */
+  renderAutoProvider() {
+    return `
+      <div class="field field-action">
+        <label>Pick the sharpest provider here</label>
+        <button type="button" data-auto-provider ${this.findingProvider ? 'disabled' : ''}>
+          ${escapeHtml(this.autoProviderStatus ?? (this.findingProvider ? 'Looking\u2026' : 'Find the best for this place'))}
+        </button>
+        <small>Asks every provider you can use how deep it will actually go where you are standing, and switches to whoever gets furthest. Coverage is patchy and different for each of them, so the right answer changes when you fly somewhere else.</small>
+      </div>`;
+  }
+
+  bindAutoProvider() {
+    const button = this.content.querySelector('[data-auto-provider]');
+    if (!button || !this.playerAt) return;
+    button.addEventListener('click', async () => {
+      if (this.findingProvider) return;
+      this.findingProvider = true;
+      this.render();
+      try {
+        const best = await bestProviderFor(IMAGERY_PROVIDERS, settings.values, this.playerAt(), (text) => {
+          this.autoProviderStatus = text;
+          this.render();
+        });
+        if (best) {
+          settings.set('imageryProvider', best.id);
+          if (this.onChange) this.onChange('imageryProvider', best.id);
+          this.autoProviderStatus = `${best.label} — z${best.zoom} here`;
+        } else {
+          this.autoProviderStatus = 'Nothing answered here';
+        }
+      } finally {
+        this.findingProvider = false;
+        this.render();
+      }
+    });
   }
 
   bindOneTest() {

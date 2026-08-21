@@ -238,6 +238,7 @@ export class Game {
       this.benchmark.onProgress = onProgress;
       return this.benchmark.run(this.perf, () => new Promise((resolve) => this.frameWaiters.push(resolve)));
     };
+    this.settingsPanel.playerAt = () => ({ lat: this.player.lat, lon: this.player.lon });
     this.settingsPanel.testTile = () => {
       const zoom = 14;
       const n = Math.pow(2, zoom);

@@ -154,6 +154,22 @@ export const GRAPHICS_PRESETS = {
     buildingRadiusM: 420,
     sceneryRadiusM: 420,
     pixelRatioCap: 1,
+    // What picking this preset also sets. A preset that only moved three
+    // hidden numbers was not a preset, it was a hint — you could sit on "Low"
+    // with a 64 km horizon and wonder why it was slow.
+    applies: {
+      renderDistanceKm: 8,
+      distantMode: false,
+      distantDistanceKm: 64,
+      meshDetail: 0.7,
+      maxTileZoom: 18,
+      fog: true,
+      weather: false,
+      scenery: false,
+      buildings: false,
+      streetLevel: false,
+      world3dDetail: 'low',
+    },
   },
   medium: {
     sseThreshold: 1.7,
@@ -164,6 +180,19 @@ export const GRAPHICS_PRESETS = {
     buildingRadiusM: 750,
     sceneryRadiusM: 700,
     pixelRatioCap: 1.5,
+    applies: {
+      renderDistanceKm: 16,
+      distantMode: false,
+      distantDistanceKm: 128,
+      meshDetail: 1,
+      maxTileZoom: 20,
+      fog: true,
+      weather: true,
+      scenery: true,
+      buildings: true,
+      streetLevel: true,
+      world3dDetail: 'medium',
+    },
   },
   high: {
     sseThreshold: 1.25,
@@ -173,6 +202,19 @@ export const GRAPHICS_PRESETS = {
     anisotropy: 8,
     buildingRadiusM: 1200,
     sceneryRadiusM: 1200,
+    applies: {
+      renderDistanceKm: 24,
+      distantMode: true,
+      distantDistanceKm: 256,
+      meshDetail: 1.2,
+      maxTileZoom: 22,
+      fog: true,
+      weather: true,
+      scenery: true,
+      buildings: true,
+      streetLevel: true,
+      world3dDetail: 'high',
+    },
     // Draw at the screen's own resolution. Capping this below the display's
     // device pixel ratio renders the world smaller than the screen and lets
     // the browser stretch it back up, which is exactly the soft, stepped
@@ -188,6 +230,19 @@ export const GRAPHICS_PRESETS = {
     buildingRadiusM: 1800,
     sceneryRadiusM: 1900,
     pixelRatioCap: 3,
+    applies: {
+      renderDistanceKm: 64,
+      distantMode: true,
+      distantDistanceKm: 1024,
+      meshDetail: 1.6,
+      maxTileZoom: 22,
+      fog: true,
+      weather: true,
+      scenery: true,
+      buildings: true,
+      streetLevel: true,
+      world3dDetail: 'ultra',
+    },
   },
 };
 
@@ -213,6 +268,31 @@ class SettingsStore extends Emitter {
     this.values[key] = value;
     this.persist();
     this.emit('change', { key, value });
+    // Choosing a preset chooses everything the preset covers. Otherwise "Low"
+    // is a label on three hidden numbers and you can sit on it with a 64 km
+    // horizon wondering why the machine is on its knees. Applied after the
+    // change is announced so listeners see the preset first and the details
+    // after, in the order they happened.
+    if (key === 'graphics') this.applyPreset(value);
+  }
+
+  /**
+   * Push a preset's own settings into the store.
+   *
+   * Only the ones a preset is entitled to: how far you can see, how fine the
+   * mesh is, how deep the ground zooms, and which of the heavy extras are on.
+   * Never keys, never controls, never units — those are yours, and a preset
+   * that reset them would be a preset nobody dared touch.
+   */
+  applyPreset(name) {
+    const preset = GRAPHICS_PRESETS[name];
+    if (!preset || !preset.applies) return;
+    for (const [key, value] of Object.entries(preset.applies)) {
+      if (!(key in DEFAULT_SETTINGS) || this.values[key] === value) continue;
+      this.values[key] = value;
+      this.emit('change', { key, value });
+    }
+    this.persist();
   }
 
   patch(partial) {

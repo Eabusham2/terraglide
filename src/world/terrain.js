@@ -43,6 +43,15 @@ const KEEP_FACTOR = 1.5;
  * within a second or two, low enough that it cannot stall a frame outright.
  */
 const REBUILD_CEILING = 48;
+/**
+ * The two sides of the split threshold, as fractions of it.
+ *
+ * Twelve per cent apart, which at any zoom is a comfortable few metres of
+ * camera movement — far more than a frame's worth of jitter and far less than
+ * a deliberate approach.
+ */
+const LOD_HYSTERESIS_IN = 0.88;
+const LOD_HYSTERESIS_OUT = 1.12;
 
 export class Terrain {
   constructor({ scene, frame, streamer, elevation, shared }) {
@@ -58,6 +67,8 @@ export class Terrain {
     scene.add(this.group);
 
     this.nodes = new Map();
+    /** Tile keys currently drawn as four children rather than as themselves. */
+    this.split = new Set();
     this.drawn = [];
     this.frustum = new THREE.Frustum();
     this.projScreenMatrix = new THREE.Matrix4();
@@ -154,16 +165,12 @@ export class Terrain {
   rebase() {
     for (const node of this.nodes.values()) this.disposeNode(node);
     this.nodes.clear();
+    this.split.clear();
     this.drawn.length = 0;
   }
 
   update(camera, budgetMs) {
     const preset = settings.preset();
-    // Never ask deeper than the provider is actually serving. The setting is
-    // what you want; `maxUsefulZoom` is what you can have, and it comes down
-    // on its own when a level starts refusing every tile while the one above
-    // it keeps answering. On auto there is no ceiling of your own at all, so
-    // what you get is exactly as sharp as the provider is willing to go.
     // The ground always sharpens as far as the provider will actually serve
     // here. The setting is a ceiling you may lower, not a target — there is no
     // tick to forget to turn on any more — and the detail dial scales it down
@@ -329,7 +336,25 @@ export class Terrain {
     this._box.max.set(Math.max(x0, x1), maxY, Math.max(z0, z1));
     if (!this.frustum.intersectsBox(this._box)) return;
 
-    const shouldSplit = tile.z < maxZoom && flatDist < size * this.lodFactor;
+    // Splitting, with hysteresis.
+    //
+    // A tile sitting exactly on the threshold used to flip between itself and
+    // its four children every frame the camera twitched — and each flip is a
+    // build, a texture swap and a visible pop. Flying along a boundary made
+    // whole bands of ground appear and vanish and appear again, which is
+    // "things keep going away and coming back" and most of "gaps coming and
+    // going" too.
+    //
+    // So the two thresholds differ: a tile has to come 12% closer than the
+    // line to split, and go 12% past it to merge again. Anything in between
+    // keeps doing whatever it was already doing.
+    const key = tileKey(tile.z, tile.x, tile.y);
+    const line = size * this.lodFactor;
+    const wasSplit = this.split.has(key);
+    const shouldSplit =
+      tile.z < maxZoom && (wasSplit ? flatDist < line * LOD_HYSTERESIS_OUT : flatDist < line * LOD_HYSTERESIS_IN);
+    if (shouldSplit) this.split.add(key);
+    else this.split.delete(key);
     if (shouldSplit) {
       const cz = tile.z + 1;
       const half = size / 2;
