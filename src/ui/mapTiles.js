@@ -1,5 +1,4 @@
 import { tileKey, wrapTileX } from '../geo/mercator.js';
-import { proceduralImagery } from '../tiles/procedural.js';
 import { renderVectorTile } from './vectorMap.js';
 
 /**
@@ -233,9 +232,9 @@ export class MapTileCache {
     this.active++;
     entry.state = 'loading';
     try {
-      // First choice, then the standbys, then invented ground. Once a standby
-      // has rescued enough tiles, stop asking the first one at all: a server
-      // that is refusing is not helped by being asked for every tile on screen.
+      // First choice, then the standbys. Once a standby has rescued enough
+      // tiles, stop asking the first one at all: a server that is refusing is
+      // not helped by being asked for every tile on screen.
       const chain =
         this.usingFallback && this.fallbacks.length > 0
           ? this.fallbacks
@@ -257,17 +256,14 @@ export class MapTileCache {
   }
 
   /**
-   * One tile, from the first source that will give us one. Generated ground is
-   * the last answer rather than an error, because a hole in the map is worse
-   * than an approximation clearly labelled as one.
+   * One tile, from the first source that will give us one.
+   *
+   * If none of them will, the tile stays empty. That is the whole policy now:
+   * there is no generator behind this to paint noise where a street map
+   * belongs, so a square nobody has mapped is drawn as a square nobody has
+   * mapped rather than as somewhere that does not exist.
    */
   async fetchTile(tile, chain) {
-    const invent = async () => {
-      const image = proceduralImagery(tile, 128);
-      return createImageBitmap(new ImageData(image.data, image.width, image.height));
-    };
-    if (this.degraded) return invent();
-
     let error = null;
     for (let i = 0; i < chain.length; i++) {
       const source = chain[i];
@@ -276,13 +272,8 @@ export class MapTileCache {
       if (tile.z > (source.descriptor?.maxZoom ?? Infinity)) continue;
       const url = source.urlFor(tile);
       if (!url) {
-        // No URL means one of two very different things. The generated world
-        // has none by design and invented ground is the whole point of it. A
-        // real provider with none has failed its handshake — no key, or a
-        // metadata call that did not answer — and painting procedural noise
-        // where a street map belongs is not a fallback, it is a lie with a
-        // texture on it. Fall through to the next provider instead.
-        if (source.descriptor?.kind === 'synthetic') return invent();
+        // A provider with no URL has failed its handshake — no key, or a
+        // metadata call that did not answer. Fall through to the next one.
         error = error ?? new Error(`${source.descriptor?.id ?? 'provider'} not ready`);
         continue;
       }
@@ -301,8 +292,7 @@ export class MapTileCache {
         error = err;
       }
     }
-    if (error) throw error;
-    return invent();
+    throw error ?? new Error('no provider could serve this tile');
   }
 
   evict() {

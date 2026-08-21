@@ -13,8 +13,7 @@
  *   vertical dive    terminal 78.4 m/s
  *   rocket           accelerates you toward 1.5 blocks a tick along your look
  *
- * Exactly one constant differs from vanilla, and it is the one the 45/45
- * manoeuvre lives on. See CLIMB_TRADE.
+ * Nothing here differs from vanilla. Every constant is Minecraft's.
  *
  * Everything below runs at a fixed 20 steps a second in blocks-per-tick, the
  * units the constants were tuned in, then converts back to metres per second.
@@ -26,34 +25,19 @@ const GRAVITY_PER_TICK = 0.08; // blocks / tick^2  (~32 m/s^2)
 /**
  * How much height a pull-up buys with the speed it spends.
  *
- * Vanilla's number is 3.2, and at 3.2 the famous manoeuvre does not work.
- * That is not a guess — sweeping this model over every two-phase dive-and-climb
- * cycle, at every angle from one degree to eighty-five and every cadence from
- * a tenth of a second to twelve seconds, the best any of them manages at 3.2 is
- * a sink of 1.4 m/s. Better than the 3.0 m/s of holding level, and a glide
- * stretched to twice its length, but still a glide: it ends. Diving buys
- * *vertical* speed, only a tenth of that leaks into forward speed each tick,
- * and a pull-up spends forward speed — so the loop leaks faster than 3.2 can
- * refill it.
+ * Minecraft's own number, unchanged. It was briefly 4.5 here, chosen as the
+ * smallest value at which a dive-and-climb rhythm holds altitude, because the
+ * 45/45 manoeuvre does not close the loop at 3.2 — sweeping every angle from
+ * one degree to eighty-five and every cadence from a tenth of a second to
+ * twelve seconds, the best it manages is a sink of 1.4 m/s against 3.0 m/s for
+ * holding level. That is a glide stretched to twice its length and it still
+ * ends.
  *
- * 4.5 is where it closes, with room to be flown badly. What that changes and
- * what it deliberately does not:
- *
- *   unchanged   level glide, because this term only pays when the nose is up.
- *               Still 2.99 m/s of sink and still 10.1 : 1.
- *   unchanged   every dive, and so the 78.4 m/s terminal velocity.
- *   unchanged   holding *any* constant angle, which still sinks — 1.1 m/s at
- *               ten degrees up, 2.6 m/s at forty. There is no nose-up-and-wait
- *               exploit here; pointing at the sky is still the slowest way down.
- *   changed     a dive-and-pull cycle flown with a rhythm. Forty degrees down
- *               and forty up, six seconds each way, climbs at about 5 m/s.
- *               Three seconds each way barely holds. A second and a half each
- *               way still loses 2.6 m/s.
- *
- * So the technique is worth learning and the cadence is the skill in it, which
- * is what makes a manoeuvre worth having a name.
+ * It is 3.2 again because "exactly like Minecraft, no guesswork" is the
+ * clearer instruction and it beats a tuned number, even a well-measured one.
+ * Everything in this file is now vanilla's, tick for tick.
  */
-const CLIMB_TRADE = 4.5;
+const CLIMB_TRADE = 3.2;
 
 /**
  * Minecraft's own number: a rocket accelerates you toward 1.5 blocks per tick

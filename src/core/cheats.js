@@ -46,12 +46,22 @@ export const CHEAT_DEFAULTS = {
   mapUnlocked: false,
   /** Speed mode never runs out and never needs to recharge. */
   speedFree: false,
+  /**
+   * How big you are, as a multiple of your real height.
+   *
+   * This lived in Settings, next to the field of view and the units, which
+   * made growing to forty times human size an ordinary preference rather than
+   * what it is. It is a cheat, so it is in here with the other cheats, and it
+   * goes back to one on a refresh like everything else on this list.
+   */
+  playerScale: 1,
 };
 
 const LIMITS = {
   playerSpeed: [0.1, 12],
   gameSpeed: [0.1, 8],
   rocketPower: [0.1, 12],
+  playerScale: [0.25, 40],
 };
 
 class Cheats extends Emitter {

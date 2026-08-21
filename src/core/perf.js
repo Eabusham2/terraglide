@@ -60,9 +60,23 @@ export class PerfGovernor {
   }
 }
 
-/** Fixed-timestep accumulator so physics stay identical at any frame rate. */
+/**
+ * Fixed-timestep accumulator so physics stay identical at any frame rate.
+ *
+ * `maxSteps` is the catch-up ceiling, and it was six — three tenths of a
+ * second. That is fine at sixty frames a second and a disaster below about
+ * three, because everything past the ceiling is *thrown away*: the game clock
+ * simply runs slower than the wall clock, and the whole world moves in slow
+ * motion. Falling too slowly, gliding too slowly, a jump that hangs — all one
+ * bug, and it only shows up on the machines least able to afford it.
+ *
+ * Thirty steps is a second and a half of catch-up, which covers a frame rate
+ * down to about one. It is still a ceiling rather than no ceiling, because
+ * without one a machine that cannot keep up spends longer simulating than
+ * drawing and never recovers.
+ */
 export class FixedStep {
-  constructor(step, maxSteps = 6) {
+  constructor(step, maxSteps = 30) {
     this.step = step;
     this.maxSteps = maxSteps;
     this.acc = 0;

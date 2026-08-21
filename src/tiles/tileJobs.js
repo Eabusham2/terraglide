@@ -1,4 +1,3 @@
-import { proceduralHeights, proceduralImagery } from './procedural.js';
 import { decodeBingElevation, decodeGoogleElevation } from './elevationGrid.js';
 
 /**
@@ -80,13 +79,10 @@ async function fetchJson(jobKey, url) {
 }
 
 async function handleImagery(msg, jobKey, post) {
-  let bitmap;
-  if (!msg.url) {
-    const image = proceduralImagery(msg.tile, msg.size || 128);
-    bitmap = await createImageBitmap(new ImageData(image.data, image.width, image.height));
-  } else {
-    bitmap = await fetchBitmap(jobKey, msg.url);
-  }
+  // No URL used to mean "make one up". Nothing here makes anything up any
+  // more, so a job without a URL is a caller bug and is reported as one.
+  if (!msg.url) throw new Error('no imagery URL for this tile');
+  const bitmap = await fetchBitmap(jobKey, msg.url);
   post({ ok: true, channel: msg.channel, id: msg.id, bitmap }, [bitmap]);
 }
 
@@ -95,7 +91,7 @@ async function handleElevation(msg, jobKey, post) {
   let heights;
 
   if (!msg.url) {
-    heights = proceduralHeights(msg.tile, size);
+    throw new Error('no elevation URL for this tile');
   } else if (msg.decode === 'bing-elevation') {
     heights = decodeBingElevation(await fetchJson(jobKey, msg.url), size);
   } else if (msg.decode === 'google-elevation') {

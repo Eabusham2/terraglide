@@ -213,8 +213,8 @@ export class HUD {
     if (settings.get('showCompass')) this.updateCompass(player.yaw);
 
     const speedRatio = player.speedActive
-      ? player.speedRemaining / Math.max(1, settings.get('speedModeDurationS'))
-      : 1 - player.speedCooldown / Math.max(1, settings.get('speedModeCooldownS'));
+      ? player.speedRemaining / SPEED_MODE_SECONDS
+      : 1 - player.speedCooldown / SPEED_MODE_COOLDOWN_S;
     this.refs['speed-bar'].style.width = `${clamp(speedRatio, 0, 1) * 100}%`;
     this.refs['speed-gauge'].dataset.state = player.speedActive
       ? 'active'

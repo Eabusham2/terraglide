@@ -10,15 +10,6 @@ import { BING_SIDE, GOOGLE_SIDE, encodePolyline, googleSamplePoints, tileBounds 
 
 export const IMAGERY_PROVIDERS = [
   {
-    id: 'offline',
-    label: 'Offline (generated terrain)',
-    kind: 'synthetic',
-    needsKey: null,
-    maxZoom: 20,
-    attribution: 'Locally generated terrain — no map data',
-    note: 'Works with no account and no network. Terrain is invented, not real.',
-  },
-  {
     id: 'esri',
     label: 'Esri World Imagery',
     kind: 'xyz',
@@ -202,15 +193,6 @@ export const IMAGERY_PROVIDERS = [
 
 export const ELEVATION_PROVIDERS = [
   {
-    id: 'procedural',
-    label: 'Generated relief',
-    kind: 'synthetic',
-    needsKey: null,
-    maxZoom: 14,
-    attribution: '',
-    note: 'Plausible invented relief. No network, no key, never wrong-looking flat.',
-  },
-  {
     id: 'mapbox',
     label: 'Mapbox Terrain-RGB',
     kind: 'terrain-rgb',
@@ -311,7 +293,7 @@ export function recommendedProvider(list) {
 export function providerLabel(descriptor) {
   const notes = [];
   if (descriptor.recommended) notes.push('recommended');
-  if (descriptor.kind !== 'synthetic') notes.push(descriptor.needsKey ? 'needs a key' : 'keyless');
+  notes.push(descriptor.needsKey ? 'needs a key' : 'keyless');
   return notes.length ? `${descriptor.label} (${notes.join(', ')})` : descriptor.label;
 }
 
@@ -372,8 +354,13 @@ export class TileSource {
     return this.descriptor.attribution;
   }
 
+  /**
+   * Kept as a constant false so callers that still ask read something sane.
+   * There is no such thing as a generated provider any more: every source in
+   * the lists is a real survey or a real photograph of the real planet.
+   */
   get synthetic() {
-    return this.descriptor.kind === 'synthetic';
+    return false;
   }
 
   get key() {
@@ -582,18 +569,45 @@ export class TileSource {
 }
 
 /**
+ * The order to try providers in, best first.
+ *
+ * Two rules, and the first one is the one that was asked for: **a provider you
+ * hold a key for goes before a free one.** You paid for it (or signed up for
+ * it), it is usually sharper, and it is metered against your own account
+ * rather than against somebody's community server. Free ones follow, deepest
+ * first, because a provider that publishes zoom 19 is more use than one that
+ * stops at 9 when you are stood in a field.
+ *
+ * The chosen provider is always first whatever else is true — picking one is a
+ * statement — and everything else is a standby for when it will not answer.
+ */
+export function providerChain(list, chosenId, values) {
+  const chosen = findProvider(list, chosenId);
+  const rest = list.filter((p) => p.id !== chosen?.id && !p.hidden);
+  const usable = rest.filter((p) => !p.needsKey || values[p.needsKey]);
+  usable.sort((a, b) => {
+    const keyed = (p) => (p.needsKey ? 0 : 1);
+    if (keyed(a) !== keyed(b)) return keyed(a) - keyed(b);
+    return (b.maxZoom ?? 0) - (a.maxZoom ?? 0);
+  });
+  return [chosen, ...usable].filter(Boolean);
+}
+
+/**
  * Resolve a chosen provider to one that can actually serve tiles.
  *
  * Picking a provider and leaving its key blank used to mean no map at all: the
- * source sat in `needs-key` and the world fell back to generated terrain, even
- * though there is a perfectly good keyless provider sitting in the same list.
- * It substitutes now, and says so — the status line names both, so nobody is
+ * source sat in `needs-key` and the world fell back to generated terrain. There
+ * is no generated terrain any more, so it substitutes for real — the best of
+ * what is left, by the order above — and says so, because nobody should be
  * left thinking they are looking at Google's imagery when they are not.
  */
 function withKeylessFallback(list, descriptor, values) {
+  if (!descriptor) return null;
   if (!descriptor.needsKey || values[descriptor.needsKey]) return new TileSource(descriptor, values);
-  const fallback = recommendedProvider(list);
-  if (!fallback || fallback.id === descriptor.id) return new TileSource(descriptor, values);
+  const chain = providerChain(list, descriptor.id, values);
+  const fallback = chain.find((p) => p.id !== descriptor.id);
+  if (!fallback) return new TileSource(descriptor, values);
   const source = new TileSource(fallback, values);
   source.substitutedFor = descriptor;
   return source;

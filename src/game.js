@@ -2,7 +2,7 @@ import * as THREE from '../vendor/three/three.module.js';
 import { cheats } from './core/cheats.js';
 import { clamp, damp } from './core/math.js';
 import { PerfGovernor } from './core/perf.js';
-import { AutoDistance, AutoQuality } from './core/autoQuality.js';
+import { Benchmark } from './core/benchmark.js';
 import { settings } from './core/settings.js';
 import { readJSON, writeJSON } from './core/storage.js';
 import { formatDistance, formatLatLon } from './core/units.js';
@@ -18,7 +18,12 @@ import { Avatar } from './player/avatar.js';
 import { PlayerController } from './player/controller.js';
 import { Player } from './player/player.js';
 import { ElevationField } from './tiles/elevation.js';
-import { createElevationSource, createImagerySource } from './tiles/providers.js';
+import {
+  IMAGERY_PROVIDERS,
+  createElevationSource,
+  createImagerySource,
+  providerChain,
+} from './tiles/providers.js';
 import { ImageryStreamer } from './tiles/streamer.js';
 import { createTileWorker } from './tiles/workerHost.js';
 import { Buildings } from './world/buildings.js';
@@ -62,8 +67,9 @@ export class Game {
     this.running = false;
     this.lastTime = 0;
     this.perf = new PerfGovernor();
-    this.autoQuality = new AutoQuality();
-    this.autoDistance = new AutoDistance();
+    this.benchmark = new Benchmark();
+    /** Resolves on the next drawn frame, with its length in ms. */
+    this.frameWaiters = [];
     this.settleUntil = 0;
     this._holdY = NaN;
     this.teleporting = false;
@@ -221,6 +227,10 @@ export class Game {
     // Test the providers where you actually are. Asking about a fixed tile
     // somewhere in Europe would happily report USGS as broken while you stand
     // in Utah, and report it working while you stand in Rome.
+    this.settingsPanel.onBenchmark = (onProgress) => {
+      this.benchmark.onProgress = onProgress;
+      return this.benchmark.run(this.perf, () => new Promise((resolve) => this.frameWaiters.push(resolve)));
+    };
     this.settingsPanel.testTile = () => {
       const zoom = 14;
       const n = Math.pow(2, zoom);
@@ -311,6 +321,16 @@ export class Game {
     this.imagerySource = createImagerySource(settings.values);
     this.elevationSource = createElevationSource(settings.values);
     this.streamer.setSource(this.imagerySource);
+    // Standbys for the ground itself, in the order asked for: providers you
+    // hold a key for first, then the free ones, deepest first. A tile the
+    // chosen provider will not serve moves down the list rather than leaving a
+    // bare square — and there is nothing invented behind the list any more.
+    this.streamer.setStandbys(
+      providerChain(IMAGERY_PROVIDERS, settings.get('imageryProvider'), settings.values)
+        .filter((p) => p.id !== this.imagerySource.descriptor.id)
+        .slice(0, 3)
+        .map((p) => createImagerySource({ ...settings.values, imageryProvider: p.id })),
+    );
     this.elevation.setSource(this.elevationSource);
     mapTiles.setSource(this.imagerySource);
     // Whatever you chose to fly over, the flat maps fall back to the keyless
@@ -416,13 +436,7 @@ export class Game {
     // Choosing a preset by hand is a statement about what you want, so the
     // governor starts again from there rather than undoing it in a few
     // seconds and looking like the setting had not saved.
-    if (key === 'graphics' || key === 'fpsTarget' || key === 'autoQuality') {
-      this.autoQuality.reset();
-    }
-    if (key === 'fpsTarget' || key === 'renderDistanceAuto') this.autoDistance.reset();
-    if (key === 'renderDistanceKm' && !this.autoDistance.wrote(settings.get('renderDistanceKm'))) {
-      this.autoDistance.reset();
-    }
+
     if (key === 'meshDetail') this.terrain.rebase();
     if (key === 'mouseMode' && settings.get('mouseMode') === 'locked') this.input.requestPointerLock();
   }
@@ -514,26 +528,24 @@ export class Game {
     if (!this.running) return;
     requestAnimationFrame((t) => this.loop(t));
 
-    const elapsed = clamp((now - this.lastTime) / 1000, 0, 0.25);
+    // A second and a half, matching the fixed-step catch-up ceiling. A quarter
+    // of a second here meant a machine drawing at three frames a second threw
+    // three quarters of every second on the floor, and the whole world moved
+    // in slow motion — which is what 'falling too slowly' actually was.
+    const elapsed = clamp((now - this.lastTime) / 1000, 0, 1.5);
     this.lastTime = now;
     if (document.hidden) return;
 
     // The frame-rate governor wants real seconds; everything else runs on the
     // game clock, which the game-speed cheat is allowed to stretch.
     this.perf.update(elapsed);
-    // The resolution governor gives up pixels first because they are the
-    // cheapest thing to give up. This only acts once that has run out of room
-    // in either direction — see src/core/autoQuality.js.
-    // Then the horizon, which is the next cheapest thing to give up: it takes
-    // world away rather than detail, and none of what is left looks any worse
-    // for it.
-    this.autoDistance.update(elapsed, this.perf);
-    // The preset last, because a tier changes how everything looks everywhere.
-    const tier = this.autoQuality.update(elapsed, this.perf);
-    if (tier) {
-      this.toast(
-        `Graphics set to ${tier} to hold ${settings.get('fpsTarget')} fps — Settings to turn this off`,
-      );
+    // Anything waiting on a real drawn frame — the benchmark, and nothing else
+    // — is told how long this one took. Measuring the game is the only honest
+    // way to measure the game.
+    if (this.frameWaiters.length > 0) {
+      const waiters = this.frameWaiters;
+      this.frameWaiters = [];
+      for (const resolve of waiters) resolve(elapsed * 1000);
     }
     // The governor only decides a scale — something has to act on it. Applied
     // in steps, and only when it has really moved, so it never oscillates a
@@ -854,7 +866,10 @@ export class Game {
     this.arrivalPending = false;
     const player = this.player;
 
-    if (settings.get('spawnInBuilding') && settings.get('buildings')) {
+    // Arriving indoors and arriving with street-level photography on are both
+    // simply what happens now. They were options, and an option nobody knew
+    // to turn on is a feature nobody has.
+    if (settings.get('buildings')) {
       const near = this.buildings.collidersNear(player.position.x, player.position.z, 90);
       const inside = near.find((collider) => collider.floors && collider.floors.length > 0);
       if (inside) {
@@ -867,7 +882,7 @@ export class Game {
       }
     }
 
-    if (settings.get('spawnStreetLevel') && settings.get('panoramaProvider') !== 'none') {
+    if (settings.get('panoramaProvider') !== 'none') {
       settings.set('streetLevel', true);
     }
   }

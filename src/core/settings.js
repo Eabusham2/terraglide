@@ -5,8 +5,9 @@ import { readJSON, removeKey, writeJSON } from './storage.js';
  * Every persisted option in the game. Defaults are chosen so a fresh browser
  * with no API keys and no network still boots into something playable.
  *
- * imageryProvider:   'offline' | 'esri' | 'google' | 'bing' | 'azure' | 'mapbox'
- * elevationProvider: 'procedural' | 'mapbox' | 'terrarium'
+ * imageryProvider:   'esri' | 'sentinel2' | 'usgs' | 'gibs' | 'google' | 'bing'
+ *                    | 'azure' | 'maxar' | 'cesium-ion' | 'mapbox'
+ * elevationProvider: 'terrarium' | 'mapbox' | 'bing-elevation' | 'google-elevation'
  * panoramaProvider:  'none' | 'google' | 'mapillary'
  * graphics:          'low' | 'medium' | 'high' | 'ultra'
  * mouseMode:         'locked' | 'pan'
@@ -41,50 +42,34 @@ export const DEFAULT_SETTINGS = {
   maxarConnectId: '',
   addressLookup: true,
   buildings: true,
-  structuresNeedHeight: false,
   streetLevel: true,
 
   /* graphics */
   graphics: 'high',
-  renderDistanceKm: 16,
+  renderDistanceKm: 24,
   /**
-   * Let the horizon find its own distance by measuring the frame clock.
+   * How far to keep drawing ground you have already flown over, in km.
    *
-   * The number above is then a starting point rather than a setting, the same
-   * way the graphics preset is when autoQuality is on: it climbs while there
-   * is headroom and comes back in when there is not. Turning this off pins the
-   * distance to whatever the slider says.
+   * Two different numbers on purpose. The first is how far the world is drawn
+   * in full anywhere, and it stops at 64 km because that is a real horizon and
+   * everything past it costs streaming for country you may never look at. This
+   * one only applies where the explored map says you have been, so the tiles
+   * are already cached and the cost is drawing rather than fetching — which is
+   * why it can run all the way to 1024.
    */
-  renderDistanceAuto: true,
+  distantDistanceKm: 256,
   distantMode: true,
   fov: 78,
   freecamFov: 85,
   speedFovKick: true,
   resolutionScale: 1,
-  adaptiveResolution: true,
+  adaptiveResolution: false,
   fpsTarget: 60,
   fog: true,
   weather: true,
   scenery: true,
   sceneryFromImagery: true,
-  maxTileZoom: 20,
-  /**
-   * Ask for the ground as sharp as the provider will serve it.
-   *
-   * The number above is a ceiling you set; this says do not set one. What you
-   * actually get is then whatever the provider answers, which the streamer
-   * works out for itself by watching which zoom levels come back and which
-   * only ever 404 — so this is "as detailed as possible" in the literal sense
-   * rather than a guess at a number that is right for one provider and wrong
-   * for the next.
-   */
-  maxTileZoomAuto: true,
-  /**
-   * Pick the graphics preset by measuring the frame clock against fpsTarget.
-   * See src/core/autoQuality.js — it only ever moves one tier at a time and
-   * says so when it does.
-   */
-  autoQuality: true,
+  maxTileZoom: 22,
   /**
    * Which Cesium ion asset the ion imagery provider asks for. 2 is Bing
    * Aerial, which is what most accounts have; any raster asset you own works.
@@ -106,9 +91,6 @@ export const DEFAULT_SETTINGS = {
 
   /* player */
   playerHeightM: 1.98, // 6 ft 6 in
-  playerScale: 1,
-  speedModeDurationS: 10,
-  speedModeCooldownS: 45,
 
   /* world / exploration */
   units: 'metric',
@@ -117,9 +99,7 @@ export const DEFAULT_SETTINGS = {
   seaDistanceKm: 501,
   /** Random teleport arrives high with the wings out. */
   rtpSkySpawn: true,
-  /** Prefer arriving where there is street-level imagery, and inside a building. */
-  spawnStreetLevel: true,
-  spawnInBuilding: true,
+
   /** 'anywhere' | 'populated' — where random teleport is allowed to drop you. */
   rtpTarget: 'anywhere',
   timeMode: 'day',

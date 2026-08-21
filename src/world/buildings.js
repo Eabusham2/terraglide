@@ -27,6 +27,18 @@ const REFOUND_GAP_MS = 900;
 /** Ground movement worth re-founding for. Below this nobody could see it. */
 const REFOUND_MIN_M = 1;
 
+/**
+ * Only raise what the survey actually measured.
+ *
+ * This was a setting, defaulted off, and the default meant most of the world's
+ * buildings were extruded to a guessed height. A guessed height is a made-up
+ * building wearing a real footprint, and "the game should match reality one to
+ * one" settles it: a footprint with no recorded height and no measured
+ * neighbour is not drawn. Where you want every building, the photogrammetry
+ * option has them all, because somebody flew over and measured them.
+ */
+const STRUCTURES_NEED_HEIGHT = true;
+
 const DATA_ZOOM = 15;
 const STOREY_M = 3.2;
 /**
@@ -82,11 +94,10 @@ const LAYER_HEIGHT_M = 5.5;
  * not an invention of one: the survey says a mast stands here, and a mast that
  * exists has a height whether or not anyone tagged it.
  *
- * The distinction that matters, and the one that got roads deleted: a road at
- * ground level is already *shown* by the imagery, so geometry adds nothing. A
- * mast is not shown by a flat photograph at all — its existence is surveyed
- * and only its measurement is estimated. Turn on `structuresNeedHeight` to
- * refuse the estimate and draw only what is measured.
+ * They are no longer used for buildings — see STRUCTURES_NEED_HEIGHT — and
+ * remain here only for point-mapped masts and pylons, where the footprint is a
+ * single coordinate and there is nothing to extrude at all. Even those are
+ * refused unless the survey recorded a height.
  */
 const MAST_HEIGHT_M = {
   tower: 40,
@@ -303,7 +314,7 @@ export class Buildings {
     const measured = this.stats.measured ?? 0;
     const estimated = this.stats.estimated ?? 0;
     if (measured + estimated === 0) return '';
-    if (settings.get('structuresNeedHeight')) {
+    if (STRUCTURES_NEED_HEIGHT) {
       return `structures: ${measured} measured, ${estimated} skipped`;
     }
     if (estimated === 0) return '';
@@ -579,7 +590,7 @@ export class Buildings {
     // dropping things is worse than no readout.
     if (measured) this.stats.measured = (this.stats.measured ?? 0) + 1;
     else this.stats.estimated = (this.stats.estimated ?? 0) + 1;
-    if (!measured && settings.get('structuresNeedHeight')) return;
+    if (!measured) return;
     const height = clamp(measured || MAST_HEIGHT_M[kind] || 30, 4, 640);
     const base = this.terrain.heightAt(x, z);
     if (!Number.isFinite(base)) return;
@@ -622,7 +633,7 @@ export class Buildings {
     const measured = taggedHeight > 0 || taggedLevels > 0;
     if (measured) this.stats.measured = (this.stats.measured ?? 0) + 1;
     else this.stats.estimated = (this.stats.estimated ?? 0) + 1;
-    if (!measured && settings.get('structuresNeedHeight')) return null;
+    if (!measured) return null;
 
     const levels = clamp(
       taggedLevels || Math.round(taggedHeight / STOREY_M) || this.tileLevels || DEFAULT_LEVELS,

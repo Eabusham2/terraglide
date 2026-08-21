@@ -37,7 +37,6 @@ const SEA_LEVEL = 0;
  */
 const KEEP_FACTOR = 1.5;
 /** How much further distant mode reaches than the render distance proper. */
-const DISTANT_FACTOR = 2;
 /**
  * The most tiles one frame will rebuild for being plainly wrong rather than
  * merely out of date. High enough that arriving somewhere new sorts itself out
@@ -162,15 +161,27 @@ export class Terrain {
     // on its own when a level starts refusing every tile while the one above
     // it keeps answering. On auto there is no ceiling of your own at all, so
     // what you get is exactly as sharp as the provider is willing to go.
-    const wanted = settings.get('maxTileZoomAuto') ? Infinity : settings.get('maxTileZoom');
-    const maxZoom = Math.min(wanted, this.streamer.maxUsefulZoom);
+    // The ground always sharpens as far as the provider will actually serve
+    // here. The setting is a ceiling you may lower, not a target — there is no
+    // tick to forget to turn on any more — and the detail dial scales it down
+    // with everything else when the frame rate is short.
+    const detail = clamp(settings.get('detailLimit') / 100, 0.25, 1);
+    const ceiling = settings.get('maxTileZoom') - Math.round((1 - detail) * 4);
+    const maxZoom = Math.min(ceiling, this.streamer.maxUsefulZoom);
     const renderDistance = this.renderDistance;
     // Distant mode: keep drawing past the render distance, but only over
     // country you have already flown across. Ground you have never seen stops
     // at the edge as it always did, so the setting cannot quietly double what
     // an unexplored world costs to stream.
+    // Two distances, because they cost completely different things. The near
+    // one is ground drawn anywhere and every kilometre of it has to be
+    // fetched; the far one only applies where the explored map says you have
+    // already been, so those tiles are cached and the cost is drawing. That is
+    // why one stops at 64 km and the other can run to 1024.
     this.farDistance =
-      this.explored && settings.get('distantMode') ? renderDistance * DISTANT_FACTOR : renderDistance;
+      this.explored && settings.get('distantMode')
+        ? Math.max(renderDistance, settings.get('distantDistanceKm') * 1000)
+        : renderDistance;
     this.keepDistance = this.farDistance * KEEP_FACTOR;
     this.maxDrawn = MAX_DRAWN_TILES[settings.get('graphics')] ?? MAX_DRAWN_TILES.high;
     // Which way you are facing, flattened. Ground in front of you is what you

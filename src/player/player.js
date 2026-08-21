@@ -39,6 +39,17 @@ export const HOTBAR = [1, 2, 3, 4, 5].map((duration) => ({
   hint: `${duration}s · ×${rocketPowerFor(duration).toFixed(2)}`,
 }));
 
+/**
+ * How long speed mode runs, and how long it takes to recharge.
+ *
+ * Constants rather than sliders. They were both in Settings, which meant the
+ * game shipped with "make the boost last a minute and recharge in five
+ * seconds" sitting next to the choice of units — a cheat wearing a preference's
+ * clothes. The cheat panel can still turn the cost off entirely.
+ */
+export const SPEED_MODE_SECONDS = 10;
+export const SPEED_MODE_COOLDOWN_S = 45;
+
 export class Player extends Emitter {
   constructor(frame) {
     super();
@@ -95,7 +106,8 @@ export class Player extends Emitter {
   }
 
   get scale() {
-    return clamp(settings.get('playerScale'), 0.25, 60);
+    // A cheat now rather than a setting — see CHEAT_DEFAULTS.
+    return clamp(cheats.playerScale, 0.25, 60);
   }
 
   /** Standing height in metres (6 ft 6 in at scale 1). */
@@ -238,7 +250,7 @@ export class Player extends Emitter {
     if (this.speedActive) return false;
     if (this.speedCooldown > 0 && !cheats.speedFree) return false;
     this.speedActive = true;
-    this.speedRemaining = settings.get('speedModeDurationS');
+    this.speedRemaining = SPEED_MODE_SECONDS;
     this.emit('speed', true);
     return true;
   }
@@ -248,7 +260,7 @@ export class Player extends Emitter {
     if (!this.speedActive) return false;
     this.speedActive = false;
     this.speedRemaining = 0;
-    if (!cheats.speedFree) this.speedCooldown = settings.get('speedModeCooldownS');
+    if (!cheats.speedFree) this.speedCooldown = SPEED_MODE_COOLDOWN_S;
     this.emit('speed', false);
     return true;
   }
@@ -267,13 +279,13 @@ export class Player extends Emitter {
 
     if (this.speedActive && cheats.speedFree) {
       // Unlimited: hold the gauge full rather than counting down.
-      this.speedRemaining = settings.get('speedModeDurationS');
+      this.speedRemaining = SPEED_MODE_SECONDS;
     } else if (this.speedActive) {
       this.speedRemaining -= dt;
       if (this.speedRemaining <= 0) {
         this.speedActive = false;
         this.speedRemaining = 0;
-        this.speedCooldown = settings.get('speedModeCooldownS');
+        this.speedCooldown = SPEED_MODE_COOLDOWN_S;
         this.emit('speed', false);
       }
     } else if (this.speedCooldown > 0) {

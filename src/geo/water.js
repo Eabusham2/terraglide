@@ -1,5 +1,4 @@
 import { clamp } from '../core/math.js';
-import { proceduralElevation } from '../tiles/procedural.js';
 import { destination, latToNormY, lonToNormX, tileKey, wrapTileX } from './mercator.js';
 
 /**
@@ -31,15 +30,12 @@ export class WaterMap {
 
   /** @returns {Promise<boolean>} */
   async isWater(lat, lon) {
-    if (!this.source || this.source.synthetic) {
-      return proceduralElevation(lonToNormX(lon), latToNormY(lat), 4) <= 0;
-    }
     const mask = await this.maskFor(lat, lon);
-    if (!mask) {
-      // The imagery could not be read (offline, blocked, no CORS). Fall back to
-      // the generated world's own sea level rather than guessing.
-      return proceduralElevation(lonToNormX(lon), latToNormY(lat), 4) <= 0;
-    }
+    // No imagery to read — offline, blocked, or no CORS. There used to be a
+    // generated coastline to fall back on; there is not one now, and inventing
+    // a sea is exactly the kind of thing that put you in open water on dry
+    // land. Unknown reads as land, which is the answer that does no harm.
+    if (!mask) return false;
     const n = Math.pow(2, PROBE_ZOOM);
     const nx = lonToNormX(lon) * n;
     const ny = latToNormY(lat) * n;

@@ -1,6 +1,5 @@
 import { bilinear, clamp } from '../core/math.js';
 import { latToNormY, lonToNormX, tileKey, wrapTileX } from '../geo/mercator.js';
-import { proceduralElevation } from './procedural.js';
 
 /**
  * Elevation field.
@@ -104,16 +103,11 @@ export class ElevationField {
         return bilinear(entry.heights, GRID, GRID, fx, fy);
       }
     }
-    // Nothing loaded here yet. With a generated world, invent the relief so the
-    // ground is continuous. With a real elevation provider, stay at sea level
-    // and let the terrain rise as data lands — inventing mountains under real
-    // satellite imagery would be worse than briefly flat ground.
-    //
-    // Once the provider has actually been given up on, though, dead flat is
-    // not honesty, it is an empty plate: there is no real ground coming and
-    // nothing left to contradict. The generator takes over then, and the
-    // imagery follows it so the two agree.
-    return this.invented ? proceduralElevation(x, y, 6) : 0;
+    // Nothing loaded here yet, and nothing to be done about it. There is no
+    // generator behind this any more: an unmeasured square reads as sea level
+    // and `hasDataAt` says so, and the things that stand on the ground wait
+    // for the real relief rather than being founded on an invention.
+    return 0;
   }
 
   sampleLatLon(lat, lon) {

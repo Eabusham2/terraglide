@@ -24,8 +24,9 @@ const STATE_PENDING = 1;
 const STATE_READY = 2;
 const STATE_FAILED = 3;
 /**
- * Nothing real to fetch and nothing invented allowed. The tile stays bare and
- * the terrain shader colours it from the elevation instead — see mayGenerate.
+ * Nothing to fetch here. The tile stays bare and the terrain shader colours it
+ * from the elevation it is standing on, which is a statement about relief
+ * rather than a picture of somewhere that does not exist.
  */
 const STATE_BARE = 4;
 
@@ -56,51 +57,31 @@ export class ImageryStreamer extends Emitter {
      */
     this.byZoom = new Map();
     this.depthLimit = Infinity;
-    /**
-     * May a tile be invented when there is nothing real to fetch?
-     *
-     * Only when the *elevation* is invented too. The generator paints its own
-     * coastlines from its own relief, so dropped on top of real elevation it
-     * puts oceans over mountains and beaches up hillsides — which is exactly
-     * how real ground ended up blue. When the ground underneath is real, the
-     * tile is left bare and the terrain shader colours it from the elevation
-     * it is actually standing on, which cannot fail to line up.
-     */
-    this.mayGenerate = true;
-
     this.worker.addEventListener('message', (event) => this.onWorkerMessage(event.data));
   }
 
   setSource(source) {
     this.source = source;
+    this.standbys = [];
     this.clear();
   }
 
   /**
-   * Turn invented tiles on or off. Called whenever the elevation source
-   * changes: generated relief may be dressed in generated imagery, real relief
-   * may not. Bare tiles are released so they get another go under the new rule.
+   * Providers to fall through to when the chosen one will not answer.
+   *
+   * The ground used to have exactly one source and no plan B: a provider that
+   * refused left the world bare, and before that it left the world invented.
+   * Now a tile that fails moves down the list — keyed providers first, then
+   * free ones — and only a tile that every one of them refuses stays bare.
    */
-  setMayGenerate(allowed) {
-    if (this.mayGenerate === allowed) return;
-    this.mayGenerate = allowed;
-    for (const entry of this.entries.values()) {
-      if (allowed) {
-        // Generation is back on: bare tiles get another go under the new rule.
-        if (entry.state === STATE_BARE) entry.state = 0;
-        continue;
-      }
-      // Generation is off because real relief arrived. Any tile still wearing
-      // an invented photograph is now an invented coastline over measured
-      // ground, so it goes — the shader colours the bare tile from the
-      // elevation instead, and that cannot disagree with itself.
-      if (!entry.generated) continue;
-      if (entry.texture) entry.texture.dispose();
-      entry.texture = null;
-      entry.generated = false;
-      entry.state = STATE_BARE;
-      this.stats.loaded = Math.max(0, this.stats.loaded - 1);
-    }
+  setStandbys(sources) {
+    this.standbys = (Array.isArray(sources) ? sources : [sources]).filter(Boolean);
+  }
+
+  /** The provider a given attempt should use. */
+  sourceFor(attempt) {
+    if (attempt <= 0) return this.source;
+    return this.standbys[attempt - 1] ?? null;
   }
 
   clear() {
@@ -278,25 +259,31 @@ export class ImageryStreamer extends Emitter {
   }
 
   dispatch(entry) {
-    const source = this.source;
-    if (!source) return;
+    const attempt = entry.attempt ?? 0;
+    const source = this.sourceFor(attempt);
+    if (!source) {
+      // Every provider has been asked and none of them has this square. Bare
+      // is the honest answer; the shader colours it from the relief.
+      entry.state = STATE_BARE;
+      return;
+    }
     if (!source.ready) {
       source.prepare();
-      if (!source.synthetic) return;
+      return;
     }
     const tile = { z: entry.tile.z, x: wrapTileX(entry.tile.x, entry.tile.z), y: entry.tile.y };
     const url = this.degraded ? null : source.urlFor(tile);
-    if (url === null && !source.synthetic && !this.degraded) return;
-    if (url === null && !this.mayGenerate) {
+    // No URL means the provider has not handshaken (no key, metadata call
+    // unanswered) or does not serve this tile. Either way there is nothing to
+    // draw and nothing to invent: the tile stays bare and the ground under it
+    // is whatever the relief says, which is honest about not knowing.
+    if (url === null) {
       entry.state = STATE_BARE;
       return;
     }
 
     const id = this.nextId++;
     entry.state = STATE_PENDING;
-    // Remember whether this one was fetched or invented, so it can be thrown
-    // away the moment invented ground stops being allowed.
-    entry.generated = url === null;
     entry.jobId = id;
     this.jobs.set(id, entry);
     this.active++;
@@ -316,16 +303,28 @@ export class ImageryStreamer extends Emitter {
     this.stats.pending = this.active;
 
     if (!msg.ok) {
-      entry.state = STATE_FAILED;
-      entry.retryAt = performance.now() + (msg.aborted ? 0 : 20000);
+      // Try the next provider before giving up on this square. A refusal is
+      // about one server, not about whether the ground exists, and the whole
+      // point of the standby list is that somebody else has a photograph of
+      // the same place.
+      const attempt = (entry.attempt ?? 0) + 1;
+      if (!msg.aborted && attempt <= this.standbys.length) {
+        entry.attempt = attempt;
+        entry.state = 0;
+        entry.retryAt = 0;
+        this.queue.push(entry);
+      } else {
+        entry.state = STATE_FAILED;
+        entry.retryAt = performance.now() + (msg.aborted ? 0 : 20000);
+      }
       this.stats.failed++;
       if (!msg.aborted) {
         this.zoomRecord(entry.tile.z).failed++;
         this.reviewDepth(entry.tile.z);
         this.consecutiveFailures++;
-        // A provider that will not answer at all (offline, blocked host, bad
-        // key) should not leave the world as blank ground. Generate tiles
-        // locally instead and say so in the status line.
+        // Every provider refusing is worth saying out loud. There is nothing
+        // to fall back to any more — no generator — so the ground is coloured
+        // from the relief and the status line explains why.
         if (!this.degraded && this.consecutiveFailures >= 10 && this.stats.loaded === 0) {
           this.degraded = true;
           this.emit('degraded', { error: msg.error });

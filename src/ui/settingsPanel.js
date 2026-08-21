@@ -84,12 +84,6 @@ const SECTIONS = [
       { key: 'maxarConnectId', label: 'Maxar SecureWatch connect ID', type: 'secret', help: 'Maxar\u2019s own imagery service. An enterprise credential \u2014 Esri, Bing and Google all serve Maxar scenes without one.' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },
       { key: 'buildings', label: 'OpenStreetMap buildings', type: 'toggle', help: 'Extrudes real footprints near the ground. Interiors are generated.' },
-      {
-        key: 'structuresNeedHeight',
-        label: 'Only build what the data measures',
-        type: 'toggle',
-        help: 'OpenStreetMap records a height or a storey count for a minority of buildings. On, only those are raised — everything else is left flat, and cities will look sparse. Off, the rest are estimated from their class, which is what a flight simulator does outside its photogrammetry cities. Either way nothing is drawn where the survey says there is nothing.',
-      },
       { key: 'streetLevel', label: 'Blend street-level photos', type: 'toggle', help: 'Fades ground photography in when you stand still. Needs a key.' },
     ],
   },
@@ -109,11 +103,11 @@ const SECTIONS = [
         ],
         help: 'Sets terrain detail, texture cache and how many tiles load at once.',
       },
-      { key: 'renderDistanceAuto', label: 'Render distance: as far as the machine allows', type: 'toggle', help: 'Finds the distance by measuring the frame clock instead of asking you for a number \u2014 pushes the horizon out while there is headroom, pulls it back in the moment there is not. The slider below becomes the starting point.' },
-      { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 2048, step: 4, unit: ' km', help: 'How far the ground is drawn. Far tiles stay coarse, so the cost grows far more slowly than the number does \u2014 but it does grow.' },
+
+      { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 64, step: 1, unit: ' km', help: 'How far the ground is drawn anywhere. Far tiles stay coarse, so the cost grows more slowly than the number does \u2014 but every kilometre of it is country that has to be fetched.' },
+      { key: 'distantDistanceKm', label: 'Distant view over ground you have seen', type: 'range', min: 64, max: 1024, step: 8, unit: ' km', showWhen: () => settings.get('distantMode'), help: 'Past the render distance the ground keeps going, but only where the explored map says you have already been \u2014 those tiles are cached, so this costs drawing rather than fetching. Somewhere new still stops at the render distance.' },
       { key: 'distantMode', label: 'Draw twice as far over country you have seen', type: 'toggle', help: 'Past the render distance the ground keeps going, but only where the explored map says you have already been. Somewhere new still stops at the edge, so this never doubles what an unflown world costs to stream.' },
-      { key: 'maxTileZoomAuto', label: 'Ground detail: as sharp as the provider allows', type: 'toggle', help: 'No ceiling of your own. What you get is whatever the provider actually serves here, which the streamer works out by watching which zoom levels answer.' },
-      { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 12, max: 22, step: 1, showWhen: () => !settings.get('maxTileZoomAuto'), help: 'How close the ground can get before it stops sharpening. Higher is sharper underfoot and costs more to stream. Twenty-two is the deepest any provider here goes.' },
+      { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 12, max: 22, step: 1, help: 'A ceiling, not a target. The ground always sharpens as far as the provider will actually serve here \u2014 the streamer works that out by watching which zoom levels answer and which only ever 404 \u2014 and this only stops it going deeper than you want. Twenty-two is the deepest any provider here publishes.' },
       { key: 'meshDetail', label: 'Terrain mesh detail', type: 'range', min: 0.5, max: 1.6, step: 0.1, format: (v) => `${v.toFixed(1)}x` },
       { key: 'fov', label: 'Field of view', type: 'range', min: 55, max: 118, step: 1, unit: '°' },
       { key: 'freecamFov', label: 'Freecam field of view', type: 'range', min: 55, max: 118, step: 1, unit: '°' },
@@ -128,8 +122,7 @@ const SECTIONS = [
       },
       { key: 'weather', label: 'Clouds and rain', type: 'toggle', help: 'Cloud cover and precipitation for where and when you are, from the same climate model as the temperature.' },
       { key: 'resolutionScale', label: 'Render scale', type: 'range', min: 0.5, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%` },
-      { key: 'autoQuality', label: 'Pick the preset to hit the target', type: 'toggle', help: 'Watches the real frame clock and moves the preset one step when the machine has been saying the same thing for long enough to believe it. Drops quickly, takes one back slowly, and tells you when it does.' },
-      { key: 'adaptiveResolution', label: 'Adapt render scale to keep the frame rate', type: 'toggle' },
+      { key: 'detailLimit', label: 'Detail limit', type: 'range', min: 25, max: 100, step: 5, format: (v) => `${v}%`, help: 'Scales tile detail, mesh detail and how deep the ground zooms, all together. One dial to pull when the frame rate is short instead of five. A hundred per cent is the preset as designed.' },
       { key: 'fpsTarget', label: 'Frame rate target', type: 'range', min: 30, max: 144, step: 5, unit: ' fps' },
       { key: 'showFps', label: 'Show performance readout', type: 'toggle' },
     ],
@@ -187,9 +180,7 @@ const SECTIONS = [
         format: (v) => `${formatHeight(v, settings.get('units'))}`,
         help: 'Default is 6 ft 6 in.',
       },
-      { key: 'playerScale', label: 'Size', type: 'range', min: 0.25, max: 40, step: 0.05, format: (v) => `${v.toFixed(2)}x` },
-      { key: 'speedModeDurationS', label: 'Speed mode duration', type: 'range', min: 3, max: 60, step: 1, unit: ' s' },
-      { key: 'speedModeCooldownS', label: 'Speed mode cooldown', type: 'range', min: 5, max: 300, step: 5, unit: ' s' },
+
     ],
   },
   {
@@ -232,8 +223,7 @@ const SECTIONS = [
         help: 'Unlimited by default, so mid-ocean is fair game; wind it down to stay within reach of a coast.',
       },
       { key: 'rtpSkySpawn', label: 'Teleport keeps you doing what you were doing', type: 'toggle', help: 'On: teleport while flying and you arrive high with the wings out; teleport from the ground and you arrive on your feet. Off: you always arrive standing.' },
-      { key: 'spawnStreetLevel', label: 'Arrive where there is street-level imagery', type: 'toggle', help: 'Street-level photography is switched on for the arrival if the provider has any.' },
-      { key: 'spawnInBuilding', label: 'Arrive inside a building where there is one', type: 'toggle' },
+
       {
         key: 'timeMode',
         label: 'Time of day',
@@ -390,10 +380,12 @@ export class SettingsPanel {
       parts.push(this.renderField(field));
     }
     if (section.id === 'providers') parts.push(this.renderProviderTest());
+    if (section.id === 'graphics') parts.push(this.renderBenchmark());
     if (section.keybinds) parts.push(this.renderKeybinds());
     this.content.innerHTML = parts.join('');
     this.bindFields(section);
     if (section.id === 'providers') this.bindProviderTest();
+    if (section.id === 'graphics') this.bindBenchmark();
   }
 
   renderField(field) {
@@ -573,6 +565,58 @@ export class SettingsPanel {
         await testProviders(ELEVATION_PROVIDERS, values, tile, push);
       } finally {
         this.testing = false;
+        this.render();
+      }
+    });
+  }
+
+  /**
+   * The benchmark button.
+   *
+   * Replaces two governors that moved things underneath you while you flew.
+   * This measures each preset in the real game, in the real place you are
+   * standing, and stops at the heaviest one that holds your target — once,
+   * when you ask it to, and then leaves everything alone.
+   */
+  renderBenchmark() {
+    const rows = this.benchResults ?? [];
+    const body = rows.length
+      ? `<ul class="provider-test">${rows
+          .map(
+            (r) =>
+              `<li class="provider-${r.fps >= settings.get('fpsTarget') * 0.92 ? 'ok' : 'no-cover'}">` +
+              `<b>${escapeHtml(r.tier)}</b><span>${r.fps.toFixed(0)} fps, worst frame ${r.worstMs.toFixed(0)} ms</span></li>`,
+          )
+          .join('')}</ul>`
+      : '';
+    return `
+      <div class="field field-action">
+        <label>Test this machine</label>
+        <button type="button" data-benchmark ${this.benchmarking ? 'disabled' : ''}>
+          ${escapeHtml(this.benchStatus ?? (this.benchmarking ? 'Testing\u2026' : 'Test my system and pick'))}
+        </button>
+        <small>Runs each preset here for a couple of seconds, measures the frames that actually arrive, and settles on the heaviest one that holds your target. Nothing changes unless you press this.</small>
+        ${body}
+      </div>`;
+  }
+
+  bindBenchmark() {
+    const button = this.content.querySelector('[data-benchmark]');
+    if (!button || !this.onBenchmark) return;
+    button.addEventListener('click', async () => {
+      if (this.benchmarking) return;
+      this.benchmarking = true;
+      this.benchResults = [];
+      this.render();
+      try {
+        const result = await this.onBenchmark((status, results) => {
+          this.benchStatus = status;
+          this.benchResults = results ? [...results] : [];
+          this.render();
+        });
+        if (result) this.benchStatus = `Settled on ${result.pick}`;
+      } finally {
+        this.benchmarking = false;
         this.render();
       }
     });

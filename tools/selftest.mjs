@@ -27,7 +27,6 @@ import { stepGlide, stepRocket, rocketTicks, rocketPowerFor, TICK } from '../src
 import { Autopilot } from '../src/player/autopilot.js';
 import { UNLOCK_CODE, cheats } from '../src/core/cheats.js';
 import { resolvePlace } from '../src/ui/cheatPanel.js';
-import { proceduralElevation } from '../src/tiles/procedural.js';
 import { classify, parseFeatures, pointInRing } from '../src/world/landcover.js';
 import {
   applyMatrix,
@@ -298,38 +297,26 @@ console.log('\nwater classifier');
   ok('city grey is not water', !isWaterPixel(120, 120, 124));
 }
 
-console.log('\ngenerated world');
+console.log('\nNothing is generated');
 {
-  let land = 0;
-  let sea = 0;
-  let highest = -Infinity;
-  for (let i = 0; i < 400; i++) {
-    const p = randomLatLon();
-    const h = proceduralElevation(lonToNormX(p.lon), latToNormY(p.lat), 6);
-    if (h > 0) land++;
-    else sea++;
-    highest = Math.max(highest, h);
+  const read = (file) => readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8');
+  // The rule the whole project is judged on, checked mechanically rather than
+  // by reading: there is no generator, nothing imports one, and no code path
+  // paints a square nobody has surveyed.
+  ok('the terrain generator is gone', !existsSync(new URL('../src/tiles/procedural.js', import.meta.url)));
+  for (const file of [
+    'tiles/elevation.js', 'tiles/streamer.js', 'tiles/tileJobs.js',
+    'ui/mapTiles.js', 'geo/water.js', 'world/scatter.js',
+  ]) {
+    ok(`${file} does not reach for a generator`, !/procedural/i.test(read(file)));
   }
-  const landShare = land / (land + sea);
-  ok('generated world has both land and sea', landShare > 0.15 && landShare < 0.75,
-    `${(landShare * 100).toFixed(0)}% land`);
-  ok('generated world has mountains', highest > 1200, `peak ${highest.toFixed(0)} m`);
-
-  // Determinism: the same point must always return the same height.
-  const a = proceduralElevation(0.312, 0.447, 6);
-  const b = proceduralElevation(0.312, 0.447, 6);
-  ok('generation is deterministic', a === b);
-
-  // Continuity: no cliffs between adjacent samples at the same detail.
-  let maxJump = 0;
-  for (let i = 0; i < 200; i++) {
-    const nx = 0.3 + i * 1e-6;
-    maxJump = Math.max(
-      maxJump,
-      Math.abs(proceduralElevation(nx, 0.4, 6) - proceduralElevation(nx + 1e-6, 0.4, 6)),
-    );
-  }
-  ok('generated terrain is continuous', maxJump < 5, `largest step ${maxJump.toFixed(2)} m`);
+  const providers = read('tiles/providers.js');
+  ok('no provider generates its own tiles', !/kind: 'synthetic'/.test(providers));
+  ok('and none of them is offered as an offline world',
+    !/id: 'offline'/.test(providers) && !/id: 'procedural'/.test(providers));
+  const jobs = read('tiles/tileJobs.js');
+  ok('a tile job with no URL is an error rather than an invitation',
+    /no imagery URL for this tile/.test(jobs) && /no elevation URL for this tile/.test(jobs));
 }
 
 console.log('\ncheats');
@@ -749,27 +736,23 @@ console.log('\nReal data first, invention last');
   ok('generated scenery textures are gated to the offline world',
     /imageryProvider'\) === 'offline'/.test(scatter));
 
-  // Elevation must never invent relief under real imagery. It may invent it
-  // once the provider has been given up on, but then the imagery has to be
-  // invented too, or the two disagree — which is how real mountains got
-  // painted ocean blue.
+  // Unmeasured ground reads as sea level and says so. It used to read as
+  // invented relief, which is a different and much worse kind of wrong.
   const elevation = read('tiles/elevation.js');
-  ok('relief is only invented when nothing real is coming',
-    /return this\.invented \? proceduralElevation/.test(elevation));
-  ok('and "invented" means generated, or a provider given up on',
-    /get invented\(\)[\s\S]{0,160}synthetic \|\| this\.unreachable/.test(elevation));
+  ok('unmeasured ground is flat and honest about it',
+    /Nothing loaded here yet, and nothing to be done about it/.test(elevation) &&
+    !/proceduralElevation/.test(elevation));
   const streamer = read('tiles/streamer.js');
-  ok('invented imagery is only allowed over invented relief',
-    /mayGenerate[\s\S]{0,80}STATE_BARE/.test(streamer));
-  ok('and an invented tile is thrown away the moment real relief arrives',
-    /entry\.generated = url === null/.test(streamer) &&
-    /if \(!entry\.generated\) continue;[\s\S]{0,200}texture\.dispose\(\)/.test(streamer));
+  ok('a tile no provider will serve stays bare rather than being painted',
+    /if \(url === null\) \{\s*\n\s*entry\.state = STATE_BARE;/.test(streamer));
+  ok('and every provider is asked before it gives up',
+    /attempt <= this\.standbys\.length/.test(streamer));
   ok('the terrain does not vanish for one photogrammetry tile',
     /photorealFrames[\s\S]{0,120}>= 3/.test(read('game.js')));
   ok('and the ground you are looking at is asked for first',
     /this\.draw\(tile, x0, z0, size, this\.viewDistance\(/.test(read('world/terrain.js')));
-  ok('and the game keeps the two in step',
-    /setMayGenerate\(this\.elevation\.invented\)/.test(read('game.js')));
+  ok('and the ground falls through to a standby before it gives up',
+    /setStandbys\(/.test(read('game.js')));
   const shaderSrc = read('world/shaders.js');
   ok('bare ground is coloured from the elevation, not from a flat fill',
     /groundWithoutImagery/.test(shaderSrc) && !/uFallbackColor/.test(shaderSrc));
@@ -870,8 +853,9 @@ console.log('\nInfrastructure from OpenStreetMap');
   ok('buildings distinguish measured from estimated',
     /const measured = taggedHeight > 0 \|\| taggedLevels > 0/.test(source));
   ok('and the split is counted', /stats\.measured/.test(source) && /stats\.estimated/.test(source));
-  ok('strict mode refuses to estimate at all',
-    (source.match(/structuresNeedHeight/g) ?? []).length >= 2);
+  ok('nothing is raised on a guessed height at all',
+    /const STRUCTURES_NEED_HEIGHT = true/.test(source) &&
+    /if \(!measured\) return null;/.test(source));
   ok('and the readout says how much was measured',
     /status\(\) \{[\s\S]{0,600}% measured/.test(source));
 }
@@ -1084,26 +1068,18 @@ console.log('\nThe 45/45, and what it takes to make it hold');
     return (y - markY) / ((total - markT) * T);
   };
 
-  const flown = porpoise(40, 6);
-  ok('flying the 45/45 on a six-second rhythm holds you up', flown > 0,
-    `${flown >= 0 ? '+' : ''}${flown.toFixed(2)} m/s`);
-  ok('the 40/-40 and 32/-49 variants work too',
-    porpoise(35, 6) > 0 && porpoise(45, 6) > 0,
-    `35\u00b0 ${porpoise(35, 6).toFixed(2)}, 45\u00b0 ${porpoise(45, 6).toFixed(2)} m/s`);
-  const hurried = porpoise(40, 1.5);
-  ok('and flying it too fast does not \u2014 the rhythm is the technique',
-    hurried < 0, `${hurried.toFixed(2)} m/s at a second and a half a phase`);
-
-  // The window has to be findable rather than a knife edge.
-  let holds = 0, tried = 0;
-  for (const angle of [30, 35, 40, 45, 50]) {
-    for (const seconds of [3, 4, 5, 6, 8]) {
-      tried++;
-      if (porpoise(angle, seconds, 4) > -0.05) holds++;
-    }
-  }
-  ok('a good spread of angles and rhythms works, not one exact recipe',
-    holds >= 10, `${holds} of ${tried} combinations hold altitude`);
+  // What the manoeuvre is actually worth in vanilla, measured rather than
+  // asserted. It does not hold altitude — nothing in this model does, which is
+  // the finding — but it roughly halves the sink, and the rhythm decides how
+  // much. That is the honest version of "the 45/45 works".
+  const level = -settle(0).y;
+  const flown = -porpoise(40, 6);
+  ok('flying the 45/45 on a rhythm roughly halves the sink',
+    flown < level * 0.6, `${flown.toFixed(2)} m/s against ${level.toFixed(2)} m/s level`);
+  ok('and flying it too fast throws that away',
+    -porpoise(40, 1.5) > flown, `${(-porpoise(40, 1.5)).toFixed(2)} m/s hurried`);
+  ok('but no rhythm at any angle actually holds altitude, which is vanilla',
+    [30, 35, 40, 45, 50].every((a) => [3, 4, 5, 6, 8].every((t) => porpoise(a, t, 4) < 0)));
 
   const { DEFAULT_SETTINGS: DS } = await import('../src/core/settings.js');
   ok('and there is only one flight model to choose from', !('glideModel' in DS));
@@ -1184,94 +1160,48 @@ console.log('\nPut back on the ground when the ground turns up');
   ok('rebuilds are spaced out', rebuilds === 1, `${rebuilds}`);
 }
 
-console.log('\nPicking the preset by measuring');
+console.log('\nPicking the preset by measuring, once, when asked');
 {
-  const { AUTO_DISTANCE_MIN_KM, AutoQuality, TIERS } = await import('../src/core/autoQuality.js');
-  const { MIN_SCALE } = await import('../src/core/perf.js');
+  const { Benchmark, TIERS } = await import('../src/core/benchmark.js');
   const { settings: S } = await import('../src/core/settings.js');
-  S.set('autoQuality', true);
   S.set('fpsTarget', 60);
-  S.set('resolutionScale', 1);
-  // The preset is the *last* thing to be given up: pixels first, then how far
-  // you can see, then detail. Put the horizon on its floor so these tests are
-  // about the preset rather than about the distance governor still having room.
-  S.set('renderDistanceKm', AUTO_DISTANCE_MIN_KM);
 
-  // Run the governor for a while at a given frame time and render scale.
-  const run = (q, seconds, frameMs, scale) => {
-    const moves = [];
-    for (let t = 0; t < seconds; t += 1 / 30) {
-      const tier = q.update(1 / 30, { frameMs, scale });
-      if (tier) moves.push(tier);
-    }
-    return moves;
-  };
+  // A machine that can hold 60 at High and not at Ultra.
+  const speeds = { low: 4, medium: 8, high: 15, ultra: 40 };
+  const frame = () => Promise.resolve(speeds[S.get('graphics')] ?? 16);
 
   {
-    // Late frames, but the resolution governor still has room. That is its
-    // problem to solve first, and two knobs pulling at once is how adaptive
-    // things end up hunting.
-    S.set('graphics', 'high');
-    const q = new AutoQuality();
-    q.settle = 0;
-    ok('nothing moves while the render scale can still absorb it',
-      run(q, 40, 40, 1).length === 0);
+    const bench = new Benchmark();
+    const result = await bench.run({ frameMs: 16 }, frame, 60);
+    ok('the benchmark tries every preset', result.results.length === TIERS.length);
+    ok('and settles on the heaviest one that held the target', result.pick === 'high',
+      `${result.results.map((r) => `${r.tier} ${r.fps.toFixed(0)}`).join(', ')}`);
+    ok('and it really did move the setting', S.get('graphics') === 'high');
   }
   {
-    // Floored and still late: now it is a preset problem.
-    S.set('graphics', 'high');
-    const q = new AutoQuality();
-    q.settle = 0;
-    const moves = run(q, 40, 40, MIN_SCALE);
-    ok('a floored scale and late frames drops a tier', moves[0] === 'medium', moves.join(','));
-    ok('and it drops one at a time, not to the bottom', moves.length <= 3, moves.join(','));
+    // Nothing holds the target: take the lightest and turn the detail down.
+    const slow = { low: 60, medium: 90, high: 140, ultra: 260 };
+    const bench = new Benchmark();
+    S.set('detailLimit', 100);
+    const result = await bench.run({ frameMs: 60 }, () => Promise.resolve(slow[S.get('graphics')]), 60);
+    ok('a machine that cannot hold the target lands on the lightest preset', result.pick === 'low');
+    ok('and the detail dial takes up the slack', S.get('detailLimit') < 100,
+      `${S.get('detailLimit')}%`);
   }
   {
-    // Real headroom at full scale climbs back — slowly.
-    S.set('graphics', 'low');
-    const q = new AutoQuality();
-    q.settle = 0;
-    const early = run(q, 10, 6, 1);
-    ok('ten seconds of headroom is not yet enough to climb', early.length === 0, early.join(','));
-    const later = run(q, 30, 6, 1);
-    ok('but half a minute is', later[0] === 'medium', later.join(','));
+    // The measurement itself must not be polluted by a turned-down dial.
+    const bench = new Benchmark();
+    S.set('resolutionScale', 0.6);
+    S.set('detailLimit', 40);
+    let sawScale = 1;
+    await bench.run({ frameMs: 16 }, () => {
+      sawScale = Math.min(sawScale, S.get('resolutionScale'));
+      return Promise.resolve(speeds[S.get('graphics')]);
+    }, 60);
+    ok('it measures at full resolution whatever the slider said', sawScale === 1);
+    ok('and puts your own settings back afterwards', S.get('resolutionScale') === 0.6);
   }
-  {
-    // The important one: a tier that proved too heavy must not be climbed
-    // straight back into the moment the lighter one runs comfortably.
-    S.set('graphics', 'high');
-    const q = new AutoQuality();
-    q.settle = 0;
-    // Twenty seconds is one drop and its quiet period, so the ceiling under
-    // test is the tier it just came off.
-    const dropped = run(q, 20, 40, 0.55);
-    ok('one sustained spell drops exactly one tier', dropped.join(',') === 'medium', dropped.join(','));
-    ok('the setting really did move', S.get('graphics') === 'medium', S.get('graphics'));
-    ok('dropping marks the tier it came from', q.ceiling === TIERS.indexOf('high'), `${q.ceiling}`);
-    const back = run(q, 120, 6, 1);
-    ok('and it will not climb back into it', back.length === 0, back.join(','));
-  }
-  {
-    // Switched off, it must not touch anything.
-    S.set('graphics', 'ultra');
-    S.set('autoQuality', false);
-    const q = new AutoQuality();
-    q.settle = 0;
-    ok('off means off', run(q, 60, 90, 0.55).length === 0);
-    ok('and the preset is left alone', S.get('graphics') === 'ultra');
-    S.set('autoQuality', true);
-  }
-  {
-    // Picking one by hand is a statement about what you want.
-    S.set('graphics', 'medium');
-    const q = new AutoQuality();
-    q.ceiling = 3;
-    q.overFor = 99;
-    q.reset();
-    ok('a hand-picked preset clears the ceiling', q.ceiling === null);
-    ok('and gives the new one a quiet period', q.settle > 0);
-  }
-  S.set('graphics', 'high');
+  S.reset?.();
 }
 
 console.log('\nSpeed mode, fireworks and the pause key');
@@ -1334,9 +1264,10 @@ console.log('\nSpeed mode, fireworks and the pause key');
   const google = LIST.find((p) => p.id === 'google');
   ok('a keyed one says that instead', /needs a key/.test(providerLabel(google)),
     providerLabel(google));
-  const offline = LIST.find((p) => p.id === 'offline');
-  ok('and the generated world claims neither', !/key/.test(providerLabel(offline)),
-    providerLabel(offline));
+  ok('and every provider on the list is a real one',
+    LIST.every((p) => p.kind !== 'synthetic'));
+  ok('so every label says either keyless or needs a key',
+    LIST.every((p) => /keyless|needs a key/.test(providerLabel(p))));
   S.reset?.();
 }
 
@@ -1410,11 +1341,10 @@ console.log('\nBuildings are painted once the photograph arrives');
 console.log('\nA map falls through rather than inventing');
 {
   const source = readFileSync(new URL('../src/ui/mapTiles.js', import.meta.url), 'utf8');
-  // A provider with no URL is either the generated world, which has none by
-  // design, or a real one whose handshake failed. Painting procedural noise
-  // where a street map belongs is not a fallback.
-  ok('only a synthetic source may invent a tile',
-    /kind === 'synthetic'\) return invent\(\)/.test(source));
+  // A provider with no URL has failed its handshake. There is nothing to
+  // invent in its place any more; the tile is simply not drawn.
+  ok('nothing invents a tile',
+    !/invent\(/.test(source) && !/procedural/i.test(source));
   ok('and a real one that is not ready falls through to the next',
     /not ready`\);\s*continue;/.test(source));
   ok('the chain is first choice, then standbys',
@@ -1584,15 +1514,16 @@ console.log('\nA provider only gets asked as deep as it answers');
   }
   {
     const terrainSource = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
-    ok('the terrain asks for the smaller of the setting and what is served',
-      /Math\.min\(wanted, this\.streamer\.maxUsefulZoom\)/.test(terrainSource));
-    // "As detailed as possible" has to mean no ceiling of our own, not a
-    // large number we picked — a number that is right for one provider is
-    // wrong for the next.
-    ok('and on auto there is no ceiling of our own',
-      /maxTileZoomAuto'\) \? Infinity : settings\.get\('maxTileZoom'\)/.test(terrainSource));
+    ok('the terrain asks for the smaller of the ceiling and what is served',
+      /Math\.min\(ceiling, this\.streamer\.maxUsefulZoom\)/.test(terrainSource));
+    // "As detailed as possible" is not a tick any more, it is simply how it
+    // works: the only ceiling is the one you set, and the deepest any provider
+    // publishes is 22.
     const { DEFAULT_SETTINGS: D } = await import('../src/core/settings.js');
-    ok('auto is the default', D.maxTileZoomAuto === true);
+    ok('there is no tick to forget to turn on', !('maxTileZoomAuto' in D));
+    ok('and the ceiling starts at the deepest zoom anyone serves', D.maxTileZoom === 22);
+    ok('which the detail dial scales down with everything else',
+      /detailLimit'\) \/ 100/.test(terrainSource));
   }
 }
 
