@@ -608,3 +608,93 @@ export function createElevationSource(settingsValues) {
   const descriptor = findProvider(ELEVATION_PROVIDERS, settingsValues.elevationProvider);
   return withKeylessFallback(ELEVATION_PROVIDERS, descriptor, settingsValues);
 }
+
+/**
+ * Actually knock on every provider's door and report what answers.
+ *
+ * There is a real gap between "this provider is in the list" and "this
+ * provider is serving you tiles right now", and nothing in the interface used
+ * to close it: pick Google without a key and the ground simply stays as it
+ * was, which reads as the option being broken rather than as an account being
+ * required. So this fetches one real tile from each, at a place you choose,
+ * and says what came back — the status code, the size, how long it took.
+ *
+ * Keys are used exactly as the game uses them and never leave the browser.
+ * One tile each is a rounding error against anybody's quota.
+ *
+ * @param {Array} list  IMAGERY_PROVIDERS or ELEVATION_PROVIDERS
+ * @param {object} values the settings store's values, for the keys
+ * @param {{z:number,x:number,y:number}} tile where to ask about
+ * @param {(result:object)=>void} [onResult] called as each one finishes
+ */
+export async function testProviders(list, values, tile, onResult) {
+  const results = [];
+  for (const descriptor of list) {
+    const result = { id: descriptor.id, label: descriptor.label, state: 'checking', detail: '' };
+    results.push(result);
+    if (descriptor.kind === 'synthetic') {
+      result.state = 'ok';
+      result.detail = 'generated in the browser — no network involved';
+      onResult?.(result);
+      continue;
+    }
+    if (descriptor.needsKey && !values[descriptor.needsKey]) {
+      result.state = 'no-key';
+      const name = KEY_LABELS[descriptor.needsKey] ?? descriptor.needsKey;
+      result.detail = `needs ${/^[AEIOU]/.test(name) ? 'an' : 'a'} ${name}, and none is saved`;
+      onResult?.(result);
+      continue;
+    }
+    const started = performance.now();
+    // Ask each one at a zoom it actually publishes. NASA's global product
+    // stops at nine and answers a request for fourteen with a bad-request
+    // error, which is a true fact about the request and a lie about the
+    // provider — it would have marked GIBS broken every single time.
+    const depth = Math.min(tile.z, descriptor.maxZoom ?? tile.z);
+    const shift = tile.z - depth;
+    const asked = { z: depth, x: tile.x >> shift, y: tile.y >> shift };
+    try {
+      const source = new TileSource(descriptor, values);
+      await source.prepare();
+      if (source.state === 'error') throw new Error(source.error);
+      const url = source.urlFor(asked);
+      if (url === null) throw new Error('no URL for this tile');
+      const response = await fetch(url, { cache: 'no-store' });
+      const bytes = (await response.arrayBuffer()).byteLength;
+      const ms = Math.round(performance.now() - started);
+      const where = depth === tile.z ? '' : `, at z${depth} which is its deepest`;
+      if (response.status === 404) {
+        // Not a fault. Several of these cover one country, and a miss outside
+        // it is the honest answer rather than a broken server.
+        result.state = 'no-cover';
+        result.detail = 'nothing here \u2014 this one does not cover where you are standing';
+      } else if (!response.ok) {
+        result.state = 'error';
+        result.detail = `HTTP ${response.status} in ${ms} ms`;
+      } else if (bytes < 100) {
+        // A 200 that is forty bytes long is a refusal wearing a success code.
+        result.state = 'error';
+        result.detail = `answered ${bytes} bytes \u2014 too small to be a tile`;
+      } else {
+        result.state = 'ok';
+        result.detail = `${(bytes / 1024).toFixed(0)} kB in ${ms} ms${where}`;
+      }
+    } catch (err) {
+      result.state = 'error';
+      result.detail = err instanceof Error ? err.message : String(err);
+    }
+    onResult?.(result);
+  }
+  return results;
+}
+
+/** Human names for the key slots, so an error can say what to go and get. */
+const KEY_LABELS = {
+  googleKey: 'Google Maps Platform key',
+  bingKey: 'Bing Maps key',
+  azureKey: 'Azure Maps subscription key',
+  mapboxKey: 'Mapbox access token',
+  cesiumToken: 'Cesium ion token',
+  mapillaryToken: 'Mapillary token',
+  maxarConnectId: 'Maxar SecureWatch connect ID',
+};

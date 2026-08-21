@@ -1,5 +1,5 @@
 import * as THREE from '../../vendor/three/three.module.js';
-import { clamp, rand3 } from '../core/math.js';
+import { clamp } from '../core/math.js';
 import { sampleImageryAt } from './imagerySample.js';
 import { settings } from '../core/settings.js';
 import { latToNormY, lonToNormX, normXToLon, normYToLat, tileKey } from '../geo/mercator.js';
@@ -29,6 +29,13 @@ const REFOUND_MIN_M = 1;
 
 const DATA_ZOOM = 15;
 const STOREY_M = 3.2;
+/**
+ * Storeys assumed for a footprint with no height, no storey count, and no
+ * measured neighbour anywhere to compare it against. Two, because two is what
+ * most of the built world is; it is only ever reached where OpenStreetMap has
+ * recorded nothing measurable for miles.
+ */
+const DEFAULT_LEVELS = 2;
 const DOOR_WIDTH = 1.4;
 const DOOR_HEIGHT = 2.3;
 /**
@@ -93,6 +100,27 @@ const MAST_HEIGHT_M = {
   wind_turbine: 105,
 };
 
+/**
+ * The middle storey count among the footprints here that carry one.
+ *
+ * Null when none of them do — the caller then has to look further afield.
+ * Median rather than mean on purpose: one mis-tagged 90-storey block would
+ * drag a mean across a whole village, and a median simply ignores it.
+ */
+function medianLevels(ways) {
+  const levels = [];
+  for (const way of ways) {
+    const tags = way.tags ?? {};
+    const tagged = Number(tags['building:levels']) || 0;
+    const height = Number(tags.height) || 0;
+    const value = tagged || (height > 0 ? Math.round(height / STOREY_M) : 0);
+    if (value > 0 && value < 200) levels.push(value);
+  }
+  if (levels.length === 0) return null;
+  levels.sort((a, b) => a - b);
+  return levels[levels.length >> 1];
+}
+
 /** Which of those, if any, a node is. */
 function mastKind(tags = {}) {
   if (tags.power === 'tower') return 'power_tower';
@@ -153,6 +181,8 @@ export class Buildings {
     this.tiles = new Map();
     this.stats = { tiles: 0, buildings: 0, failed: 0 };
     this.enabled = true;
+    /** Scratch colour for per-vertex roof sampling; see pushCap. */
+    this._roofAt = new THREE.Color();
   }
 
   rebase() {
@@ -319,6 +349,25 @@ export class Buildings {
     const colors = [];
     const colliders = [];
     const world = { x: 0, y: 0, z: 0 };
+
+    // What the buildings round here are actually like.
+    //
+    // Most OpenStreetMap footprints carry no height and no storey count, and
+    // the old answer was to call every one of them three storeys — a number
+    // from nowhere, applied to a Neapolitan alley and a Kansas warehouse
+    // alike. This reads the ones that *are* measured in this same square
+    // kilometre and takes their middle value, so an estimate is a statement
+    // about the neighbourhood rather than an invention: a village of
+    // bungalows comes out as bungalows and a street of tenements as tenements.
+    // Where the square has nothing measured at all it falls back to the
+    // running middle of everywhere measured so far this session, and only an
+    // entirely unmeasured world reaches the constant.
+    this.tileLevels = medianLevels(ways) ?? this.sessionLevels ?? null;
+    if (this.tileLevels !== null) {
+      this.sessionSamples = (this.sessionSamples ?? []).concat(this.tileLevels).slice(-64);
+      const sorted = [...this.sessionSamples].sort((a, b) => a - b);
+      this.sessionLevels = sorted[sorted.length >> 1];
+    }
 
     for (const way of ways.slice(0, 900)) {
       const ring = [];
@@ -535,13 +584,12 @@ export class Buildings {
     const base = this.terrain.heightAt(x, z);
     if (!Number.isFinite(base)) return;
 
-    const seed = Math.abs(node.id | 0);
     const width = clamp(height * 0.055, 0.7, 9);
     const sampled = sampleImageryAt(this.frame, x, z);
     if (!sampled) this.unpainted = (this.unpainted ?? 0) + 1;
     const colour = sampled
       ? new THREE.Color(sampled.r, sampled.g, sampled.b).lerp(MAST_COLOUR, 0.45)
-      : MAST_COLOUR.clone().multiplyScalar(0.88 + rand3(seed, 3, 9) * 0.24);
+      : MAST_COLOUR.clone();
     // A square tapered shaft: four walls, narrower at the top.
     const half = width / 2;
     const tip = half * 0.35;
@@ -576,7 +624,11 @@ export class Buildings {
     else this.stats.estimated = (this.stats.estimated ?? 0) + 1;
     if (!measured && settings.get('structuresNeedHeight')) return null;
 
-    const levels = clamp(taggedLevels || Math.round(taggedHeight / STOREY_M) || 3, 1, 120);
+    const levels = clamp(
+      taggedLevels || Math.round(taggedHeight / STOREY_M) || this.tileLevels || DEFAULT_LEVELS,
+      1,
+      120,
+    );
     const height = clamp(taggedHeight || levels * STOREY_M, 2.5, 460);
 
     // Sit the building on the lowest ground under its footprint so it does not
@@ -585,8 +637,6 @@ export class Buildings {
     for (const p of ring) base = Math.min(base, this.terrain.heightAt(p.x, p.y));
     if (!Number.isFinite(base)) return null;
 
-    const seed = Math.abs(way.id | 0);
-    const tint = 0.86 + rand3(seed, 7, 3) * 0.26;
 
     // The roof is in the photograph. Take it from there: a terracotta roof in
     // Tuscany and a grey slate one in Yorkshire are not the same colour, and
@@ -611,14 +661,10 @@ export class Buildings {
       // usually lighter and less saturated than what is on top of it.
       const hsl = { h: 0, s: 0, l: 0 };
       roof.getHSL(hsl);
-      wall = new THREE.Color().setHSL(
-        hsl.h,
-        hsl.s * 0.45,
-        clamp(hsl.l * 0.6 + 0.34, 0.22, 0.86) * tint,
-      );
+      wall = new THREE.Color().setHSL(hsl.h, hsl.s * 0.45, clamp(hsl.l * 0.6 + 0.34, 0.22, 0.86));
     } else {
-      wall = WALL_COLOUR.clone().multiplyScalar(tint);
-      roof = ROOF_COLOUR.clone().multiplyScalar(0.9 + rand3(seed, 11, 5) * 0.3);
+      wall = WALL_COLOUR.clone();
+      roof = ROOF_COLOUR.clone();
     }
 
     // Door goes in the longest wall, which is nearly always the street side.
@@ -658,7 +704,21 @@ export class Buildings {
     }
 
     const triangles = triangulate(ring);
-    pushCap(positions, normals, colors, ring, triangles, base + height, roof, true);
+    pushCap(
+      positions,
+      normals,
+      colors,
+      ring,
+      triangles,
+      base + height,
+      sampled
+        ? (p) => {
+            const here = sampleImageryAt(this.frame, p.x, p.y);
+            return here ? this._roofAt.setRGB(here.r, here.g, here.b) : roof;
+          }
+        : roof,
+      true,
+    );
 
     const floors = [base];
     if (enterable) {
@@ -768,12 +828,24 @@ function pushWall(positions, normals, colors, a, b, bottom, top, colour) {
   }
 }
 
-function pushCap(positions, normals, colors, ring, triangles, y, colour, up) {
+/**
+ * A flat cap — a roof or a floor slab.
+ *
+ * `shade` may be a single colour, or a function from a ring point to one. The
+ * second form is how a roof gets the actual photograph rather than an average
+ * of it: every corner of the footprint reads the aerial imagery at its own
+ * position, so a roof that is half slate and half moss comes out half slate
+ * and half moss, and a long terrace does not become one flat swatch. That is
+ * real imagery stretched over real geometry, which is the whole idea.
+ */
+function pushCap(positions, normals, colors, ring, triangles, y, shade, up) {
+  const at = typeof shade === 'function' ? shade : () => shade;
   for (const tri of triangles) {
     for (let k = 0; k < 3; k++) {
       const idx = tri[up ? k : 2 - k];
       const p = ring[idx];
       if (!p) continue;
+      const colour = at(p);
       positions.push(p.x, y, p.y);
       normals.push(0, 1, 0);
       colors.push(colour.r, colour.g, colour.b);

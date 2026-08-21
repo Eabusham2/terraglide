@@ -1,7 +1,13 @@
 import { ACTIONS, keyLabel, keybinds } from '../core/keybinds.js';
 import { settings } from '../core/settings.js';
 import { formatHeight } from '../core/units.js';
-import { ELEVATION_PROVIDERS, IMAGERY_PROVIDERS, PANORAMA_PROVIDERS, providerLabel } from '../tiles/providers.js';
+import {
+  ELEVATION_PROVIDERS,
+  IMAGERY_PROVIDERS,
+  PANORAMA_PROVIDERS,
+  providerLabel,
+  testProviders,
+} from '../tiles/providers.js';
 import { escapeHtml } from './worldmap.js';
 
 /**
@@ -383,9 +389,11 @@ export class SettingsPanel {
       if (field.showWhen && !field.showWhen()) continue;
       parts.push(this.renderField(field));
     }
+    if (section.id === 'providers') parts.push(this.renderProviderTest());
     if (section.keybinds) parts.push(this.renderKeybinds());
     this.content.innerHTML = parts.join('');
     this.bindFields(section);
+    if (section.id === 'providers') this.bindProviderTest();
   }
 
   renderField(field) {
@@ -512,6 +520,62 @@ export class SettingsPanel {
       }</p>
       ${blocks.join('')}
       <div class="settings-actions"><button type="button" data-reset-binds>Reset key bindings</button></div>`;
+  }
+
+  /**
+   * The provider test.
+   *
+   * Reading a list of providers tells you nothing about whether any of them is
+   * answering you today, and the difference matters most for exactly the ones
+   * that look broken when they are merely unauthorised. This asks all of them,
+   * for real, and shows what came back.
+   */
+  renderProviderTest() {
+    const rows = this.providerTest ?? [];
+    const body = rows.length
+      ? `<ul class="provider-test">${rows
+          .map(
+            (r) =>
+              `<li class="provider-${escapeHtml(r.state)}"><b>${escapeHtml(r.label)}</b>` +
+              `<span>${escapeHtml(r.state === 'checking' ? 'asking…' : r.detail)}</span></li>`,
+          )
+          .join('')}</ul>`
+      : '';
+    return `
+      <div class="field field-action">
+        <label>Check every provider</label>
+        <button type="button" data-test-providers ${this.testing ? 'disabled' : ''}>
+          ${this.testing ? 'Testing…' : 'Test providers'}
+        </button>
+        <small>Fetches one real tile from each, here, using whatever keys you have saved. One tile is nothing against anybody's quota, and nothing is sent anywhere but to the provider itself.</small>
+        ${body}
+      </div>`;
+  }
+
+  bindProviderTest() {
+    const button = this.content.querySelector('[data-test-providers]');
+    if (!button) return;
+    button.addEventListener('click', async () => {
+      if (this.testing) return;
+      this.testing = true;
+      this.providerTest = [];
+      this.render();
+      const tile = this.testTile ? this.testTile() : { z: 12, x: 2138, y: 1420 };
+      const values = settings.values;
+      const push = (result) => {
+        const existing = this.providerTest.find((r) => r.id === result.id);
+        if (existing) Object.assign(existing, result);
+        else this.providerTest.push({ ...result });
+        this.render();
+      };
+      try {
+        await testProviders(IMAGERY_PROVIDERS.filter((p) => !p.hidden), values, tile, push);
+        await testProviders(ELEVATION_PROVIDERS, values, tile, push);
+      } finally {
+        this.testing = false;
+        this.render();
+      }
+    });
   }
 
   renderData() {

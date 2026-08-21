@@ -218,6 +218,18 @@ export class Game {
 
     this.settingsPanel.onChange = (key) => this.onSettingChanged(key);
     this.settingsPanel.onDataAction = (name, payload) => this.onDataAction(name, payload);
+    // Test the providers where you actually are. Asking about a fixed tile
+    // somewhere in Europe would happily report USGS as broken while you stand
+    // in Utah, and report it working while you stand in Rome.
+    this.settingsPanel.testTile = () => {
+      const zoom = 14;
+      const n = Math.pow(2, zoom);
+      return {
+        z: zoom,
+        x: Math.floor(lonToNormX(this.player.lon) * n),
+        y: Math.floor(clamp(latToNormY(this.player.lat), 0, 0.999999) * n),
+      };
+    };
 
     this.cheatPanel.onNotice = (message) => this.toast(message);
     this.cheatPanel.onTeleport = (lat, lon, label) => {
