@@ -98000,9 +98000,15 @@ function checkSupport() {
   const gl = probe.getContext('webgl2');
   if (!gl) return 'WebGL 2 is present but the browser refused to create a context — check hardware acceleration.';
   if (typeof createImageBitmap !== 'function') return 'createImageBitmap is unavailable.';
-  if (location.protocol === 'file:' && !globalThis.__TERRAGLIDE_INLINE_WORKER__) {
-    return 'Opened straight from the file system. Browsers block ES modules over file://, so either serve the folder over HTTP or use the single-file build, terraglide.html (see the README).';
-  }
+  // There used to be a refusal here for any file:// page that was not the
+  // bundled build, on the grounds that browsers block ES modules over file://.
+  // That is true of modules *beside* the document and false of the online
+  // single file, which is one small local page whose modules come over HTTPS
+  // from the published site — and this function only runs at all because those
+  // modules resolved. The check was refusing to start a page that had already
+  // proved it could. What genuinely cannot start on file:// is a same-origin
+  // Web Worker, and createTileWorker has handled that for a long time: a
+  // same-origin blob that imports the real one, and an in-page host behind it.
   return null;
 }
 
