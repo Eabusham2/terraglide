@@ -1294,6 +1294,52 @@ console.log('\nVector tiles, read by hand');
   // Negative deltas are the case zigzag exists for, and getting the sign
   // wrong draws a ring inside out rather than failing.
   ok('a negative delta comes back negative', ring[6] === 0 && ring[4] === 10);
+
+  // A tile is bytes off the network from a host we do not control, so the
+  // reader has to survive nonsense rather than trust it. The dangerous one is
+  // a geometry command claiming more points than the tile could possibly
+  // hold: reading past the end returns zero instead of stopping, so an
+  // unbounded loop would sit there for minutes on the thread that draws.
+  {
+    const huge = new Uint8Array([
+      ...tag(3, 2),
+      ...len([
+        ...tag(1, 2), ...len(str('water')),
+        ...tag(5, 0), ...varint(4096),
+        ...tag(2, 2), ...len([
+          ...tag(3, 0), ...varint(POLYGON),
+          // MoveTo claiming sixteen million points, in a four-byte tile.
+          ...tag(4, 2), ...len([...varint((1 << 24) | 1), 0, 0, 0, 0]),
+        ]),
+      ]),
+    ]);
+    const started = Date.now();
+    const out = decodeVectorTile(huge);
+    ok('a geometry count larger than the tile cannot hang the reader',
+      Date.now() - started < 500, `${Date.now() - started} ms`);
+    ok('and it still returns something usable', out.has('water'));
+  }
+
+  // Truncation mid-varint, and a tile that is not a tile at all.
+  ok('a truncated tile does not throw', (() => {
+    try {
+      decodeVectorTile(tile.slice(0, Math.floor(tile.length / 2)));
+      return true;
+    } catch {
+      return false;
+    }
+  })());
+  ok('random bytes do not hang or throw', (() => {
+    const noise = new Uint8Array(512);
+    for (let i = 0; i < noise.length; i++) noise[i] = (i * 37 + 11) & 0xff;
+    const started = Date.now();
+    try {
+      decodeVectorTile(noise);
+    } catch {
+      /* refusing is fine; hanging is not */
+    }
+    return Date.now() - started < 500;
+  })());
 }
 
 console.log('\nA provider only gets asked as deep as it answers');

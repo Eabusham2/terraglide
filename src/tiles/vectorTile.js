@@ -135,7 +135,14 @@ function readGeometry(bytes) {
   while (!r.done) {
     const header = r.varint();
     const command = header & 0x7;
-    const count = header >> 3;
+    // The count is whatever the tile claims, and a tile is a few hundred
+    // kilobytes off the network from a host we do not control. A corrupt or
+    // hostile byte here can claim two hundred million points, and reading past
+    // the end returns zero rather than stopping — so the loop would sit there
+    // adding nothing, for minutes, on the thread that draws the map. Two bytes
+    // is the least a coordinate pair can occupy, so that is the ceiling.
+    const claimed = header >> 3;
+    const count = Math.min(claimed, (r.bytes.length - r.pos) >> 1);
     if (command === 1) {
       for (let i = 0; i < count; i++) {
         x += r.svarint();
