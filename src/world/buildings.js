@@ -19,6 +19,14 @@ import { overpass } from './overpass.js';
  * off, which felt worse.
  */
 
+/**
+ * How often at most a tile may be re-founded on newly arrived relief. One
+ * dense city tile is real work and elevation lands a hundred tiles at a time.
+ */
+const REFOUND_GAP_MS = 900;
+/** Ground movement worth re-founding for. Below this nobody could see it. */
+const REFOUND_MIN_M = 1;
+
 const DATA_ZOOM = 15;
 const STOREY_M = 3.2;
 const DOOR_WIDTH = 1.4;
@@ -168,6 +176,8 @@ export class Buildings {
     // cruise at altitude never touches the network.
     if (altitudeAboveGround > 2200) return;
 
+    this.watchElevation();
+
     const n = Math.pow(2, DATA_ZOOM);
     const cx = Math.floor(lonToNormX(lon) * n);
     const cy = Math.floor(latToNormY(lat) * n);
@@ -201,7 +211,10 @@ export class Buildings {
   }
 
   async fetchTile(key, tile) {
-    const record = { tile, state: 'loading', mesh: null, colliders: [] };
+    // The response is kept so the tile can be rebuilt without asking Overpass
+    // again — see `watchElevation`. A few hundred kilobytes against a wait on
+    // a rate-limited donated service is not a close call.
+    const record = { tile, state: 'loading', mesh: null, colliders: [], data: null, builtAt: 0 };
     this.tiles.set(key, record);
 
     const n = Math.pow(2, DATA_ZOOM);
@@ -226,6 +239,7 @@ export class Buildings {
 
     try {
       const data = await overpass.query(query);
+      record.data = data;
       this.buildTile(record, data);
       record.state = 'ready';
     } catch {
@@ -238,6 +252,15 @@ export class Buildings {
     } finally {
       this.stats.tiles = this.tiles.size;
     }
+  }
+
+  /** Ground height at the middle of a tile — the thing a re-found watches. */
+  tileGround(record) {
+    const n = Math.pow(2, DATA_ZOOM);
+    const lat = normYToLat((record.tile.y + 0.5) / n);
+    const lon = normXToLon((record.tile.x + 0.5) / n);
+    const world = this.frame.toWorld(lat, lon, this._probe ?? (this._probe = new THREE.Vector3()));
+    return this.terrain.heightAt(world.x, world.z);
   }
 
   /** One line for the status readout: how much of this is measured. */
@@ -254,6 +277,17 @@ export class Buildings {
   }
 
   buildTile(record, data) {
+    const before = {
+      measured: this.stats.measured ?? 0,
+      estimated: this.stats.estimated ?? 0,
+      bridgeSegments: this.stats.bridgeSegments ?? 0,
+    };
+    // Stamped up front, because this returns early for a tile with nothing in
+    // it and a tile that never records what it built is a tile that is rebuilt
+    // for ever — re-running the parse and counting the same buildings again on
+    // every pass.
+    record.groundAt = this.tileGround(record);
+    record.counts = { buildings: 0, measured: 0, estimated: 0, bridgeSegments: 0 };
     const nodes = new Map();
     const ways = [];
     const roads = [];
@@ -333,6 +367,51 @@ export class Buildings {
     record.mesh = mesh;
     record.colliders = colliders;
     this.stats.buildings += colliders.length;
+    // What this tile contributed, so a re-found can take it back off again
+    // rather than counting the same street twice.
+    record.counts = {
+      buildings: colliders.length,
+      measured: (this.stats.measured ?? 0) - before.measured,
+      estimated: (this.stats.estimated ?? 0) - before.estimated,
+      bridgeSegments: (this.stats.bridgeSegments ?? 0) - before.bridgeSegments,
+    };
+  }
+
+  /**
+   * Found them again when the ground turns up.
+   *
+   * A building sits on the lowest ground under its footprint, and that is read
+   * once, when the Overpass answer arrives. If the relief for that square has
+   * not landed yet every height reads back as sea level, so the building is
+   * founded at zero and stays there — a town at the bottom of the valley it is
+   * supposed to be on the side of, permanently, because nothing about the
+   * building changed afterwards and nothing asked again.
+   *
+   * One tile per pass and only while the version is actually moving: rebuilding
+   * a dense city tile is real work, and relief arrives a hundred tiles at a
+   * time. Nothing is re-fetched — the response that built it is still here.
+   */
+  watchElevation() {
+    const now = performance.now();
+    if (this.lastRefound && now - this.lastRefound < REFOUND_GAP_MS) return;
+    for (const record of this.tiles.values()) {
+      if (record.state !== 'ready' || !record.data) continue;
+      // The test is whether the ground has actually moved, not whether a tile
+      // has landed somewhere. Watching the version alone never converges:
+      // relief streams for a minute, so every pass finds a newer version than
+      // the one the tile was built against and rebuilds it again. Comparing
+      // the height stops the moment the DEM under this square has arrived.
+      const ground = this.tileGround(record);
+      if (Math.abs(ground - (record.groundAt ?? 0)) < REFOUND_MIN_M) continue;
+      const had = record.counts ?? { buildings: record.colliders.length };
+      this.disposeTile(record);
+      for (const [key, n] of Object.entries(had)) {
+        this.stats[key] = Math.max(0, (this.stats[key] ?? 0) - n);
+      }
+      this.buildTile(record, record.data);
+      this.lastRefound = now;
+      return;
+    }
   }
 
   /**

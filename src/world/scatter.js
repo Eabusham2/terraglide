@@ -71,6 +71,12 @@ const KIND_LIMITS = { conifer: 6000, broadleaf: 6000, bush: 3600, rock: 2600 };
 const THIN_FROM_M = 420;
 
 const KINDS = ['conifer', 'broadleaf', 'bush', 'rock'];
+/**
+ * How long to let elevation settle before replanting. Relief arrives in a
+ * burst of a hundred tiles and a rebuild walks every mapped polygon in range,
+ * so reacting to each one would be a hitch a second for the first minute.
+ */
+const ELEVATION_SETTLE_MS = 2000;
 
 /** True when a rebuild has put nothing on the ground at all. */
 function placedNothing(counts) {
@@ -106,6 +112,8 @@ export class Scatter {
     this.tiles = new Map();
     this.lastBuildAt = null;
     this.dirty = false;
+    this.lastElevationVersion = -1;
+    this.lastElevationRebuild = 0;
     this.stats = { placed: 0, areas: 0, points: 0, tiles: 0, failed: 0 };
 
     this._matrix = new THREE.Matrix4();
@@ -249,6 +257,7 @@ export class Scatter {
 
     this.applyTextureMode();
     if (player) this.requestAround(player.lat, player.lon);
+    this.watchElevation();
 
     const x = camera.position.x;
     const z = camera.position.z;
@@ -267,6 +276,31 @@ export class Scatter {
     this.lastBuildAt = { x, z, radius: this.radius };
     this.dirty = false;
     this.rebuild(x, z);
+  }
+
+  /**
+   * Plant again when the ground turns up.
+   *
+   * `place` refuses any spot the elevation field has nothing for, which is
+   * right — the alternative is a wood at sea level in a valley floor that
+   * turns out to be eight hundred metres up. But it made the first minute in a
+   * new place bare: land cover arrives, the rebuild runs, every candidate is
+   * over ground that has not loaded yet, and nothing marks it worth trying
+   * again. The next rebuild needs you to fly a quarter of the scenery radius,
+   * so the wood you were standing in appeared only once you had left it.
+   *
+   * Relief streams in a burst of a hundred tiles, so this collapses the burst:
+   * one rebuild every couple of seconds while it is arriving, and none once it
+   * stops.
+   */
+  watchElevation() {
+    const version = this.terrain.elevationVersion ?? 0;
+    if (version === this.lastElevationVersion) return;
+    const now = performance.now();
+    if (this.lastElevationRebuild && now - this.lastElevationRebuild < ELEVATION_SETTLE_MS) return;
+    this.lastElevationVersion = version;
+    this.lastElevationRebuild = now;
+    this.dirty = true;
   }
 
   /** Keep the OSM land-cover tiles around the player loaded. */

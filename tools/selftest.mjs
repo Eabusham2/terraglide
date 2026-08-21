@@ -1002,6 +1002,81 @@ console.log('\nGenerated art stays where it belongs');
   }
 }
 
+console.log('\nPut back on the ground when the ground turns up');
+{
+  // Both layers stand things on the terrain and both read the height once.
+  // Before the relief for a square arrives every height there is exactly sea
+  // level and `hasElevationAt` is false, so a wood is dropped rather than
+  // planted and a building is founded at zero — and nothing asked again,
+  // because nothing about the wood or the building had changed.
+  const terrainSource = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  ok('the terrain says when new relief has landed', /get elevationVersion\(\)/.test(terrainSource));
+
+  const scatterSource = readFileSync(new URL('../src/world/scatter.js', import.meta.url), 'utf8');
+  ok('the scenery watches it', /watchElevation\(\)/.test(scatterSource));
+  ok('and replanting is throttled, because relief arrives in a burst',
+    /ELEVATION_SETTLE_MS/.test(scatterSource));
+
+  const { Buildings } = await import('../src/world/buildings.js');
+  // A bare stand-in: the only thing under test is when a tile is rebuilt.
+  let ground = 0;
+  const layer = Object.create(Buildings.prototype);
+  layer.terrain = { heightAt: () => ground, elevationVersion: 0 };
+  layer.frame = { toWorld: (lat, lon, out) => Object.assign(out ?? {}, { x: 0, y: 0, z: 0 }) };
+  layer.stats = { buildings: 0 };
+  layer.tiles = new Map();
+  layer.lastRefound = 0;
+  let rebuilds = 0;
+  layer.disposeTile = () => {};
+  layer.buildTile = (record) => {
+    rebuilds++;
+    record.groundAt = layer.tileGround(record);
+    record.counts = { buildings: 0 };
+  };
+  const record = {
+    tile: { z: 15, x: 100, y: 100 },
+    state: 'ready',
+    data: {},
+    colliders: [],
+    groundAt: 0,
+    counts: { buildings: 0 },
+  };
+  layer.tiles.set('t', record);
+
+  const pass = (advanceMs = 1000) => {
+    layer.lastRefound -= advanceMs;
+    layer.watchElevation();
+  };
+
+  pass();
+  ok('a tile founded on ground that has not moved is left alone', rebuilds === 0, `${rebuilds}`);
+
+  // The relief for this square lands and the ground turns out to be a hill.
+  ground = 412;
+  pass();
+  ok('and rebuilt once the ground under it moves', rebuilds === 1, `${rebuilds}`);
+
+  // This is the part that matters: elevation streams for a minute, so a rule
+  // that watched the version alone would rebuild on every one of a hundred
+  // tiles and never settle. Watching the height settles as soon as the DEM
+  // for this square has arrived.
+  layer.terrain.elevationVersion = 99;
+  for (let i = 0; i < 20; i++) pass();
+  ok('and not again while the ground stays put, however much else lands',
+    rebuilds === 1, `${rebuilds} rebuilds`);
+
+  // Movement below a metre is not worth the work.
+  ground = 412.4;
+  pass();
+  ok('a few centimetres is not worth rebuilding for', rebuilds === 1, `${rebuilds}`);
+
+  // And the gap keeps a burst from turning into a stutter.
+  ground = 900;
+  layer.lastRefound = performance.now();
+  layer.watchElevation();
+  ok('rebuilds are spaced out', rebuilds === 1, `${rebuilds}`);
+}
+
 console.log('\nPicking the preset by measuring');
 {
   const { AutoQuality, TIERS } = await import('../src/core/autoQuality.js');

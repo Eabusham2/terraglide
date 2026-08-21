@@ -101,6 +101,20 @@ export class Terrain {
   }
 
   /** True when real elevation has arrived for this spot. */
+  /**
+   * Bumped every time a new elevation tile lands.
+   *
+   * Anything that stands things *on* the ground watches this. Before the relief
+   * for a square has arrived, every height there reads back as exactly sea
+   * level and `hasElevationAt` is false — so a wood that OpenStreetMap has
+   * mapped is dropped rather than planted, and a building is founded at zero.
+   * Neither is retried on its own, because nothing about the wood or the
+   * building changed; what changed was the ground under them.
+   */
+  get elevationVersion() {
+    return this.elevation?.version ?? 0;
+  }
+
   hasElevationAt(x, z) {
     this.frame.worldToNorm(x, z, this._norm);
     return this.elevation.hasDataAt(this._norm.nx, this._norm.ny);
