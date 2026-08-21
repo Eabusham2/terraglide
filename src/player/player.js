@@ -14,10 +14,17 @@ import { rocketPowerFor, rocketTicks } from './elytra.js';
  */
 
 /**
- * The hotbar is five rockets and nothing else. The number is the burn in
- * seconds — a Rocket V pushes for five of them — and it is the powder behind
- * it too, though that ramp is deliberately gentle so the seconds stay the main
- * thing you are choosing between.
+ * The hotbar is five rockets and nothing else, and they are Minecraft's five.
+ *
+ * The Roman numeral is the *flight duration* tag, exactly as it is in the
+ * game: it decides how long the push lasts and nothing else. Every firework
+ * pushes equally hard — toward 1.5 blocks a tick along your look — so a bigger
+ * rocket is a longer rocket, never a harder one. Crafting caps the tag at
+ * three; four and five are command-block rockets, and Minecraft's own
+ * `10N + 6` ticks runs straight on through them.
+ *
+ * The label prints the real burn in seconds so the numeral is never mistaken
+ * for a strength.
  */
 /**
  * One colour per strength, cool to hot, so a glance tells you what you are
@@ -32,11 +39,9 @@ export const HOTBAR = [1, 2, 3, 4, 5].map((duration) => ({
   power: rocketPowerFor(duration),
   colour: ROCKET_COLOURS[duration - 1],
   label: `Rocket ${'I II III IV V'.split(' ')[duration - 1]}`,
-  // Seconds of burn and the thrust multiplier, both true. This used to read
-  // "dur 5 · pwr 5", which was two errors in nine characters: the burn was not
-  // five of anything, and the power was never the slot number. Kept short
-  // enough that the slot does not ellipsise it away.
-  hint: `${duration}s · ×${rocketPowerFor(duration).toFixed(2)}`,
+  // The burn, in seconds, from Minecraft's own tick count. No multiplier,
+  // because there is not one: every rocket pushes the same.
+  hint: `${(rocketTicks(duration) / 20).toFixed(1)}s burn`,
 }));
 
 /**

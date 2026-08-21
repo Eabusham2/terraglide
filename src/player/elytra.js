@@ -46,12 +46,18 @@ const CLIMB_TRADE = 3.2;
  */
 const ROCKET_THRUST = 1.5;
 /**
- * How much of the kick is left at burnout. Minecraft holds the push flat for
- * the whole burn and lets drag do the slowing down afterwards; this keeps a
- * light fade so a five-second burn is not a flat line, but the ignition peak
- * is Minecraft's, and most of the decay you feel is drag once it is spent.
+ * Minecraft holds the push flat for the whole burn and lets drag do the
+ * slowing down afterwards. There was a light fade here so a long burn was not
+ * a flat line; it is gone, because a flat line is what it is.
+ *
+ * What this actually feels like, and the numbers are Minecraft's own: held
+ * level, a rocket settles you at about 33 m/s. That is the famous figure —
+ * elytra plus rockets cruises at a shade over thirty-three metres a second —
+ * and it is *lower* than a dive, which reaches 78. So firing while already
+ * faster than that slows you down. That is not a bug in the rocket; it is what
+ * a rocket is: it pulls your speed toward its own, from either direction.
  */
-const ROCKET_TAPER = 0.85;
+const ROCKET_TAPER = 1;
 const TO_TICK = TICK; // m/s -> blocks/tick
 const TO_SECOND = 1 / TICK; // blocks/tick -> m/s
 
@@ -138,24 +144,42 @@ export function stepRocket(velocity, look, power = 1, spent = 0) {
 /**
  * Ticks of thrust a rocket of the given flight duration provides.
  *
- * The slot number is the burn in *seconds*, which is what the label has always
- * claimed and what a Minecraft player expects "flight duration 3" to mean.
+ * Minecraft's own formula: a firework with flight duration N lives for
+ * `10N + 6` ticks (plus a random nought to five that is not worth reproducing
+ * for something you are steering). So:
+ *
+ *   I    16 ticks   0.8 s
+ *   II   26 ticks   1.3 s
+ *   III  36 ticks   1.8 s
+ *   IV   46 ticks   2.3 s
+ *   V    56 ticks   2.8 s
+ *
+ * Crafting caps the duration at three; four and five come from a command
+ * block, and the formula runs straight on through them, which is what "infer
+ * it from the graph" means here — there is a graph and it is a straight line.
+ *
+ * This was briefly "the number is the burn in seconds", because the label said
+ * so and five seconds is what a player might expect "duration 5" to mean. It
+ * is not what Minecraft does, and matching Minecraft is the instruction. The
+ * hotbar prints the real burn instead, so the label is honest either way.
  */
 export function rocketTicks(duration) {
-  return Math.round(duration / TICK);
+  return 10 * Math.max(1, Math.round(duration)) + 6;
 }
 
 /**
- * Thrust multiplier for a slot: bigger rockets carry more powder.
+ * Thrust multiplier for a slot.
  *
- * Minecraft gives every rocket the same push and varies only the burn. Here
- * the number means both, and each step up is a fifth again on top of the last
- * rather than a fifth of the first — so the gap between IV and V is bigger
- * than the gap between I and II, which is how a stack of powder actually
- * behaves. It tops out a shade over twice a Rocket I.
+ * One, for every slot. Minecraft gives every firework the same push — it
+ * accelerates you toward 1.5 blocks a tick along your look, whatever is in it
+ * — and varies only how long the push lasts. A bigger rocket is a longer
+ * rocket, not a harder one.
+ *
+ * It used to compound a fifth per slot, so a Rocket V pushed twice as hard as
+ * a Rocket I. That is a nicer toy and it is not this game's job.
  */
-export function rocketPowerFor(duration) {
-  return Math.pow(1.2, duration - 1);
+export function rocketPowerFor() {
+  return 1;
 }
 
 /**

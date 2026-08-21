@@ -209,52 +209,52 @@ console.log('\nelytra flight model');
   for (let tick = 0; tick < rocketTicks(3); tick++) stepRocket(boosted, levelLook, 1, tick / rocketTicks(3));
   ok('rocket boosts toward look direction', Math.hypot(boosted.x, boosted.y, boosted.z) > 25,
     `${Math.hypot(boosted.x, boosted.y, boosted.z).toFixed(1)} m/s`);
-  // The slot number is the burn in seconds. It used to be Minecraft's raw
-  // entity lifetime, which made "dur 5" last 2.8 s — the label was lying.
-  for (const duration of [1, 2, 3, 4, 5]) {
-    ok(`rocket ${duration} burns for exactly ${duration} s`,
-      near(rocketTicks(duration) * TICK, duration, 0.001));
+  // Minecraft's own lifetime formula: 10N + 6 ticks. This was briefly "the
+  // number is the burn in seconds", because the label said so; matching
+  // Minecraft is the instruction, and the label prints the real burn instead.
+  for (const [duration, ticks] of [[1, 16], [2, 26], [3, 36], [4, 46], [5, 56]]) {
+    ok(`rocket ${duration} burns for Minecraft's ${ticks} ticks`,
+      rocketTicks(duration) === ticks, `${(ticks * TICK).toFixed(1)} s`);
   }
-  ok('a bigger rocket carries more powder', rocketPowerFor(5) > rocketPowerFor(1));
-  ok(
-    'the powder ramp compounds rather than adding',
-    rocketPowerFor(5) - rocketPowerFor(4) > rocketPowerFor(2) - rocketPowerFor(1) + 0.01,
-    `IV->V ${(rocketPowerFor(5) - rocketPowerFor(4)).toFixed(3)} vs I->II ${(rocketPowerFor(2) - rocketPowerFor(1)).toFixed(3)}`,
-  );
-  ok('but duration is the main thing you buy — power ramps gently',
-    rocketPowerFor(5) < rocketPowerFor(1) * 2.2,
-    `${rocketPowerFor(1).toFixed(2)} to ${rocketPowerFor(5).toFixed(2)}`);
+  ok('every rocket pushes exactly as hard as every other, as in Minecraft',
+    [1, 2, 3, 4, 5].every((d) => rocketPowerFor(d) === 1));
 
-  // Minecraft accelerates you toward 1.5 blocks/tick, which is 30 m/s. A
-  // plain rocket fired from a standstill should land right about there.
+  // Minecraft accelerates you toward 1.5 blocks/tick, which is 30 m/s. Held
+  // level that is where a rocket settles you — the famous "elytra and rockets
+  // cruise at about 33 m/s" figure, once the glide tick has had its say.
   {
     const fromRest = { x: 0, y: 0, z: 0 };
-    const ticks = rocketTicks(1);
-    for (let tick = 0; tick < ticks; tick++) stepRocket(fromRest, levelLook, rocketPowerFor(1), tick / ticks);
-    const reached = Math.hypot(fromRest.x, fromRest.y, fromRest.z);
-    ok('a rocket I reaches Minecraft\'s ~30 m/s', near(reached, 30, 4), `${reached.toFixed(1)} m/s`);
-  }
-
-  // And what slows you afterwards is drag, not the rocket fading — which is
-  // how Minecraft behaves and what "slows down over time" actually means.
-  {
-    const boosted2 = { x: 0, y: 0, z: -20 };
     const ticks = rocketTicks(3);
-    for (let tick = 0; tick < ticks; tick++) stepRocket(boosted2, levelLook, rocketPowerFor(3), tick / ticks);
-    const atBurnout = Math.hypot(boosted2.x, boosted2.y, boosted2.z);
-    for (let tick = 0; tick < 60; tick++) stepGlide(boosted2, levelLook, 0);
-    const later = Math.hypot(boosted2.x, boosted2.y, boosted2.z);
-    ok('speed bleeds off after burnout', later < atBurnout - 3,
-      `${atBurnout.toFixed(1)} to ${later.toFixed(1)} m/s over 3 s`);
+    for (let tick = 0; tick < ticks; tick++) {
+      stepRocket(fromRest, levelLook, 1, tick / ticks);
+      stepGlide(fromRest, levelLook, 0);
+    }
+    const reached = Math.hypot(fromRest.x, fromRest.y, fromRest.z);
+    ok('rockets cruise at Minecraft\u2019s 33 m/s', near(reached, 33, 3), `${reached.toFixed(1)} m/s`);
   }
 
-  // The kick fades across the burn rather than holding flat.
-  const early = { x: 0, y: 0, z: -20 };
-  const late = { x: 0, y: 0, z: -20 };
-  stepRocket(early, levelLook, 1, 0);
-  stepRocket(late, levelLook, 1, 1);
-  ok('a rocket kicks hardest at ignition',
-    Math.hypot(early.x, early.z) > Math.hypot(late.x, late.z));
+  // The push is flat for the whole burn, which is what Minecraft does; what
+  // slows you afterwards is drag.
+  {
+    const early = { x: 0, y: 0, z: -20 };
+    const late = { x: 0, y: 0, z: -20 };
+    stepRocket(early, levelLook, 1, 0);
+    stepRocket(late, levelLook, 1, 1);
+    ok('the push does not fade across the burn',
+      near(Math.hypot(early.x, early.z), Math.hypot(late.x, late.z), 0.001));
+  }
+
+  // A rocket pulls your speed *toward* its own from either direction. Fired
+  // while already diving you slow down, which is not a bug: it is what 1.5
+  // blocks a tick means when you are doing three and a half.
+  {
+    const fast = { x: 0, y: 0, z: -70 };
+    const ticks = rocketTicks(3);
+    for (let tick = 0; tick < ticks; tick++) stepRocket(fast, levelLook, 1, tick / ticks);
+    ok('and firing one while faster than it slows you toward it',
+      Math.hypot(fast.x, fast.z) < 70 && Math.hypot(fast.x, fast.z) > 25,
+      `${Math.hypot(fast.x, fast.z).toFixed(0)} m/s`);
+  }
 }
 
 console.log('\nclimate and sun');
@@ -876,10 +876,11 @@ console.log('\nThe HUD fits the window');
     /@media \(max-width: 660px\)[\s\S]{0,260}slot-label[\s\S]{0,60}display: none/.test(css));
 
   // The slot hint has to fit the slot, and has to be true. It read
-  // "dur 5 - pwr 5", which was neither.
+  // "dur 5 - pwr 5", which was neither, and then "5s", which was also not the
+  // burn. It prints Minecraft's own tick count in seconds now.
   const player = readFileSync(new URL('../src/player/player.js', import.meta.url), 'utf8');
-  ok('the slot hint states seconds and the real multiplier',
-    /hint: `\$\{duration\}s[\s\S]{0,60}rocketPowerFor\(duration\)\.toFixed/.test(player));
+  ok('the slot hint states the real burn in seconds',
+    /hint: `\$\{\(rocketTicks\(duration\) \/ 20\)\.toFixed\(1\)\}s burn`/.test(player));
 }
 
 // ---------------------------------------------------------------------------

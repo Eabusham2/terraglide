@@ -146,7 +146,13 @@ export class WorldMap {
       (event) => {
         event.preventDefault();
         const steps = this.wheel.read(event);
-        if (steps) this.setZoom(this.zoom + steps * 0.5);
+        if (!steps) return;
+        // Zoom about the pointer, the way every map does. Zooming about the
+        // centre instead means the thing you are pointing at slides away from
+        // you as you go in, and the further off-centre it is the further it
+        // slides — which is the map "zooming out too much to the left".
+        const anchor = this.pointAt(event);
+        this.setZoom(this.zoom + steps * 0.5, anchor);
       },
       { passive: false },
     );
@@ -249,10 +255,25 @@ export class WorldMap {
     }
   }
 
-  setZoom(zoom) {
+  /**
+   * @param {number} zoom
+   * @param {{lat:number,lon:number}} [anchor] a point to keep under the pointer
+   */
+  setZoom(zoom, anchor = null) {
     // Quantised to the same half level the wheel steps in, so a step always
     // lands somewhere new. Rounding finer than the step is what stalled it.
-    this.zoom = clamp(Math.round(zoom * 2) / 2, 2, 19);
+    const next = clamp(Math.round(zoom * 2) / 2, 2, 19);
+    if (next === this.zoom) return;
+    if (anchor && Number.isFinite(anchor.lat)) {
+      // Keep the anchor where it is on screen: move the centre by the part of
+      // the offset the zoom change would otherwise magnify.
+      const factor = Math.pow(2, next - this.zoom);
+      this.centre = {
+        lat: clamp(anchor.lat + (this.centre.lat - anchor.lat) / factor, -85, 85),
+        lon: anchor.lon + (this.centre.lon - anchor.lon) / factor,
+      };
+    }
+    this.zoom = next;
     this.dirty = true;
   }
 

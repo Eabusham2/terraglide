@@ -14,10 +14,21 @@ import { EARTH_CIRCUMFERENCE, latToNormY, lonToNormX, tileKey } from '../geo/mer
  * different from a stroll.
  */
 
-const LEVELS = [8, 10, 12, 14];
+/**
+ * The zooms visited ground is recorded at.
+ *
+ * Sixteen is here so the edge of the fog is the shape you actually flew rather
+ * than a staircase of two-kilometre squares. It cannot record a wide circle —
+ * `reach` is capped at four tiles either way, which at level 16 is about two
+ * and a half kilometres — and that cap is the point rather than a limitation:
+ * you only ever saw the ground in that much detail when you were near it. High
+ * over a coastline you uncover a broad, coarse circle; walking a valley you
+ * uncover a narrow, sharp one, and the map shows the difference.
+ */
+const LEVELS = [8, 10, 12, 14, 16];
 const DETAIL_LEVEL = 14;
 const STORAGE_KEY = 'explored';
-const MAX_ENTRIES = 60000;
+const MAX_ENTRIES = 160000;
 
 export class Exploration extends Emitter {
   constructor() {
@@ -140,8 +151,10 @@ export class Exploration extends Emitter {
     if (!this.dirty) return;
     let list = [...this.cells];
     if (list.length > MAX_ENTRIES) {
-      // Keep the finest detail closest to the cap; coarse levels are cheap.
-      list = list.filter((key) => !key.startsWith(`${DETAIL_LEVEL}/`) || Math.random() < 0.7);
+      // Thin the finest level first. Sixteen is the sharpest edge and also by
+      // far the most cells; the coarse levels are what keep a continent's worth
+      // of flying on the map at all, and they are cheap.
+      list = list.filter((key) => !key.startsWith('16/') || Math.random() < 0.55);
     }
     writeJSON(STORAGE_KEY, list);
     this.dirty = false;

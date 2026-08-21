@@ -885,9 +885,25 @@ export class Game {
       // alp does not move your eye by a pixel, so hold the height you were
       // put at and leave it alone. Easing toward `ground + 420` instead meant
       // every elevation tile that landed slid the whole world past you, which
-      // is exactly the jitter an arrival had. The only thing worth reacting
-      // to is ground arriving *above* you, and that is eased.
+      // is exactly the jitter an arrival had.
       if (!Number.isFinite(this._holdY)) this._holdY = player.position.y;
+      // The exception, and it is the whole reason arrivals went wrong: the
+      // height was chosen before the elevation for this place existed, so an
+      // arrival over a mountain put you *inside* it — four hundred metres up
+      // in a world whose ground turns out to be three thousand. Easing out of
+      // that took seconds the settle did not have, so you were released still
+      // buried and the collision threw you to the surface. That is the
+      // teleport that "drops you to the ground", and it is also why looking
+      // down before teleporting seemed to cause it.
+      //
+      // So the first time real relief arrives, jump rather than ease. You are
+      // held still and looking at ground that has not drawn yet; a jump there
+      // is invisible, and it is the only thing fast enough.
+      const norm = this.frame.worldToNorm(player.position.x, player.position.z);
+      if (!this.reliefLanded && this.elevation.hasData(norm.nx, norm.ny)) {
+        this.reliefLanded = true;
+        if (this._holdY < ground + SPAWN_HEIGHT_M * 0.5) this._holdY = ground + SPAWN_HEIGHT_M;
+      }
       const clearance = ground + SPAWN_HEIGHT_M * 0.1;
       if (this._holdY < clearance) this._holdY = damp(this._holdY, clearance, 6, dt);
     } else {
@@ -906,7 +922,10 @@ export class Game {
     const waited = performance.now() - (this.settleUntil - SETTLE_MS);
     const norm = this.frame.worldToNorm(player.position.x, player.position.z);
     const ready = this.elevation.hasData(norm.nx, norm.ny) && this.terrain.stats.drawn > 6;
-    if (waited > 650 && ready) this.releaseSettle();
+    // And never hand control back while the ground is still above your head.
+    // Releasing into a hillside is the same bug seen from the other end.
+    const clear = !this.holdInAir || player.position.y > ground + 2;
+    if (waited > 650 && ready && clear) this.releaseSettle();
   }
 
   /**
@@ -1004,6 +1023,7 @@ export class Game {
     // feel like a stutter, and what left the ground invisible underfoot.
     this.holdInAir = airborne;
     this._holdY = NaN; // re-seeded on the first settle frame
+    this.reliefLanded = false; // see settle(): the first real relief jumps you clear
     this.settleUntil = performance.now() + SETTLE_MS;
     this.arrivalPending = !airborne;
     this.address = 'Locating…';
