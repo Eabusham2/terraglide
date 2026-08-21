@@ -1287,10 +1287,25 @@ console.log('\nThe wheel, in whole steps');
     w.read({ deltaY, deltaMode, timeStamp: t });
 
   {
-    // A mouse: one notch is 100 pixels, and two of them make a step.
+    // A mouse arrives in whole clicks and every click should count, however
+    // slowly it is turned. Accumulating those was worse than not accumulating:
+    // a deliberate one-click-at-a-time scroll never reached the threshold and
+    // the map never zoomed at all.
     const w = new WheelSteps(2);
-    ok('one notch of a mouse wheel is not yet a step', notch(w, -100, 0, 0) === 0);
-    ok('and the second one is', notch(w, -100, 0, 100) === 1);
+    ok('one notch of a mouse wheel is one step', notch(w, -100, 0, 0) === 1);
+    ok('and so is the next one', notch(w, -100, 0, 100) === 1);
+    ok('and one a whole second later, which is the case that was broken',
+      notch(w, -100, 0, 1100) === 1);
+    // Browsers disagree about how big a click is; none of them is wrong and
+    // all of them mean one click.
+    for (const size of [53, 100, 114, 120, 133]) {
+      ok(`a browser whose notch is ${size} still means one click`,
+        new WheelSteps(2).read({ deltaY: -size, deltaMode: 0, timeStamp: 0 }) === 1);
+    }
+    // Two clicks in one event, which is what a fast flick of a real wheel
+    // looks like, should be two.
+    ok('a double click in one event is two steps',
+      new WheelSteps(2).read({ deltaY: -240, deltaMode: 0, timeStamp: 0 }) === 2);
   }
   {
     // Down then up has to get back to where it started. Rounding finer than
@@ -1321,10 +1336,12 @@ console.log('\nThe wheel, in whole steps');
     ok('a single huge delta cannot skip the whole range', notch(w, -4000, 0, 0) <= 3);
   }
   {
-    // Half a notch left over from a minute ago is not part of this gesture.
+    // A trackpad fragment left over from a minute ago is not part of this
+    // gesture and must not be added to it.
     const w = new WheelSteps(2);
-    notch(w, -100, 0, 0);
-    ok('a stale part-notch is forgotten', notch(w, -100, 0, 5000) === 0);
+    notch(w, -12, 0, 0);
+    ok('a stale fragment is forgotten', w.accumulated !== 0 && notch(w, -12, 0, 5000) === 0);
+    ok('and it really was dropped rather than kept', Math.abs(w.accumulated) < 0.2, `${w.accumulated}`);
   }
 }
 
