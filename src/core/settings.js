@@ -60,6 +60,23 @@ export const DEFAULT_SETTINGS = {
   scenery: true,
   sceneryFromImagery: true,
   maxTileZoom: 20,
+  /**
+   * Ask for the ground as sharp as the provider will serve it.
+   *
+   * The number above is a ceiling you set; this says do not set one. What you
+   * actually get is then whatever the provider answers, which the streamer
+   * works out for itself by watching which zoom levels come back and which
+   * only ever 404 — so this is "as detailed as possible" in the literal sense
+   * rather than a guess at a number that is right for one provider and wrong
+   * for the next.
+   */
+  maxTileZoomAuto: true,
+  /**
+   * Pick the graphics preset by measuring the frame clock against fpsTarget.
+   * See src/core/autoQuality.js — it only ever moves one tier at a time and
+   * says so when it does.
+   */
+  autoQuality: true,
   meshDetail: 1.2,
   showFps: false,
 

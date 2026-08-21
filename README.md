@@ -23,6 +23,15 @@ install, it runs in the tab.
 whole game in one file. Save it anywhere and double-click it; no server, no
 install, works on a Chromebook, and the generated world runs entirely offline.
 
+**One file, always current?** Download
+[terraglide-online.html](https://eabusham2.github.io/terraglide/terraglide-online.html)
+instead. It is about a kilobyte and holds no game: it loads everything from the
+published site, so it never goes stale and never needs rebuilding. The two are
+opposites — one carries the game and needs no network, the other needs a
+network and is always the current version. The online one also gets the
+photorealistic 3D route, which the offline bundle cannot carry because that
+needs a module loader. Its own branch, `online-singlefile`, has the details.
+
 To run the source copy: browsers refuse to load ES modules from `file://`, so
 the folder has to be served over HTTP. Any static server works; one is
 included:
@@ -324,8 +333,10 @@ there is nothing for them to displace; they are drawn in every mode. The
 manifest keeps the two groups in separate blocks and `selftest.mjs` checks that
 the gate on one and the absence of a gate on the other both survive.
 
-The single-file build ships no assets folder at all and falls back to flat
-colour, which is why it looks a little plainer and weighs a lot less.
+The single-file build ships no assets folder at all. It asks the published site
+for one at startup and falls back to flat colour when there is no network or the
+host is blocked, so it is a little plainer offline and weighs a lot less either
+way.
 
 Above that there is weather — cloud cover and rain or snow for the place and
 month you are in, from the same climate model as the temperature readout. It is
@@ -373,6 +384,20 @@ Notable ones: metric or imperial units, whether random teleport may drop you at
 sea, whether it goes anywhere on Earth or stays within a distance of you, time of
 day (live, noon, golden hour, night, or a custom hour), and how far exploring
 reveals the map.
+
+Two of them decide things for you rather than asking, and both are on by
+default. **Ground detail** is set to whatever the provider actually serves
+rather than to a number — the streamer works that out by watching which zoom
+levels answer and which only ever 404, so "as sharp as possible" means what it
+says whichever provider you are on. And the **graphics preset** is chosen by
+measuring: the render scale gives up pixels first because they are the cheapest
+thing to give up, and only once that has run out of room in either direction
+does the preset move a step, quickly downwards and slowly back up. It says so
+when it does, and picking one by hand takes it from there.
+
+**Escape pauses.** Any menu stops the world — movement, timers and the burn on
+a firework all freeze — while the frame is still drawn and tiles keep arriving,
+so the ground has finished loading by the time you close it.
 
 Everything lives in this browser's local storage — settings, key bindings,
 explored ground, waypoints, paths and your last position. **Settings → Data**

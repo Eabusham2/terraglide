@@ -29,14 +29,16 @@ jobs:
           node tools/check.mjs
           node tools/selftest.mjs
 
-      - name: Build the single-file download
-        run: node tools/bundle.mjs
+      - name: Build the two single-file downloads
+        run: |
+          node tools/bundle.mjs
+          node tools/online.mjs
 
       - name: Assemble the site
         run: |
           rm -rf _site
           mkdir _site
-          cp -r index.html terraglide.html src styles vendor assets LICENSE THIRD-PARTY.md README.md _site/
+          cp -r index.html terraglide.html terraglide-online.html src styles vendor assets LICENSE THIRD-PARTY.md README.md _site/
           # The textures are part of the served game — without assets/ the site
           # silently falls back to flat colour and nobody can tell why.
           test -f _site/assets/manifest.json

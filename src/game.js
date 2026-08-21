@@ -2,6 +2,7 @@ import * as THREE from '../vendor/three/three.module.js';
 import { cheats } from './core/cheats.js';
 import { clamp, damp } from './core/math.js';
 import { PerfGovernor } from './core/perf.js';
+import { AutoQuality } from './core/autoQuality.js';
 import { settings } from './core/settings.js';
 import { readJSON, writeJSON } from './core/storage.js';
 import { formatDistance, formatLatLon } from './core/units.js';
@@ -61,6 +62,7 @@ export class Game {
     this.running = false;
     this.lastTime = 0;
     this.perf = new PerfGovernor();
+    this.autoQuality = new AutoQuality();
     this.settleUntil = 0;
     this._holdY = NaN;
     this.teleporting = false;
@@ -390,6 +392,12 @@ export class Game {
       this.avatar.loadModel().then(() => this.avatar.applyModelMode());
     }
     if (key === 'resolutionScale' || key === 'graphics') this.resize();
+    // Choosing a preset by hand is a statement about what you want, so the
+    // governor starts again from there rather than undoing it in a few
+    // seconds and looking like the setting had not saved.
+    if (key === 'graphics' || key === 'fpsTarget' || key === 'autoQuality') {
+      this.autoQuality.reset();
+    }
     if (key === 'meshDetail') this.terrain.rebase();
     if (key === 'mouseMode' && settings.get('mouseMode') === 'locked') this.input.requestPointerLock();
   }
@@ -488,6 +496,15 @@ export class Game {
     // The frame-rate governor wants real seconds; everything else runs on the
     // game clock, which the game-speed cheat is allowed to stretch.
     this.perf.update(elapsed);
+    // The resolution governor gives up pixels first because they are the
+    // cheapest thing to give up. This only acts once that has run out of room
+    // in either direction — see src/core/autoQuality.js.
+    const tier = this.autoQuality.update(elapsed, this.perf);
+    if (tier) {
+      this.toast(
+        `Graphics set to ${tier} to hold ${settings.get('fpsTarget')} fps — Settings to turn this off`,
+      );
+    }
     // The governor only decides a scale — something has to act on it. Applied
     // in steps, and only when it has really moved, so it never oscillates a
     // few percent per frame and turns into the stutter it exists to prevent.

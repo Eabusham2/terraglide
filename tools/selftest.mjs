@@ -1002,6 +1002,91 @@ console.log('\nGenerated art stays where it belongs');
   }
 }
 
+console.log('\nPicking the preset by measuring');
+{
+  const { AutoQuality, TIERS } = await import('../src/core/autoQuality.js');
+  const { settings: S } = await import('../src/core/settings.js');
+  S.set('autoQuality', true);
+  S.set('fpsTarget', 60);
+  S.set('resolutionScale', 1);
+
+  // Run the governor for a while at a given frame time and render scale.
+  const run = (q, seconds, frameMs, scale) => {
+    const moves = [];
+    for (let t = 0; t < seconds; t += 1 / 30) {
+      const tier = q.update(1 / 30, { frameMs, scale });
+      if (tier) moves.push(tier);
+    }
+    return moves;
+  };
+
+  {
+    // Late frames, but the resolution governor still has room. That is its
+    // problem to solve first, and two knobs pulling at once is how adaptive
+    // things end up hunting.
+    S.set('graphics', 'high');
+    const q = new AutoQuality();
+    q.settle = 0;
+    ok('nothing moves while the render scale can still absorb it',
+      run(q, 40, 40, 1).length === 0);
+  }
+  {
+    // Floored and still late: now it is a preset problem.
+    S.set('graphics', 'high');
+    const q = new AutoQuality();
+    q.settle = 0;
+    const moves = run(q, 40, 40, 0.55);
+    ok('a floored scale and late frames drops a tier', moves[0] === 'medium', moves.join(','));
+    ok('and it drops one at a time, not to the bottom', moves.length <= 3, moves.join(','));
+  }
+  {
+    // Real headroom at full scale climbs back — slowly.
+    S.set('graphics', 'low');
+    const q = new AutoQuality();
+    q.settle = 0;
+    const early = run(q, 10, 6, 1);
+    ok('ten seconds of headroom is not yet enough to climb', early.length === 0, early.join(','));
+    const later = run(q, 30, 6, 1);
+    ok('but half a minute is', later[0] === 'medium', later.join(','));
+  }
+  {
+    // The important one: a tier that proved too heavy must not be climbed
+    // straight back into the moment the lighter one runs comfortably.
+    S.set('graphics', 'high');
+    const q = new AutoQuality();
+    q.settle = 0;
+    // Twenty seconds is one drop and its quiet period, so the ceiling under
+    // test is the tier it just came off.
+    const dropped = run(q, 20, 40, 0.55);
+    ok('one sustained spell drops exactly one tier', dropped.join(',') === 'medium', dropped.join(','));
+    ok('the setting really did move', S.get('graphics') === 'medium', S.get('graphics'));
+    ok('dropping marks the tier it came from', q.ceiling === TIERS.indexOf('high'), `${q.ceiling}`);
+    const back = run(q, 120, 6, 1);
+    ok('and it will not climb back into it', back.length === 0, back.join(','));
+  }
+  {
+    // Switched off, it must not touch anything.
+    S.set('graphics', 'ultra');
+    S.set('autoQuality', false);
+    const q = new AutoQuality();
+    q.settle = 0;
+    ok('off means off', run(q, 60, 90, 0.55).length === 0);
+    ok('and the preset is left alone', S.get('graphics') === 'ultra');
+    S.set('autoQuality', true);
+  }
+  {
+    // Picking one by hand is a statement about what you want.
+    S.set('graphics', 'medium');
+    const q = new AutoQuality();
+    q.ceiling = 3;
+    q.overFor = 99;
+    q.reset();
+    ok('a hand-picked preset clears the ceiling', q.ceiling === null);
+    ok('and gives the new one a quiet period', q.settle > 0);
+  }
+  S.set('graphics', 'high');
+}
+
 console.log('\nSpeed mode, fireworks and the pause key');
 {
   const { Player } = await import('../src/player/player.js');
@@ -1181,10 +1266,18 @@ console.log('\nA provider only gets asked as deep as it answers');
     const s = make(15);
     ok('the published maximum still applies', s.maxUsefulZoom === 15);
   }
-  ok('the terrain asks for the smaller of the setting and what is served',
-    /Math\.min\(settings\.get\('maxTileZoom'\), this\.streamer\.maxUsefulZoom\)/.test(
-      readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8'),
-    ));
+  {
+    const terrainSource = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+    ok('the terrain asks for the smaller of the setting and what is served',
+      /Math\.min\(wanted, this\.streamer\.maxUsefulZoom\)/.test(terrainSource));
+    // "As detailed as possible" has to mean no ceiling of our own, not a
+    // large number we picked — a number that is right for one provider is
+    // wrong for the next.
+    ok('and on auto there is no ceiling of our own',
+      /maxTileZoomAuto'\) \? Infinity : settings\.get\('maxTileZoom'\)/.test(terrainSource));
+    const { DEFAULT_SETTINGS: D } = await import('../src/core/settings.js');
+    ok('auto is the default', D.maxTileZoomAuto === true);
+  }
 }
 
 console.log('\nThe wheel, in whole steps');

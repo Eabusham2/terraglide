@@ -82482,6 +82482,23 @@ const DEFAULT_SETTINGS = {
   scenery: true,
   sceneryFromImagery: true,
   maxTileZoom: 20,
+  /**
+   * Ask for the ground as sharp as the provider will serve it.
+   *
+   * The number above is a ceiling you set; this says do not set one. What you
+   * actually get is then whatever the provider answers, which the streamer
+   * works out for itself by watching which zoom levels come back and which
+   * only ever 404 — so this is "as detailed as possible" in the literal sense
+   * rather than a guess at a number that is right for one provider and wrong
+   * for the next.
+   */
+  maxTileZoomAuto: true,
+  /**
+   * Pick the graphics preset by measuring the frame clock against fpsTarget.
+   * See src/core/autoQuality.js — it only ever moves one tier at a time and
+   * says so when it does.
+   */
+  autoQuality: true,
   meshDetail: 1.2,
   showFps: false,
 
@@ -82722,6 +82739,140 @@ class FixedStep {
 
 __tg_exports["PerfGovernor"] = PerfGovernor;
 __tg_exports["FixedStep"] = FixedStep;
+};
+__tg_modules["src/core/autoQuality.js"] = function (__tg_exports) {
+const { settings } = __tg_require("src/core/settings.js");
+
+/**
+ * Choosing the graphics preset by measuring instead of guessing.
+ *
+ * A benchmark you run once at startup measures a menu, an empty sky or
+ * whatever happened to be on screen for two seconds — none of which is what
+ * the game costs. The honest test is the game itself, so this watches the real
+ * frame clock and moves the preset when the machine has been telling you the
+ * same thing for long enough to believe it.
+ *
+ * It sits *above* the resolution governor rather than beside it. That one
+ * absorbs the small stuff by rendering fewer pixels, which is the cheapest
+ * thing to give up and the first thing to take back; this one only acts once
+ * that has run out of room — the scale is on the floor and the frames are
+ * still late, or the scale is back at full and there is real headroom spare.
+ * Two knobs both reacting to the same overshoot would fight.
+ *
+ * The rest is hysteresis, because the failure mode of anything adaptive is
+ * hunting. Dropping a tier is quick and taking one back is slow; a tier that
+ * has proved too heavy becomes a ceiling, so the loop cannot climb straight
+ * back into it; and the ceiling forgets after a couple of minutes, because
+ * flying into a city is not the same fact about your machine as flying out of
+ * one again.
+ */
+
+/** Lightest first. The order is the ladder. */
+const TIERS = ['low', 'medium', 'high', 'ultra'];
+
+/** Seconds over budget, with nothing left to give, before dropping a tier. */
+const DROP_AFTER_S = 8;
+/** Seconds of real headroom before taking one back. Deliberately far longer. */
+const RAISE_AFTER_S = 22;
+/** Quiet period after any change, so a tier is judged on its own frames. */
+const SETTLE_S = 12;
+/** How long a tier stays marked too heavy. */
+const CEILING_MEMORY_S = 150;
+/** Late enough to count as late, and early enough to count as spare. */
+const LATE = 1.25;
+const SPARE = 0.72;
+
+class AutoQuality {
+  constructor() {
+    this.overFor = 0;
+    this.underFor = 0;
+    this.settle = 0;
+    /** Index of the lightest tier known to be too heavy, or null. */
+    this.ceiling = null;
+    this.ceilingAge = 0;
+  }
+
+  /**
+   * @param {number} dt seconds
+   * @param {{frameMs: number, scale: number}} perf the resolution governor
+   * @returns {string|null} the tier just moved to, or null for no change
+   */
+  update(dt, perf) {
+    if (!settings.get('autoQuality')) {
+      this.overFor = 0;
+      this.underFor = 0;
+      return null;
+    }
+
+    this.settle = Math.max(0, this.settle - dt);
+    if (this.ceiling !== null) {
+      this.ceilingAge += dt;
+      if (this.ceilingAge > CEILING_MEMORY_S) this.ceiling = null;
+    }
+
+    const budget = 1000 / Math.max(30, settings.get('fpsTarget'));
+    const ms = perf.frameMs;
+    // "Nothing left to give" and "room to spare" are both about the resolution
+    // governor, not about the frame time alone.
+    const floored = perf.scale <= 0.57;
+    const full = perf.scale >= settings.get('resolutionScale') - 0.01;
+
+    if (ms > budget * LATE && floored) {
+      this.overFor += dt;
+      this.underFor = 0;
+    } else if (ms < budget * SPARE && full) {
+      this.underFor += dt;
+      this.overFor = 0;
+    } else {
+      // Neither: let both timers bleed off rather than resetting them, so a
+      // machine that is marginal still gets there eventually.
+      this.overFor = Math.max(0, this.overFor - dt);
+      this.underFor = Math.max(0, this.underFor - dt);
+    }
+
+    if (this.settle > 0) return null;
+    const index = TIERS.indexOf(settings.get('graphics'));
+    if (index < 0) return null;
+
+    if (this.overFor >= DROP_AFTER_S && index > 0) {
+      this.ceiling = index;
+      this.ceilingAge = 0;
+      return this.moveTo(index - 1);
+    }
+    if (this.underFor >= RAISE_AFTER_S && index < TIERS.length - 1) {
+      if (this.ceiling !== null && index + 1 >= this.ceiling) return null;
+      return this.moveTo(index + 1);
+    }
+    return null;
+  }
+
+  moveTo(index) {
+    const tier = TIERS[index];
+    settings.set('graphics', tier);
+    this.settle = SETTLE_S;
+    this.overFor = 0;
+    this.underFor = 0;
+    return tier;
+  }
+
+  /**
+   * Treat a hand-picked preset as the new starting point.
+   *
+   * Choosing one yourself is a statement about what you want, so it clears the
+   * ceiling and the timers — otherwise picking Ultra on a machine that dropped
+   * to High an hour ago would be undone within seconds and look like the
+   * setting had not saved.
+   */
+  reset() {
+    this.overFor = 0;
+    this.underFor = 0;
+    this.ceiling = null;
+    this.settle = SETTLE_S;
+  }
+}
+
+__tg_exports["TIERS"] = TIERS;
+__tg_exports["AutoQuality"] = AutoQuality;
 };
 __tg_modules["src/core/units.js"] = function (__tg_exports) {
 const M_PER_FT = 0.3048;
@@ -91958,8 +92109,10 @@ class Terrain {
     // Never ask deeper than the provider is actually serving. The setting is
     // what you want; `maxUsefulZoom` is what you can have, and it comes down
     // on its own when a level starts refusing every tile while the one above
-    // it keeps answering.
-    const maxZoom = Math.min(settings.get('maxTileZoom'), this.streamer.maxUsefulZoom);
+    // it keeps answering. On auto there is no ceiling of your own at all, so
+    // what you get is exactly as sharp as the provider is willing to go.
+    const wanted = settings.get('maxTileZoomAuto') ? Infinity : settings.get('maxTileZoom');
+    const maxZoom = Math.min(wanted, this.streamer.maxUsefulZoom);
     const renderDistance = this.renderDistance;
     // Distant mode: keep drawing past the render distance, but only over
     // country you have already flown across. Ground you have never seen stops
@@ -94594,7 +94747,8 @@ const SECTIONS = [
       },
       { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 1024, step: 4, unit: ' km', help: 'How far the ground is drawn. Far tiles stay coarse, so the cost grows far more slowly than the number does \u2014 but it does grow.' },
       { key: 'distantMode', label: 'Draw twice as far over country you have seen', type: 'toggle', help: 'Past the render distance the ground keeps going, but only where the explored map says you have already been. Somewhere new still stops at the edge, so this never doubles what an unflown world costs to stream.' },
-      { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 12, max: 21, step: 1, help: 'How close the ground can get before it stops sharpening. Higher is sharper underfoot and costs more to stream.' },
+      { key: 'maxTileZoomAuto', label: 'Ground detail: as sharp as the provider allows', type: 'toggle', help: 'No ceiling of your own. What you get is whatever the provider actually serves here, which the streamer works out by watching which zoom levels answer.' },
+      { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 12, max: 22, step: 1, showWhen: () => !settings.get('maxTileZoomAuto'), help: 'How close the ground can get before it stops sharpening. Higher is sharper underfoot and costs more to stream. Twenty-two is the deepest any provider here goes.' },
       { key: 'meshDetail', label: 'Terrain mesh detail', type: 'range', min: 0.5, max: 1.6, step: 0.1, format: (v) => `${v.toFixed(1)}x` },
       { key: 'fov', label: 'Field of view', type: 'range', min: 55, max: 118, step: 1, unit: '°' },
       { key: 'freecamFov', label: 'Freecam field of view', type: 'range', min: 55, max: 118, step: 1, unit: '°' },
@@ -94609,6 +94763,7 @@ const SECTIONS = [
       },
       { key: 'weather', label: 'Clouds and rain', type: 'toggle', help: 'Cloud cover and precipitation for where and when you are, from the same climate model as the temperature.' },
       { key: 'resolutionScale', label: 'Render scale', type: 'range', min: 0.5, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%` },
+      { key: 'autoQuality', label: 'Pick the preset to hit the target', type: 'toggle', help: 'Watches the real frame clock and moves the preset one step when the machine has been saying the same thing for long enough to believe it. Drops quickly, takes one back slowly, and tells you when it does.' },
       { key: 'adaptiveResolution', label: 'Adapt render scale to keep the frame rate', type: 'toggle' },
       { key: 'fpsTarget', label: 'Frame rate target', type: 'range', min: 30, max: 144, step: 5, unit: ' fps' },
       { key: 'showFps', label: 'Show performance readout', type: 'toggle' },
@@ -95449,6 +95604,7 @@ const THREE = __tg_require("vendor/three/three.module.js");
 const { cheats } = __tg_require("src/core/cheats.js");
 const { clamp, damp } = __tg_require("src/core/math.js");
 const { PerfGovernor } = __tg_require("src/core/perf.js");
+const { AutoQuality } = __tg_require("src/core/autoQuality.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { readJSON, writeJSON } = __tg_require("src/core/storage.js");
 const { formatDistance, formatLatLon } = __tg_require("src/core/units.js");
@@ -95508,6 +95664,7 @@ class Game {
     this.running = false;
     this.lastTime = 0;
     this.perf = new PerfGovernor();
+    this.autoQuality = new AutoQuality();
     this.settleUntil = 0;
     this._holdY = NaN;
     this.teleporting = false;
@@ -95837,6 +95994,12 @@ class Game {
       this.avatar.loadModel().then(() => this.avatar.applyModelMode());
     }
     if (key === 'resolutionScale' || key === 'graphics') this.resize();
+    // Choosing a preset by hand is a statement about what you want, so the
+    // governor starts again from there rather than undoing it in a few
+    // seconds and looking like the setting had not saved.
+    if (key === 'graphics' || key === 'fpsTarget' || key === 'autoQuality') {
+      this.autoQuality.reset();
+    }
     if (key === 'meshDetail') this.terrain.rebase();
     if (key === 'mouseMode' && settings.get('mouseMode') === 'locked') this.input.requestPointerLock();
   }
@@ -95935,6 +96098,15 @@ class Game {
     // The frame-rate governor wants real seconds; everything else runs on the
     // game clock, which the game-speed cheat is allowed to stretch.
     this.perf.update(elapsed);
+    // The resolution governor gives up pixels first because they are the
+    // cheapest thing to give up. This only acts once that has run out of room
+    // in either direction — see src/core/autoQuality.js.
+    const tier = this.autoQuality.update(elapsed, this.perf);
+    if (tier) {
+      this.toast(
+        `Graphics set to ${tier} to hold ${settings.get('fpsTarget')} fps — Settings to turn this off`,
+      );
+    }
     // The governor only decides a scale — something has to act on it. Applied
     // in steps, and only when it has really moved, so it never oscillates a
     // few percent per frame and turns into the stutter it exists to prevent.
