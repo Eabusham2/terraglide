@@ -85,48 +85,65 @@ actually is, so you can swim down to it.
 
 ### Flying
 
-There are exactly three forces, and gravity is not one of the negotiable ones.
+There is one set of wings, and it is Minecraft's, transcribed from
+`LivingEntity.updateFallFlyingMovement` rather than approximated:
 
-- **Gravity** applies at full strength every tick. Nothing discounts it.
-- **The wing** turns your velocity vector toward wherever you are looking, and
-  bites harder the faster you are going. A turn is a rotation, and a rotation
-  cannot create energy — so the wing can only ever spend what gravity gave you.
-- **Drag** bleeds a little constantly and more at speed, which is what sets
-  terminal velocity.
+- **Gravity** is discounted by up to three quarters while you are level, by
+  `cos(pitch)²`, so pointing anywhere but flat costs you.
+- **Sinking pushes you forward.** A tenth of your sink is credited back as
+  speed along the way you are looking, best when level and nothing at all when
+  pointed straight down.
+- **A pull-up trades speed for height** at several times the rate it costs.
+- **Drag** multiplies the velocity by 0.99 / 0.98 / 0.99 every tick, which is
+  what sets both terminal velocities.
 
-What that means in the air: look level and hold it and you sink at about 3 m/s
-— you cannot float. Point the nose down and you build to around 85 m/s. Flare
-out of that dive and you buy back something like 60 metres of height, which is a
-lot, but always less than the dive cost you. Fly the angle well and you get
-roughly eight metres forward for every metre down, so a kilometre of altitude is
-eight kilometres of ground — a long way, and still a slope.
+Every number a Minecraft player can measure comes out at Minecraft's own
+figure. Level flight sinks **2.99 m/s** while making **30.2 m/s** — a
+**10.1 : 1** glide. A vertical dive terminates at **78.4 m/s**. A rocket
+accelerates you toward 1.5 blocks a tick along your look.
 
-**No sequence of inputs ends higher and faster than it started.** That is
-checked on every build across a sweep of dive-and-flare shapes. Level flight
-sinks 3.4 m/s while making 24; a dive tops out at 78.4 m/s, which is
-Minecraft's own terminal velocity; flown well it is seven metres forward for
-every metre down.
+Exactly one constant differs from vanilla, and it is the one the famous
+manoeuvre lives on: the climb trade, 3.2 in Minecraft and **4.5** here.
 
-The obvious version of this model — the one Minecraft actually uses, which
-discounts gravity when you are level, credits a sinking glide part of its own
-sink, and pays a pull-up over three times the speed it costs — lets a patient
-player porpoise upward forever on nothing at all. That one is **also here**,
-under **Settings → World → Glide model**, transcribed tick for tick. One dive
-and zoom flown well ends about twenty-two metres higher than it began, so you
-can climb with no rocket at all. Endless flight is a feature if you asked for
-it and a bug if you did not; choosing it is the asking.
+That is not a preference, it is a measurement. Sweeping this model over every
+two-phase dive-and-climb cycle — every angle from one degree to eighty-five,
+every cadence from a tenth of a second to twelve seconds — the best 3.2 can
+manage is a **sink of 1.4 m/s**. Better than the 3.0 m/s of holding level, and
+a glide stretched to twice its length, but still a glide: it ends. The reason
+is structural. Diving buys *vertical* speed, only a tenth of that leaks into
+forward speed each tick, and a pull-up spends *forward* speed — so the loop
+leaks faster than 3.2 refills it, and the 45/45 does not close.
 
-Rockets are the only way to add energy to the honest model. **The slot number
-is the burn in seconds** — a Rocket V pushes for five of them — and it is also
-the powder behind it, compounding a fifth at a time, so the step from IV to V
-is bigger than the step from I to II and a Rocket V is a shade over twice a
-Rocket I. The push itself is Minecraft's: it accelerates you toward 1.5 blocks
-per tick, which is 30 m/s, and then drag takes it back once the burn is spent.
-There is no cooldown; light another whenever you like.
+4.5 is where it closes, with room to fly it badly. What it changes and what it
+deliberately does not:
 
-Two taps of jump in the air open the wings, and two more stow them. `F` folds
-them away as well, so you can drop out of a glide deliberately rather than
-having to fly all the way down to something solid.
+- **unchanged** — level glide, because the term only pays with the nose up.
+  Still 2.99 m/s of sink and still 10.1 : 1.
+- **unchanged** — every dive, and so both terminal velocities.
+- **unchanged** — holding *any* fixed angle, which still sinks: 1.1 m/s at
+  ten degrees up, 2.6 m/s at forty. There is no nose-up-and-wait exploit;
+  pointing at the sky is still the slowest way down.
+- **changed** — a dive-and-pull cycle flown with a rhythm. Forty degrees
+  down and forty up, six seconds each way, climbs at about **5 m/s**. Three
+  seconds each way barely holds. A second and a half each way still loses
+  2.6 m/s.
+
+So the cadence is the skill in it, which is what makes a manoeuvre worth having
+a name. All of that is checked on every build.
+
+Rockets add energy on top. **The slot number is the burn in seconds** — a
+Rocket V pushes for five of them — and it is also the powder behind it,
+compounding a fifth at a time, so the step from IV to V is bigger than the step
+from I to II and a Rocket V is a shade over twice a Rocket I. The push itself
+accelerates you toward 1.5 blocks per tick, which is 30 m/s, and then drag
+takes it back once the burn is spent. There is no cooldown; light another
+whenever you like.
+
+**Opening the wings** is Minecraft's gesture: press jump to leave the ground,
+press it again while you are off it. Two presses in total — that is what a
+double jump is. Pressing it once more in a glide stows them. `F` does the same
+with no timing window at all, which matters on a machine slow enough that the
+gap between two frames is longer than the half second you spend in the air.
 
 Walking, jumping and falling are Minecraft's numbers: 4.32 m/s walking, 5.61
 sprinting, 1.30 sneaking, a jump that clears exactly a block and a quarter, and
@@ -240,9 +257,12 @@ the status line names both.
    real OpenStreetMap buildings and land cover. None of it needs an account.
 3. **With no network at all** — a generated world, so it still runs.
 
-The 3D loaders are about a megabyte of glTF and Draco decoding, so they are
-fetched only when you turn the option on, and the single-file build leaves them
-out entirely and says so if you ask for them.
+The 3D loaders are fetched only when you turn the option on, so a player who
+never touches it never downloads them. The single-file build carries them
+inlined instead — a file:// document has no module loader to resolve an
+on-demand import with — and asks the published site for the Draco decoder,
+which is a megabyte of WebAssembly and does not belong in a download. So the
+one-file copy flies the scanned world too, given a key and a network.
 
 ### What is standing on the ground
 
@@ -288,13 +308,30 @@ One rule, applied in one order, everywhere:
    tall.
 
    Where OSM records a `height` or a storey count, that is what gets built.
-   Where it does not — most buildings, globally — the height is *estimated*
-   from the class. That is a different thing from inventing a road: the survey
-   says a building stands here and a building has height whether or not anyone
-   tagged it, so only the measurement is estimated, never the existence.
+   Where it does not — most buildings, globally — the height is *estimated*,
+   and the estimate comes from the measured buildings **in the same square
+   kilometre**: their median storey count. So a village of bungalows comes out
+   as bungalows and a street of tenements as tenements, and the number is a
+   statement about the neighbourhood rather than one constant applied to a
+   Neapolitan alley and a Kansas warehouse alike. Where the square has nothing
+   measured at all it falls back to the running median of everywhere measured
+   so far; a bare two storeys is only reached where OSM has recorded nothing
+   measurable for miles.
+
+   That is a different thing from inventing a road: the survey says a building
+   stands here and a building has height whether or not anyone tagged it, so
+   only the measurement is estimated, never the existence.
    **Settings → World → Only build what the data measures** refuses the
    estimate and raises only what is measured; expect sparse cities. The status
    readout says what share was measured either way.
+
+   Colour is never invented either. A roof reads the aerial photograph at
+   every corner of its own footprint, so what you see on it is the picture of
+   that roof stretched over that roof — half slate and half moss comes out
+   half slate and half moss, and a terrace is not one flat swatch. Walls take
+   the roof's hue desaturated, because nothing photographs a wall from above.
+   There is no per-building random tint; there used to be, and it was the one
+   piece of pure invention left on real geometry.
 
    Roads at ground level are deliberately **not** drawn. They are already in
    the satellite image draped over the terrain, so a ribbon on top would only
@@ -385,15 +422,31 @@ sea, whether it goes anywhere on Earth or stays within a distance of you, time o
 day (live, noon, golden hour, night, or a custom hour), and how far exploring
 reveals the map.
 
-Two of them decide things for you rather than asking, and both are on by
-default. **Ground detail** is set to whatever the provider actually serves
+**Providers → Test providers** knocks on every door. It fetches one real tile
+from each provider, where you are standing, using whatever keys you have saved,
+and reports what came back — a size and a time for the ones that answer, the
+exact credential that is missing for the ones that need an account, and "does
+not cover where you are standing" for a single-country product asked about the
+wrong country. Each is asked at a zoom it actually publishes. It exists because
+"this provider is broken" and "this provider needs an account you have not
+given it" look identical from inside the game, and one tile each is a rounding
+error against anybody's quota.
+
+Three settings decide things for you rather than asking, and all three are on
+by default. **Ground detail** is set to whatever the provider actually serves
 rather than to a number — the streamer works that out by watching which zoom
 levels answer and which only ever 404, so "as sharp as possible" means what it
-says whichever provider you are on. And the **graphics preset** is chosen by
-measuring: the render scale gives up pixels first because they are the cheapest
-thing to give up, and only once that has run out of room in either direction
-does the preset move a step, quickly downwards and slowly back up. It says so
-when it does, and picking one by hand takes it from there.
+says whichever provider you are on. **Render distance** finds its own: it
+pushes the horizon out while there is headroom and pulls it in the moment there
+is not, up to 2048 km. And the **graphics preset** is chosen by measuring.
+
+The three sit in a fixed order, cheapest thing to give up first: pixels, then
+how much world there is, then how good all of it looks. The render scale never
+goes below three quarters, because a world drawn small and stretched back up is
+a different, worse-looking game; past that floor the horizon comes in, and only
+when there is no horizon left to give does the preset move a step — quickly
+downwards, slowly back up. It says so when it does, and picking one by hand
+takes it from there.
 
 **Escape pauses.** Any menu stops the world — movement, timers and the burn on
 a firework all freeze — while the frame is still drawn and tiles keep arriving,
