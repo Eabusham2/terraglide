@@ -13,6 +13,13 @@ import { renderVectorTile } from './vectorMap.js';
 
 const LIMIT = 260;
 const MAX_ACTIVE = 6;
+/**
+ * How long the queue may get before unurgent work stops being accepted.
+ * Colour sampling asks once per building, so over a city it will ask for
+ * thousands; none of them is worth remembering for the minute it would take
+ * to reach them.
+ */
+const BACKLOG_LIMIT = 96;
 
 export class MapTileCache {
   constructor() {
@@ -91,8 +98,21 @@ export class MapTileCache {
     this.generation++;
   }
 
-  /** Bitmap for a tile, or null while it loads. */
-  get(z, x, y) {
+  /**
+   * Bitmap for a tile, or null while it loads.
+   *
+   * `urgent` is what the maps ask with and colour sampling does not, and the
+   * difference matters more than it sounds. Both go through this one cache,
+   * but a map wants eight tiles that a person is looking at, while sampling
+   * the colour of a city's roofs wants one lookup per building and will
+   * happily ask for thousands. First-come-first-served meant the minimap's
+   * eight sat behind all of them and never arrived: over Manhattan it was
+   * simply black, with nothing failing and the cache full of tiles nobody was
+   * looking at. Urgent work goes first, and unurgent work is dropped rather
+   * than queued once the backlog is silly — its callers all have something to
+   * draw in the meantime and all ask again.
+   */
+  get(z, x, y, urgent = false) {
     const n = Math.pow(2, z);
     if (y < 0 || y >= n) return null;
     const wrapped = wrapTileX(x, z);
@@ -102,8 +122,9 @@ export class MapTileCache {
       entry.used = performance.now();
       return entry.bitmap;
     }
+    if (!urgent && this.queue.length >= BACKLOG_LIMIT) return null;
     this.tiles.set(key, { key, bitmap: null, used: performance.now(), state: 'queued' });
-    this.queue.push({ key, tile: { z, x: wrapped, y } });
+    this.queue.push({ key, tile: { z, x: wrapped, y }, urgent });
     this.pump();
     return null;
   }
@@ -129,7 +150,7 @@ export class MapTileCache {
       tz -= 1;
     }
     for (let step = 0; step <= maxSteps && tz >= 0; step++) {
-      const bitmap = step === 0 ? this.get(tz, tx, ty) : this.peek(tz, tx, ty);
+      const bitmap = step === 0 ? this.get(tz, tx, ty, true) : this.peek(tz, tx, ty);
       if (bitmap) return { bitmap, scale, ox, oy };
       ox = (ox + (tx & 1)) * 0.5;
       oy = (oy + (ty & 1)) * 0.5;
@@ -157,8 +178,9 @@ export class MapTileCache {
     if (pixels === undefined) {
       const bitmap = this.peek(z, wrapTileX(x, z), y);
       if (!bitmap) {
-        // Ask for it; the caller can use a fallback until it lands.
-        this.get(z, x, y);
+        // Ask for it, behind anything anyone is looking at; the caller has a
+        // fallback tone to use until it lands, and asks again next time.
+        this.get(z, x, y, false);
         return null;
       }
       const size = 64; // plenty: this is a colour, not a texture
@@ -194,7 +216,10 @@ export class MapTileCache {
 
   pump() {
     while (this.active < MAX_ACTIVE && this.queue.length > 0) {
-      const job = this.queue.shift();
+      // Whatever a person is actually looking at, before anything else.
+      let index = this.queue.findIndex((job) => job.urgent);
+      if (index < 0) index = 0;
+      const job = this.queue.splice(index, 1)[0];
       if (!job) break;
       this.load(job);
     }

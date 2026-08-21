@@ -89024,6 +89024,13 @@ const { renderVectorTile } = __tg_require("src/ui/vectorMap.js");
 
 const LIMIT = 260;
 const MAX_ACTIVE = 6;
+/**
+ * How long the queue may get before unurgent work stops being accepted.
+ * Colour sampling asks once per building, so over a city it will ask for
+ * thousands; none of them is worth remembering for the minute it would take
+ * to reach them.
+ */
+const BACKLOG_LIMIT = 96;
 
 class MapTileCache {
   constructor() {
@@ -89102,8 +89109,21 @@ class MapTileCache {
     this.generation++;
   }
 
-  /** Bitmap for a tile, or null while it loads. */
-  get(z, x, y) {
+  /**
+   * Bitmap for a tile, or null while it loads.
+   *
+   * `urgent` is what the maps ask with and colour sampling does not, and the
+   * difference matters more than it sounds. Both go through this one cache,
+   * but a map wants eight tiles that a person is looking at, while sampling
+   * the colour of a city's roofs wants one lookup per building and will
+   * happily ask for thousands. First-come-first-served meant the minimap's
+   * eight sat behind all of them and never arrived: over Manhattan it was
+   * simply black, with nothing failing and the cache full of tiles nobody was
+   * looking at. Urgent work goes first, and unurgent work is dropped rather
+   * than queued once the backlog is silly — its callers all have something to
+   * draw in the meantime and all ask again.
+   */
+  get(z, x, y, urgent = false) {
     const n = Math.pow(2, z);
     if (y < 0 || y >= n) return null;
     const wrapped = wrapTileX(x, z);
@@ -89113,8 +89133,9 @@ class MapTileCache {
       entry.used = performance.now();
       return entry.bitmap;
     }
+    if (!urgent && this.queue.length >= BACKLOG_LIMIT) return null;
     this.tiles.set(key, { key, bitmap: null, used: performance.now(), state: 'queued' });
-    this.queue.push({ key, tile: { z, x: wrapped, y } });
+    this.queue.push({ key, tile: { z, x: wrapped, y }, urgent });
     this.pump();
     return null;
   }
@@ -89140,7 +89161,7 @@ class MapTileCache {
       tz -= 1;
     }
     for (let step = 0; step <= maxSteps && tz >= 0; step++) {
-      const bitmap = step === 0 ? this.get(tz, tx, ty) : this.peek(tz, tx, ty);
+      const bitmap = step === 0 ? this.get(tz, tx, ty, true) : this.peek(tz, tx, ty);
       if (bitmap) return { bitmap, scale, ox, oy };
       ox = (ox + (tx & 1)) * 0.5;
       oy = (oy + (ty & 1)) * 0.5;
@@ -89168,8 +89189,9 @@ class MapTileCache {
     if (pixels === undefined) {
       const bitmap = this.peek(z, wrapTileX(x, z), y);
       if (!bitmap) {
-        // Ask for it; the caller can use a fallback until it lands.
-        this.get(z, x, y);
+        // Ask for it, behind anything anyone is looking at; the caller has a
+        // fallback tone to use until it lands, and asks again next time.
+        this.get(z, x, y, false);
         return null;
       }
       const size = 64; // plenty: this is a colour, not a texture
@@ -89205,7 +89227,10 @@ class MapTileCache {
 
   pump() {
     while (this.active < MAX_ACTIVE && this.queue.length > 0) {
-      const job = this.queue.shift();
+      // Whatever a person is actually looking at, before anything else.
+      let index = this.queue.findIndex((job) => job.urgent);
+      if (index < 0) index = 0;
+      const job = this.queue.splice(index, 1)[0];
       if (!job) break;
       this.load(job);
     }
@@ -89725,12 +89750,17 @@ class Buildings {
     }
   }
 
-  /** Ground height at the middle of a tile — the thing a re-found watches. */
-  tileGround(record) {
+  /** World position of a tile's middle. */
+  tileCentre(record) {
     const n = Math.pow(2, DATA_ZOOM);
     const lat = normYToLat((record.tile.y + 0.5) / n);
     const lon = normXToLon((record.tile.x + 0.5) / n);
-    const world = this.frame.toWorld(lat, lon, this._probe ?? (this._probe = new THREE.Vector3()));
+    return this.frame.toWorld(lat, lon, this._probe ?? (this._probe = new THREE.Vector3()));
+  }
+
+  /** Ground height at the middle of a tile — the thing a re-found watches. */
+  tileGround(record) {
+    const world = this.tileCentre(record);
     return this.terrain.heightAt(world.x, world.z);
   }
 
@@ -89759,6 +89789,9 @@ class Buildings {
     // every pass.
     record.groundAt = this.tileGround(record);
     record.counts = { buildings: 0, measured: 0, estimated: 0, bridgeSegments: 0 };
+    // How many roofs and walls had to fall back to flat grey because the
+    // photograph of this ground had not arrived yet. See `watchGround`.
+    this.unpainted = 0;
     const nodes = new Map();
     const ways = [];
     const roads = [];
@@ -89840,6 +89873,7 @@ class Buildings {
     this.stats.buildings += colliders.length;
     // What this tile contributed, so a re-found can take it back off again
     // rather than counting the same street twice.
+    record.unpainted = this.unpainted;
     record.counts = {
       buildings: colliders.length,
       measured: (this.stats.measured ?? 0) - before.measured,
@@ -89872,8 +89906,21 @@ class Buildings {
       // relief streams for a minute, so every pass finds a newer version than
       // the one the tile was built against and rebuilds it again. Comparing
       // the height stops the moment the DEM under this square has arrived.
-      const ground = this.tileGround(record);
-      if (Math.abs(ground - (record.groundAt ?? 0)) < REFOUND_MIN_M) continue;
+      const centre = this.tileCentre(record);
+      const ground = this.terrain.heightAt(centre.x, centre.z);
+      const moved = Math.abs(ground - (record.groundAt ?? 0)) >= REFOUND_MIN_M;
+      // Grey because the photograph had not arrived, and it has now.
+      //
+      // A roof takes its colour from the aerial image of that roof, sampled
+      // once when the tile is built. Overpass answers long before the imagery
+      // for the same ground does, so almost every building was built while
+      // that sample returned nothing and kept the flat grey fallback for
+      // ever — which is why a city read as a field of featureless slabs with
+      // a photograph draped around them. One repaint once the picture is
+      // there; the test is whether a sample succeeds now, so ground that
+      // genuinely has no imagery is asked once and then left alone.
+      const repaint = (record.unpainted ?? 0) > 0 && sampleImageryAt(this.frame, centre.x, centre.z) !== null;
+      if (!moved && !repaint) continue;
       const had = record.counts ?? { buildings: record.colliders.length };
       this.disposeTile(record);
       for (const [key, n] of Object.entries(had)) {
@@ -89914,6 +89961,7 @@ class Buildings {
     const lift = Math.max(1, Number(tags.layer) || 1) * LAYER_HEIGHT_M;
 
     const sampled = sampleImageryAt(this.frame, line[0].x, line[0].z);
+    if (!sampled) this.unpainted = (this.unpainted ?? 0) + 1;
     const base = UNPAVED.has(kind) ? TRACK_COLOUR : ROAD_COLOUR;
     // Lean on the photograph, but keep some of the surface tone: a road under
     // tree shadow should still read as a road.
@@ -89986,6 +90034,7 @@ class Buildings {
     const seed = Math.abs(node.id | 0);
     const width = clamp(height * 0.055, 0.7, 9);
     const sampled = sampleImageryAt(this.frame, x, z);
+    if (!sampled) this.unpainted = (this.unpainted ?? 0) + 1;
     const colour = sampled
       ? new THREE.Color(sampled.r, sampled.g, sampled.b).lerp(MAST_COLOUR, 0.45)
       : MAST_COLOUR.clone().multiplyScalar(0.88 + rand3(seed, 3, 9) * 0.24);
@@ -90047,6 +90096,7 @@ class Buildings {
     centreX /= ring.length;
     centreZ /= ring.length;
     const sampled = sampleImageryAt(this.frame, centreX, centreZ);
+    if (!sampled) this.unpainted = (this.unpainted ?? 0) + 1;
 
     let wall;
     let roof;
@@ -92574,9 +92624,20 @@ class Terrain {
     }
 
     // Cheap vertical bounds for culling; refined once the tile is built.
+    //
+    // Only trust a node's own bounds if they were measured against the
+    // elevation we have now. A tile built before its relief arrived is flat at
+    // sea level and says so, and over ground that turns out to be four hundred
+    // metres up that box is nowhere near the mesh — so the frustum rejects it,
+    // and a rejected node is never in `drawn`, and what is never in `drawn` is
+    // never rebuilt. The tile stays a hole in the world for as long as you
+    // stand there, with every tile around it loaded and nothing failing. That
+    // is where the missing chunks came from, and it is why the fallback here
+    // is a generous box rather than a clever one.
     const cached = this.nodes.get(tileKey(tile.z, tile.x, tile.y));
-    const minY = cached ? cached.minY : -200;
-    const maxY = cached ? cached.maxY : 6000;
+    const measured = cached && cached.builtVersion === (this.elevation.version ?? 0);
+    const minY = measured ? cached.minY : -200;
+    const maxY = measured ? cached.maxY : 6000;
 
     this._box.min.set(Math.min(x0, x1), minY, Math.min(z0, z1));
     this._box.max.set(Math.max(x0, x1), maxY, Math.max(z0, z1));
@@ -92866,15 +92927,23 @@ class Terrain {
     return hit.length > 0 ? hit[0].point.y : null;
   }
 
-  /** Mark nearby tiles for a rebuild when fresh elevation data lands. */
+  /**
+   * Mark nearby tiles for a rebuild when fresh elevation data lands.
+   *
+   * Every node, not only the ones being drawn. Walking `drawn` alone meant a
+   * tile that had been culled could never be refreshed, which mattered because
+   * the commonest reason to be culled was having been built flat before the
+   * relief arrived — so the nodes most in need of a rebuild were exactly the
+   * ones the loop could not see.
+   */
   invalidateStale(camX, camZ, maxPerFrame = 3) {
     const version = this.elevation.version ?? 0;
     let marked = 0;
-    for (const node of this.drawn) {
+    for (const node of this.nodes.values()) {
       if (marked >= maxPerFrame) break;
-      if (node.builtVersion === version) continue;
-      const dx = node.mesh.position.x - camX;
-      const dz = node.mesh.position.z - camZ;
+      if (node.builtVersion === version || !node.mesh) continue;
+      const dx = node.mesh.position.x + (node.size ?? 0) / 2 - camX;
+      const dz = node.mesh.position.z + (node.size ?? 0) / 2 - camZ;
       if (Math.hypot(dx, dz) > 6000) {
         node.builtVersion = version; // too far away to be worth a rebuild
         continue;

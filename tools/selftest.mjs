@@ -1324,6 +1324,73 @@ console.log('\nSpeed mode, fireworks and the pause key');
   S.reset?.();
 }
 
+console.log('\nWhat a person is looking at goes first');
+{
+  const { MapTileCache } = await import('../src/ui/mapTiles.js');
+  const cache = new MapTileCache();
+  const dispatched = [];
+  cache.source = { descriptor: { id: 'test', maxZoom: 19 }, urlFor: (t) => `x/${t.z}` };
+  cache.load = (job) => { dispatched.push(job); };   // never completes, so the queue builds
+
+  // Colour sampling asks once per building and will happily ask thousands of
+  // times; the minimap asks for the eight tiles somebody is looking at. First
+  // come first served meant the eight sat behind the thousands and never
+  // arrived — over a city the minimap was simply black with nothing failing.
+  for (let i = 0; i < 40; i++) cache.get(16, 1000 + i, 2000, false);
+  const before = dispatched.length;
+  cache.get(14, 5, 6, true);
+  const urgentAt = dispatched.findIndex((j) => j.tile.z === 14);
+  ok('an urgent tile is dispatched even with a queue in front of it', urgentAt >= 0);
+  ok('and it goes before the unurgent backlog',
+    urgentAt >= before - 1, `dispatched at ${urgentAt} of ${dispatched.length}`);
+
+  // And the backlog cannot grow without bound.
+  const deep = new MapTileCache();
+  deep.source = cache.source;
+  // A real fetch holds a slot until it answers, which is what lets a backlog
+  // build up at all; a stub that returns instantly never queues anything.
+  deep.load = () => { deep.active++; };
+  for (let i = 0; i < 4000; i++) deep.get(16, i, 1, false);
+  ok('an unurgent flood is dropped rather than queued', deep.queue.length < 200,
+    `${deep.queue.length} queued of 4000 asked`);
+  ok('and nothing is remembered that was never queued', deep.tiles.size < 200,
+    `${deep.tiles.size} tiles tracked`);
+  // Urgent work still gets in when the backlog is full.
+  deep.get(14, 9, 9, true);
+  ok('urgent work is never dropped', [...deep.tiles.keys()].some((k) => k.startsWith('14')));
+}
+
+console.log('\nA tile that is culled is still a tile that needs rebuilding');
+{
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  // A node built before its relief arrived is flat at sea level and its cull
+  // box says so. Over ground four hundred metres up that box is nowhere near
+  // the mesh, so the frustum rejects it — and the rebuild pass only walked
+  // the *drawn* list, so a rejected node could never be refreshed. The tile
+  // stayed a hole for as long as you stood there.
+  ok('stale bounds are not trusted for culling',
+    /builtVersion === \(this\.elevation\.version \?\? 0\)/.test(terrain) &&
+    /measured \? cached\.minY : -200/.test(terrain));
+  ok('and the rebuild pass walks every node, not only the drawn ones',
+    /for \(const node of this\.nodes\.values\(\)\)[\s\S]{0,400}node\.dirty = true/.test(terrain));
+  ok('it still skips nodes that are already current',
+    /node\.builtVersion === version \|\| !node\.mesh\) continue/.test(terrain));
+}
+
+console.log('\nBuildings are painted once the photograph arrives');
+{
+  const src = readFileSync(new URL('../src/world/buildings.js', import.meta.url), 'utf8');
+  // A roof takes its colour from the aerial image of that roof, sampled once
+  // when the tile is built. Overpass answers long before the imagery does, so
+  // almost every building kept the flat grey fallback for ever.
+  ok('empty colour samples are counted', /this\.unpainted = \(this\.unpainted \?\? 0\) \+ 1/.test(src));
+  ok('and remembered on the tile', /record\.unpainted = this\.unpainted/.test(src));
+  ok('a tile with grey in it is repainted once a sample succeeds',
+    /const repaint = \(record\.unpainted \?\? 0\) > 0 &&[\s\S]{0,80}!== null/.test(src));
+  ok('and ground with genuinely no imagery is not retried for ever',
+    /if \(!moved && !repaint\) continue/.test(src));
+}
+
 console.log('\nA map falls through rather than inventing');
 {
   const source = readFileSync(new URL('../src/ui/mapTiles.js', import.meta.url), 'utf8');

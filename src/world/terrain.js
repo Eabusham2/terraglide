@@ -284,9 +284,20 @@ export class Terrain {
     }
 
     // Cheap vertical bounds for culling; refined once the tile is built.
+    //
+    // Only trust a node's own bounds if they were measured against the
+    // elevation we have now. A tile built before its relief arrived is flat at
+    // sea level and says so, and over ground that turns out to be four hundred
+    // metres up that box is nowhere near the mesh — so the frustum rejects it,
+    // and a rejected node is never in `drawn`, and what is never in `drawn` is
+    // never rebuilt. The tile stays a hole in the world for as long as you
+    // stand there, with every tile around it loaded and nothing failing. That
+    // is where the missing chunks came from, and it is why the fallback here
+    // is a generous box rather than a clever one.
     const cached = this.nodes.get(tileKey(tile.z, tile.x, tile.y));
-    const minY = cached ? cached.minY : -200;
-    const maxY = cached ? cached.maxY : 6000;
+    const measured = cached && cached.builtVersion === (this.elevation.version ?? 0);
+    const minY = measured ? cached.minY : -200;
+    const maxY = measured ? cached.maxY : 6000;
 
     this._box.min.set(Math.min(x0, x1), minY, Math.min(z0, z1));
     this._box.max.set(Math.max(x0, x1), maxY, Math.max(z0, z1));
@@ -576,15 +587,23 @@ export class Terrain {
     return hit.length > 0 ? hit[0].point.y : null;
   }
 
-  /** Mark nearby tiles for a rebuild when fresh elevation data lands. */
+  /**
+   * Mark nearby tiles for a rebuild when fresh elevation data lands.
+   *
+   * Every node, not only the ones being drawn. Walking `drawn` alone meant a
+   * tile that had been culled could never be refreshed, which mattered because
+   * the commonest reason to be culled was having been built flat before the
+   * relief arrived — so the nodes most in need of a rebuild were exactly the
+   * ones the loop could not see.
+   */
   invalidateStale(camX, camZ, maxPerFrame = 3) {
     const version = this.elevation.version ?? 0;
     let marked = 0;
-    for (const node of this.drawn) {
+    for (const node of this.nodes.values()) {
       if (marked >= maxPerFrame) break;
-      if (node.builtVersion === version) continue;
-      const dx = node.mesh.position.x - camX;
-      const dz = node.mesh.position.z - camZ;
+      if (node.builtVersion === version || !node.mesh) continue;
+      const dx = node.mesh.position.x + (node.size ?? 0) / 2 - camX;
+      const dz = node.mesh.position.z + (node.size ?? 0) / 2 - camZ;
       if (Math.hypot(dx, dz) > 6000) {
         node.builtVersion = version; // too far away to be worth a rebuild
         continue;

@@ -254,12 +254,17 @@ export class Buildings {
     }
   }
 
-  /** Ground height at the middle of a tile — the thing a re-found watches. */
-  tileGround(record) {
+  /** World position of a tile's middle. */
+  tileCentre(record) {
     const n = Math.pow(2, DATA_ZOOM);
     const lat = normYToLat((record.tile.y + 0.5) / n);
     const lon = normXToLon((record.tile.x + 0.5) / n);
-    const world = this.frame.toWorld(lat, lon, this._probe ?? (this._probe = new THREE.Vector3()));
+    return this.frame.toWorld(lat, lon, this._probe ?? (this._probe = new THREE.Vector3()));
+  }
+
+  /** Ground height at the middle of a tile — the thing a re-found watches. */
+  tileGround(record) {
+    const world = this.tileCentre(record);
     return this.terrain.heightAt(world.x, world.z);
   }
 
@@ -288,6 +293,9 @@ export class Buildings {
     // every pass.
     record.groundAt = this.tileGround(record);
     record.counts = { buildings: 0, measured: 0, estimated: 0, bridgeSegments: 0 };
+    // How many roofs and walls had to fall back to flat grey because the
+    // photograph of this ground had not arrived yet. See `watchGround`.
+    this.unpainted = 0;
     const nodes = new Map();
     const ways = [];
     const roads = [];
@@ -369,6 +377,7 @@ export class Buildings {
     this.stats.buildings += colliders.length;
     // What this tile contributed, so a re-found can take it back off again
     // rather than counting the same street twice.
+    record.unpainted = this.unpainted;
     record.counts = {
       buildings: colliders.length,
       measured: (this.stats.measured ?? 0) - before.measured,
@@ -401,8 +410,21 @@ export class Buildings {
       // relief streams for a minute, so every pass finds a newer version than
       // the one the tile was built against and rebuilds it again. Comparing
       // the height stops the moment the DEM under this square has arrived.
-      const ground = this.tileGround(record);
-      if (Math.abs(ground - (record.groundAt ?? 0)) < REFOUND_MIN_M) continue;
+      const centre = this.tileCentre(record);
+      const ground = this.terrain.heightAt(centre.x, centre.z);
+      const moved = Math.abs(ground - (record.groundAt ?? 0)) >= REFOUND_MIN_M;
+      // Grey because the photograph had not arrived, and it has now.
+      //
+      // A roof takes its colour from the aerial image of that roof, sampled
+      // once when the tile is built. Overpass answers long before the imagery
+      // for the same ground does, so almost every building was built while
+      // that sample returned nothing and kept the flat grey fallback for
+      // ever — which is why a city read as a field of featureless slabs with
+      // a photograph draped around them. One repaint once the picture is
+      // there; the test is whether a sample succeeds now, so ground that
+      // genuinely has no imagery is asked once and then left alone.
+      const repaint = (record.unpainted ?? 0) > 0 && sampleImageryAt(this.frame, centre.x, centre.z) !== null;
+      if (!moved && !repaint) continue;
       const had = record.counts ?? { buildings: record.colliders.length };
       this.disposeTile(record);
       for (const [key, n] of Object.entries(had)) {
@@ -443,6 +465,7 @@ export class Buildings {
     const lift = Math.max(1, Number(tags.layer) || 1) * LAYER_HEIGHT_M;
 
     const sampled = sampleImageryAt(this.frame, line[0].x, line[0].z);
+    if (!sampled) this.unpainted = (this.unpainted ?? 0) + 1;
     const base = UNPAVED.has(kind) ? TRACK_COLOUR : ROAD_COLOUR;
     // Lean on the photograph, but keep some of the surface tone: a road under
     // tree shadow should still read as a road.
@@ -515,6 +538,7 @@ export class Buildings {
     const seed = Math.abs(node.id | 0);
     const width = clamp(height * 0.055, 0.7, 9);
     const sampled = sampleImageryAt(this.frame, x, z);
+    if (!sampled) this.unpainted = (this.unpainted ?? 0) + 1;
     const colour = sampled
       ? new THREE.Color(sampled.r, sampled.g, sampled.b).lerp(MAST_COLOUR, 0.45)
       : MAST_COLOUR.clone().multiplyScalar(0.88 + rand3(seed, 3, 9) * 0.24);
@@ -576,6 +600,7 @@ export class Buildings {
     centreX /= ring.length;
     centreZ /= ring.length;
     const sampled = sampleImageryAt(this.frame, centreX, centreZ);
+    if (!sampled) this.unpainted = (this.unpainted ?? 0) + 1;
 
     let wall;
     let roof;
