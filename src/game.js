@@ -32,6 +32,7 @@ import { Panorama } from './world/panorama.js';
 import { pickRandomDestination } from './world/rtp.js';
 import { createSharedUniforms } from './world/shaders.js';
 import { Scatter } from './world/scatter.js';
+import { EdgeWall } from './world/edgeWall.js';
 import { Sky } from './world/sky.js';
 import { Terrain } from './world/terrain.js';
 import { Weather } from './world/weather.js';
@@ -123,6 +124,7 @@ export class Game {
     // The terrain does not know about the UI, so it is handed the question.
     this.terrain.explored = (tile) => exploration.isExplored(tile.z, tile.x, tile.y);
     this.sky = new Sky(this.scene, this.shared);
+    this.edgeWall = new EdgeWall(this.scene, this.shared);
     this.weather = new Weather(this.scene);
     this.scatter = new Scatter({ scene: this.scene, terrain: this.terrain, frame: this.frame });
     this.scatter.loadTextures();
@@ -669,6 +671,10 @@ export class Game {
     // stall the game. The terrain keeps streaming around the player.
     this.terrain.update(this.rig.isFreecam ? this.streamCamera(player) : this.camera, budget);
     this.terrain.invalidateStale(this.camera.position.x, this.camera.position.z);
+    // Close the far edge off. The terrain has just worked out how far it is
+    // drawing this frame, so the wall goes exactly there rather than at some
+    // guess that would either float in front of the last tiles or leave a gap.
+    this.edgeWall.update(this.camera, this.terrain.edgeProfile);
 
     const groundHeight = player.groundHeight;
     this.sky.setLandFraction(this.landFraction);

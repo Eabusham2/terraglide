@@ -38,6 +38,8 @@ export class Exploration extends Emitter {
     this.saveTimer = 0;
     this.lastVisit = null;
     this.detailCount = this.countAt(DETAIL_LEVEL);
+    /** Coverage folded up to zooms coarser than we record. See `coarse()`. */
+    this.coarseCache = new Map();
   }
 
   get count() {
@@ -103,8 +105,15 @@ export class Exploration extends Emitter {
         const ty = cy + dy;
         if (ty < 0 || ty >= n) continue;
         for (let dx = -reach; dx <= reach; dx++) {
+          // The tile you are standing in always counts, whatever the radius.
+          // Measuring to its centre meant that at level 8 — tiles a hundred
+          // and fifty kilometres across — standing anywhere but the middle
+          // recorded nothing at all at that level. Roughly a fifth of the
+          // planet could be flown over without the coarse record noticing,
+          // which is holes in the zoomed-out map for ground you crossed.
+          const here = dx === 0 && dy === 0;
           const distance = Math.hypot(cx + dx + 0.5 - px, ty + 0.5 - py) * tileMetres;
-          if (distance > Math.max(mercatorRadius, tileMetres * 0.5)) continue;
+          if (!here && distance > Math.max(mercatorRadius, tileMetres * 0.5)) continue;
           const key = tileKey(level, ((cx + dx) % n + n) % n, ty);
           if (this.cells.has(key)) continue;
           this.cells.add(key);
@@ -116,6 +125,7 @@ export class Exploration extends Emitter {
 
     if (added > 0) {
       this.dirty = true;
+      this.coarseCache.clear();
       this.emit('change', this.detailCount);
     }
   }
@@ -130,13 +140,40 @@ export class Exploration extends Emitter {
       if (candidate <= z) level = candidate;
     }
     const shift = z - level;
-    if (shift < 0) {
-      // Asking coarser than we record: treat a tile as explored if its centre
-      // cell is.
-      const grow = level - z;
-      return this.cells.has(tileKey(level, x << grow, y << grow));
-    }
+    if (shift < 0) return this.coarse(z).has(tileKey(z, x, y));
     return this.cells.has(tileKey(level, x >> shift, y >> shift));
+  }
+
+  /**
+   * Coverage at a zoom coarser than anything we record.
+   *
+   * Folds every level-8 cell up to `z`, cached until the record changes.
+   * The folding is the whole point. The old answer asked whether one
+   * particular child — the north-west corner — happened to be recorded, and at
+   * zoom 4 that is one square out of four thousand, so it was essentially
+   * always no. Zoomed out, then, the map decided you had never been anywhere:
+   * the whole planet drew as unvisited street map, with the pale wash laid
+   * over your own trail. Continents you had crossed looked exactly like
+   * continents you had not.
+   *
+   * A coarse tile counts as explored if *any* cell inside it is, which is the
+   * honest reading of "have I been in this square" when the square is a
+   * country.
+   */
+  coarse(z) {
+    let set = this.coarseCache.get(z);
+    if (set) return set;
+    set = new Set();
+    const base = LEVELS[0];
+    const shift = base - z;
+    const prefix = `${base}/`;
+    for (const key of this.cells) {
+      if (!key.startsWith(prefix)) continue;
+      const parts = key.split('/');
+      set.add(tileKey(z, Number(parts[1]) >> shift, Number(parts[2]) >> shift));
+    }
+    this.coarseCache.set(z, set);
+    return set;
   }
 
   tick(dt) {
@@ -162,6 +199,7 @@ export class Exploration extends Emitter {
 
   clear() {
     this.cells.clear();
+    this.coarseCache.clear();
     this.detailCount = 0;
     this.lastVisit = null;
     this.dirty = true;

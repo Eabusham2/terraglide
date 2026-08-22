@@ -1847,5 +1847,68 @@ console.log('\nWalking, jumping and falling like Minecraft');
   }
 }
 
+console.log('\nthe map you have actually seen');
+{
+  const { Exploration } = await import('../src/ui/exploration.js');
+  const e = new Exploration();
+  e.visit(51.5, -0.12, 100, 3000);
+  const eight = [...e.cells].filter((k) => k.startsWith('8/'));
+  ok('walking somewhere records the coarse tile you are standing in',
+    eight.length === 1, eight.join(',') || 'nothing at level 8');
+  const [, x, y] = eight[0].split('/').map(Number);
+  ok('and the world map still knows you were there four levels out',
+    e.isExplored(4, x >> 4, y >> 4));
+  ok('and eight levels out', e.isExplored(2, x >> 6, y >> 6));
+  ok('but not somewhere you have never been',
+    !e.isExplored(4, (((x >> 4) + 3) % 16 + 16) % 16, y >> 4));
+  const before = e.isExplored(4, x >> 4, y >> 4);
+  e.visit(-33.9, 151.2, 100, 3000);
+  ok('and a new visit does not stale the cached coarse answer',
+    before && e.isExplored(4, x >> 4, y >> 4));
+}
+
+console.log('\ndetail follows your eyes');
+{
+  const terrainSource = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  ok('the split threshold is weighted by where you are looking',
+    /const line = size \* this\.lodFactor \* this\.splitScale\(/.test(terrainSource));
+  // Borrow the method rather than standing a whole quadtree up: it is pure
+  // arithmetic on the view vector, and that is the whole of the behaviour.
+  const { Terrain } = await import('../src/world/terrain.js');
+  const probe = { _viewX: 0, _viewZ: -1, splitScale: Terrain.prototype.splitScale };
+  const ahead = probe.splitScale(0, -10000, 0, 0, 10000, 500);
+  const behind = probe.splitScale(0, 10000, 0, 0, 10000, 500);
+  const across = probe.splitScale(10000, 0, 0, 0, 10000, 500);
+  ok('ground you are facing subdivides from further away', ahead > across,
+    `${ahead.toFixed(2)} vs ${across.toFixed(2)} across`);
+  ok('and ground behind you from closer', behind < across,
+    `${behind.toFixed(2)} vs ${across.toFixed(2)}`);
+  ok('by well under a level either way, so turning round is not a rebuild',
+    ahead / behind < 2, `${(ahead / behind).toFixed(2)}x`);
+  ok('and ground underfoot is never coarsened for facing away',
+    probe.splitScale(0, 300, 0, 0, 300, 500) === 1);
+}
+
+console.log('\nthe edge of the loaded world');
+{
+  const { EDGE_SECTORS } = await import('../src/world/edgeWall.js');
+  const { Terrain } = await import('../src/world/terrain.js');
+  const probe = { edgeProfile: new Float32Array(EDGE_SECTORS), noteEdge: Terrain.prototype.noteEdge };
+  probe.edgeProfile.fill(24000);
+  // A tile 100 km due north, 2 km across.
+  probe.noteEdge(-1000, -101000, 1000, -99000, 0, 0);
+  const north = probe.edgeProfile[0];
+  ok('distant ground pushes the wall out in its own direction',
+    north > 100000 && north < 102000, `${Math.round(north)} m north`);
+  ok('and leaves the rest of the ring where the ground actually stops',
+    probe.edgeProfile[EDGE_SECTORS / 2] === 24000,
+    `${Math.round(probe.edgeProfile[EDGE_SECTORS / 2])} m south`);
+  const wide = [...probe.edgeProfile].filter((v) => v > 24000).length;
+  ok('over a narrow wedge rather than half the sky', wide <= 5, `${wide} sectors`);
+  const gameSource = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  ok('and the game hands the wall the measured edge, not the setting',
+    /edgeWall\.update\(this\.camera, this\.terrain\.edgeProfile\)/.test(gameSource));
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);

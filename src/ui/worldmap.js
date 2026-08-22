@@ -267,11 +267,25 @@ export class WorldMap {
     if (anchor && Number.isFinite(anchor.lat)) {
       // Keep the anchor where it is on screen: move the centre by the part of
       // the offset the zoom change would otherwise magnify.
+      //
+      // In projected pixels, not in degrees. Mercator stretches latitude, so
+      // splitting the difference in degrees holds the anchor still only near
+      // the equator; over Britain it slides several tiles a step, and over
+      // Greenland it bolts. Pixels are what is actually on the screen, so the
+      // arithmetic is exact wherever you are.
+      const span = worldPixelSize(0);
+      const a = project(anchor.lat, anchor.lon, 0);
+      const c = project(this.centre.lat, this.centre.lon, 0);
+      let dx = c.x - a.x;
+      // Whichever way round the world is nearer.
+      if (dx > span / 2) dx -= span;
+      if (dx < -span / 2) dx += span;
       const factor = Math.pow(2, next - this.zoom);
-      this.centre = {
-        lat: clamp(anchor.lat + (this.centre.lat - anchor.lat) / factor, -85, 85),
-        lon: anchor.lon + (this.centre.lon - anchor.lon) / factor,
-      };
+      this.centre = unproject(
+        a.x + dx / factor,
+        clamp(a.y + (c.y - a.y) / factor, 0, span),
+        0,
+      );
     }
     this.zoom = next;
     this.dirty = true;

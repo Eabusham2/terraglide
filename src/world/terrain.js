@@ -1,5 +1,6 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { clamp } from '../core/math.js';
+import { EDGE_SECTORS } from './edgeWall.js';
 import { settings } from '../core/settings.js';
 import { tileKey, wrapTileX } from '../geo/mercator.js';
 import { createTerrainMaterial } from './shaders.js';
@@ -87,6 +88,12 @@ export class Terrain {
      * the game; left null the quadtree simply stops at the render distance.
      */
     this.explored = null;
+    /**
+     * How far ground actually reaches, by compass sector, in metres. Measured
+     * during the walk so the wall that closes the world off can sit on the
+     * real edge rather than on the setting. See `EdgeWall`.
+     */
+    this.edgeProfile = new Float32Array(EDGE_SECTORS);
   }
 
   get gridSize() {
@@ -195,10 +202,24 @@ export class Terrain {
     this.keepDistance = this.farDistance * KEEP_FACTOR;
     this.maxDrawn = MAX_DRAWN_TILES[settings.get('graphics')] ?? MAX_DRAWN_TILES.high;
     // Which way you are facing, flattened. Ground in front of you is what you
-    // are about to look at, so it is what gets built first.
+    // are about to look at, so it is what gets built first and sharpened
+    // furthest.
+    //
+    // Smoothed, because the heading now decides how finely ground subdivides
+    // as well as what order it is built in. Read raw, a flick of the mouse
+    // re-cuts the quadtree twice — once away and once back — and every re-cut
+    // is a rebuild you can see. Two thirds of a second of lag makes a
+    // deliberate turn count and a twitch not.
     camera.getWorldDirection(this._vecA);
-    this._viewX = this._vecA.x;
-    this._viewZ = this._vecA.z;
+    const wantLen = Math.hypot(this._vecA.x, this._vecA.z) || 1;
+    const wantX = this._vecA.x / wantLen;
+    const wantZ = this._vecA.z / wantLen;
+    const now = performance.now();
+    const viewDt = clamp((now - (this._viewTime ?? now)) / 1000, 0, 0.5);
+    this._viewTime = now;
+    const follow = this._viewX === undefined ? 1 : 1 - Math.exp(-viewDt / 0.66);
+    this._viewX = (this._viewX ?? wantX) + (wantX - (this._viewX ?? wantX)) * follow;
+    this._viewZ = (this._viewZ ?? wantZ) + (wantZ - (this._viewZ ?? wantZ)) * follow;
     const flatLen = Math.hypot(this._viewX, this._viewZ) || 1;
     this._viewX /= flatLen;
     this._viewZ /= flatLen;
@@ -220,6 +241,9 @@ export class Terrain {
 
     for (const node of this.drawn) node.mesh.visible = false;
     this.drawn.length = 0;
+    // The near circle is drawn everywhere, so it is the floor. Sectors where
+    // distant mode reaches further raise it as the walk finds them.
+    this.edgeProfile.fill(renderDistance);
 
     this.budget = { ms: budgetMs, start: performance.now(), built: 0 };
 
@@ -295,6 +319,59 @@ export class Terrain {
     return flat * (1.6 - facing * 0.6);
   }
 
+  /**
+   * Record how far the world reaches past a tile, by compass sector.
+   *
+   * The tile is far away by the time this is called, so it covers only a
+   * narrow wedge; its half-angle is taken from its own half-diagonal rather
+   * than from its corners, which avoids the wrap-around arithmetic entirely
+   * and is accurate to well under a sector at these distances.
+   */
+  noteEdge(x0, z0, x1, z1, camX, camZ) {
+    const cx = (x0 + x1) / 2;
+    const cz = (z0 + z1) / 2;
+    const dx = cx - camX;
+    const dz = cz - camZ;
+    const centre = Math.hypot(dx, dz);
+    if (centre < 1) return;
+    const half = Math.hypot(x1 - x0, z1 - z0) / 2;
+    // The far corner, which is where the ground genuinely ends.
+    const reach = centre + half;
+    const spread = Math.asin(Math.min(1, half / centre));
+    const step = (Math.PI * 2) / EDGE_SECTORS;
+    // Bearing, clockwise from north — the same convention the wall's ring is
+    // built in, so sector 0 is north on both sides of the handover.
+    const middle = Math.atan2(dx, -dz);
+    const from = Math.floor((middle - spread) / step);
+    const to = Math.ceil((middle + spread) / step);
+    for (let i = from; i <= to; i++) {
+      const sector = ((i % EDGE_SECTORS) + EDGE_SECTORS) % EDGE_SECTORS;
+      if (reach > this.edgeProfile[sector]) this.edgeProfile[sector] = reach;
+    }
+  }
+
+  /**
+   * How much further a tile may be and still subdivide, given where you look.
+   *
+   * Detail costs the same wherever it is spent, so spending it evenly means
+   * spending most of it on ground nobody is looking at. Tiles inside the view
+   * cone get a quarter more reach and tiles behind you a quarter less — a
+   * little over half a level either way — so the horizon you are facing
+   * reaches full detail sooner and the ground behind your head stays coarse
+   * until you turn round.
+   *
+   * Ground close enough to be underfoot is exempt: it is about to be in view
+   * whichever way you turn, and it is what you land on.
+   */
+  splitScale(cx, cz, camX, camZ, flatDist, size) {
+    if (flatDist < size) return 1;
+    const dx = cx - camX;
+    const dz = cz - camZ;
+    const len = Math.hypot(dx, dz);
+    if (len < 1) return 1;
+    return 1 + ((dx * this._viewX + dz * this._viewZ) / len) * 0.25;
+  }
+
   visit(tile, camera, camX, camZ, renderDistance, maxZoom) {
     if (this.drawn.length >= this.maxDrawn) return;
 
@@ -349,7 +426,9 @@ export class Terrain {
     // line to split, and go 12% past it to merge again. Anything in between
     // keeps doing whatever it was already doing.
     const key = tileKey(tile.z, tile.x, tile.y);
-    const line = size * this.lodFactor;
+    const line = size * this.lodFactor * this.splitScale(
+      (x0 + x1) / 2, (z0 + z1) / 2, camX, camZ, flatDist, size,
+    );
     const wasSplit = this.split.has(key);
     const shouldSplit =
       tile.z < maxZoom && (wasSplit ? flatDist < line * LOD_HYSTERESIS_OUT : flatDist < line * LOD_HYSTERESIS_IN);
@@ -376,6 +455,11 @@ export class Terrain {
       }
       return;
     }
+
+    // Ground beyond the near circle only exists where you have been, so it is
+    // this ground — and only this ground — that decides how far the world
+    // reaches in a given direction.
+    if (flatDist > renderDistance) this.noteEdge(x0, z0, x1, z1, camX, camZ);
 
     // Pass the view-weighted distance, not the flat one: it decides both which
     // tiles get the frame's build budget and which textures are asked for
