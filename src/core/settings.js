@@ -138,18 +138,37 @@ export const DEFAULT_SETTINGS = {
 };
 
 /**
- * Per-quality tuning. `sseThreshold` is the screen-space error the terrain
- * quadtree tolerates before it subdivides — the single biggest cost knob.
+ * Per-quality tuning.
+ *
+ * A preset buys frame rate by drawing *less of the world*, not by drawing it
+ * badly. Those are not the same thing, and mixing them up is how "Low" came to
+ * mean a twelve-by-twelve mesh per tile, ground texture capped two zooms above
+ * what the provider serves, and a third of the pixels a phone screen actually
+ * has. That is not a cheaper picture of the Alps, it is a picture of something
+ * else — smooth blobs under a soft wash.
+ *
+ * What genuinely costs, in order:
+ *  - pixels shaded, which goes with the square of the pixel ratio;
+ *  - tiles drawn, which is render distance and how eagerly the quadtree splits.
+ *
+ * What costs almost nothing on any GPU made this century: vertices per tile,
+ * anisotropic filtering, and how deep the texture zoom goes — a tile drawn
+ * from a zoom-20 photograph costs exactly what one drawn from zoom 18 costs.
+ * So those stay near maximum everywhere, and the two knobs above do the work.
  */
 export const GRAPHICS_PRESETS = {
   low: {
-    sseThreshold: 2.4,
-    tileGridSize: 17,
+    sseThreshold: 2.1,
+    tileGridSize: 25,
     maxConcurrentRequests: 6,
     textureCacheSize: 320,
-    anisotropy: 2,
+    anisotropy: 8,
     buildingRadiusM: 420,
-    pixelRatioCap: 1,
+    // Never below one and a half. A phone reports three device pixels per CSS
+    // pixel, so a cap of one renders the world at a third of the screen's
+    // resolution and lets the browser stretch it back — which is most of what
+    // "why is it so blurry" was.
+    pixelRatioCap: 1.5,
     // What picking this preset also sets. A preset that only moved three
     // hidden numbers was not a preset, it was a hint — you could sit on "Low"
     // with a 64 km horizon and wonder why it was slow.
@@ -157,8 +176,8 @@ export const GRAPHICS_PRESETS = {
       renderDistanceKm: 8,
       distantMode: false,
       distantDistanceKm: 64,
-      meshDetail: 0.7,
-      maxTileZoom: 18,
+      meshDetail: 1,
+      maxTileZoom: 22,
       fog: true,
       weather: false,
       buildings: false,
@@ -167,19 +186,19 @@ export const GRAPHICS_PRESETS = {
     },
   },
   medium: {
-    sseThreshold: 1.7,
-    tileGridSize: 25,
+    sseThreshold: 1.55,
+    tileGridSize: 29,
     maxConcurrentRequests: 10,
     textureCacheSize: 560,
     anisotropy: 16,
     buildingRadiusM: 750,
-    pixelRatioCap: 1.5,
+    pixelRatioCap: 2,
     applies: {
       renderDistanceKm: 16,
       distantMode: false,
       distantDistanceKm: 128,
-      meshDetail: 1,
-      maxTileZoom: 20,
+      meshDetail: 1.2,
+      maxTileZoom: 22,
       fog: true,
       weather: true,
       buildings: true,
@@ -192,13 +211,13 @@ export const GRAPHICS_PRESETS = {
     tileGridSize: 33,
     maxConcurrentRequests: 14,
     textureCacheSize: 900,
-    anisotropy: 8,
+    anisotropy: 16,
     buildingRadiusM: 1200,
     applies: {
       renderDistanceKm: 24,
       distantMode: true,
       distantDistanceKm: 256,
-      meshDetail: 1.2,
+      meshDetail: 1.4,
       maxTileZoom: 22,
       fog: true,
       weather: true,
