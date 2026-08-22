@@ -14,9 +14,8 @@ import { drawMap, metresPerPixel, project, unproject, worldPixelSize } from './m
  */
 
 export class WorldMap {
-  constructor(root, { tiles, streetTiles, exploration, waypointStore, trail }) {
+  constructor(root, { tiles, exploration, waypointStore, trail }) {
     this.tiles = tiles;
-    this.streetTiles = streetTiles;
     this.exploration = exploration;
     this.waypointStore = waypointStore;
     this.trail = trail;
@@ -89,9 +88,6 @@ export class WorldMap {
       this.dirty = true;
     });
     // A street tile arriving changes unexplored ground, so redraw for it too.
-    this.streetTiles?.onTileLoaded(() => {
-      this.dirty = true;
-    });
     this.tiles.onTileLoaded(() => {
       this.dirty = true;
     });
@@ -359,7 +355,6 @@ export class WorldMap {
       },
       {
         tiles: this.tiles,
-        streetTiles: this.streetTiles,
         exploration: this.exploration,
         waypointStore: this.waypointStore,
         trail: this.trail,

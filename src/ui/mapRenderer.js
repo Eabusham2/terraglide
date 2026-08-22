@@ -3,11 +3,20 @@ import { latToNormY, lonToNormX, wrapTileX } from '../geo/mercator.js';
 /**
  * Shared 2D map painter for the minimap and the world map.
  *
- * Ground you have been to is drawn as satellite imagery. Ground you have not is
- * drawn as a *map*: the same tile, flattened to a pale monochrome so coastlines,
- * rivers and towns still read, but obviously not photographic. So the world is
- * always legible — you can zoom out and see where you are on the planet — while
- * only the places you have actually been look real.
+ * One layer. The whole world is satellite imagery; ground you have not been to
+ * is the same photograph with the colour taken out of it, so the fog is a
+ * treatment rather than a different map.
+ *
+ * It used to be two tile sets side by side — photographs where you had been and
+ * separately fetched, separately rendered vector street tiles where you had
+ * not. That is the patchwork: two pictures of the world, drawn to different
+ * conventions, meeting along the edge of wherever you happened to have flown,
+ * and each square waiting on its own download so the seam moved about as they
+ * landed. The vector half also had no business being drawn zoomed out, where
+ * its road casings and labels are sized for a street and come out as coloured
+ * bands and letters the size of counties.
+ *
+ * One tile set, one look, one thing to wait for.
  *
  * Trails are hairlines, waypoints are small squares, and the whole thing is
  * deliberately flat: no glow, no gradients, nothing that competes with the
@@ -56,43 +65,50 @@ export function drawMap(ctx, view, layers) {
   ctx.translate(width / 2, height / 2);
   if (rotation) ctx.rotate(rotation);
 
+  // Tiles exist at whole zooms only.
+  //
+  // The view zoom moves a half step at a time and it used to be handed
+  // straight to the tile lookup — so every other level asked for `6.5/x/y`,
+  // which no provider has ever published and no cache could ever hold. Half
+  // the zoom steps drew nothing at all. That is the map "not zooming", the
+  // blue squares, and the view sliding off to one side: with no tiles to draw
+  // there was nothing to anchor it to. The nearest whole zoom is fetched and
+  // drawn scaled to fit the fractional one, the way every slippy map does it.
+  const tileZoom = Math.max(0, Math.min(22, Math.round(zoom)));
+  const tileScale = Math.pow(2, zoom - tileZoom);
+  const drawSize = TILE_PX * tileScale;
+  const tileCentre = project(view.centerLat, view.centerLon, tileZoom);
+
   // A rotated map needs a bigger tile sweep to fill the corners.
   const reach = rotation ? Math.hypot(width, height) / 2 : Math.max(width, height) / 2;
-  const minX = Math.floor((centre.x - reach) / TILE_PX);
-  const maxX = Math.floor((centre.x + reach) / TILE_PX);
-  const minY = Math.floor((centre.y - reach) / TILE_PX);
-  const maxY = Math.floor((centre.y + reach) / TILE_PX);
-  const tileCount = Math.pow(2, zoom);
+  // Counted in tile-zoom pixels, which is what the indices are in.
+  const span = reach / tileScale;
+  const minX = Math.floor((tileCentre.x - span) / TILE_PX);
+  const maxX = Math.floor((tileCentre.x + span) / TILE_PX);
+  const minY = Math.floor((tileCentre.y - span) / TILE_PX);
+  const maxY = Math.floor((tileCentre.y + span) / TILE_PX);
+  const tileCount = Math.pow(2, tileZoom);
 
   ctx.imageSmoothingEnabled = true;
   for (let ty = minY; ty <= maxY; ty++) {
     if (ty < 0 || ty >= tileCount) continue;
     for (let tx = minX; tx <= maxX; tx++) {
-      const wrappedX = wrapTileX(tx, zoom);
-      const screenX = tx * TILE_PX - centre.x;
-      const screenY = ty * TILE_PX - centre.y;
-      const explored = !layers.exploration || layers.exploration.isExplored(zoom, wrappedX, ty);
+      const wrappedX = wrapTileX(tx, tileZoom);
+      const screenX = (tx * TILE_PX - tileCentre.x) * tileScale;
+      const screenY = (ty * TILE_PX - tileCentre.y) * tileScale;
+      const explored = !layers.exploration || layers.exploration.isExplored(tileZoom, wrappedX, ty);
       const asMap = !explored && options.fog !== false;
-      // Explored ground gets the photograph; unexplored gets the drawn street
-      // map, which is a genuinely different tile rather than the same photo
-      // with the colour taken out. Always load something: the map has to be
-      // readable when you zoom out, whether or not you have been there.
-      const source = asMap && layers.streetTiles ? layers.streetTiles : layers.tiles;
-      let resolved = source.resolve(zoom, wrappedX, ty);
-      // The street tile may not have arrived yet. Rather than leave a hole,
-      // fall back to the photo — dimmed, so it still reads as unvisited.
-      let fellBack = false;
-      if (!resolved && source !== layers.tiles) {
-        resolved = layers.tiles.resolve(zoom, wrappedX, ty);
-        fellBack = true;
-      }
+      const resolved = layers.tiles.resolve(tileZoom, wrappedX, ty);
 
       if (resolved) {
         const { bitmap, scale, ox, oy } = resolved;
         const sw = bitmap.width * scale;
         const sh = bitmap.height * scale;
         ctx.save();
-        if (asMap && fellBack) ctx.filter = 'grayscale(1) brightness(1.4) contrast(0.5)';
+        // Unvisited: the same photograph, drained. Coastlines, rivers, roads
+        // and towns all still read — you can find yourself on the planet — but
+        // nothing there looks like somewhere you have been.
+        if (asMap) ctx.filter = 'grayscale(1) brightness(1.3) contrast(0.62)';
         ctx.drawImage(
           bitmap,
           ox * bitmap.width,
@@ -101,20 +117,19 @@ export function drawMap(ctx, view, layers) {
           sh,
           screenX,
           screenY,
-          TILE_PX + 0.5,
-          TILE_PX + 0.5,
+          drawSize + 0.5,
+          drawSize + 0.5,
         );
         ctx.restore();
         if (asMap) {
-          // A light wash so explored ground still reads as the brighter half
-          // of the map. Gentler on a real street tile than it was on a photo,
-          // because the street tile is already pale.
-          ctx.fillStyle = fellBack ? 'rgba(24, 28, 34, 0.34)' : 'rgba(24, 28, 34, 0.16)';
-          ctx.fillRect(screenX, screenY, TILE_PX + 0.5, TILE_PX + 0.5);
+          // And a wash, so the two halves separate at a glance rather than
+          // only on inspection.
+          ctx.fillStyle = 'rgba(24, 28, 34, 0.3)';
+          ctx.fillRect(screenX, screenY, drawSize + 0.5, drawSize + 0.5);
         }
       } else {
         ctx.fillStyle = explored ? '#1b1f24' : '#141619';
-        ctx.fillRect(screenX, screenY, TILE_PX, TILE_PX);
+        ctx.fillRect(screenX, screenY, drawSize, drawSize);
       }
     }
   }
@@ -123,17 +138,17 @@ export function drawMap(ctx, view, layers) {
     ctx.strokeStyle = 'rgba(255,255,255,0.06)';
     ctx.lineWidth = 1;
     for (let tx = minX; tx <= maxX; tx++) {
-      const x = tx * TILE_PX - centre.x;
+      const x = (tx * TILE_PX - tileCentre.x) * tileScale;
       ctx.beginPath();
-      ctx.moveTo(x, minY * TILE_PX - centre.y);
-      ctx.lineTo(x, (maxY + 1) * TILE_PX - centre.y);
+      ctx.moveTo(x, (minY * TILE_PX - tileCentre.y) * tileScale);
+      ctx.lineTo(x, ((maxY + 1) * TILE_PX - tileCentre.y) * tileScale);
       ctx.stroke();
     }
     for (let ty = minY; ty <= maxY; ty++) {
-      const y = ty * TILE_PX - centre.y;
+      const y = (ty * TILE_PX - tileCentre.y) * tileScale;
       ctx.beginPath();
-      ctx.moveTo(minX * TILE_PX - centre.x, y);
-      ctx.lineTo((maxX + 1) * TILE_PX - centre.x, y);
+      ctx.moveTo((minX * TILE_PX - tileCentre.x) * tileScale, y);
+      ctx.lineTo(((maxX + 1) * TILE_PX - tileCentre.x) * tileScale, y);
       ctx.stroke();
     }
   }

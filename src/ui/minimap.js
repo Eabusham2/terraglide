@@ -18,9 +18,8 @@ import { drawMap, metresPerPixel } from './mapRenderer.js';
 const REDRAW_INTERVAL = 1 / 20;
 
 export class Minimap {
-  constructor(root, { tiles, streetTiles, exploration, waypointStore, trail }) {
+  constructor(root, { tiles, exploration, waypointStore, trail }) {
     this.tiles = tiles;
-    this.streetTiles = streetTiles;
     this.exploration = exploration;
     this.waypointStore = waypointStore;
     this.trail = trail;
@@ -86,9 +85,6 @@ export class Minimap {
     );
 
     // A street tile arriving changes unexplored ground, so redraw for it too.
-    this.streetTiles?.onTileLoaded(() => {
-      this.timer = REDRAW_INTERVAL;
-    });
     this.tiles.onTileLoaded(() => {
       this.timer = REDRAW_INTERVAL;
     });
@@ -158,7 +154,6 @@ export class Minimap {
       },
       {
         tiles: this.tiles,
-        streetTiles: this.streetTiles,
         exploration: this.exploration,
         waypointStore: this.waypointStore,
         trail: this.trail,

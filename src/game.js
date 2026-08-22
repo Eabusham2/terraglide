@@ -40,7 +40,7 @@ import { CheatPanel } from './ui/cheatPanel.js';
 import { exploration } from './ui/exploration.js';
 import { HelpCard } from './ui/help.js';
 import { HUD } from './ui/hud.js';
-import { mapTiles, streetTiles } from './ui/mapTiles.js';
+import { mapTiles } from './ui/mapTiles.js';
 import { Minimap } from './ui/minimap.js';
 import { SettingsPanel } from './ui/settingsPanel.js';
 import { TouchControls } from './ui/touch.js';
@@ -156,8 +156,8 @@ export class Game {
 
     this.onStatus('Building interface');
     this.hud = new HUD(ui);
-    this.minimap = new Minimap(ui, { tiles: mapTiles, streetTiles, exploration, waypointStore: waypoints, trail });
-    this.worldmap = new WorldMap(ui, { tiles: mapTiles, streetTiles, exploration, waypointStore: waypoints, trail });
+    this.minimap = new Minimap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints, trail });
+    this.worldmap = new WorldMap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints, trail });
     this.settingsPanel = new SettingsPanel(ui);
     this.help = new HelpCard(ui);
     this.cheatPanel = new CheatPanel(ui);
@@ -351,22 +351,13 @@ export class Game {
         : createImagerySource({ ...settings.values, imageryProvider: 'sentinel2' }),
     );
     mapTiles.setDegraded(false);
-    // The unexplored-ground layer is always the drawn OSM map, whatever the
-    // satellite provider is — it is a different question from which imagery
-    // you fly over, and OSM needs no key.
-    if (!this.streetSource) {
-      this.streetSource = createImagerySource({ ...settings.values, imageryProvider: 'osm' });
-      streetTiles.setSource(this.streetSource);
-      // OSM's raster tiles come off one community server under a fair-use
-      // policy, so "busy" is a normal answer and there are two standbys behind
-      // it: Esri's street map, and then OpenFreeMap, which hands over the
-      // geometry to draw ourselves and is the only one of the three that is
-      // explicitly unmetered.
-      streetTiles.setFallback([
-        createImagerySource({ ...settings.values, imageryProvider: 'esri-street' }),
-        createImagerySource({ ...settings.values, imageryProvider: 'openfreemap' }),
-      ]);
-    }
+    // The maps draw one tile set. There used to be a second one — the OSM
+    // street map, fetched separately and drawn over unvisited ground — and it
+    // is gone: two pictures of the world to different conventions, meeting
+    // along the edge of wherever you had flown, each square waiting on its own
+    // download. Unvisited ground is the same photograph with the colour taken
+    // out of it now, which needs no second provider, no second cache and no
+    // second thing to wait for.
     // The water probe gets the standbys too: whether somewhere is the sea must
     // not depend on which company has flown over it.
     waterMap.setSource(this.imagerySource, this.streamer.standbys ?? []);

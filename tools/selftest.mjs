@@ -1970,5 +1970,23 @@ console.log('\nwhat the world says about itself');
     /backoffUntil = performance\.now\(\)[\s\S]{0,600}emit\('address', \{ label: 'Address unavailable'/.test(geo));
 }
 
+console.log('\none map, one layer');
+{
+  const renderer = readFileSync(new URL('../src/ui/mapRenderer.js', import.meta.url), 'utf8');
+  // Tiles are published at whole zooms. The view moves in half steps, and
+  // handing a half step straight to the lookup asked for `6.5/x/y` — which no
+  // provider has and no cache holds — so half the zoom levels drew nothing.
+  ok('the map fetches whole zooms and scales them to the view',
+    /const tileZoom = Math\.max\(0, Math\.min\(22, Math\.round\(zoom\)\)\);/.test(renderer) &&
+    /const tileScale = Math\.pow\(2, zoom - tileZoom\);/.test(renderer));
+  ok('and never asks a cache for a fractional zoom',
+    !/resolve\(zoom,/.test(renderer) && !/isExplored\(zoom,/.test(renderer));
+  ok('and draws one tile set, not two',
+    !/streetTiles/.test(renderer) &&
+    !/streetTiles/.test(readFileSync(new URL('../src/game.js', import.meta.url), 'utf8')));
+  ok('unvisited ground is the same photograph, drained',
+    /if \(asMap\) ctx\.filter = 'grayscale\(1\)/.test(renderer));
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);
