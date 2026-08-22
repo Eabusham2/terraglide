@@ -694,18 +694,6 @@ input[type='checkbox'] {
   color: var(--text-dim);
 }
 
-.minimap-north {
-  position: absolute;
-  top: 4px;
-  left: 50%;
-  margin-left: -5px;
-  width: 10px;
-  text-align: center;
-  font-weight: 600;
-  color: #eef1f4;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
-}
-
 .minimap-scale {
   position: absolute;
   left: 6px;
@@ -82427,6 +82415,122 @@ __tg_exports["TOUCH_HOLD_MS"] = TOUCH_HOLD_MS;
 __tg_exports["CHEAT_DEFAULTS"] = CHEAT_DEFAULTS;
 __tg_exports["cheats"] = cheats;
 };
+__tg_modules["src/core/units.js"] = function (__tg_exports) {
+/**
+ * Which units to start in.
+ *
+ * Three countries do not use the metric system for everyday distance — the
+ * United States, Liberia and Myanmar — and the United Kingdom still measures
+ * road distance in miles. Everywhere else is metric. The browser already knows
+ * which one you are in, so asking it is better than picking one and making
+ * half the world change it.
+ *
+ * Only ever the starting value: once you set the units yourself, that is what
+ * is stored and this is not consulted again.
+ */
+function defaultUnits() {
+  try {
+    const locales = navigator.languages?.length ? navigator.languages : [navigator.language];
+    for (const tag of locales) {
+      if (!tag) continue;
+      const region = new Intl.Locale(tag).maximize().region;
+      if (region) return IMPERIAL_REGIONS.has(region) ? 'imperial' : 'metric';
+    }
+  } catch {
+    /* No Intl.Locale, or a tag it will not parse. Metric is the safer guess. */
+  }
+  return 'metric';
+}
+
+/** Regions that measure everyday distance in feet and miles. */
+const IMPERIAL_REGIONS = new Set(['US', 'GB', 'LR', 'MM']);
+
+const M_PER_FT = 0.3048;
+const M_PER_MI = 1609.344;
+
+function formatDistance(metres, units, digits = 1) {
+  if (!Number.isFinite(metres)) return '—';
+  if (units === 'imperial') {
+    const feet = metres / M_PER_FT;
+    if (Math.abs(feet) < 1000) return `${feet.toFixed(feet < 10 ? 1 : 0)} ft`;
+    return `${(metres / M_PER_MI).toFixed(digits)} mi`;
+  }
+  if (Math.abs(metres) < 1000) return `${metres.toFixed(metres < 10 ? 1 : 0)} m`;
+  return `${(metres / 1000).toFixed(digits)} km`;
+}
+
+function formatAltitude(metres, units) {
+  if (!Number.isFinite(metres)) return '—';
+  return units === 'imperial'
+    ? `${Math.round(metres / M_PER_FT).toLocaleString()} ft`
+    : `${Math.round(metres).toLocaleString()} m`;
+}
+
+function formatSpeed(metresPerSecond, units) {
+  if (!Number.isFinite(metresPerSecond)) return '—';
+  return units === 'imperial'
+    ? `${Math.round(metresPerSecond * 2.2369363)} mph`
+    : `${Math.round(metresPerSecond * 3.6)} km/h`;
+}
+
+function formatHeight(metres, units) {
+  if (units === 'metric') return `${metres.toFixed(2)} m`;
+  const totalInches = (metres / M_PER_FT) * 12;
+  const feet = Math.floor(totalInches / 12);
+  const inches = Math.round(totalInches - feet * 12);
+  if (inches === 12) return `${feet + 1}' 0"`;
+  return `${feet}' ${inches}"`;
+}
+
+function formatTemperature(celsius, units) {
+  if (!Number.isFinite(celsius)) return '—';
+  return units === 'imperial'
+    ? `${Math.round((celsius * 9) / 5 + 32)}°F`
+    : `${Math.round(celsius)}°C`;
+}
+
+function formatLatLon(lat, lon, digits = 5) {
+  return `${lat.toFixed(digits)}, ${lon.toFixed(digits)}`;
+}
+
+/** 47°22'08.8"N 122°00'55.4"W */
+function formatDms(lat, lon) {
+  return `${dms(lat, 'NS')} ${dms(lon, 'EW')}`;
+}
+
+function dms(value, axis) {
+  const hemi = value >= 0 ? axis[0] : axis[1];
+  const abs = Math.abs(value);
+  const deg = Math.floor(abs);
+  const minFloat = (abs - deg) * 60;
+  const min = Math.floor(minFloat);
+  const sec = (minFloat - min) * 60;
+  return `${deg}°${String(min).padStart(2, '0')}'${sec.toFixed(1).padStart(4, '0')}"${hemi}`;
+}
+
+const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+
+function compassPoint(radians) {
+  const deg = ((radians * 180) / Math.PI + 360) % 360;
+  return COMPASS[Math.round(deg / 22.5) % 16];
+}
+
+function formatBearing(radians) {
+  const deg = ((radians * 180) / Math.PI + 360) % 360;
+  return `${compassPoint(radians)} ${Math.round(deg)}°`;
+}
+
+__tg_exports["defaultUnits"] = defaultUnits;
+__tg_exports["formatDistance"] = formatDistance;
+__tg_exports["formatAltitude"] = formatAltitude;
+__tg_exports["formatSpeed"] = formatSpeed;
+__tg_exports["formatHeight"] = formatHeight;
+__tg_exports["formatTemperature"] = formatTemperature;
+__tg_exports["formatLatLon"] = formatLatLon;
+__tg_exports["formatDms"] = formatDms;
+__tg_exports["compassPoint"] = compassPoint;
+__tg_exports["formatBearing"] = formatBearing;
+};
 __tg_modules["src/core/storage.js"] = function (__tg_exports) {
 /** localStorage wrapper that never throws (private mode, quota, disabled storage). */
 
@@ -82492,6 +82596,7 @@ __tg_exports["removeKey"] = removeKey;
 };
 __tg_modules["src/core/settings.js"] = function (__tg_exports) {
 const { Emitter } = __tg_require("src/core/events.js");
+const { defaultUnits } = __tg_require("src/core/units.js");
 const { readJSON, removeKey, writeJSON } = __tg_require("src/core/storage.js");
 
 /**
@@ -82602,7 +82707,7 @@ const DEFAULT_SETTINGS = {
   playerHeightM: 1.98, // 6 ft 6 in
 
   /* world / exploration */
-  units: 'metric',
+  units: defaultUnits(),
   exploreSeas: false,
   /** How far out to sea a random teleport may drop you, in km. Default: no limit. */
   seaDistanceKm: 501,
@@ -83044,92 +83149,6 @@ const PRESET_NAMES = Object.keys(GRAPHICS_PRESETS);
 __tg_exports["TIERS"] = TIERS;
 __tg_exports["Benchmark"] = Benchmark;
 __tg_exports["PRESET_NAMES"] = PRESET_NAMES;
-};
-__tg_modules["src/core/units.js"] = function (__tg_exports) {
-const M_PER_FT = 0.3048;
-const M_PER_MI = 1609.344;
-
-function formatDistance(metres, units, digits = 1) {
-  if (!Number.isFinite(metres)) return '—';
-  if (units === 'imperial') {
-    const feet = metres / M_PER_FT;
-    if (Math.abs(feet) < 1000) return `${feet.toFixed(feet < 10 ? 1 : 0)} ft`;
-    return `${(metres / M_PER_MI).toFixed(digits)} mi`;
-  }
-  if (Math.abs(metres) < 1000) return `${metres.toFixed(metres < 10 ? 1 : 0)} m`;
-  return `${(metres / 1000).toFixed(digits)} km`;
-}
-
-function formatAltitude(metres, units) {
-  if (!Number.isFinite(metres)) return '—';
-  return units === 'imperial'
-    ? `${Math.round(metres / M_PER_FT).toLocaleString()} ft`
-    : `${Math.round(metres).toLocaleString()} m`;
-}
-
-function formatSpeed(metresPerSecond, units) {
-  if (!Number.isFinite(metresPerSecond)) return '—';
-  return units === 'imperial'
-    ? `${Math.round(metresPerSecond * 2.2369363)} mph`
-    : `${Math.round(metresPerSecond * 3.6)} km/h`;
-}
-
-function formatHeight(metres, units) {
-  if (units === 'metric') return `${metres.toFixed(2)} m`;
-  const totalInches = (metres / M_PER_FT) * 12;
-  const feet = Math.floor(totalInches / 12);
-  const inches = Math.round(totalInches - feet * 12);
-  if (inches === 12) return `${feet + 1}' 0"`;
-  return `${feet}' ${inches}"`;
-}
-
-function formatTemperature(celsius, units) {
-  if (!Number.isFinite(celsius)) return '—';
-  return units === 'imperial'
-    ? `${Math.round((celsius * 9) / 5 + 32)}°F`
-    : `${Math.round(celsius)}°C`;
-}
-
-function formatLatLon(lat, lon, digits = 5) {
-  return `${lat.toFixed(digits)}, ${lon.toFixed(digits)}`;
-}
-
-/** 47°22'08.8"N 122°00'55.4"W */
-function formatDms(lat, lon) {
-  return `${dms(lat, 'NS')} ${dms(lon, 'EW')}`;
-}
-
-function dms(value, axis) {
-  const hemi = value >= 0 ? axis[0] : axis[1];
-  const abs = Math.abs(value);
-  const deg = Math.floor(abs);
-  const minFloat = (abs - deg) * 60;
-  const min = Math.floor(minFloat);
-  const sec = (minFloat - min) * 60;
-  return `${deg}°${String(min).padStart(2, '0')}'${sec.toFixed(1).padStart(4, '0')}"${hemi}`;
-}
-
-const COMPASS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
-
-function compassPoint(radians) {
-  const deg = ((radians * 180) / Math.PI + 360) % 360;
-  return COMPASS[Math.round(deg / 22.5) % 16];
-}
-
-function formatBearing(radians) {
-  const deg = ((radians * 180) / Math.PI + 360) % 360;
-  return `${compassPoint(radians)} ${Math.round(deg)}°`;
-}
-
-__tg_exports["formatDistance"] = formatDistance;
-__tg_exports["formatAltitude"] = formatAltitude;
-__tg_exports["formatSpeed"] = formatSpeed;
-__tg_exports["formatHeight"] = formatHeight;
-__tg_exports["formatTemperature"] = formatTemperature;
-__tg_exports["formatLatLon"] = formatLatLon;
-__tg_exports["formatDms"] = formatDms;
-__tg_exports["compassPoint"] = compassPoint;
-__tg_exports["formatBearing"] = formatBearing;
 };
 __tg_modules["src/ui/wheel.js"] = function (__tg_exports) {
 /**
@@ -85594,7 +85613,6 @@ class Player extends Emitter {
      * hillside rather than as level ground that happens to be moving.
      */
     this.groundSlope = 0;
-    this.inBuilding = false;
     this.lat = 0;
     this.lon = 0;
 
@@ -86717,7 +86735,6 @@ const JUMP_SPEED = 8.4;
 const FALL_DRAG_PER_TICK = 0.98;
 const GROUND_ACCEL = 14;
 const AIR_ACCEL = 2.4;
-const CLIMB_SPEED = 3.4;
 const SWIM_SPEED = 2.4;
 const SWIM_SINK = 0.9;
 const SWIM_RISE = 3.2;
@@ -86759,7 +86776,6 @@ class PlayerController {
     this.prevPosition = new THREE.Vector3();
     this.lastGroundContact = 0;
     this.landedThisFrame = false;
-    this.climbing = false;
     /** Jump-key bookkeeping, read at frame rate rather than tick rate. */
     this.clock = 0;
     this.jumpHeld = false;
@@ -86961,13 +86977,6 @@ class PlayerController {
           ? -SWIM_RISE * strideScale
           : -SWIM_SINK;
       player.velocity.y = damp(player.velocity.y, target, WATER_DRAG, step);
-    } else if (this.climbing) {
-      // Stair shaft: hold jump to go up, crouch to come down.
-      player.velocity.y = input.jump
-        ? CLIMB_SPEED * strideScale
-        : input.crouch
-          ? -CLIMB_SPEED * strideScale
-          : 0;
     } else {
       player.velocity.y -= GRAVITY * step;
       // Drag on the fall, so terminal velocity exists. Raised to the power of
@@ -87043,8 +87052,6 @@ class PlayerController {
     const height = player.height;
     const stepUp = Math.max(0.35, height * 0.3);
 
-    this.climbing = false;
-    player.inBuilding = false;
 
     if (cheats.noclip) {
       // Nothing stops you: no walls, no floor, not even the sea.
@@ -87089,25 +87096,15 @@ class PlayerController {
         }
       }
 
-      if (pointInPolygon(player.position.x, player.position.z, collider.polygon)) {
-        player.inBuilding = player.position.y < collider.top - 0.5;
-        if (collider.stair) {
-          const d = Math.hypot(
-            player.position.x - collider.stair.x,
-            player.position.z - collider.stair.z,
-          );
-          if (d < 1.5 + radius && (input.jump || input.crouch) && player.position.y < collider.top) {
-            this.climbing = true;
-          }
-        }
-        // Ceilings: do not let the head pass up through a slab.
-        for (const floorY of collider.floors) {
-          const head = player.position.y + height;
-          if (floorY > player.position.y + 0.2 && floorY < head) {
-            player.position.y = floorY - height - 0.02;
-            if (player.velocity.y > 0) player.velocity.y = 0;
-          }
-        }
+      // A building is solid. Standing inside the footprint below the roof can
+      // only happen by being put there, so it lifts you out onto the roof
+      // rather than trapping you in a box with no door.
+      if (
+        player.position.y < collider.top
+        && pointInPolygon(player.position.x, player.position.z, collider.polygon)
+      ) {
+        player.position.y = collider.top;
+        if (player.velocity.y < 0) player.velocity.y = 0;
       }
     }
 
@@ -87170,10 +87167,7 @@ class PlayerController {
     }
   }
 
-  /**
-   * Highest walkable surface under a point: terrain, a building roof, or an
-   * interior floor slab.
-   */
+  /** Highest walkable surface under a point: the terrain, or a building roof. */
   groundHeightAt(x, z, referenceY, colliders) {
     let ground = this.terrain.heightAt(x, z);
 
@@ -87211,13 +87205,8 @@ class PlayerController {
 
     for (const collider of list) {
       if (!pointInPolygon(x, z, collider.polygon)) continue;
-      if (referenceY >= collider.top - 0.05) {
-        ground = Math.max(ground, collider.top);
-        continue;
-      }
-      for (const floorY of collider.floors) {
-        if (floorY <= referenceY + 0.05 && floorY > ground) ground = floorY;
-      }
+      // Solid: the ground inside a footprint is its roof, at any height.
+      ground = Math.max(ground, collider.top);
     }
     return ground;
   }
@@ -87260,9 +87249,9 @@ const { latToNormY, lonToNormX, tileKey, wrapTileX } = __tg_require("src/geo/mer
  * Height tiles are a separate, much shallower pyramid than imagery (real DEM
  * tiles stop around zoom 14-15), so the terrain mesh never asks for "the height
  * tile matching this imagery tile" — it just samples this field at a point and
- * gets the best data currently in memory, falling back through parents to
- * generated relief. That keeps ground collision and mesh building identical and
- * stops the player sinking into a tile that has not landed yet.
+ * gets the best data currently in memory, falling back through parents and, in
+ * the end, to sea level. That keeps ground collision and mesh building identical
+ * and stops the player sinking into a tile that has not landed yet.
  */
 
 const GRID = 65;
@@ -87322,7 +87311,6 @@ class ElevationField {
    * do its job over ground that simply has not streamed in yet.
    */
   hasDataAt(nx, ny) {
-    if (this.source && this.source.synthetic) return true;
     const x = nx - Math.floor(nx);
     const y = clamp(ny, 0, 0.999999);
     for (let z = this.maxZoom; z >= 3; z--) {
@@ -87522,7 +87510,7 @@ class ElevationField {
 
   pump() {
     if (!this.source) return;
-    if (!this.source.ready && !this.source.synthetic) {
+    if (!this.source.ready) {
       this.source.prepare();
       return;
     }
@@ -87531,7 +87519,7 @@ class ElevationField {
       const entry = this.queue.shift();
       if (!entry || entry.state === STATE_PENDING || entry.state === STATE_READY) continue;
       const url = this.source.urlFor(entry.tile);
-      if (url === null && !this.source.synthetic) continue;
+      if (url === null) continue;
       const id = this.nextId++;
       entry.state = STATE_PENDING;
       this.jobs.set(id, entry);
@@ -87559,11 +87547,11 @@ class ElevationField {
     if (!msg.ok || !msg.heights) {
       entry.state = STATE_FAILED;
       entry.retryAt = performance.now() + 20000;
-      const wasInvented = this.invented;
+      const hadHope = !this.givenUp;
       this.failed++;
       // Crossing into "given up" changes what every sample returns, so the
       // terrain has to be told its meshes are stale.
-      if (!wasInvented && this.invented) this.version = (this.version ?? 0) + 1;
+      if (hadHope && this.givenUp) this.version = (this.version ?? 0) + 1;
       return;
     }
     entry.heights = msg.heights;
@@ -87575,30 +87563,33 @@ class ElevationField {
 
   /** True when a real provider is selected but nothing has ever arrived. */
   get unreachable() {
-    return Boolean(this.source && !this.source.synthetic && this.loaded === 0 && this.failed >= 6);
+    return Boolean(this.source && this.loaded === 0 && this.failed >= 6);
   }
 
   /**
-   * Is the relief being made up rather than measured?
+   * Have we stopped expecting elevation to arrive?
    *
-   * True for the generated world, and true once a real provider has been given
-   * up on. The imagery streamer reads this to decide whether it may invent
-   * tiles: invented ground may wear invented paint, measured ground may not.
+   * True with no provider at all, and true once the chosen one has failed
+   * enough times to be given up on. Either way every sample from here on is
+   * exactly sea level: there is no invented relief to fall back to any more,
+   * and a flat plate is the honest answer to "how high is the ground" when
+   * nobody has measured it for us.
    */
-  get invented() {
+  get givenUp() {
     return !this.source || this.unreachable;
   }
 
   /**
-   * Is there relief to read at all — measured or invented?
+   * Is the height field settled — either data has arrived, or we have stopped
+   * waiting for it?
    *
    * False only in the gap where a real provider has been asked and has not yet
-   * answered or failed enough times to be given up on. In that gap every
-   * sample is exactly sea level, and anything that reasons about height or
-   * slope is reasoning about a flat plate.
+   * answered or failed enough times to be given up on. Worth telling apart
+   * from the flat plate that follows, because in the gap the flatness is
+   * temporary and anything that reasons about slope should hold off.
    */
   get hasRelief() {
-    return this.invented || this.loaded > 0;
+    return this.givenUp || this.loaded > 0;
   }
 
   evict() {
@@ -87814,8 +87805,8 @@ const IMAGERY_PROVIDERS = [
     attribution: 'Imagery courtesy of the U.S. Geological Survey, The National Map',
     note:
       'Keyless and very good, over the United States and nowhere else. Outside it '
-      + 'every tile is a 404 and you get generated ground, so this is one to pick '
-      + 'when you know where you are going.',
+      + 'every tile is a 404 and the ground goes bare, so this is one to pick when '
+      + 'you know where you are going.',
   },
   {
     id: 'gibs',
@@ -88133,15 +88124,6 @@ class TileSource {
     return this.descriptor.attribution;
   }
 
-  /**
-   * Kept as a constant false so callers that still ask read something sane.
-   * There is no such thing as a generated provider any more: every source in
-   * the lists is a real survey or a real photograph of the real planet.
-   */
-  get synthetic() {
-    return false;
-  }
-
   get key() {
     const slot = this.descriptor.needsKey;
     return slot ? (this.keys[slot] ?? '') : '';
@@ -88149,14 +88131,10 @@ class TileSource {
 
   /** True when tiles can be requested right now. */
   get ready() {
-    return this.synthetic || this.state === 'ready';
+    return this.state === 'ready';
   }
 
   async prepare() {
-    if (this.synthetic) {
-      this.state = 'ready';
-      return;
-    }
     if (this.state === 'ready') return;
     if (this.preparing) return this.preparing;
 
@@ -88288,10 +88266,9 @@ class TileSource {
     this.googleSession = data.session;
   }
 
-  /** URL for a tile, or null when the source generates tiles locally. */
+  /** URL for a tile, or null when this source cannot serve that tile. */
   urlFor(tile) {
     const d = this.descriptor;
-    if (d.kind === 'synthetic') return null;
     if (d.kind === 'bing') {
       if (!this.bingTemplate) return null;
       const subs = this.bingSubdomains ?? [''];
@@ -88511,12 +88488,6 @@ async function testProviders(list, values, tile, onResult) {
   for (const descriptor of list) {
     const result = { id: descriptor.id, label: descriptor.label, state: 'checking', detail: '' };
     results.push(result);
-    if (descriptor.kind === 'synthetic') {
-      result.state = 'ok';
-      result.detail = 'generated in the browser — no network involved';
-      onResult?.(result);
-      continue;
-    }
     if (descriptor.needsKey && !values[descriptor.needsKey]) {
       result.state = 'no-key';
       const name = KEY_LABELS[descriptor.needsKey] ?? descriptor.needsKey;
@@ -88652,6 +88623,18 @@ class ImageryStreamer extends Emitter {
      */
     this.byZoom = new Map();
     this.depthLimit = Infinity;
+    /**
+     * Squares every provider has said it has no photograph of.
+     *
+     * Coverage is not a single depth. Esri serves zoom 19 over a town and stops
+     * at 17 over a glacier a valley away, so writing off a whole zoom level is
+     * wrong — but writing off *this square* is not, and neither is writing off
+     * everything inside it. Measured over the Bernese Alps, a third of the
+     * zoom-18 and two thirds of the zoom-19 requests come back "no imagery
+     * here" or 404, and every one of them is retried every twenty seconds
+     * forever. Remembering the answer turns that into asking once.
+     */
+    this.barren = new Set();
     this.worker.addEventListener('message', (event) => this.onWorkerMessage(event.data));
   }
 
@@ -88679,7 +88662,34 @@ class ImageryStreamer extends Emitter {
     return this.standbys[attempt - 1] ?? null;
   }
 
+  /**
+   * Could this provider have a photograph at this zoom at all?
+   *
+   * The standby list is ordered by preference, not by depth, and the free ones
+   * behind Esri are much coarser: Sentinel-2 stops around zoom 14, GIBS is a
+   * quarter-kilometre a pixel. When Esri refuses a zoom-19 square over a
+   * glacier, asking those three in turn is three round trips that cannot
+   * succeed — and measured over the Bernese Alps that is where three quarters
+   * of all imagery failures came from: 157 refusals covering 39 squares.
+   * Skipping the ones that do not go that deep leaves the budget to tiles that
+   * exist.
+   */
+  canServe(source, z) {
+    if (!source) return false;
+    return (source.descriptor?.maxZoom ?? 19) >= z;
+  }
+
+  /** The next attempt number worth making after this one, or null. */
+  nextAttempt(entry) {
+    let attempt = (entry.attempt ?? 0) + 1;
+    while (attempt <= this.standbys.length && !this.canServe(this.standbys[attempt - 1], entry.tile.z)) {
+      attempt++;
+    }
+    return attempt <= this.standbys.length ? attempt : null;
+  }
+
   clear() {
+    this.barren.clear();
     for (const entry of this.entries.values()) {
       if (entry.texture) entry.texture.dispose();
     }
@@ -88760,10 +88770,34 @@ class ImageryStreamer extends Emitter {
     entry.used = this.frame;
     entry.priority = priority;
     if (entry.state === STATE_BARE) return entry;
+    if (entry.state !== STATE_READY && this.underBarren(tile)) {
+      entry.state = STATE_BARE;
+      return entry;
+    }
     if (entry.state === 0 || (entry.state === STATE_FAILED && entry.retryAt < performance.now())) {
       this.queue.push(entry);
     }
     return entry;
+  }
+
+  /**
+   * Is this square inside one nobody has a photograph of?
+   *
+   * Only the levels immediately above are consulted. A provider that refuses a
+   * square refuses the quarter of it below, and the quarter of that; going all
+   * the way to the root would let one refusal at zoom 3 write off a continent
+   * on the strength of one answer.
+   */
+  underBarren(tile) {
+    if (this.barren.size === 0) return false;
+    let { z, x, y } = tile;
+    for (let i = 0; i < 4 && z > 1; i++) {
+      z -= 1;
+      x >>= 1;
+      y >>= 1;
+      if (this.barren.has(tileKey(z, x, y))) return true;
+    }
+    return false;
   }
 
   /**
@@ -88902,15 +88936,21 @@ class ImageryStreamer extends Emitter {
       // about one server, not about whether the ground exists, and the whole
       // point of the standby list is that somebody else has a photograph of
       // the same place.
-      const attempt = (entry.attempt ?? 0) + 1;
-      if (!msg.aborted && attempt <= this.standbys.length) {
+      const attempt = msg.aborted ? null : this.nextAttempt(entry);
+      if (attempt !== null) {
         entry.attempt = attempt;
         entry.state = 0;
         entry.retryAt = 0;
         this.queue.push(entry);
+      } else if (msg.aborted) {
+        entry.state = STATE_FAILED;
+        entry.retryAt = 0;
       } else {
         entry.state = STATE_FAILED;
-        entry.retryAt = performance.now() + (msg.aborted ? 0 : 20000);
+        entry.retryAt = performance.now() + 20000;
+        // Nobody has this square. Say so once, so the four below it and the
+        // sixteen below those are never asked at all.
+        this.barren.add(entry.key);
       }
       this.stats.failed++;
       if (!msg.aborted) {
@@ -89817,7 +89857,11 @@ class MapTileCache {
     this.queue = [];
     this.listeners = new Set();
     this.generation = 0;
-    /** Mirrors the 3D streamer: draw generated tiles when a provider is down. */
+    /**
+     * Mirrors the 3D streamer's own flag: the provider has been given up on.
+     * Nothing is drawn in its place — the cached tiles are thrown away so the
+     * map stops showing a world it can no longer refresh.
+     */
     this.degraded = false;
     /**
      * Providers to try when the one before refuses.
@@ -90111,8 +90155,19 @@ class MapTileCache {
 
 const mapTiles = new MapTileCache();
 
+/**
+ * The drawn street map the maps show for ground you have not seen.
+ *
+ * A second cache rather than a second mode on the first: the two layers are
+ * different providers at different depths, both are wanted on screen at once,
+ * and sharing one cache would have each layer evicting the other's tiles every
+ * time the map moved.
+ */
+const streetTiles = new MapTileCache();
+
 __tg_exports["MapTileCache"] = MapTileCache;
 __tg_exports["mapTiles"] = mapTiles;
+__tg_exports["streetTiles"] = streetTiles;
 };
 __tg_modules["src/world/imagerySample.js"] = function (__tg_exports) {
 /**
@@ -90267,15 +90322,15 @@ const { overpass } = __tg_require("src/world/overpass.js");
 /**
  * Buildings.
  *
- * Footprints come from OpenStreetMap via Overpass and are extruded into walls,
- * a roof and a floor slab per storey. They are hollow and have a door gap cut
- * into one wall, so you can walk inside, stand on the ground floor and climb the
- * stair shaft in the corner.
+ * Footprints come from OpenStreetMap via Overpass, extruded to the surveyed
+ * height and capped with a roof. Every number is measured: where the wall runs,
+ * how high it stands, what colour the photograph says the roof is.
  *
- * To be straight about it: nobody publishes real interior geometry for the whole
- * planet, so the *outside* of a building here is real data and the *inside* is
- * generated to match the footprint. The alternative was a sealed box you bounce
- * off, which felt worse.
+ * There used to be an inside as well — a floor slab per storey, a door gap cut
+ * into the longest wall, a stair shaft in the corner — and it is gone. Nobody
+ * publishes interior geometry for the whole planet, so all of that was made up
+ * to match the footprint, and made-up geometry is exactly what this project is
+ * not for. A building is the shell somebody measured, and it is solid.
  */
 
 /**
@@ -90307,8 +90362,6 @@ const STOREY_M = 3.2;
  * recorded nothing measurable for miles.
  */
 const DEFAULT_LEVELS = 2;
-const DOOR_WIDTH = 1.4;
-const DOOR_HEIGHT = 2.3;
 /**
  * Only used when the aerial photograph of a roof has not arrived yet.
  *
@@ -90937,38 +90990,10 @@ class Buildings {
       roof = ROOF_COLOUR.clone();
     }
 
-    // Door goes in the longest wall, which is nearly always the street side.
-    let doorIndex = 0;
-    let longest = -1;
-    for (let i = 0; i < ring.length; i++) {
-      const a = ring[i];
-      const b = ring[(i + 1) % ring.length];
-      const len = a.distanceTo(b);
-      if (len > longest) {
-        longest = len;
-        doorIndex = i;
-      }
-    }
-    const enterable = longest > DOOR_WIDTH * 2.2 && height > 3;
-
     const segments = [];
     for (let i = 0; i < ring.length; i++) {
       const a = ring[i];
       const b = ring[(i + 1) % ring.length];
-      if (enterable && i === doorIndex) {
-        const dir = new THREE.Vector2().subVectors(b, a);
-        const len = dir.length();
-        dir.divideScalar(len);
-        const midStart = (len - DOOR_WIDTH) / 2;
-        const p1 = new THREE.Vector2().copy(a).addScaledVector(dir, midStart);
-        const p2 = new THREE.Vector2().copy(a).addScaledVector(dir, midStart + DOOR_WIDTH);
-        pushWall(positions, normals, colors, a, p1, base, base + height, wall);
-        pushWall(positions, normals, colors, p2, b, base, base + height, wall);
-        // Lintel above the doorway.
-        pushWall(positions, normals, colors, p1, p2, base + DOOR_HEIGHT, base + height, wall);
-        segments.push([a.x, a.y, p1.x, p1.y], [p2.x, p2.y, b.x, b.y]);
-        continue;
-      }
       pushWall(positions, normals, colors, a, b, base, base + height, wall);
       segments.push([a.x, a.y, b.x, b.y]);
     }
@@ -90990,31 +91015,16 @@ class Buildings {
       true,
     );
 
-    const floors = [base];
-    if (enterable) {
-      const floorColour = wall.clone().multiplyScalar(0.82);
-      for (let level = 1; level < Math.min(levels, 40); level++) {
-        const y = base + level * (height / levels);
-        if (y > base + height - 1.6) break;
-        pushCap(positions, normals, colors, ring, triangles, y, floorColour, true);
-        floors.push(y);
-      }
-    }
-
     const bounds = ringBounds(ring);
     return {
       polygon: ring.map((p) => [p.x, p.y]),
       segments,
-      floors,
       base,
       top: base + height,
-      enterable,
       minX: bounds.minX,
       maxX: bounds.maxX,
       minZ: bounds.minZ,
       maxZ: bounds.maxZ,
-      // Stair shaft: a climbable column just inside the door.
-      stair: enterable ? stairPoint(ring, doorIndex) : null,
       name: tags.name ?? '',
       levels,
     };
@@ -91123,29 +91133,10 @@ function pushCap(positions, normals, colors, ring, triangles, y, shade, up) {
   }
 }
 
-/** A point a couple of metres inside the wall next to the door. */
-function stairPoint(ring, doorIndex) {
-  const a = ring[doorIndex];
-  const b = ring[(doorIndex + 1) % ring.length];
-  const mx = (a.x + b.x) / 2;
-  const mz = (a.y + b.y) / 2;
-  const dx = b.x - a.x;
-  const dz = b.y - a.y;
-  const len = Math.hypot(dx, dz) || 1;
-  // Inward normal (ring is wound counter-clockwise after the fix-up above).
-  return { x: mx - (dz / len) * 2.2, z: mz + (dx / len) * 2.2 };
-}
-
 __tg_exports["Buildings"] = Buildings;
 };
 __tg_modules["src/world/shaders.js"] = function (__tg_exports) {
 const THREE = __tg_require("vendor/three/three.module.js");
-
-/**
- * Exposure applied before the filmic curve, shared by our own shaders and the
- * renderer's own materials so the whole scene is graded as one photograph.
- */
-const EXPOSURE = 0.85;
 
 /**
  * Terrain shader.
@@ -91217,7 +91208,6 @@ const TERRAIN_FRAG = /* glsl */ `
   uniform float uLatitude;
   uniform float uHasRelief;
   uniform float uNight;
-  uniform float uExposure;
   uniform float uCloudTime;
   uniform float uCloudCover;
   uniform float uCloudHeight;
@@ -91229,34 +91219,6 @@ const TERRAIN_FRAG = /* glsl */ `
   varying float vHeight;
   varying float vBed;
   varying vec3 vWorld;
-
-  /**
-   * ACES filmic tone mapping.
-   *
-   * Everything until now went from the shader straight to the screen, which is
-   * what a light meter does and not what a camera or an eye does. Bright ground
-   * clipped flat, midtones sat where the arithmetic left them, and the result
-   * reads as a photograph pasted onto geometry rather than as a photograph
-   * *of* something — the highlights have nowhere to roll off to. This is the
-   * curve every film-look renderer uses, applied identically here and to the
-   * renderer's own materials so nothing in the scene is graded differently
-   * from anything else.
-   */
-  vec3 toneMap(vec3 colour) {
-    colour *= uExposure;
-    const mat3 IN = mat3(
-      0.59719, 0.07600, 0.02840,
-      0.35458, 0.90834, 0.13383,
-      0.04823, 0.01566, 0.83777);
-    const mat3 OUT = mat3(
-       1.60475, -0.10208, -0.00327,
-      -0.53108,  1.10813, -0.07276,
-      -0.07367, -0.00605,  1.07602);
-    vec3 v = IN * colour;
-    vec3 a = v * (v + 0.0245786) - 0.000090537;
-    vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
-    return clamp(OUT * (a / b), 0.0, 1.0);
-  }
 
   /**
    * The cloud deck's own shadow.
@@ -91295,7 +91257,19 @@ const TERRAIN_FRAG = /* glsl */ `
       amplitude *= 0.5;
     }
     float density = smoothstep(0.62 - uCloudCover * 0.55, 0.92 - uCloudCover * 0.42, total);
-    return 1.0 - density * 0.62;
+    // A modulation around one, in the same band as the relief above it — not a
+    // relight. This used to take 62% of the light off, and under an overcast
+    // sky that is most of the ground most of the time: measured straight down
+    // over the Champ de Mars at 124 m, the game drew Esri's own tile at 0.618
+    // of its brightness, and the cloud shadow was very nearly all of it.
+    //
+    // Two reasons that was wrong. The picture was taken in sunshine and has its
+    // own light already in it, so multiplying it by a cloud is grading a
+    // finished photograph — the thing this file refuses to do everywhere else.
+    // And a 62% multiply is a *hard* shadow, which is what scattered cloud
+    // gives you; under real overcast the light is diffuse and the ground goes
+    // flat and slightly dull rather than dark.
+    return 1.0 - density * 0.18;
   }
 
   /**
@@ -91322,22 +91296,37 @@ const TERRAIN_FRAG = /* glsl */ `
     vec3 n = normalize(vNormalW);
     float flatness = smoothstep(0.30, 0.92, n.y);
     vec2 uv = uUvOffset + clamp(vUv, 0.0, 1.0) * uUvScale;
-    vec3 albedo = mix(groundNotLoaded(flatness), texture2D(uMap, uv).rgb, uHasTexture);
+    vec3 albedo = texture2D(uMap, uv).rgb;
 
     // There used to be two octaves of noise multiplied over the ground here,
     // to give a stretched or flat-white tile something to hold on to. It is
     // gone: it is a pattern nobody surveyed, printed over a photograph of
     // somewhere real, and up close it is the thing that made bare rock look
     // like carpet.
+    //
+    // Woodland relief was tried here too — standing the crowns up out of the
+    // light and shade the photograph already has over them, so a forest reads
+    // as thousands of separate trees rather than a green wash — and it is not
+    // here because the photograph cannot say where the woodland is. Measured
+    // over six Esri tiles at zoom 16, scoring each pixel for how green it is
+    // and how rough it is at crown scale:
+    //
+    //   Black Forest    green 0.85   roughness 0.63
+    //   Amazon          green 0.40   roughness 0.42
+    //   Cambridgeshire  green 0.67   roughness 0.82
+    //   Hyde Park       green 0.57   roughness 0.75
+    //   central Paris   green 0.09   roughness 2.57
+    //   Sahara          green 0.01   roughness 0.48
+    //
+    // Neither separates a forest from a field of wheat — farmland scores
+    // *higher* on both than the Amazon does — so anything keyed off them would
+    // have lit tramlines in Cambridgeshire as if they were spruce. Where the
+    // woodland is is a thing somebody surveyed: OpenStreetMap's natural=wood
+    // and landuse=forest, which this project already fetches from Overpass for
+    // the buildings. That is where it should come from, and until it does there
+    // is nothing here.
 
     float lambert = max(dot(n, uSunDir), 0.0);
-    // Soft wrap keeps shaded slopes readable instead of crushing them to black.
-    //
-    // And deliberately gentle, which is the honest choice rather than the timid
-    // one: satellite imagery is a photograph taken in daylight, so the sun that
-    // lit this ground is already in the picture. Relighting it hard would count
-    // the same sun twice — south faces blazing, north faces black, and a
-    // hillside that looks nothing like the hillside.
     float wrapped = lambert * 0.62 + 0.38;
     // How much of the sky dome this face can see. Flat ground sees all of it;
     // a wall sees half. It is the difference between a valley floor and its
@@ -91347,7 +91336,30 @@ const TERRAIN_FRAG = /* glsl */ `
     // Shadow the sun, not the sky: under cloud the ground is still lit from
     // above, it is just no longer lit from one direction.
     float shade = cloudShadow(vWorld);
-    vec3 lit = albedo * (uAmbient * (0.78 + 0.34 * sky) + uSunColor * wrapped * shade);
+
+    // The photograph is a finished picture and is never re-graded.
+    //
+    // A camera took it and the provider's own processing tone-mapped it
+    // already. Running it through a film curve a second time is a double
+    // tone-map, and no amount of exposure undoes that: searching every
+    // combination of lighting gain and exposure, the closest any of them gets
+    // to returning the source is seventeen levels out, because the curve
+    // crushes shadows and compresses highlights by construction. Deep forest
+    // at 45 was coming back at 19, which is why the ground looked darker and
+    // duller than the tile it was drawn from — and darker than the minimap,
+    // which draws the same tile with nothing done to it at all.
+    //
+    // So it is modulated, not relit. Relief and cloud shadow are multipliers
+    // around one: fully sunlit flat ground is the photograph exactly, and a
+    // shaded slope is about a tenth darker. The sun that lit this ground is
+    // already in the picture.
+    float relief = (0.82 + 0.18 * wrapped) * (0.94 + 0.06 * sky);
+    vec3 lit = albedo * relief * shade;
+
+    // Ground with no photograph is the one thing here we do compute, so it
+    // gets the full relief treatment — there is nothing to double up with.
+    vec3 bare = groundNotLoaded(flatness) * (uAmbient * (0.78 + 0.34 * sky) + uSunColor * wrapped * shade);
+    lit = mix(bare, lit, uHasTexture);
 
     // Snow above the seasonal snow line, on ground that is not too steep.
     //
@@ -91434,7 +91446,7 @@ const TERRAIN_FRAG = /* glsl */ `
       lit = mix(lit, haze, clamp(f, 0.0, 1.0));
     }
 
-    gl_FragColor = vec4(toneMap(lit), 1.0);
+    gl_FragColor = vec4(lit, 1.0);
     #include <colorspace_fragment>
   }
 `;
@@ -91465,7 +91477,6 @@ function createTerrainMaterial(shared) {
       uFogEnabled: shared.uFogEnabled,
       uSnowLine: shared.uSnowLine,
       uNight: shared.uNight,
-      uExposure: shared.uExposure,
       uCloudTime: shared.uCloudTime,
       uCloudCover: shared.uCloudCover,
       uCloudHeight: shared.uCloudHeight,
@@ -91494,8 +91505,6 @@ function createSharedUniforms() {
     uLatitude: { value: 0 },
     uHasRelief: { value: 0 },
     uNight: { value: 0 },
-    /** Film exposure before the tone curve. See `toneMap` in the shaders. */
-    uExposure: { value: EXPOSURE },
     /**
      * The cloud deck, shared with the sky so the ground can be shadowed by the
      * clouds that are actually above it. Written by Weather each frame.
@@ -91520,7 +91529,6 @@ const SKY_VERT = /* glsl */ `
 
 const SKY_FRAG = /* glsl */ `
   precision highp float;
-  uniform float uExposure;
   uniform vec3 uZenith;
   uniform vec3 uHorizon;
   uniform vec3 uGround;
@@ -91560,20 +91568,7 @@ const SKY_FRAG = /* glsl */ `
     float halo = pow(toward, 260.0) * 0.45;
     sky += uSunColor * (disc + halo);
 
-    // The same film curve as the ground, so the horizon is one picture.
-    sky *= uExposure;
-    const mat3 IN = mat3(
-      0.59719, 0.07600, 0.02840,
-      0.35458, 0.90834, 0.13383,
-      0.04823, 0.01566, 0.83777);
-    const mat3 OUT = mat3(
-       1.60475, -0.10208, -0.00327,
-      -0.53108,  1.10813, -0.07276,
-      -0.07367, -0.00605,  1.07602);
-    vec3 v = IN * sky;
-    vec3 a = v * (v + 0.0245786) - 0.000090537;
-    vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
-    gl_FragColor = vec4(clamp(OUT * (a / b), 0.0, 1.0), 1.0);
+    gl_FragColor = vec4(clamp(sky, 0.0, 1.0), 1.0);
     #include <colorspace_fragment>
   }
 `;
@@ -91581,7 +91576,6 @@ const SKY_FRAG = /* glsl */ `
 function createSkyMaterial(shared) {
   return new THREE.ShaderMaterial({
     uniforms: {
-      uExposure: shared?.uExposure ?? { value: EXPOSURE },
       uZenith: { value: new THREE.Color(0.19, 0.36, 0.66) },
       uHorizon: { value: new THREE.Color(0.72, 0.79, 0.87) },
       uGround: { value: new THREE.Color(0.28, 0.3, 0.32) },
@@ -91658,7 +91652,6 @@ function createPanoramaMaterial() {
 }
 
 
-__tg_exports["EXPOSURE"] = EXPOSURE;
 __tg_exports["createTerrainMaterial"] = createTerrainMaterial;
 __tg_exports["createSharedUniforms"] = createSharedUniforms;
 __tg_exports["createSkyMaterial"] = createSkyMaterial;
@@ -92723,6 +92716,8 @@ const { createTerrainMaterial } = __tg_require("src/world/shaders.js");
  */
 const MAX_DRAWN_TILES = { low: 520, medium: 760, high: 1100, ultra: 1500 };
 const SEA_LEVEL = 0;
+/** Mean Earth radius, for the geometric horizon. */
+const EARTH_RADIUS_M = 6371000;
 /**
  * How much further than the render distance a built tile is kept before it may
  * be thrown away. Turning round used to mean rebuilding everything behind you
@@ -92745,17 +92740,27 @@ const REBUILD_CEILING = 48;
  * a deliberate approach.
  */
 /**
- * How far above a leaf the stand-in tile is built when nothing above it
- * exists yet. Four levels is one mesh covering two hundred and fifty six.
+ * How many coarse stand-ins may be rebuilt in one frame.
+ *
+ * Refreshing a stale stand-in is the cheapest rebuild there is *per pixel
+ * covered*, and that is exactly why it has to be rationed. A stand-in four
+ * levels up is a ten-kilometre mesh; while the elevation under it is still
+ * arriving it is marked stale again every frame, and every leaf that falls
+ * back to it asks for it to be rebuilt. Left alone, a handful of those ate
+ * the entire frame's build allowance, every frame, and the leaves that would
+ * have replaced them never got built at all — so a zoom-12 stand-in stayed on
+ * screen beside zoom-18 leaves that had managed to squeeze through. Six levels
+ * of texel density side by side is the patchwork.
  */
-const COVER_LEVELS = 4;
+const STANDIN_REFRESHES = 2;
 /**
- * And never coarser than this across. Four levels above a near leaf is a
- * kilometre or so, which reads as ground; four above a leaf at the far edge of
- * the view is eighty kilometres, which is a flat plate stretched to the
- * horizon — worse to look at than the gap it was standing in for.
+ * How far along an edge to look when deciding how deep that point's skirt has
+ * to be, in grid samples. A neighbour one level coarser straightens two of our
+ * cells into one, two levels coarser straightens four; four either way covers
+ * both with room to spare, and costs nothing where the ground is level because
+ * a flat window still measures zero.
  */
-const COVER_MAX_M = 6000;
+const SKIRT_REACH = 4;
 const LOD_HYSTERESIS_IN = 0.88;
 const LOD_HYSTERESIS_OUT = 1.12;
 
@@ -92922,6 +92927,9 @@ class Terrain {
     const detail = clamp(settings.get('detailLimit') / 100, 0.25, 1);
     const ceiling = settings.get('maxTileZoom') - Math.round((1 - detail) * 4);
     const maxZoom = Math.min(ceiling, this.streamer.maxUsefulZoom);
+    // Uses eyeAboveGround, which is set from the camera below; on the very
+    // first frame it is undefined and the setting stands, which is right.
+    this.eyeAboveGround = Math.max(0, camera.position.y - this.heightAt(camera.position.x, camera.position.z));
     const renderDistance = this.renderDistance;
     // Distant mode: keep drawing past the render distance, but only over
     // country you have already flown across. Ground you have never seen stops
@@ -92982,7 +92990,7 @@ class Terrain {
     // distant mode reaches further raise it as the walk finds them.
     this.edgeProfile.fill(renderDistance);
 
-    this.budget = { ms: budgetMs, start: performance.now(), built: 0 };
+    this.budget = { ms: budgetMs, start: performance.now(), built: 0, refreshed: 0 };
 
     const n = Math.pow(2, baseZoom);
     this.frame.worldToNorm(camX, camZ, this._norm);
@@ -93031,9 +93039,26 @@ class Terrain {
     this.stats.maxZoom = maxZoom;
   }
 
-  /** Metres of ground drawn around the camera, and how far to keep it after. */
+  /**
+   * Metres of ground drawn around the camera.
+   *
+   * However far you can actually see, within reason. Standing on the ground
+   * the horizon is five kilometres off and the setting governs; two thousand
+   * metres up it is a hundred and fifty, and drawing to the setting anyway
+   * stops the world at twenty-four — which puts a flat pale band of haze
+   * across the view where mountains should be, with clear sky above it. That
+   * band is the wall at the edge of the loaded world, standing a sixth of the
+   * way to the horizon.
+   *
+   * Reaching further is much cheaper than it sounds: a quadtree spends about
+   * the same on each ring however far out it is, because the rings coarsen
+   * with distance. Six times the setting is the ceiling, so the setting still
+   * means something.
+   */
   get renderDistance() {
-    return settings.get('renderDistanceKm') * 1000;
+    const setting = settings.get('renderDistanceKm') * 1000;
+    const horizon = Math.sqrt(2 * EARTH_RADIUS_M * Math.max(1, this.eyeAboveGround ?? 0));
+    return clamp(horizon, setting, setting * 6);
   }
 
   /**
@@ -93162,13 +93187,31 @@ class Terrain {
     // So the two thresholds differ: a tile has to come 12% closer than the
     // line to split, and go 12% past it to merge again. Anything in between
     // keeps doing whatever it was already doing.
+    // Do not outrun the photographs.
+    //
+    // Splitting is decided by distance alone, and imagery arrives when it
+    // arrives, so a tile could be drawn at zoom 18 while the only photograph
+    // it can find is eight levels up — stretched over its whole width — with
+    // a neighbour beside it that did get its own. That is the patchwork: sharp
+    // forest canopy in irregular patches inside a smeared background, with
+    // hard tile-shaped edges between them. It is a pattern on the ground and
+    // it is nothing to do with what is growing there.
+    //
+    // A tile may only split once it has a photograph of its own, or its
+    // parent's at worst. Then every tile on screen is within one level of
+    // every other, the whole view sharpens together as the imagery lands, and
+    // the edges have nothing to mark. Ground close enough to stand on is
+    // exempt: geometry there matters more than the texture on it.
     const key = tileKey(tile.z, tile.x, tile.y);
+    const photo = this.streamer.resolve(tile);
+    const sharpEnough = !photo || photo.scale >= 0.5 || flatDist < size;
     const line = size * this.lodFactor * this.splitScale(
       (x0 + x1) / 2, (z0 + z1) / 2, camX, camZ, flatDist, size,
     );
     const wasSplit = this.split.has(key);
     const shouldSplit =
-      tile.z < maxZoom && (wasSplit ? flatDist < line * LOD_HYSTERESIS_OUT : flatDist < line * LOD_HYSTERESIS_IN);
+      tile.z < maxZoom && sharpEnough &&
+      (wasSplit ? flatDist < line * LOD_HYSTERESIS_OUT : flatDist < line * LOD_HYSTERESIS_IN);
     if (shouldSplit) this.split.add(key);
     else this.split.delete(key);
     if (shouldSplit) {
@@ -93257,9 +93300,27 @@ class Terrain {
           this.show(node, tile, distance);
           return;
         }
-        // Nothing built here yet, so show the nearest built ancestor and try
-        // again next frame.
-        const ancestor = this.findBuiltAncestor(tile);
+        // Nothing built here yet. Show the nearest built ancestor — but if the
+        // nearest thing we have is far coarser than this tile, spend a build
+        // on the level *below* it first.
+        //
+        // That one rule is what keeps the ground uniform. Without it the only
+        // stand-in on offer could be four or six levels up, and a zoom-12
+        // mesh ten kilometres across drawn beside zoom-18 leaves that happened
+        // to squeeze through the budget is a texel density sixty-four times
+        // coarser on one side of an edge than the other. Sampling the drawn
+        // zoom across the screen over the Black Forest found exactly that: 12
+        // and 18 alternating from one sample to the next. Sharp canopy in
+        // islands inside a smear, with hard tile-shaped edges — the pattern on
+        // the ground, and nothing to do with what is growing there.
+        //
+        // Filling in from the top instead means every stand-in on screen sits
+        // at about the same depth and the whole view sharpens together.
+        let ancestor = this.findBuiltAncestor(tile);
+        if (!ancestor || tile.z - ancestor.tile.z > 2) {
+          const grown = this.buildCover(tile, ancestor);
+          if (grown) ancestor = grown;
+        }
         if (ancestor) {
           // And refresh it if it is stale, which nothing else will ever do.
           //
@@ -93274,7 +93335,10 @@ class Terrain {
           //
           // One mesh, serving hundreds of leaves. It is the cheapest rebuild
           // on the frame and the one that shows the most.
-          if (ancestor.dirty) this.refresh(ancestor);
+          if (ancestor.dirty && this.budget.refreshed < STANDIN_REFRESHES) {
+            this.budget.refreshed++;
+            this.refresh(ancestor);
+          }
           this.show(ancestor, tile, distance);
           return;
         }
@@ -93304,25 +93368,28 @@ class Terrain {
   }
 
   /**
-   * Build one coarse tile covering a leaf that has nothing above it yet.
+   * Grow the tree one level towards a leaf that has nothing built above it.
    *
-   * Four levels up is one mesh for two hundred and fifty six leaves, which is
-   * the difference between an arrival that takes a frame and one that takes a
-   * second. It is coarse and it is obviously coarse for a moment, and that is
-   * the right trade: ground of the wrong resolution reads as ground, and no
-   * ground at all reads as a hole through the planet.
+   * With nothing at all built — the frame after a teleport — this builds a
+   * single root tile, which every one of the four or five hundred leaves in
+   * the view then shares. That is the difference between an arrival that takes
+   * a frame and one that takes a second: it used to build every leaf.
+   *
+   * With something built already, it builds one level below it. So each frame
+   * the tree deepens by a level and every stand-in on screen sits at the same
+   * depth, instead of a few very coarse ones standing next to fully detailed
+   * leaves. Coarse ground reads as ground; coarse ground beside sharp ground
+   * reads as a fault.
    */
-  buildCover(tile) {
-    const worldSpan = 2 * Math.PI * this.frame.scale;
-    const floor = Math.max(this.stats.baseZoom, Math.floor(Math.log2(worldSpan / COVER_MAX_M)));
-    const z = Math.max(floor, tile.z - COVER_LEVELS);
-    if (z >= tile.z) return null;
+  buildCover(tile, ancestor) {
+    if (this.budget.built >= REBUILD_CEILING) return null;
+    const z = Math.min(ancestor ? ancestor.tile.z + 1 : this.stats.baseZoom, tile.z - 1);
+    if (z < 0 || z >= tile.z) return null;
     const shift = tile.z - z;
     const x = tile.x >> shift;
     const y = tile.y >> shift;
     const existing = this.nodes.get(tileKey(z, x, y));
     if (existing && existing.mesh && !existing.dirty) return existing;
-    if (this.budget.built >= REBUILD_CEILING) return existing?.mesh ? existing : null;
     const size = this.frame.worldTileSize(z);
     const n = Math.pow(2, z);
     this.frame.normToWorld(x / n, y / n, this._cover);
@@ -93493,25 +93560,57 @@ class Terrain {
 
     const cell = size / (grid - 1);
     // The skirt only has to be as deep as the crack it hides, and the crack is
-    // bounded by how much the surface can differ between two levels of detail
-    // *here* — which is the relief, not the tile's width. A flat tile has no
-    // crack to hide, and a hundred-metre curtain hanging off every edge of it
-    // is a grid of dark lines across a calm sea, seen almost edge-on from
-    // above. Over the Alps the same formula still gives the full skirt.
-    const relief = maxY - minY;
-    const skirt = clamp(relief * 0.6 + 1, 1, Math.max(12, size * 0.02));
+    // bounded by how much this tile's surface can differ from a neighbour at
+    // another level of detail *along the edge the two of them share* — which is
+    // that edge's own relief, since both sample the same profile and the
+    // coarser one only straightens it.
+    //
+    // Sizing every edge by the whole tile's relief, or giving each one a metre
+    // of curtain "just in case", hangs a wall off the flat sea. Seen almost
+    // edge-on from a thousand metres up those walls are exactly the dotted grid
+    // that used to lie over the water — 211 stray dark pixels in a patch of
+    // open sea with them, 15 without. A level edge has no crack to hide, so it
+    // gets no curtain. The depth is worked out separately for every point along
+    // every edge rather than once per tile, so the seaward half of a coastal
+    // tile's edge is bare while the half that runs up the headland keeps its
+    // full curtain. Over the Alps every point has relief around it, so the
+    // skirt there is the same depth it always was.
+    const cap = Math.max(12, size * 0.02);
+    const edgeDrop = (at) => {
+      const line = new Float32Array(grid);
+      for (let i = 0; i < grid; i++) line[i] = heights[at(i)];
+      const drops = new Float32Array(grid);
+      for (let i = 0; i < grid; i++) {
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (let j = Math.max(0, i - SKIRT_REACH); j <= Math.min(grid - 1, i + SKIRT_REACH); j++) {
+          if (line[j] < lo) lo = line[j];
+          if (line[j] > hi) hi = line[j];
+        }
+        drops[i] = clamp((hi - lo) * 0.6, 0, cap);
+      }
+      return drops;
+    };
+    const skirtTop = edgeDrop((i) => i);
+    const skirtBottom = edgeDrop((i) => (grid - 1) * grid + i);
+    const skirtLeft = edgeDrop((i) => i * grid);
+    const skirtRight = edgeDrop((i) => i * grid + grid - 1);
 
     for (let vy = 0; vy < verts; vy++) {
       const gy = clamp(vy - 1, 0, grid - 1);
-      const edgeY = vy === 0 || vy === verts - 1;
       for (let vx = 0; vx < verts; vx++) {
         const gx = clamp(vx - 1, 0, grid - 1);
-        const edgeX = vx === 0 || vx === verts - 1;
         const i = (vy * verts + vx) * 3;
         const h = heights[gy * grid + gx];
 
+        let drop = 0;
+        if (vy === 0) drop = Math.max(drop, skirtTop[gx]);
+        if (vy === verts - 1) drop = Math.max(drop, skirtBottom[gx]);
+        if (vx === 0) drop = Math.max(drop, skirtLeft[gy]);
+        if (vx === verts - 1) drop = Math.max(drop, skirtRight[gy]);
+
         positions[i] = gx * cell;
-        positions[i + 1] = edgeX || edgeY ? h - skirt : h;
+        positions[i + 1] = h - drop;
         positions[i + 2] = gy * cell;
         beds[vy * verts + vx] = bedHeights[gy * grid + gx];
 
@@ -94508,25 +94607,59 @@ const { latToNormY, lonToNormX, wrapTileX } = __tg_require("src/geo/mercator.js"
 /**
  * Shared 2D map painter for the minimap and the world map.
  *
- * One layer, in colour, everywhere. The whole world is satellite imagery and
- * none of it is drained, dimmed or washed over: what the map shows is what is
- * there.
+ * Two layers, and which one you see depends on where you have been. Ground you
+ * have actually laid eyes on shows the aerial photograph. Ground you have not
+ * shows a drawn street map — roads, coastlines and names, no photography. That
+ * is the fog: not a grey wash over the world, but the difference between having
+ * seen somewhere and only knowing it is there.
  *
- * It used to be two tile sets side by side — photographs where you had been and
- * separately fetched, separately rendered vector street tiles where you had
- * not. That is the patchwork: two pictures of the world, drawn to different
- * conventions, meeting along the edge of wherever you happened to have flown,
- * and each square waiting on its own download so the seam moved about as they
- * landed. The vector half also had no business being drawn zoomed out, where
- * its road casings and labels are sized for a street and come out as coloured
- * bands and letters the size of counties.
+ * The boundary is not the square you are standing in. `exploration` records
+ * what you could see from where you were — the geometric horizon at your height
+ * — so flying high over a coastline uncovers a broad circle and walking a
+ * valley uncovers a narrow one. The edge is then softened by a blur about half
+ * a cell wide, because the record is on a grid and the thing it is recording is
+ * not.
  *
- * One tile set, one look, one thing to wait for.
+ * An earlier version fetched and drew the street half as vector tiles at
+ * whatever zoom the map happened to be at, which put road casings and labels
+ * sized for a street across whole counties. It is Esri's raster street basemap
+ * first now, drawn through the same cache as the photographs, so both halves are
+ * pictures of the world made for the zoom they are shown at.
  *
  * Trails are hairlines, waypoints are small squares, and the whole thing is
  * deliberately flat: no glow, no gradients, nothing that competes with the
  * imagery underneath.
  */
+
+/**
+ * How far the fog edge is feathered, as a fraction of one exploration cell.
+ * Half a cell: enough that the grid the record is kept on stops being legible,
+ * not so much that the shape you actually flew is lost.
+ */
+const FOG_FEATHER = 0.45;
+
+/**
+ * Scratch canvases for the fog composite, reused between draws. Both maps paint
+ * synchronously on the same thread, so one pair is enough for both.
+ */
+let scratch = null;
+
+function scratchPair(width, height) {
+  if (typeof document === 'undefined') return null;
+  if (!scratch) {
+    scratch = {
+      photo: document.createElement('canvas'),
+      mask: document.createElement('canvas'),
+    };
+  }
+  for (const canvas of [scratch.photo, scratch.mask]) {
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+  }
+  return scratch;
+}
 
 const TILE_PX = 256;
 
@@ -94563,6 +94696,11 @@ function drawMap(ctx, view, layers) {
   const rotation = view.rotation ?? 0;
 
   ctx.save();
+  // Both maps hand us a context already scaled by the device pixel ratio, and
+  // `width`/`height` are CSS pixels. The scratch canvases the fog composites on
+  // have to match the real backing store or the photograph comes back soft.
+  const base = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
+  const pixelRatio = base && base.a > 0 ? base.a : 1;
   ctx.clearRect(0, 0, width, height);
   ctx.fillStyle = '#0f1114';
   ctx.fillRect(0, 0, width, height);
@@ -94595,38 +94733,113 @@ function drawMap(ctx, view, layers) {
   const tileCount = Math.pow(2, tileZoom);
 
   ctx.imageSmoothingEnabled = true;
-  for (let ty = minY; ty <= maxY; ty++) {
-    if (ty < 0 || ty >= tileCount) continue;
-    for (let tx = minX; tx <= maxX; tx++) {
-      const wrappedX = wrapTileX(tx, tileZoom);
-      const screenX = (tx * TILE_PX - tileCentre.x) * tileScale;
-      const screenY = (ty * TILE_PX - tileCentre.y) * tileScale;
-      const resolved = layers.tiles.resolve(tileZoom, wrappedX, ty);
 
-      if (resolved) {
-        const { bitmap, scale, ox, oy } = resolved;
-        const sw = bitmap.width * scale;
-        const sh = bitmap.height * scale;
-        ctx.save();
-        ctx.drawImage(
-          bitmap,
-          ox * bitmap.width,
-          oy * bitmap.height,
-          sw,
-          sh,
-          screenX,
-          screenY,
-          drawSize + 0.5,
-          drawSize + 0.5,
-        );
-        ctx.restore();
-      } else {
-        // Nothing loaded here yet. One flat tone — not a second colour for
-        // "unexplored", because there is no such thing on this map any more.
-        ctx.fillStyle = '#161a1f';
-        ctx.fillRect(screenX, screenY, drawSize, drawSize);
+  /** Paint one tile set across the visible extent. */
+  const paint = (target, cache, blank) => {
+    for (let ty = minY; ty <= maxY; ty++) {
+      if (ty < 0 || ty >= tileCount) continue;
+      for (let tx = minX; tx <= maxX; tx++) {
+        const wrappedX = wrapTileX(tx, tileZoom);
+        const screenX = (tx * TILE_PX - tileCentre.x) * tileScale;
+        const screenY = (ty * TILE_PX - tileCentre.y) * tileScale;
+        const resolved = cache.resolve(tileZoom, wrappedX, ty);
+
+        if (resolved) {
+          const { bitmap, scale, ox, oy } = resolved;
+          target.drawImage(
+            bitmap,
+            ox * bitmap.width,
+            oy * bitmap.height,
+            bitmap.width * scale,
+            bitmap.height * scale,
+            screenX,
+            screenY,
+            drawSize + 0.5,
+            drawSize + 0.5,
+          );
+        } else if (blank) {
+          // Nothing loaded here yet.
+          target.fillStyle = blank;
+          target.fillRect(screenX, screenY, drawSize, drawSize);
+        }
       }
     }
+  };
+
+  // The fog needs three things: somewhere to have been, a drawn map to show
+  // where you have not, and a canvas to composite on. Without any one of them
+  // the photograph is simply drawn everywhere, which is what the map did before
+  // the fog came back and is still the right answer on a canvas that cannot
+  // make scratch surfaces.
+  const fogged = options.fog !== false && !!layers.exploration && !!layers.street;
+  const pair = fogged
+    ? scratchPair(Math.round(width * pixelRatio), Math.round(height * pixelRatio))
+    : null;
+
+  if (!pair) {
+    paint(ctx, layers.tiles, '#161a1f');
+  } else {
+    // Unexplored first, over everything: the drawn map is the ground state.
+    paint(ctx, layers.street, '#161a1f');
+
+    // One exploration cell per this many map-tile subdivisions. Sixteen is the
+    // finest the record goes; below that the cells would be smaller than the
+    // record can answer for, and above it they would be coarser than the
+    // screen, so it is clamped at both ends.
+    const sub = Math.max(1, Math.min(16, Math.pow(2, 16 - tileZoom)));
+    const maskZoom = tileZoom + Math.round(Math.log2(sub));
+    const cellPx = drawSize / sub;
+
+    const photo = pair.photo.getContext('2d');
+    const mask = pair.mask.getContext('2d');
+    for (const target of [photo, mask]) {
+      target.setTransform(1, 0, 0, 1, 0, 0);
+      target.clearRect(0, 0, pair.photo.width, pair.photo.height);
+      target.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      target.translate(width / 2, height / 2);
+      if (rotation) target.rotate(rotation);
+    }
+    photo.imageSmoothingEnabled = true;
+    paint(photo, layers.tiles, null);
+
+    mask.fillStyle = '#fff';
+    for (let ty = minY; ty <= maxY; ty++) {
+      if (ty < 0 || ty >= tileCount) continue;
+      for (let tx = minX; tx <= maxX; tx++) {
+        const wrappedX = wrapTileX(tx, tileZoom);
+        const screenX = (tx * TILE_PX - tileCentre.x) * tileScale;
+        const screenY = (ty * TILE_PX - tileCentre.y) * tileScale;
+        for (let j = 0; j < sub; j++) {
+          for (let i = 0; i < sub; i++) {
+            if (!layers.exploration.isExplored(maskZoom, wrappedX * sub + i, ty * sub + j)) continue;
+            // Half a pixel of overlap: adjacent cells must not leave a hairline
+            // of street map between them.
+            mask.fillRect(
+              screenX + i * cellPx - 0.5,
+              screenY + j * cellPx - 0.5,
+              cellPx + 1,
+              cellPx + 1,
+            );
+          }
+        }
+      }
+    }
+
+    // Feather the edge, then cut the photograph to it. The blur goes on the
+    // composite rather than on each cell: blurring them one at a time and
+    // compositing each in turn would have every cell erase its neighbour.
+    photo.setTransform(1, 0, 0, 1, 0, 0);
+    photo.globalCompositeOperation = 'destination-in';
+    const feather = Math.min(20, Math.max(1.5, cellPx * FOG_FEATHER * pixelRatio));
+    photo.filter = `blur(${feather.toFixed(1)}px)`;
+    photo.drawImage(pair.mask, 0, 0);
+    photo.filter = 'none';
+    photo.globalCompositeOperation = 'source-over';
+
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(pair.photo, 0, 0);
+    ctx.restore();
   }
 
   if (options.grid) {
@@ -94828,8 +95041,9 @@ const { drawMap, metresPerPixel, project, unproject, worldPixelSize } = __tg_req
  */
 
 class WorldMap {
-  constructor(root, { tiles, exploration, waypointStore, trail }) {
+  constructor(root, { tiles, street, exploration, waypointStore, trail }) {
     this.tiles = tiles;
+    this.street = street;
     this.exploration = exploration;
     this.waypointStore = waypointStore;
     this.trail = trail;
@@ -95169,6 +95383,7 @@ class WorldMap {
       },
       {
         tiles: this.tiles,
+        street: this.street,
         exploration: this.exploration,
         waypointStore: this.waypointStore,
         trail: this.trail,
@@ -95324,7 +95539,8 @@ class HelpCard {
         </div>
         <p class="help-note">
           Satellite imagery and elevation work with no account at all. <strong>Settings → Providers</strong>
-          swaps in Google, Azure or Mapbox if you have a key, or falls back to a generated world offline.
+          swaps in Google, Azure or Mapbox if you have a key. With no network there is nothing to fly
+          over: the ground stays bare rather than being made up.
         </p>
         <p class="help-note">
           On a touch screen the on-screen stick and buttons appear by themselves. To play with no internet
@@ -95706,7 +95922,6 @@ function modeLabel(player, state) {
     return player.rocketTicksLeft > 0 ? 'Gliding · rocket' : 'Gliding';
   }
   if (player.mode === 'fall') return 'Falling';
-  if (player.inBuilding) return 'Indoors';
   if (state.onWater) return 'At sea';
   return player.onGround ? 'On foot' : 'On foot';
 }
@@ -95755,8 +95970,9 @@ const { drawMap, metresPerPixel } = __tg_require("src/ui/mapRenderer.js");
 const REDRAW_INTERVAL = 1 / 20;
 
 class Minimap {
-  constructor(root, { tiles, exploration, waypointStore, trail }) {
+  constructor(root, { tiles, street, exploration, waypointStore, trail }) {
     this.tiles = tiles;
+    this.street = street;
     this.exploration = exploration;
     this.waypointStore = waypointStore;
     this.trail = trail;
@@ -95774,7 +95990,6 @@ class Minimap {
     this.overlay = document.createElement('div');
     this.overlay.className = 'minimap-overlay';
     this.overlay.innerHTML = `
-      <span class="minimap-north">N</span>
       <div class="minimap-scale"><i></i><span>—</span></div>
       <div class="minimap-zoom">
         <button type="button" data-zoom="1" title="Zoom in">+</button>
@@ -95789,7 +96004,6 @@ class Minimap {
     this.scaleLabel = this.overlay.querySelector('.minimap-scale span');
     this.scaleBar = this.overlay.querySelector('.minimap-scale i');
     this.zoomLabel = this.overlay.querySelector('.minimap-z');
-    this.northLabel = this.overlay.querySelector('.minimap-north');
     this.hintKey = this.overlay.querySelector('.minimap-hint kbd');
     const refreshHint = () => {
       this.hintKey.textContent = keybinds.labelFor('worldMap');
@@ -95891,6 +96105,7 @@ class Minimap {
       },
       {
         tiles: this.tiles,
+        street: this.street,
         exploration: this.exploration,
         waypointStore: this.waypointStore,
         trail: this.trail,
@@ -95913,7 +96128,10 @@ class Minimap {
     this.scaleBar.style.width = `${barPx}px`;
     this.scaleLabel.textContent = formatDistance(mpp * barPx, settings.get('units'), 0);
     this.zoomLabel.textContent = `z${zoom}`;
-    this.northLabel.style.transform = `rotate(${rotation}rad)`;
+    // One north marker, not two. There used to be an HTML "N" pinned over the
+    // corner as well as the compass the canvas draws, so a rotated minimap had
+    // two of them disagreeing about which way north was — the HTML one turned
+    // with the map, the drawn one stayed with the compass.
   }
 }
 
@@ -95975,10 +96193,10 @@ const SECTIONS = [
         ],
         help: (value) =>
           value === 'off'
-            ? 'Real satellite imagery, real elevation and real OpenStreetMap buildings and woodland \u2014 all of it keyless, and what nearly everyone should be flying. Falls back to a generated world only when there is no network at all.'
+            ? 'Real satellite imagery, real elevation and real OpenStreetMap buildings and woodland \u2014 all of it keyless, and what nearly everyone should be flying. With no network the ground stays bare; nothing here is made up to fill it.'
             : value === 'cesium'
               ? 'The same scanned world as the Google option, served through Cesium ion on an ion access token \u2014 a different account and a different quota. Terrain steps aside where it loads. Test providers will tell you whether the token is working.'
-              : 'Not a stylised world and not a generated one: aeroplanes flew over with cameras, and the buildings, trees and bridges you see are the mesh they measured, wearing the photographs they took. It is the most real thing here, and it is the one thing that cannot be keyless \u2014 Google meters it. Needs a Google Maps Platform key with the Map Tiles API enabled, and it is not cheap to run. Terrain steps aside where it loads.',
+              : 'Not a stylised world and nothing drawn from a description: aeroplanes flew over with cameras, and the buildings, trees and bridges you see are the mesh they measured, wearing the photographs they took. It is the most real thing here, and it is the one thing that cannot be keyless \u2014 Google meters it. Needs a Google Maps Platform key with the Map Tiles API enabled, and it is not cheap to run. Terrain steps aside where it loads.',
       },
       {
         key: 'world3dAsset',
@@ -96016,7 +96234,7 @@ const SECTIONS = [
       { key: 'mapillaryToken', label: 'Mapillary token', type: 'secret' },
       { key: 'maxarConnectId', label: 'Maxar SecureWatch connect ID', type: 'secret', help: 'Maxar\u2019s own imagery service. An enterprise credential \u2014 Esri, Bing and Google all serve Maxar scenes without one.' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },
-      { key: 'buildings', label: 'OpenStreetMap buildings', type: 'toggle', help: 'Extrudes real footprints near the ground. Interiors are generated.' },
+      { key: 'buildings', label: 'OpenStreetMap buildings', type: 'toggle', help: 'Extrudes real footprints near the ground to their surveyed height. Solid \u2014 there is no invented inside.' },
       { key: 'streetLevel', label: 'Blend street-level photos', type: 'toggle', help: 'Fades ground photography in when you stand still. Needs a key.' },
     ],
   },
@@ -97085,7 +97303,7 @@ const { createTileWorker } = __tg_require("src/tiles/workerHost.js");
 const { Buildings } = __tg_require("src/world/buildings.js");
 const { Panorama } = __tg_require("src/world/panorama.js");
 const { pickRandomDestination } = __tg_require("src/world/rtp.js");
-const { EXPOSURE, createSharedUniforms } = __tg_require("src/world/shaders.js");
+const { createSharedUniforms } = __tg_require("src/world/shaders.js");
 const { EdgeWall } = __tg_require("src/world/edgeWall.js");
 const { Sky } = __tg_require("src/world/sky.js");
 const { Terrain } = __tg_require("src/world/terrain.js");
@@ -97094,7 +97312,7 @@ const { CheatPanel } = __tg_require("src/ui/cheatPanel.js");
 const { exploration } = __tg_require("src/ui/exploration.js");
 const { HelpCard } = __tg_require("src/ui/help.js");
 const { HUD } = __tg_require("src/ui/hud.js");
-const { mapTiles } = __tg_require("src/ui/mapTiles.js");
+const { mapTiles, streetTiles } = __tg_require("src/ui/mapTiles.js");
 const { Minimap } = __tg_require("src/ui/minimap.js");
 const { SettingsPanel } = __tg_require("src/ui/settingsPanel.js");
 const { TouchControls } = __tg_require("src/ui/touch.js");
@@ -97152,14 +97370,12 @@ class Game {
     });
     this.renderer.setClearColor(0x0d0f12, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    // The same filmic curve our own shaders apply, so the buildings and the
-    // player are graded exactly like the ground they stand on. Without it,
-    // everything went from the arithmetic straight to the screen — highlights
-    // clipped flat with nowhere to roll off, which is most of what makes a
-    // render read as a photograph pasted onto geometry rather than a
-    // photograph of somewhere.
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = EXPOSURE;
+    // No tone curve. Everything in this scene is already display-referred —
+    // the imagery is a finished photograph, the sky colours are authored as
+    // the colours they should be, the fog colour is taken from the sky. There
+    // is no high-dynamic-range content here for a film curve to bring into
+    // range, so applying one only grades a picture that was already graded.
+    this.renderer.toneMapping = THREE.NoToneMapping;
 
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.FogExp2(0xaebccd, 1 / 26000);
@@ -97215,8 +97431,15 @@ class Game {
 
     this.onStatus('Building interface');
     this.hud = new HUD(ui);
-    this.minimap = new Minimap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints, trail });
-    this.worldmap = new WorldMap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints, trail });
+    const mapLayers = {
+      tiles: mapTiles,
+      street: streetTiles,
+      exploration,
+      waypointStore: waypoints,
+      trail,
+    };
+    this.minimap = new Minimap(ui, mapLayers);
+    this.worldmap = new WorldMap(ui, mapLayers);
     this.settingsPanel = new SettingsPanel(ui);
     this.help = new HelpCard(ui);
     this.cheatPanel = new CheatPanel(ui);
@@ -97333,7 +97556,7 @@ class Game {
 
     this.streamer.on('degraded', () => {
       mapTiles.setDegraded(true);
-      this.toast('Imagery provider unreachable — showing generated terrain', 'warn');
+      this.toast('Imagery provider unreachable — the ground stays bare', 'warn');
     });
 
     window.addEventListener('resize', () => this.resize());
@@ -97410,19 +97633,23 @@ class Game {
         : createImagerySource({ ...settings.values, imageryProvider: 'sentinel2' }),
     );
     mapTiles.setDegraded(false);
-    // The maps draw one tile set. There used to be a second one — the OSM
-    // street map, fetched separately and drawn over unvisited ground — and it
-    // is gone: two pictures of the world to different conventions, meeting
-    // along the edge of wherever you had flown, each square waiting on its own
-    // download. Unvisited ground is the same photograph with the colour taken
-    // out of it now, which needs no second provider, no second cache and no
-    // second thing to wait for.
+    // The second tile set: the drawn street map the flat maps show for ground
+    // you have not seen yet. Esri's street basemap first because it is raster
+    // and goes to zoom 19, OpenFreeMap behind it because it is explicitly
+    // unmetered and so is the one that survives a map being panned about.
+    // Neither needs a key, and neither depends on which imagery you chose to
+    // fly over — the fog should not change when you swap satellites.
+    streetTiles.setSource(createImagerySource({ ...settings.values, imageryProvider: 'esri-street' }));
+    streetTiles.setFallback([
+      createImagerySource({ ...settings.values, imageryProvider: 'openfreemap' }),
+    ]);
     // The water probe gets the standbys too: whether somewhere is the sea must
     // not depend on which company has flown over it.
     waterMap.setSource(this.imagerySource, this.streamer.standbys ?? []);
     if (rebuild) this.terrain.rebase();
     this.imagerySource.prepare();
     this.elevationSource.prepare();
+    streetTiles.source?.prepare();
   }
 
   /**
@@ -98008,21 +98235,9 @@ class Game {
     this.arrivalPending = false;
     const player = this.player;
 
-    // Arriving indoors and arriving with street-level photography on are both
-    // simply what happens now. They were options, and an option nobody knew
-    // to turn on is a feature nobody has.
-    if (settings.get('buildings')) {
-      const near = this.buildings.collidersNear(player.position.x, player.position.z, 90);
-      const inside = near.find((collider) => collider.floors && collider.floors.length > 0);
-      if (inside) {
-        const centre = polygonCentre(inside.polygon);
-        player.position.x = centre.x;
-        player.position.z = centre.z;
-        player.position.y = (inside.floors[0] ?? player.groundHeight) + 0.1;
-        player.velocity.set(0, 0, 0);
-        this.toast('Arrived indoors');
-      }
-    }
+    // Arriving indoors used to be one of the things that could happen here. It
+    // cannot any more: there is no indoors. A building is the shell OpenStreetMap
+    // surveyed, and everything that used to be behind its walls was invented.
 
     if (settings.get('panoramaProvider') !== 'none') {
       settings.set('streetLevel', true);
@@ -98420,18 +98635,6 @@ class Game {
       `mode ${player.mode}  vel ${player.velocity.length().toFixed(1)} m/s  land ${(this.landFraction * 100).toFixed(0)}%`,
     ].join('\n');
   }
-}
-
-/** Centre of a building footprint, in world XZ. */
-function polygonCentre(polygon) {
-  let x = 0;
-  let z = 0;
-  for (const point of polygon) {
-    x += point[0];
-    z += point[1];
-  }
-  const n = Math.max(1, polygon.length);
-  return { x: x / n, z: z / n };
 }
 
 __tg_exports["Game"] = Game;
