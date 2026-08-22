@@ -1256,9 +1256,26 @@ input[type='checkbox'] {
 }
 
 @media (max-width: 900px) {
-  .hud-rail,
-  .hud-compass {
+  /* Narrow, not gone.
+   *
+   * The rail and the compass used to be switched off outright below nine
+   * hundred pixels, which is any phone held upright and plenty of ordinary
+   * windows — and the rail is where the speed-mode meter, the air you have
+   * left underwater and your height all live. "The boost meter is sometimes
+   * not visible" was this: not a bug in the meter, a stylesheet deciding you
+   * did not need it. Everything readable stays; only the space it takes goes. */
+  .hud-rail {
+    width: 116px;
+    gap: 5px;
+    font-size: 10px;
+  }
+
+  .gauge label kbd {
     display: none;
+  }
+
+  .hud-compass {
+    width: 220px;
   }
 
   .worldmap-body {
