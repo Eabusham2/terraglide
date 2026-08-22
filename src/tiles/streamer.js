@@ -57,6 +57,18 @@ export class ImageryStreamer extends Emitter {
      */
     this.byZoom = new Map();
     this.depthLimit = Infinity;
+    /**
+     * Squares every provider has said it has no photograph of.
+     *
+     * Coverage is not a single depth. Esri serves zoom 19 over a town and stops
+     * at 17 over a glacier a valley away, so writing off a whole zoom level is
+     * wrong — but writing off *this square* is not, and neither is writing off
+     * everything inside it. Measured over the Bernese Alps, a third of the
+     * zoom-18 and two thirds of the zoom-19 requests come back "no imagery
+     * here" or 404, and every one of them is retried every twenty seconds
+     * forever. Remembering the answer turns that into asking once.
+     */
+    this.barren = new Set();
     this.worker.addEventListener('message', (event) => this.onWorkerMessage(event.data));
   }
 
@@ -84,7 +96,34 @@ export class ImageryStreamer extends Emitter {
     return this.standbys[attempt - 1] ?? null;
   }
 
+  /**
+   * Could this provider have a photograph at this zoom at all?
+   *
+   * The standby list is ordered by preference, not by depth, and the free ones
+   * behind Esri are much coarser: Sentinel-2 stops around zoom 14, GIBS is a
+   * quarter-kilometre a pixel. When Esri refuses a zoom-19 square over a
+   * glacier, asking those three in turn is three round trips that cannot
+   * succeed — and measured over the Bernese Alps that is where three quarters
+   * of all imagery failures came from: 157 refusals covering 39 squares.
+   * Skipping the ones that do not go that deep leaves the budget to tiles that
+   * exist.
+   */
+  canServe(source, z) {
+    if (!source) return false;
+    return (source.descriptor?.maxZoom ?? 19) >= z;
+  }
+
+  /** The next attempt number worth making after this one, or null. */
+  nextAttempt(entry) {
+    let attempt = (entry.attempt ?? 0) + 1;
+    while (attempt <= this.standbys.length && !this.canServe(this.standbys[attempt - 1], entry.tile.z)) {
+      attempt++;
+    }
+    return attempt <= this.standbys.length ? attempt : null;
+  }
+
   clear() {
+    this.barren.clear();
     for (const entry of this.entries.values()) {
       if (entry.texture) entry.texture.dispose();
     }
@@ -165,10 +204,34 @@ export class ImageryStreamer extends Emitter {
     entry.used = this.frame;
     entry.priority = priority;
     if (entry.state === STATE_BARE) return entry;
+    if (entry.state !== STATE_READY && this.underBarren(tile)) {
+      entry.state = STATE_BARE;
+      return entry;
+    }
     if (entry.state === 0 || (entry.state === STATE_FAILED && entry.retryAt < performance.now())) {
       this.queue.push(entry);
     }
     return entry;
+  }
+
+  /**
+   * Is this square inside one nobody has a photograph of?
+   *
+   * Only the levels immediately above are consulted. A provider that refuses a
+   * square refuses the quarter of it below, and the quarter of that; going all
+   * the way to the root would let one refusal at zoom 3 write off a continent
+   * on the strength of one answer.
+   */
+  underBarren(tile) {
+    if (this.barren.size === 0) return false;
+    let { z, x, y } = tile;
+    for (let i = 0; i < 4 && z > 1; i++) {
+      z -= 1;
+      x >>= 1;
+      y >>= 1;
+      if (this.barren.has(tileKey(z, x, y))) return true;
+    }
+    return false;
   }
 
   /**
@@ -307,15 +370,21 @@ export class ImageryStreamer extends Emitter {
       // about one server, not about whether the ground exists, and the whole
       // point of the standby list is that somebody else has a photograph of
       // the same place.
-      const attempt = (entry.attempt ?? 0) + 1;
-      if (!msg.aborted && attempt <= this.standbys.length) {
+      const attempt = msg.aborted ? null : this.nextAttempt(entry);
+      if (attempt !== null) {
         entry.attempt = attempt;
         entry.state = 0;
         entry.retryAt = 0;
         this.queue.push(entry);
+      } else if (msg.aborted) {
+        entry.state = STATE_FAILED;
+        entry.retryAt = 0;
       } else {
         entry.state = STATE_FAILED;
-        entry.retryAt = performance.now() + (msg.aborted ? 0 : 20000);
+        entry.retryAt = performance.now() + 20000;
+        // Nobody has this square. Say so once, so the four below it and the
+        // sixteen below those are never asked at all.
+        this.barren.add(entry.key);
       }
       this.stats.failed++;
       if (!msg.aborted) {
