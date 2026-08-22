@@ -51,7 +51,7 @@ function blend(a, b, t, out) {
 export class Sky {
   constructor(scene, shared) {
     this.shared = shared;
-    this.material = createSkyMaterial();
+    this.material = createSkyMaterial(shared);
     this.mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), this.material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = -1000;

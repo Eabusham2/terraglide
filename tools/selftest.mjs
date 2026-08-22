@@ -1954,5 +1954,37 @@ console.log('\nphotogrammetry that stays put');
     sorted[0].order <= sorted[sorted.length - 1].order);
 }
 
+console.log('\ngraded as one photograph');
+{
+  const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  const weather = readFileSync(new URL('../src/world/weather.js', import.meta.url), 'utf8');
+  const { EXPOSURE } = await import('../src/world/shaders.js');
+
+  ok('the ground goes through a film curve rather than straight to the screen',
+    /gl_FragColor = vec4\(toneMap\(lit\), 1\.0\);/.test(shaders));
+  ok('and so does the sky, so the horizon is one picture',
+    /sky \*= uExposure;/.test(shaders));
+  ok('and the renderer grades its own materials the same way',
+    /ACESFilmicToneMapping/.test(game) && /toneMappingExposure = EXPOSURE/.test(game));
+  ok('off one shared exposure, not three copies of a number',
+    typeof EXPOSURE === 'number' && EXPOSURE > 0 && EXPOSURE < 3, String(EXPOSURE));
+
+  // The shadow has to be cast by the cloud that is actually drawn, or it is
+  // just a second pattern moving over the ground on its own.
+  ok('the cloud shadow samples the field the deck draws, at the same scale',
+    /hit \* 0\.00042 \+ vec2\(uCloudTime \* 0\.0035, uCloudTime \* 0\.0018\)/.test(shaders) &&
+    /vWorld\.xz \* 0\.00042 \+ vec2\(uTime \* 0\.0035, uTime \* 0\.0018\)/.test(weather));
+  ok('and with the same threshold, so cover means the same on both',
+    /0\.62 - uCloudCover \* 0\.55, 0\.92 - uCloudCover \* 0\.42/.test(shaders) &&
+    /0\.62 - uCover \* 0\.55, 0\.92 - uCover \* 0\.42/.test(weather));
+  ok('the deck publishes its own state for the ground to read',
+    /this\.shared\.uCloudTime\.value = this\.time;/.test(weather));
+  ok('and casts nothing when no deck is drawn',
+    /uCloudCover\.value = this\.deck\.visible \? this\.state\.cloudCover : 0;/.test(weather));
+  ok('the shadow darkens the sun, not the sky',
+    /uSunColor \* wrapped \* shade/.test(shaders));
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);

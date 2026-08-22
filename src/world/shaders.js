@@ -1,6 +1,12 @@
 import * as THREE from '../../vendor/three/three.module.js';
 
 /**
+ * Exposure applied before the filmic curve, shared by our own shaders and the
+ * renderer's own materials so the whole scene is graded as one photograph.
+ */
+export const EXPOSURE = 0.85;
+
+/**
  * Terrain shader.
  *
  * Notable bits:
@@ -65,6 +71,10 @@ const TERRAIN_FRAG = /* glsl */ `
   uniform float uLatitude;
   uniform float uHasRelief;
   uniform float uNight;
+  uniform float uExposure;
+  uniform float uCloudTime;
+  uniform float uCloudCover;
+  uniform float uCloudHeight;
 
   varying vec2 vUv;
   varying vec3 vNormalW;
@@ -72,6 +82,74 @@ const TERRAIN_FRAG = /* glsl */ `
   varying float vHeight;
   varying float vBed;
   varying vec3 vWorld;
+
+  /**
+   * ACES filmic tone mapping.
+   *
+   * Everything until now went from the shader straight to the screen, which is
+   * what a light meter does and not what a camera or an eye does. Bright ground
+   * clipped flat, midtones sat where the arithmetic left them, and the result
+   * reads as a photograph pasted onto geometry rather than as a photograph
+   * *of* something — the highlights have nowhere to roll off to. This is the
+   * curve every film-look renderer uses, applied identically here and to the
+   * renderer's own materials so nothing in the scene is graded differently
+   * from anything else.
+   */
+  vec3 toneMap(vec3 colour) {
+    colour *= uExposure;
+    const mat3 IN = mat3(
+      0.59719, 0.07600, 0.02840,
+      0.35458, 0.90834, 0.13383,
+      0.04823, 0.01566, 0.83777);
+    const mat3 OUT = mat3(
+       1.60475, -0.10208, -0.00327,
+      -0.53108,  1.10813, -0.07276,
+      -0.07367, -0.00605,  1.07602);
+    vec3 v = IN * colour;
+    vec3 a = v * (v + 0.0245786) - 0.000090537;
+    vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+    return clamp(OUT * (a / b), 0.0, 1.0);
+  }
+
+  /**
+   * The cloud deck's own shadow.
+   *
+   * Not a new invention: this is the same field, at the same scale, drifting at
+   * the same rate as the cloud sheet already drawn overhead, sampled where the
+   * sun's ray from this patch of ground crosses it. If there is cloud between
+   * you and the sun, the ground under it is in shade — and moving shadow on
+   * the land is one of the strongest cues there is that you are looking at a
+   * place in weather rather than at a texture.
+   */
+  float cloudHash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
+
+  float cloudNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(cloudHash(i), cloudHash(i + vec2(1.0, 0.0)), u.x),
+               mix(cloudHash(i + vec2(0.0, 1.0)), cloudHash(i + vec2(1.0, 1.0)), u.x), u.y);
+  }
+
+  float cloudShadow(vec3 world) {
+    if (uCloudCover < 0.02 || uSunDir.y < 0.05) return 1.0;
+    // Where the sun's ray from here crosses the cloud deck.
+    float rise = uCloudHeight - world.y;
+    if (rise < 0.0) return 1.0;
+    vec2 hit = world.xz + uSunDir.xz * (rise / uSunDir.y);
+    vec2 p = hit * 0.00042 + vec2(uCloudTime * 0.0035, uCloudTime * 0.0018);
+    float total = 0.0;
+    float amplitude = 0.5;
+    for (int i = 0; i < 4; i++) {
+      total += cloudNoise(p) * amplitude;
+      p *= 2.03;
+      amplitude *= 0.5;
+    }
+    float density = smoothstep(0.62 - uCloudCover * 0.55, 0.92 - uCloudCover * 0.42, total);
+    return 1.0 - density * 0.62;
+  }
 
   /**
    * What the ground looks like when there is no photograph of it yet.
@@ -119,7 +197,10 @@ const TERRAIN_FRAG = /* glsl */ `
     // sides, and it is the only shading here that the photograph does not
     // already contain.
     float sky = 0.5 + 0.5 * n.y;
-    vec3 lit = albedo * (uAmbient * (0.78 + 0.34 * sky) + uSunColor * wrapped);
+    // Shadow the sun, not the sky: under cloud the ground is still lit from
+    // above, it is just no longer lit from one direction.
+    float shade = cloudShadow(vWorld);
+    vec3 lit = albedo * (uAmbient * (0.78 + 0.34 * sky) + uSunColor * wrapped * shade);
 
     // Snow above the seasonal snow line, on ground that is not too steep.
     //
@@ -197,7 +278,7 @@ const TERRAIN_FRAG = /* glsl */ `
       lit = mix(lit, haze, clamp(f, 0.0, 1.0));
     }
 
-    gl_FragColor = vec4(lit, 1.0);
+    gl_FragColor = vec4(toneMap(lit), 1.0);
     #include <colorspace_fragment>
   }
 `;
@@ -228,6 +309,10 @@ export function createTerrainMaterial(shared) {
       uFogEnabled: shared.uFogEnabled,
       uSnowLine: shared.uSnowLine,
       uNight: shared.uNight,
+      uExposure: shared.uExposure,
+      uCloudTime: shared.uCloudTime,
+      uCloudCover: shared.uCloudCover,
+      uCloudHeight: shared.uCloudHeight,
     },
     vertexShader: TERRAIN_VERT,
     fragmentShader: TERRAIN_FRAG,
@@ -249,6 +334,15 @@ export function createSharedUniforms() {
     uLatitude: { value: 0 },
     uHasRelief: { value: 0 },
     uNight: { value: 0 },
+    /** Film exposure before the tone curve. See `toneMap` in the shaders. */
+    uExposure: { value: EXPOSURE },
+    /**
+     * The cloud deck, shared with the sky so the ground can be shadowed by the
+     * clouds that are actually above it. Written by Weather each frame.
+     */
+    uCloudTime: { value: 0 },
+    uCloudCover: { value: 0.4 },
+    uCloudHeight: { value: 2100 },
   };
 }
 
@@ -266,6 +360,7 @@ const SKY_VERT = /* glsl */ `
 
 const SKY_FRAG = /* glsl */ `
   precision highp float;
+  uniform float uExposure;
   uniform vec3 uZenith;
   uniform vec3 uHorizon;
   uniform vec3 uGround;
@@ -305,14 +400,28 @@ const SKY_FRAG = /* glsl */ `
     float halo = pow(toward, 260.0) * 0.45;
     sky += uSunColor * (disc + halo);
 
-    gl_FragColor = vec4(sky, 1.0);
+    // The same film curve as the ground, so the horizon is one picture.
+    sky *= uExposure;
+    const mat3 IN = mat3(
+      0.59719, 0.07600, 0.02840,
+      0.35458, 0.90834, 0.13383,
+      0.04823, 0.01566, 0.83777);
+    const mat3 OUT = mat3(
+       1.60475, -0.10208, -0.00327,
+      -0.53108,  1.10813, -0.07276,
+      -0.07367, -0.00605,  1.07602);
+    vec3 v = IN * sky;
+    vec3 a = v * (v + 0.0245786) - 0.000090537;
+    vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+    gl_FragColor = vec4(clamp(OUT * (a / b), 0.0, 1.0), 1.0);
     #include <colorspace_fragment>
   }
 `;
 
-export function createSkyMaterial() {
+export function createSkyMaterial(shared) {
   return new THREE.ShaderMaterial({
     uniforms: {
+      uExposure: shared?.uExposure ?? { value: EXPOSURE },
       uZenith: { value: new THREE.Color(0.19, 0.36, 0.66) },
       uHorizon: { value: new THREE.Color(0.72, 0.79, 0.87) },
       uGround: { value: new THREE.Color(0.28, 0.3, 0.32) },

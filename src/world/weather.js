@@ -78,8 +78,15 @@ void main() {
 }`;
 
 export class Weather {
-  constructor(scene) {
+  constructor(scene, shared = null) {
     this.scene = scene;
+    /**
+     * Shared uniforms, so the ground can be shadowed by the cloud that is
+     * actually overhead. The deck writes its own time, cover and height here
+     * every frame and the terrain shader reads the same three numbers — one
+     * field, sampled twice, rather than two fields that drift apart.
+     */
+    this.shared = shared;
     this.time = 0;
     this.state = { cloudCover: 0.4, precipitation: 0, kind: 'none' };
 
@@ -138,6 +145,13 @@ export class Weather {
     const enabled = settings.get('weather');
     this.deck.visible = enabled && this.state.cloudCover > 0.05;
     this.time += dt;
+
+    if (this.shared) {
+      this.shared.uCloudTime.value = this.time;
+      // No deck drawn, no shadow cast.
+      this.shared.uCloudCover.value = this.deck.visible ? this.state.cloudCover : 0;
+      this.shared.uCloudHeight.value = DECK_HEIGHT;
+    }
 
     if (this.deck.visible) {
       this.deck.position.set(camera.position.x, DECK_HEIGHT, camera.position.z);
