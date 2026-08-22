@@ -193,6 +193,12 @@ export class Terrain {
   /** True when this spot is open water (DEM at or below sea level). */
   isWaterAt(x, z) {
     this.frame.worldToNorm(x, z, this._norm);
+    // Ground nobody has measured yet reads back as exactly sea level, and
+    // exactly sea level is not the same as being *at* sea. Without this guard
+    // every arrival is at sea for as long as the DEM takes to land — and
+    // since the probe rings around you read zero too, it is not merely at sea
+    // but "open ocean", in the middle of Australia, seven hundred metres up.
+    if (!this.elevation.hasDataAt(this._norm.nx, this._norm.ny)) return false;
     return this.elevation.sampleNorm(this._norm.nx, this._norm.ny) <= SEA_LEVEL;
   }
 

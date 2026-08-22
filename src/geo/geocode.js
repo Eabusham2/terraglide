@@ -64,6 +64,11 @@ export class Geocoder extends Emitter {
       .catch(() => {
         // Back off on network trouble instead of hammering a public endpoint.
         this.backoffUntil = performance.now() + 30000;
+        // And say so. Leaving the last word as "Locating…" means the HUD goes
+        // on promising an answer that is half a minute away at best and never
+        // coming at worst; the coordinates beneath it are the real reading and
+        // they were right all along.
+        this.emit('address', { label: 'Address unavailable', detail: '', source: 'none' });
       })
       .finally(() => {
         this.pending = null;
@@ -104,7 +109,11 @@ export class Geocoder extends Emitter {
     if (!res.ok) throw new Error(`nominatim ${res.status}`);
     const data = await res.json();
     if (!data || data.error || !data.address) {
-      return { label: 'Open water', detail: 'No addressable feature here', source: 'nominatim' };
+      // No addressable feature is not the same as water. Nominatim has
+      // nothing to say about the middle of the Simpson Desert either, and
+      // announcing "Open water" over a sand dune is a claim about the world
+      // rather than a report of what the lookup returned.
+      return { label: 'Unmapped location', detail: 'Nothing addressable here', source: 'nominatim' };
     }
     return {
       label: composeAddress(data.address),

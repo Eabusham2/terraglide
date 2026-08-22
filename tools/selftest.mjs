@@ -1956,5 +1956,19 @@ console.log('\nwhere the photogrammetry actually is');
     probe.coverage.size === before, `${probe.coverage.size} vs ${before} cells`);
 }
 
+console.log('\nwhat the world says about itself');
+{
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  // Unmeasured ground reads back as exactly sea level, and treating that as
+  // "at sea" put you in the open ocean on the top of Uluru.
+  ok('nothing is called water until its depth has been measured',
+    /isWaterAt\(x, z\) \{[\s\S]{0,900}hasDataAt\(this\._norm\.nx, this\._norm\.ny\)\) return false;/.test(terrain));
+  const geo = readFileSync(new URL('../src/geo/geocode.js', import.meta.url), 'utf8');
+  ok('and a place with no street address is not announced as water',
+    !/label: 'Open water'/.test(geo) && /label: 'Unmapped location'/.test(geo));
+  ok('and a lookup that fails says so rather than locating for ever',
+    /backoffUntil = performance\.now\(\)[\s\S]{0,600}emit\('address', \{ label: 'Address unavailable'/.test(geo));
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);
