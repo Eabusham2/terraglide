@@ -105,6 +105,15 @@ async function fetchWithin(url, options = {}, timeout = CONNECT_TIMEOUT_MS) {
   }
 }
 
+/**
+ * The zoom the photogrammetry's footprint is recorded at.
+ *
+ * Sixteen is about six hundred metres at the equator — finer than the terrain
+ * tiles that matter here, coarse enough that a city's worth of leaf tiles is a
+ * few thousand keys rather than a few hundred thousand.
+ */
+const COVER_ZOOM = 16;
+
 export class Tiles3D {
   constructor({ scene, frame, camera, renderer }) {
     this.scene = scene;
@@ -141,6 +150,18 @@ export class Tiles3D {
     this.state = 'idle';
     this.error = '';
     this.stats = { loaded: 0, pending: 0, drawn: 0, failed: 0 };
+    /**
+     * Which ground the photogrammetry is actually standing on, as mercator
+     * tile keys at COVER_ZOOM.
+     *
+     * The terrain used to be hidden wholesale the moment three of these tiles
+     * were drawn anywhere on screen — so flying over a city with coverage
+     * removed the entire planet, horizon included, and put it back a second
+     * later. Ground that is invisible because something better covers *some
+     * other* part of the view is just missing ground. This is the map that
+     * lets the quadtree step aside a tile at a time instead.
+     */
+    this.coverage = new Set();
 
     this._matrix = new THREE.Matrix4();
     this._ecefToLocal = new THREE.Matrix4();
@@ -255,8 +276,10 @@ export class Tiles3D {
     if (this._anchorSerial === this.frame.anchorSerial) return;
     this._anchorSerial = this.frame.anchorSerial;
     this._ecefToLocal.fromArray(ecefToLocalMatrix(this.frame.anchorLat, this.frame.anchorLon, 0));
-    // Everything already placed is now in the wrong place.
+    // Everything already placed is now in the wrong place — including the
+    // world-space boxes the coverage map is built from.
     this.clear();
+    this.coverage.clear();
   }
 
   update(camera, player) {
@@ -301,9 +324,58 @@ export class Tiles3D {
       entry.object.visible = this.visible.has(uri);
     }
 
+    this.buildCoverage();
+
     this.stats.loaded = this.loaded.size;
     this.stats.pending = this.active;
     this.stats.drawn = this.visible.size;
+  }
+
+  /**
+   * Work out which ground the drawn tiles are sitting on.
+   *
+   * A tile's world-space box is measured once when it lands and kept — the
+   * meshes never move afterwards, and `setFromObject` walks the whole subtree,
+   * which is not a per-frame cost worth paying a hundred times over.
+   *
+   * Only cells whose centre falls inside a box count. A tile's box is an axis
+   * aligned hull around a mesh that does not fill it, so claiming every cell it
+   * touches would hide terrain along every edge of the coverage and leave a
+   * fringe of holes around the city.
+   */
+  buildCoverage() {
+    this.coverage.clear();
+    const n = Math.pow(2, COVER_ZOOM);
+    for (const [uri, entry] of this.loaded) {
+      if (!this.visible.has(uri)) continue;
+      if (!entry.bounds) {
+        entry.object.updateWorldMatrix(true, true);
+        entry.bounds = new THREE.Box3().setFromObject(entry.object);
+      }
+      const box = entry.bounds;
+      const a = this.frame.worldToNorm(box.min.x, box.min.z);
+      const lowX = a.nx * n;
+      const lowY = a.ny * n;
+      const b = this.frame.worldToNorm(box.max.x, box.max.z);
+      const x0 = Math.round(Math.min(lowX, b.nx * n) - 0.5);
+      const x1 = Math.round(Math.max(lowX, b.nx * n) - 0.5);
+      const y0 = Math.round(Math.min(lowY, b.ny * n) - 0.5);
+      const y1 = Math.round(Math.max(lowY, b.ny * n) - 0.5);
+      // A root tile's box can span a continent, and it tells us nothing about
+      // what is actually loaded underneath it.
+      if (x1 - x0 > 24 || y1 - y0 > 24) continue;
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) this.coverage.add(`${COVER_ZOOM}/${x}/${y}`);
+      }
+    }
+  }
+
+  /** Is this patch of ground already drawn as photogrammetry? */
+  covers(x, z) {
+    if (!this.coverage.size) return false;
+    const n = Math.pow(2, COVER_ZOOM);
+    const norm = this.frame.worldToNorm(x, z);
+    return this.coverage.has(`${COVER_ZOOM}/${Math.floor(norm.nx * n)}/${Math.floor(norm.ny * n)}`);
   }
 
   /**

@@ -747,8 +747,11 @@ console.log('\nReal data first, invention last');
     /if \(url === null\) \{\s*\n\s*entry\.state = STATE_BARE;/.test(streamer));
   ok('and every provider is asked before it gives up',
     /attempt <= this\.standbys\.length/.test(streamer));
-  ok('the terrain does not vanish for one photogrammetry tile',
-    /photorealFrames[\s\S]{0,120}>= 3/.test(read('game.js')));
+  ok('the terrain is never hidden wholesale for photogrammetry',
+    /this\.terrain\.group\.visible = true;/.test(read('game.js')) &&
+    !/terrain\.group\.visible = !photoreal/.test(read('game.js')));
+  ok('and steps aside one square at a time instead',
+    /this\.covered3d\(\(x0 \+ x1\) \/ 2, \(z0 \+ z1\) \/ 2\)\) return;/.test(read('world/terrain.js')));
   ok('and the ground you are looking at is asked for first',
     /this\.draw\(tile, x0, z0, size, this\.viewDistance\(/.test(read('world/terrain.js')));
   ok('and the ground falls through to a standby before it gives up',
@@ -1323,9 +1326,18 @@ console.log('\nA tile that is culled is still a tile that needs rebuilding');
     /builtVersion === \(this\.elevation\.version \?\? 0\)/.test(terrain) &&
     /measured \? cached\.minY : -200/.test(terrain));
   ok('and the rebuild pass walks every node, not only the drawn ones',
-    /for \(const node of this\.nodes\.values\(\)\)[\s\S]{0,400}node\.dirty = true/.test(terrain));
+    /invalidateStale\([\s\S]{0,2000}for \(const node of this\.nodes\.values\(\)\)[\s\S]{0,1600}node\.dirty = true/.test(terrain));
   ok('it still skips nodes that are already current',
-    /node\.builtVersion === version \|\| !node\.mesh\) continue/.test(terrain));
+    /node\.builtVersion === version \|\| !node\.mesh \|\| node\.dirty\) continue/.test(terrain));
+  // Stamping a node with the current version means "this is up to date", and
+  // a node that is up to date is never rebuilt again. Doing that to everything
+  // past six kilometres certified most of the world as finished while it was
+  // still flat, which is where the terraces came from.
+  ok('and never certifies a distant mesh as up to date to avoid rebuilding it',
+    !/builtVersion = version;/.test(terrain));
+  ok('the staleness test looks at the whole tile, not just its middle',
+    /const bestZoom = this\.elevationZoomFor\(x0, z0, size\);/.test(terrain) &&
+    /node\.builtElevZoom = this\.elevationZoomFor\(x0, z0, size\);/.test(terrain));
 }
 
 console.log('\nBuildings are painted once the photograph arrives');
@@ -1908,6 +1920,40 @@ console.log('\nthe edge of the loaded world');
   const gameSource = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
   ok('and the game hands the wall the measured edge, not the setting',
     /edgeWall\.update\(this\.camera, this\.terrain\.edgeProfile\)/.test(gameSource));
+}
+
+console.log('\nwhere the photogrammetry actually is');
+{
+  const { Tiles3D } = await import('../src/world/tiles3d.js');
+  const THREE = await import('../vendor/three/three.module.js');
+  // Borrow the two methods rather than connecting to Google: they are
+  // arithmetic over a box and a frame, and that is the whole of the behaviour.
+  const { LocalFrame: LF } = await import('../src/geo/frame.js');
+  const frame = new LF();
+  frame.setAnchor(51.5, -0.12);
+  const probe = {
+    frame,
+    coverage: new Set(),
+    visible: new Set(['a']),
+    loaded: new Map([['a', { object: null, bounds: new THREE.Box3(
+      new THREE.Vector3(-400, 0, -400), new THREE.Vector3(400, 60, 400)) }]]),
+    buildCoverage: Tiles3D.prototype.buildCoverage,
+    covers: Tiles3D.prototype.covers,
+  };
+  probe.buildCoverage();
+  ok('a loaded tile claims the ground under it', probe.covers(0, 0),
+    `${probe.coverage.size} cells`);
+  ok('and not the ground a kilometre away', !probe.covers(3000, 3000));
+  ok('and nothing at all before anything has loaded',
+    !new Set().size && !Tiles3D.prototype.covers.call({ coverage: new Set(), frame }, 0, 0));
+  // A root tile's box spans a continent and says nothing about what is loaded.
+  probe.loaded.set('big', { bounds: new THREE.Box3(
+    new THREE.Vector3(-9e5, 0, -9e5), new THREE.Vector3(9e5, 9e4, 9e5)) });
+  probe.visible.add('big');
+  const before = probe.coverage.size;
+  probe.buildCoverage();
+  ok('and a tile whose box spans a continent claims nothing',
+    probe.coverage.size === before, `${probe.coverage.size} vs ${before} cells`);
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed\n`);

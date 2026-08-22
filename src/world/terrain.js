@@ -51,6 +51,11 @@ const REBUILD_CEILING = 48;
  * camera movement — far more than a frame's worth of jitter and far less than
  * a deliberate approach.
  */
+/**
+ * How far above a leaf the stand-in tile is built when nothing above it
+ * exists yet. Four levels is one mesh covering two hundred and fifty six.
+ */
+const COVER_LEVELS = 4;
 const LOD_HYSTERESIS_IN = 0.88;
 const LOD_HYSTERESIS_OUT = 1.12;
 
@@ -82,6 +87,7 @@ export class Terrain {
     this._vecA = new THREE.Vector3();
     this._norm = { nx: 0, ny: 0 };
     this._world = { x: 0, z: 0 };
+    this._cover = { x: 0, z: 0 };
     this._geo = { lat: 0, lon: 0 };
     /**
      * Optional test for "have I been here before", used by distant mode. Set by
@@ -94,6 +100,12 @@ export class Terrain {
      * real edge rather than on the setting. See `EdgeWall`.
      */
     this.edgeProfile = new Float32Array(EDGE_SECTORS);
+    /**
+     * Optional test for "is this ground already drawn as photogrammetry".
+     * Set by the game when the 3D tileset is connected; left null the quadtree
+     * draws everything, which is what it should do when there is no 3D at all.
+     */
+    this.covered3d = null;
   }
 
   get gridSize() {
@@ -150,6 +162,25 @@ export class Terrain {
   elevationZoomAt(x, z) {
     this.frame.worldToNorm(x, z, this._norm);
     return this.elevation.zoomAt(this._norm.nx, this._norm.ny);
+  }
+
+  /**
+   * The finest elevation available anywhere inside a tile's footprint.
+   *
+   * Asking only at the centre missed the commonest improvement there is: a DEM
+   * tile landing next door sharpens this tile's *edge* and leaves its middle
+   * exactly as it was, so the mesh was never marked stale and the seam with
+   * its neighbour stayed where it was — a step, at an LOD boundary, in the
+   * shape of the tile grid. Five samples cost nothing and catch it.
+   */
+  elevationZoomFor(x0, z0, size) {
+    const inset = size * 0.02;
+    let best = this.elevationZoomAt(x0 + size / 2, z0 + size / 2);
+    for (const [dx, dz] of [[inset, inset], [size - inset, inset], [inset, size - inset], [size - inset, size - inset]]) {
+      const z = this.elevationZoomAt(x0 + dx, z0 + dz);
+      if (z > best) best = z;
+    }
+    return best;
   }
 
   /** True when this spot is open water (DEM at or below sea level). */
@@ -461,6 +492,13 @@ export class Terrain {
     // reaches in a given direction.
     if (flatDist > renderDistance) this.noteEdge(x0, z0, x1, z1, camX, camZ);
 
+    // Real photogrammetry of this exact square is already drawn, so ours would
+    // only fight it for the same depth. Coarse tiles are exempt: a tile a
+    // kilometre across is far enough away that no photogrammetry reaches it,
+    // and testing its centre would throw away the ground either side of the
+    // one point that happened to be covered.
+    if (tile.z >= 15 && this.covered3d && this.covered3d((x0 + x1) / 2, (z0 + z1) / 2)) return;
+
     // Pass the view-weighted distance, not the flat one: it decides both which
     // tiles get the frame's build budget and which textures are asked for
     // first, and both should favour the ground you are looking at.
@@ -488,7 +526,7 @@ export class Terrain {
     // actually being drawn, and it compares the zoom the mesh was built from
     // against the zoom the field can offer now — which is a real improvement,
     // unlike "some tile somewhere has landed".
-    const bestZoom = this.elevationZoomAt(x0 + size / 2, z0 + size / 2);
+    const bestZoom = this.elevationZoomFor(x0, z0, size);
     const builtFrom = node?.builtElevZoom ?? -1;
     if (node && !node.dirty && bestZoom > builtFrom) node.dirty = true;
     // Two levels coarser is a mesh that is merely soft. Three or more is a
@@ -503,7 +541,7 @@ export class Terrain {
       // ones now that the walk is ordered by distance.
       const affordable = wrong
         ? this.budget.built < REBUILD_CEILING
-        : spent < this.budget.ms || this.budget.built < 3;
+        : spent < this.budget.ms || this.budget.built < 8;
       if (!affordable) {
         // Out of build time this frame. A tile that already has a mesh keeps
         // showing it — an out-of-date surface is far better than swapping the
@@ -520,7 +558,19 @@ export class Terrain {
           this.show(ancestor, tile, distance);
           return;
         }
-        // Nothing built above it either, so the choice is between going over
+        // Nothing built above it either. Building this leaf anyway is what
+        // used to happen, and on the frame after a teleport that is *every*
+        // leaf — four or five hundred meshes in one frame, which is the
+        // second-long freeze on arriving somewhere. Build one coarse tile
+        // instead: it covers this leaf and a couple of hundred of its
+        // neighbours, so all of them have something to show on this same
+        // frame and the detail arrives underneath it over the next few.
+        const cover = this.buildCover(tile);
+        if (cover) {
+          this.show(cover, tile, distance);
+          return;
+        }
+        // Not even that was possible, so the choice is between going over
         // budget and leaving a gap. A gap in the ground is a window straight
         // through the planet — that is where the random holes came from — and
         // one frame that runs long is cheaper than that.
@@ -531,6 +581,33 @@ export class Terrain {
     }
 
     this.show(node, tile, distance);
+  }
+
+  /**
+   * Build one coarse tile covering a leaf that has nothing above it yet.
+   *
+   * Four levels up is one mesh for two hundred and fifty six leaves, which is
+   * the difference between an arrival that takes a frame and one that takes a
+   * second. It is coarse and it is obviously coarse for a moment, and that is
+   * the right trade: ground of the wrong resolution reads as ground, and no
+   * ground at all reads as a hole through the planet.
+   */
+  buildCover(tile) {
+    const z = Math.max(this.stats.baseZoom, tile.z - COVER_LEVELS);
+    if (z >= tile.z) return null;
+    const shift = tile.z - z;
+    const x = tile.x >> shift;
+    const y = tile.y >> shift;
+    const existing = this.nodes.get(tileKey(z, x, y));
+    if (existing && existing.mesh && !existing.dirty) return existing;
+    if (this.budget.built >= REBUILD_CEILING) return existing?.mesh ? existing : null;
+    const size = this.frame.worldTileSize(z);
+    const n = Math.pow(2, z);
+    this.frame.normToWorld(x / n, y / n, this._cover);
+    const node = this.build({ z, x, y }, this._cover.x, this._cover.z, size, existing);
+    this.budget.built++;
+    this.stats.built++;
+    return node;
   }
 
   findBuiltAncestor(tile) {
@@ -723,7 +800,9 @@ export class Terrain {
     node.minY = minY - 5;
     node.maxY = maxY + 5;
     // The finest elevation this mesh could have been made from. See draw().
-    node.builtElevZoom = this.elevation.zoomAt(nx0 + (grid / 2) * step, ny0 + (grid / 2) * step);
+    // Measured over the whole footprint, the same way the check that compares
+    // against it is, or the two would never agree.
+    node.builtElevZoom = this.elevationZoomFor(x0, z0, size);
     node.dirty = false;
     node.builtVersion = this.elevation.version ?? 0;
     node.used = this.streamer.frame;
@@ -772,18 +851,32 @@ export class Terrain {
    * relief arrived — so the nodes most in need of a rebuild were exactly the
    * ones the loop could not see.
    */
-  invalidateStale(camX, camZ, maxPerFrame = 12) {
+  invalidateStale(camX, camZ, maxPerFrame = 400) {
     const version = this.elevation.version ?? 0;
+    const reach = this.keepDistance ?? this.renderDistance;
     let marked = 0;
     for (const node of this.nodes.values()) {
       if (marked >= maxPerFrame) break;
-      if (node.builtVersion === version || !node.mesh) continue;
-      const dx = node.mesh.position.x + (node.size ?? 0) / 2 - camX;
-      const dz = node.mesh.position.z + (node.size ?? 0) / 2 - camZ;
-      if (Math.hypot(dx, dz) > 6000) {
-        node.builtVersion = version; // too far away to be worth a rebuild
-        continue;
-      }
+      if (node.builtVersion === version || !node.mesh || node.dirty) continue;
+      const size = node.size ?? 0;
+      const dx = node.mesh.position.x + size / 2 - camX;
+      const dz = node.mesh.position.z + size / 2 - camZ;
+      // Out of reach entirely: leave it alone and leave its version alone too.
+      //
+      // It used to be *stamped* with the current version instead — "too far
+      // away to be worth a rebuild" — which does not mean "skip it", it means
+      // "declare it up to date". Six kilometres out, that was most of the
+      // world: ground is drawn to twenty-four and further, so every tile past
+      // six was permanently certified fresh and could never be rebuilt again,
+      // however much better the elevation under it got. Those are the terraces
+      // — meshes made before the relief landed, marked as finished, standing
+      // at the wrong height beside neighbours that were built later.
+      if (Math.hypot(dx, dz) > reach) continue;
+      // Only if there is actually something better to build it from. Any tile
+      // landing anywhere bumps the version, and marking every node on every
+      // bump would have the quadtree rebuilding the same mesh from the same
+      // numbers for as long as anything at all was streaming.
+      if (this.elevationZoomFor(node.mesh.position.x, node.mesh.position.z, size) <= node.builtElevZoom) continue;
       node.dirty = true;
       marked++;
     }

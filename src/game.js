@@ -708,16 +708,30 @@ export class Game {
     // footprints step aside rather than fighting them for the same ground.
     if (settings.get('world3d') !== 'off' && !this.tiles3d) this.loadWorld3D();
     if (this.tiles3d) this.tiles3d.update(this.camera, player);
-    // One photogrammetry tile arriving used to hide the entire terrain, which
-    // on a slow connection meant the ground vanishing and coming back as
-    // tiles trickled in and out of the frustum — ground that is invisible
-    // because something better is *about* to cover it is still invisible
-    // ground. It takes a few tiles held for a moment to hand over, and a
-    // single frame with none of them to hand back.
-    const drawn3d = this.tiles3d ? this.tiles3d.stats.drawn : 0;
-    this.photorealFrames = drawn3d >= 3 ? (this.photorealFrames ?? 0) + 1 : 0;
-    const photoreal = this.photorealFrames >= 3;
-    this.terrain.group.visible = !photoreal;
+    // The handover is per square of ground, not all-or-nothing.
+    //
+    // One photogrammetry tile arriving used to hide the entire terrain. Three
+    // tiles over a city centre took the horizon with them, and as tiles
+    // trickled in and out of the frustum the whole world came and went —
+    // ground that is invisible because something better covers *some other*
+    // part of the view is just missing ground. The quadtree now asks, tile by
+    // tile, whether this exact square is already drawn as photogrammetry, and
+    // only that square steps aside.
+    this.terrain.covered3d = this.tiles3d ? (x, z) => this.tiles3d.covers(x, z) : null;
+    this.terrain.group.visible = true;
+
+    // Scenery and extruded footprints are decided in one go rather than per
+    // tile, so what matters for them is whether the ground you are actually
+    // standing over is covered — not whether anything anywhere is.
+    //
+    // Held in both directions. The old test needed three frames to hand over
+    // and a single frame to hand back, so a momentary dip in the tile count
+    // flashed a town's worth of boxes on and off again.
+    const here = Boolean(this.tiles3d?.covers(player.position.x, player.position.z));
+    this.photorealHold = clamp((this.photorealHold ?? 0) + (here ? 1 : -1), 0, 30);
+    if (!this.photoreal && this.photorealHold >= 4) this.photoreal = true;
+    else if (this.photoreal && this.photorealHold === 0) this.photoreal = false;
+    const photoreal = Boolean(this.photoreal);
     this.buildings.setVisible(!photoreal && settings.get('buildings'));
 
     // Trees, scrub and rock, in the places OpenStreetMap says they are. Where

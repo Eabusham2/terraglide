@@ -13,6 +13,21 @@ import { latToNormY, lonToNormX, tileKey, wrapTileX } from '../geo/mercator.js';
  */
 
 const GRID = 65;
+/**
+ * How much of an elevation tile's width the fade into coarser data occupies,
+ * on a side with no finer neighbour. At zoom 15 a tile is a bit over a
+ * kilometre, so this is a ramp of a couple of hundred metres — long enough
+ * that it reads as ground rather than as a ridge.
+ */
+const EDGE_BAND = 0.15;
+
+/**
+ * The coarsest level the blanket reaches down to. One zoom-6 tile is six
+ * hundred kilometres across — far wider than anything ever drawn — so it is
+ * the cheapest possible guarantee that no square of ground reads as sea level
+ * merely because its own DEM tile has not arrived.
+ */
+const BLANKET_FLOOR = 6;
 const STATE_PENDING = 1;
 const STATE_READY = 2;
 const STATE_FAILED = 3;
@@ -88,26 +103,81 @@ export class ElevationField {
 
   /** Height in metres at a normalised mercator point. */
   sampleNorm(nx, ny) {
-    const x = nx - Math.floor(nx);
-    const y = clamp(ny, 0, 0.999999);
+    return this.sampleFrom(this.maxZoom, nx - Math.floor(nx), clamp(ny, 0, 0.999999));
+  }
 
-    for (let z = this.maxZoom; z >= 3; z--) {
+  /**
+   * Height from the finest data at or below `topZoom`, faded into the coarser
+   * data along any edge where the finer tile has no neighbour.
+   *
+   * Taking the finest available tile and stopping there makes the height field
+   * *discontinuous*. Ground covered by a zoom-15 tile reads one height; the
+   * ground the far side of that tile's border, where only zoom-12 has landed,
+   * reads another — and the two can differ by tens of metres. The result is
+   * exactly what it sounds like: axis-aligned rectangular slabs standing
+   * proud of the land around them, with vertical faces, in the shape of the
+   * elevation tile grid. Flat country makes them obvious; hills hide them
+   * until you look along a ridge and see it cut into steps.
+   *
+   * Nothing was wrong with the data. What was wrong was reading two different
+   * resolutions of it either side of a line and pretending the answer was
+   * continuous. So the fine value is now faded back into the coarse one across
+   * the outer strip of the tile, but only on sides that actually have no finer
+   * neighbour — everywhere else the full detail stands. At the border itself
+   * the weight is zero, which is the coarse value, which is exactly what the
+   * ground on the other side reads. The seam closes.
+   */
+  sampleFrom(topZoom, x, y) {
+    for (let z = topZoom; z >= 3; z--) {
       const n = Math.pow(2, z);
       const tx = Math.floor(x * n);
       const ty = Math.floor(y * n);
       const entry = this.tiles.get(tileKey(z, tx, ty));
-      if (entry && entry.state === STATE_READY) {
-        entry.used = this.frame;
-        const fx = (x * n - tx) * (GRID - 1);
-        const fy = (y * n - ty) * (GRID - 1);
-        return bilinear(entry.heights, GRID, GRID, fx, fy);
-      }
+      if (!entry || entry.state !== STATE_READY) continue;
+      entry.used = this.frame;
+      const u = x * n - tx;
+      const v = y * n - ty;
+      const height = bilinear(entry.heights, GRID, GRID, u * (GRID - 1), v * (GRID - 1));
+      if (z === 3) return height;
+      const weight = this.edgeWeight(z, tx, ty, u, v);
+      if (weight >= 1) return height;
+      const coarse = this.sampleFrom(z - 1, x, y);
+      return coarse + (height - coarse) * weight;
     }
     // Nothing loaded here yet, and nothing to be done about it. There is no
     // generator behind this any more: an unmeasured square reads as sea level
     // and `hasDataAt` says so, and the things that stand on the ground wait
     // for the real relief rather than being founded on an invention.
     return 0;
+  }
+
+  /**
+   * How much of this tile's own detail to trust at a point inside it: 1 in the
+   * middle and anywhere with a neighbour, easing to 0 at a border with none.
+   */
+  edgeWeight(z, tx, ty, u, v) {
+    let w = 1;
+    if (u < EDGE_BAND) {
+      if (!this.readyAt(z, tx - 1, ty)) w = Math.min(w, u / EDGE_BAND);
+    } else if (u > 1 - EDGE_BAND) {
+      if (!this.readyAt(z, tx + 1, ty)) w = Math.min(w, (1 - u) / EDGE_BAND);
+    }
+    if (v < EDGE_BAND) {
+      if (!this.readyAt(z, tx, ty - 1)) w = Math.min(w, v / EDGE_BAND);
+    } else if (v > 1 - EDGE_BAND) {
+      if (!this.readyAt(z, tx, ty + 1)) w = Math.min(w, (1 - v) / EDGE_BAND);
+    }
+    if (w >= 1) return 1;
+    if (w <= 0) return 0;
+    // Smoothstep, so the join has no crease in it either.
+    return w * w * (3 - 2 * w);
+  }
+
+  readyAt(z, tx, ty) {
+    const n = Math.pow(2, z);
+    if (ty < 0 || ty >= n) return false;
+    const entry = this.tiles.get(tileKey(z, ((tx % n) + n) % n, ty));
+    return Boolean(entry && entry.state === STATE_READY);
   }
 
   sampleLatLon(lat, lon) {
@@ -147,7 +217,40 @@ export class ElevationField {
         this.request({ z, x: wrapTileX(cx + dx, z), y: ty }, Math.abs(dx) + Math.abs(dy));
       }
     }
+    this.ensureBlanket(nx, ny, z);
     this.pump();
+  }
+
+  /**
+   * A coarse blanket under the sharp tiles.
+   *
+   * Every drawn square asked for the DEM tile that matched its own zoom and
+   * nothing else, so until that particular tile arrived the ground there read
+   * as exactly sea level — and sea level next to real relief is a flat plate
+   * with a cliff around it. Over a city a quarter of the drawn tiles could be
+   * plates at once, which is the terracing: rectangles at the wrong height,
+   * in the shape of the tile grid, appearing and disappearing as the sharp
+   * tiles landed one at a time.
+   *
+   * A handful of coarse tiles fixes it outright. Nine at zoom 12 already cover
+   * further than the ground is ever drawn, and they are the same size on the
+   * wire as any other tile. They are asked for at a better priority than any
+   * leaf, because one of them stops a whole region being wrong while a leaf
+   * only sharpens a field that is already about right.
+   */
+  ensureBlanket(nx, ny, zoom) {
+    for (let z = Math.min(zoom, this.maxZoom) - 2; z >= BLANKET_FLOOR; z -= 2) {
+      const n = Math.pow(2, z);
+      const cx = Math.floor((nx - Math.floor(nx)) * n);
+      const cy = Math.floor(clamp(ny, 0, 0.999999) * n);
+      for (let dy = -1; dy <= 1; dy++) {
+        const ty = cy + dy;
+        if (ty < 0 || ty >= n) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          this.request({ z, x: wrapTileX(cx + dx, z), y: ty }, z - this.maxZoom - 1);
+        }
+      }
+    }
   }
 
   request(tile, priority) {
