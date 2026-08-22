@@ -82762,12 +82762,27 @@ const DEFAULT_SETTINGS = {
  * anisotropic filtering, and how deep the texture zoom goes — a tile drawn
  * from a zoom-20 photograph costs exactly what one drawn from zoom 18 costs.
  * So those stay near maximum everywhere, and the two knobs above do the work.
+ *
+ * `maxConcurrentRequests` was the quiet one, and it was set far too low. Tiles
+ * are fetched from a worker over HTTP/2, where the browser multiplexes and the
+ * old six-connections-per-host rule does not apply, so a low number here is not
+ * politeness — it is the ground staying blurred while the queue drains. Flying
+ * the Strait of Gibraltar and counting how much of the drawn ground wears its
+ * own photograph rather than a stretched ancestor:
+ *
+ *              at 4 s   at 12 s   at 24 s
+ *   14 wide     41%       42%       49%
+ *   32 wide     70%       83%       88%
+ *
+ * That is the "blurry for a while" — half the world drawn from a coarse tile
+ * for the first half minute. These are roughly doubled, which is still well
+ * inside what one page is allowed to have in flight.
  */
 const GRAPHICS_PRESETS = {
   low: {
     sseThreshold: 2.1,
     tileGridSize: 25,
-    maxConcurrentRequests: 6,
+    maxConcurrentRequests: 12,
     textureCacheSize: 320,
     anisotropy: 8,
     buildingRadiusM: 420,
@@ -82795,7 +82810,7 @@ const GRAPHICS_PRESETS = {
   medium: {
     sseThreshold: 1.55,
     tileGridSize: 29,
-    maxConcurrentRequests: 10,
+    maxConcurrentRequests: 18,
     textureCacheSize: 560,
     anisotropy: 16,
     buildingRadiusM: 750,
@@ -82816,7 +82831,7 @@ const GRAPHICS_PRESETS = {
   high: {
     sseThreshold: 1.25,
     tileGridSize: 33,
-    maxConcurrentRequests: 14,
+    maxConcurrentRequests: 26,
     textureCacheSize: 900,
     anisotropy: 16,
     buildingRadiusM: 1200,
@@ -82841,7 +82856,7 @@ const GRAPHICS_PRESETS = {
   ultra: {
     sseThreshold: 0.85,
     tileGridSize: 41,
-    maxConcurrentRequests: 18,
+    maxConcurrentRequests: 34,
     textureCacheSize: 1400,
     anisotropy: 16,
     buildingRadiusM: 1800,
@@ -91609,7 +91624,6 @@ const TERRAIN_FRAG = /* glsl */ `
     // surface got clamped to sea level — with one guard, because ground whose
     // elevation has not arrived reads as sea level too, and without the guard
     // an unmeasured continent would come up as an ocean.
-    float depth = max(0.0, -vBed);
     float wet = uMeasured * (1.0 - smoothstep(0.0, 2.0, vHeight));
     if (wet > 0.001) {
       vec3 view = normalize(cameraPosition - vWorld);
@@ -91625,10 +91639,27 @@ const TERRAIN_FRAG = /* glsl */ `
       float glint = pow(max(halfV.y, 0.0), 90.0);
       vec3 surface = mix(lit, uFogColor * 1.06, fresnel * 0.85);
       surface += uSunColor * glint * 0.5 * (1.0 - uNight);
-      // Deep water is darker and bluer. Shallow water over sand is not.
-      // Gently, and over a long range: the sea bed is sampled on the mesh
-      // grid, so a short range turns real bathymetry into visible facets.
-      surface *= mix(vec3(1.0), vec3(0.76, 0.86, 1.0), smoothstep(2.0, 900.0, depth) * 0.4);
+      // There used to be a depth tint here — deep water darkened and made
+      // bluer, shallow water left alone — and it is the grid over the sea.
+      //
+      // The sea bed comes in as a per-vertex attribute, so the tint is a
+      // piecewise-linear field sampled on the terrain mesh, and two tiles at
+      // different levels of detail sample it at different resolutions. Along
+      // every edge where they meet, the tint steps. That is the dotted grid,
+      // the wedges and the long straight lines across the water, all of it:
+      // amplified six times, the difference the tint makes is bounded by hard
+      // polygon edges with square corners, and it moves 39,104 pixels of open
+      // sea by up to 77 levels.
+      //
+      // Widening its range only spread the facets out; nothing hid them,
+      // because the faceting is the sampling, not the curve.
+      //
+      // It is gone, and nothing replaces it, because nothing needs to: a
+      // photograph of the sea taken from orbit already shows deep water dark
+      // and a sandbank pale — measured over the Strait, the raw Esri pixels
+      // run from (3, 12, 19) in the deep channel to (150, 168, 170) over the
+      // Tarifa shallows. The picture had the answer and this was drawing over
+      // it with a worse one.
       lit = mix(lit, surface, wet);
     }
 

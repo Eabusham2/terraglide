@@ -2356,5 +2356,36 @@ console.log('\nbuildings wear the roof the survey gave them');
   ok('but nothing is drawn without a height that was surveyed',
     /roofHeight > 0\.2 && roofShape && roofShape !== 'flat'/.test(b));
 }
+console.log('\nthe grid over the sea was the depth tint');
+{
+  const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
+  const settings = readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8');
+
+  // The water was tinted darker and bluer with depth, from a sea bed that
+  // arrives as a per-vertex attribute. So the tint is a piecewise-linear field
+  // sampled on the terrain mesh, and two tiles at different levels of detail
+  // sample it at different resolutions: along every edge where they meet, it
+  // steps. Amplified six times, the difference the tint made is bounded by
+  // hard polygon edges with square corners, and it moved 39,104 pixels of open
+  // sea by up to 77 levels. That is the dotted grid, the wedges and the long
+  // straight lines, all of it.
+  //
+  // A photograph of the sea from orbit already shows deep water dark and a
+  // sandbank pale — over the Strait the raw Esri pixels run from (3, 12, 19) in
+  // the channel to (150, 168, 170) over the Tarifa shallows. Nothing replaces
+  // it because nothing needs to.
+  ok('the water is not tinted by a per-vertex sea bed',
+    !/smoothstep\(2\.0, 900\.0, depth\)/.test(shaders) && !/float depth = max\(0\.0, -vBed\)/.test(shaders));
+  ok('and the sea is still lifted by the sky it reflects, which is per-fragment',
+    /float fresnel = 0\.08 \+ 0\.92 \* pow\(1\.0 - facing, 5\.0\);/.test(shaders));
+
+  // Half the ground was drawn from a stretched ancestor for the first half
+  // minute because the request width was set for the six-connections-per-host
+  // era. Flying the Strait and counting the share of drawn ground wearing its
+  // own photograph: 41% / 42% / 49% at 4, 12 and 24 seconds before; 71% / 81% /
+  // 87% after.
+  ok('the streamer is allowed enough requests in flight to fill the ground',
+    /maxConcurrentRequests: 26,/.test(settings) && !/maxConcurrentRequests: 6,/.test(settings));
+}
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);
