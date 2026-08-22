@@ -56,6 +56,13 @@ const REBUILD_CEILING = 48;
  * exists yet. Four levels is one mesh covering two hundred and fifty six.
  */
 const COVER_LEVELS = 4;
+/**
+ * And never coarser than this across. Four levels above a near leaf is a
+ * kilometre or so, which reads as ground; four above a leaf at the far edge of
+ * the view is eighty kilometres, which is a flat plate stretched to the
+ * horizon — worse to look at than the gap it was standing in for.
+ */
+const COVER_MAX_M = 6000;
 const LOD_HYSTERESIS_IN = 0.88;
 const LOD_HYSTERESIS_OUT = 1.12;
 
@@ -555,6 +562,20 @@ export class Terrain {
         // again next frame.
         const ancestor = this.findBuiltAncestor(tile);
         if (ancestor) {
+          // And refresh it if it is stale, which nothing else will ever do.
+          //
+          // `draw` only ever runs for leaves, and a stand-in is by definition
+          // not one — so a coarse tile that everything in an area is looking
+          // at could be marked dirty for ever and never rebuilt. Over Uluru
+          // that was measurable: the two nodes within a kilometre of the
+          // camera were flat plates at sea level, built a hundred and sixty
+          // elevation tiles ago, still flagged dirty, still on screen. The
+          // real ground there is seven hundred metres up, so they hung far
+          // below it and you looked straight through the gap between.
+          //
+          // One mesh, serving hundreds of leaves. It is the cheapest rebuild
+          // on the frame and the one that shows the most.
+          if (ancestor.dirty) this.refresh(ancestor);
           this.show(ancestor, tile, distance);
           return;
         }
@@ -593,7 +614,9 @@ export class Terrain {
    * ground at all reads as a hole through the planet.
    */
   buildCover(tile) {
-    const z = Math.max(this.stats.baseZoom, tile.z - COVER_LEVELS);
+    const worldSpan = 2 * Math.PI * this.frame.scale;
+    const floor = Math.max(this.stats.baseZoom, Math.floor(Math.log2(worldSpan / COVER_MAX_M)));
+    const z = Math.max(floor, tile.z - COVER_LEVELS);
     if (z >= tile.z) return null;
     const shift = tile.z - z;
     const x = tile.x >> shift;
@@ -608,6 +631,16 @@ export class Terrain {
     this.budget.built++;
     this.stats.built++;
     return node;
+  }
+
+  /** Rebuild a node in place from the elevation as it stands now. */
+  refresh(node) {
+    if (this.budget.built >= REBUILD_CEILING) return node;
+    const size = node.size ?? this.frame.worldTileSize(node.tile.z);
+    const built = this.build(node.tile, node.mesh.position.x, node.mesh.position.z, size, node);
+    this.budget.built++;
+    this.stats.built++;
+    return built;
   }
 
   findBuiltAncestor(tile) {
