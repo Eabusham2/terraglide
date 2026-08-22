@@ -94,6 +94,21 @@ export class Exploration extends Emitter {
       const n = Math.pow(2, level);
       const tileMetres = EARTH_CIRCUMFERENCE / n;
       const reach = Math.min(4, Math.ceil(mercatorRadius / tileMetres));
+      // What you uncover is a circle, and it has to stay one when the reach cap
+      // bites.
+      //
+      // The cap is deliberate — fine detail only near you — but the circle test
+      // below was measured against the full seen radius, and once that radius
+      // is bigger than four tiles every cell in the nine-by-nine block passes
+      // it. The test stopped doing anything and what got recorded was a square.
+      // At level 16 that is any time you can see more than about two and a half
+      // kilometres, which is any time you are off the ground: the patch on the
+      // map was a square with soft corners, from a horizon that is a circle.
+      //
+      // So the radius is capped to what the reach can actually cover, and the
+      // test is made against that. Each level records a disc; the coarse levels
+      // record bigger ones, and their union is the stepped circle you flew.
+      const levelRadius = Math.min(mercatorRadius, reach * tileMetres);
       // Exact tile position, not the rounded one: the circle is measured from
       // where you actually are to the middle of each tile, in metres. Comparing
       // whole tile counts is what used to uncover a plus-shape.
@@ -113,7 +128,7 @@ export class Exploration extends Emitter {
           // which is holes in the zoomed-out map for ground you crossed.
           const here = dx === 0 && dy === 0;
           const distance = Math.hypot(cx + dx + 0.5 - px, ty + 0.5 - py) * tileMetres;
-          if (!here && distance > Math.max(mercatorRadius, tileMetres * 0.5)) continue;
+          if (!here && distance > Math.max(levelRadius, tileMetres * 0.5)) continue;
           const key = tileKey(level, ((cx + dx) % n + n) % n, ty);
           if (this.cells.has(key)) continue;
           this.cells.add(key);

@@ -2401,5 +2401,31 @@ console.log('\nthe grid over the sea was the depth tint');
   ok('the streamer is allowed enough requests in flight to fill the ground',
     /maxConcurrentRequests: 26,/.test(settings) && !/maxConcurrentRequests: 6,/.test(settings));
 }
+console.log('\nwhat you uncover is a circle');
+{
+  const e = readFileSync(new URL('../src/ui/exploration.js', import.meta.url), 'utf8');
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+
+  // A horizon is a circle, and the patch left on the map was a square with
+  // soft corners. The record is kept per zoom, each level reaching at most four
+  // tiles either way — deliberately, so fine detail only lands near you — but
+  // the circle test underneath was measured against the *full* seen radius. Once
+  // that radius passes four tiles every cell in the nine-by-nine block passes
+  // the test, so the test stopped doing anything and what got recorded was the
+  // block. At level 16 that is any time you can see more than about two and a
+  // half kilometres, which is any time you are off the ground.
+  ok('the reach cap shrinks the radius rather than squaring the shape',
+    /const levelRadius = Math\.min\(mercatorRadius, reach \* tileMetres\);/.test(e));
+  ok('and the circle is measured against that',
+    /distance > Math\.max\(levelRadius, tileMetres \* 0\.5\)/.test(e)
+    && !/distance > Math\.max\(mercatorRadius/.test(e));
+
+  // The ground itself has always ended on a circle: the quadtree measures to
+  // the nearest point of each tile, not to its centre and not per axis, so the
+  // corners never poke out past the sides.
+  ok('and the ground it draws ends on a circle too',
+    /const flatDist = Math\.hypot\(dx, dz\);/.test(terrain)
+    && /if \(flatDist > renderDistance\) \{/.test(terrain));
+}
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);
