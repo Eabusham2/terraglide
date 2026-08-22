@@ -151,7 +151,10 @@ const TERRAIN_FRAG = /* glsl */ `
       vec3 view = normalize(cameraPosition - vWorld);
       float facing = clamp(view.y, 0.0, 1.0);
       // Schlick, with water's 2% reflectance straight down.
-      float fresnel = 0.02 + 0.98 * pow(1.0 - facing, 5.0);
+      // Plus a little that a flat mirror would not give you: a real surface is
+      // never flat, and the wave facets bounce some sky back however you look
+      // at it. Without it, water seen from above goes to nearly black.
+      float fresnel = 0.08 + 0.92 * pow(1.0 - facing, 5.0);
       vec3 halfV = normalize(view + uSunDir);
       // A broad lobe: wind roughens the surface, so the sun comes back as a
       // path across the water rather than as one point of light.
@@ -159,7 +162,9 @@ const TERRAIN_FRAG = /* glsl */ `
       vec3 surface = mix(lit, uFogColor * 1.06, fresnel * 0.85);
       surface += uSunColor * glint * 0.5 * (1.0 - uNight);
       // Deep water is darker and bluer. Shallow water over sand is not.
-      surface *= mix(vec3(1.0), vec3(0.74, 0.85, 1.0), smoothstep(2.0, 280.0, depth) * 0.5);
+      // Gently, and over a long range: the sea bed is sampled on the mesh
+      // grid, so a short range turns real bathymetry into visible facets.
+      surface *= mix(vec3(1.0), vec3(0.76, 0.86, 1.0), smoothstep(2.0, 900.0, depth) * 0.4);
       lit = mix(lit, surface, wet);
     }
 
@@ -247,7 +252,10 @@ export function createSharedUniforms() {
   };
 }
 
-/** Sky dome: a plain three-band gradient plus a sun disc. No lens flare, no glow. */
+/**
+ * Sky dome: an air-mass gradient, forward scattering round the sun, and a sun
+ * disc. No lens flare, no god rays, nothing the eye would not see.
+ */
 const SKY_VERT = /* glsl */ `
   varying vec3 vDir;
   void main() {
@@ -269,12 +277,32 @@ const SKY_FRAG = /* glsl */ `
   void main() {
     vec3 dir = normalize(vDir);
     float up = dir.y;
-    vec3 sky = mix(uHorizon, uZenith, pow(clamp(up, 0.0, 1.0), 0.55));
-    sky = mix(sky, uGround, smoothstep(0.0, -0.12, up));
+
+    // How much air you are looking through, relative to straight up. Near the
+    // horizon it is many times more, which is the whole reason the horizon is
+    // pale and the zenith is deep — and it is a curve, steepening sharply in
+    // the last twenty degrees, rather than the even slope this used to be.
+    float air = max(0.0, 1.0 / max(0.06, up + 0.12) - 0.893);
+    float thickness = clamp(1.0 - exp(-air * 0.38), 0.0, 1.0);
+    vec3 sky = mix(uZenith, uHorizon, thickness);
 
     float cosAngle = dot(dir, uSunDir);
+    // Forward scattering. Dust and water droplets throw light along the
+    // direction it was already going, so the whole quarter of the sky around
+    // the sun is brighter and warmer — and more so through the thicker air
+    // low down, which is why the glow pools at the horizon at either end of
+    // the day. Two lobes: a tight one and a wide one, which is the cheapest
+    // honest stand-in for a Mie phase function.
+    float toward = max(cosAngle, 0.0);
+    float scatter = pow(toward, 9.0) * 0.34 + pow(toward, 2.0) * 0.11;
+    sky = mix(sky, uSunColor, clamp(scatter * (0.35 + 0.65 * thickness), 0.0, 0.62));
+
+    sky = mix(sky, uGround, smoothstep(0.0, -0.12, up));
+
     float disc = smoothstep(uSunSize, uSunSize + 0.0016, cosAngle);
-    float halo = pow(max(cosAngle, 0.0), 90.0) * 0.28;
+    // Tighter than the old halo, because the broad glow is now the scattering
+    // term above rather than a ring painted round the disc.
+    float halo = pow(toward, 260.0) * 0.45;
     sky += uSunColor * (disc + halo);
 
     gl_FragColor = vec4(sky, 1.0);
