@@ -52,17 +52,19 @@ const REBUILD_CEILING = 48;
  * a deliberate approach.
  */
 /**
- * How far above a leaf the stand-in tile is built when nothing above it
- * exists yet. Four levels is one mesh covering two hundred and fifty six.
+ * How many coarse stand-ins may be rebuilt in one frame.
+ *
+ * Refreshing a stale stand-in is the cheapest rebuild there is *per pixel
+ * covered*, and that is exactly why it has to be rationed. A stand-in four
+ * levels up is a ten-kilometre mesh; while the elevation under it is still
+ * arriving it is marked stale again every frame, and every leaf that falls
+ * back to it asks for it to be rebuilt. Left alone, a handful of those ate
+ * the entire frame's build allowance, every frame, and the leaves that would
+ * have replaced them never got built at all — so a zoom-12 stand-in stayed on
+ * screen beside zoom-18 leaves that had managed to squeeze through. Six levels
+ * of texel density side by side is the patchwork.
  */
-const COVER_LEVELS = 4;
-/**
- * And never coarser than this across. Four levels above a near leaf is a
- * kilometre or so, which reads as ground; four above a leaf at the far edge of
- * the view is eighty kilometres, which is a flat plate stretched to the
- * horizon — worse to look at than the gap it was standing in for.
- */
-const COVER_MAX_M = 6000;
+const STANDIN_REFRESHES = 2;
 const LOD_HYSTERESIS_IN = 0.88;
 const LOD_HYSTERESIS_OUT = 1.12;
 
@@ -289,7 +291,7 @@ export class Terrain {
     // distant mode reaches further raise it as the walk finds them.
     this.edgeProfile.fill(renderDistance);
 
-    this.budget = { ms: budgetMs, start: performance.now(), built: 0 };
+    this.budget = { ms: budgetMs, start: performance.now(), built: 0, refreshed: 0 };
 
     const n = Math.pow(2, baseZoom);
     this.frame.worldToNorm(camX, camZ, this._norm);
@@ -469,13 +471,31 @@ export class Terrain {
     // So the two thresholds differ: a tile has to come 12% closer than the
     // line to split, and go 12% past it to merge again. Anything in between
     // keeps doing whatever it was already doing.
+    // Do not outrun the photographs.
+    //
+    // Splitting is decided by distance alone, and imagery arrives when it
+    // arrives, so a tile could be drawn at zoom 18 while the only photograph
+    // it can find is eight levels up — stretched over its whole width — with
+    // a neighbour beside it that did get its own. That is the patchwork: sharp
+    // forest canopy in irregular patches inside a smeared background, with
+    // hard tile-shaped edges between them. It is a pattern on the ground and
+    // it is nothing to do with what is growing there.
+    //
+    // A tile may only split once it has a photograph of its own, or its
+    // parent's at worst. Then every tile on screen is within one level of
+    // every other, the whole view sharpens together as the imagery lands, and
+    // the edges have nothing to mark. Ground close enough to stand on is
+    // exempt: geometry there matters more than the texture on it.
     const key = tileKey(tile.z, tile.x, tile.y);
+    const photo = this.streamer.resolve(tile);
+    const sharpEnough = !photo || photo.scale >= 0.5 || flatDist < size;
     const line = size * this.lodFactor * this.splitScale(
       (x0 + x1) / 2, (z0 + z1) / 2, camX, camZ, flatDist, size,
     );
     const wasSplit = this.split.has(key);
     const shouldSplit =
-      tile.z < maxZoom && (wasSplit ? flatDist < line * LOD_HYSTERESIS_OUT : flatDist < line * LOD_HYSTERESIS_IN);
+      tile.z < maxZoom && sharpEnough &&
+      (wasSplit ? flatDist < line * LOD_HYSTERESIS_OUT : flatDist < line * LOD_HYSTERESIS_IN);
     if (shouldSplit) this.split.add(key);
     else this.split.delete(key);
     if (shouldSplit) {
@@ -564,9 +584,27 @@ export class Terrain {
           this.show(node, tile, distance);
           return;
         }
-        // Nothing built here yet, so show the nearest built ancestor and try
-        // again next frame.
-        const ancestor = this.findBuiltAncestor(tile);
+        // Nothing built here yet. Show the nearest built ancestor — but if the
+        // nearest thing we have is far coarser than this tile, spend a build
+        // on the level *below* it first.
+        //
+        // That one rule is what keeps the ground uniform. Without it the only
+        // stand-in on offer could be four or six levels up, and a zoom-12
+        // mesh ten kilometres across drawn beside zoom-18 leaves that happened
+        // to squeeze through the budget is a texel density sixty-four times
+        // coarser on one side of an edge than the other. Sampling the drawn
+        // zoom across the screen over the Black Forest found exactly that: 12
+        // and 18 alternating from one sample to the next. Sharp canopy in
+        // islands inside a smear, with hard tile-shaped edges — the pattern on
+        // the ground, and nothing to do with what is growing there.
+        //
+        // Filling in from the top instead means every stand-in on screen sits
+        // at about the same depth and the whole view sharpens together.
+        let ancestor = this.findBuiltAncestor(tile);
+        if (!ancestor || tile.z - ancestor.tile.z > 2) {
+          const grown = this.buildCover(tile, ancestor);
+          if (grown) ancestor = grown;
+        }
         if (ancestor) {
           // And refresh it if it is stale, which nothing else will ever do.
           //
@@ -581,7 +619,10 @@ export class Terrain {
           //
           // One mesh, serving hundreds of leaves. It is the cheapest rebuild
           // on the frame and the one that shows the most.
-          if (ancestor.dirty) this.refresh(ancestor);
+          if (ancestor.dirty && this.budget.refreshed < STANDIN_REFRESHES) {
+            this.budget.refreshed++;
+            this.refresh(ancestor);
+          }
           this.show(ancestor, tile, distance);
           return;
         }
@@ -611,25 +652,28 @@ export class Terrain {
   }
 
   /**
-   * Build one coarse tile covering a leaf that has nothing above it yet.
+   * Grow the tree one level towards a leaf that has nothing built above it.
    *
-   * Four levels up is one mesh for two hundred and fifty six leaves, which is
-   * the difference between an arrival that takes a frame and one that takes a
-   * second. It is coarse and it is obviously coarse for a moment, and that is
-   * the right trade: ground of the wrong resolution reads as ground, and no
-   * ground at all reads as a hole through the planet.
+   * With nothing at all built — the frame after a teleport — this builds a
+   * single root tile, which every one of the four or five hundred leaves in
+   * the view then shares. That is the difference between an arrival that takes
+   * a frame and one that takes a second: it used to build every leaf.
+   *
+   * With something built already, it builds one level below it. So each frame
+   * the tree deepens by a level and every stand-in on screen sits at the same
+   * depth, instead of a few very coarse ones standing next to fully detailed
+   * leaves. Coarse ground reads as ground; coarse ground beside sharp ground
+   * reads as a fault.
    */
-  buildCover(tile) {
-    const worldSpan = 2 * Math.PI * this.frame.scale;
-    const floor = Math.max(this.stats.baseZoom, Math.floor(Math.log2(worldSpan / COVER_MAX_M)));
-    const z = Math.max(floor, tile.z - COVER_LEVELS);
-    if (z >= tile.z) return null;
+  buildCover(tile, ancestor) {
+    if (this.budget.built >= REBUILD_CEILING) return null;
+    const z = Math.min(ancestor ? ancestor.tile.z + 1 : this.stats.baseZoom, tile.z - 1);
+    if (z < 0 || z >= tile.z) return null;
     const shift = tile.z - z;
     const x = tile.x >> shift;
     const y = tile.y >> shift;
     const existing = this.nodes.get(tileKey(z, x, y));
     if (existing && existing.mesh && !existing.dirty) return existing;
-    if (this.budget.built >= REBUILD_CEILING) return existing?.mesh ? existing : null;
     const size = this.frame.worldTileSize(z);
     const n = Math.pow(2, z);
     this.frame.normToWorld(x / n, y / n, this._cover);
