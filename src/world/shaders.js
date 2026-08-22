@@ -74,12 +74,6 @@ const TERRAIN_FRAG = /* glsl */ `
   uniform float uCloudCover;
   uniform float uCloudHeight;
   uniform float uMeasured;
-  /** One texel of uMap, in the tile's own uv. See the canopy block in main. */
-  uniform float uTexel;
-  /** How hard the canopy relief is stood up. Shared, so it can be turned off. */
-  uniform float uCanopy;
-  /** How far a crown's own light and shade tilts the normal. See main. */
-  #define CANOPY_RELIEF 0.9
 
   varying vec2 vUv;
   varying vec3 vNormalW;
@@ -171,52 +165,28 @@ const TERRAIN_FRAG = /* glsl */ `
     // gone: it is a pattern nobody surveyed, printed over a photograph of
     // somewhere real, and up close it is the thing that made bare rock look
     // like carpet.
-
-    // Woodland, read out of the photograph rather than invented on top of it.
     //
-    // Dense canopy from above is dark and green, and the picture of it is not
-    // flat: every crown is a lit top and a shaded side, and that is already in
-    // the pixels. What was missing is that all of it was drawn on one plane, so
-    // a forest came out as a green wash where it should read as a rough surface
-    // of separate trees.
+    // Woodland relief was tried here too — standing the crowns up out of the
+    // light and shade the photograph already has over them, so a forest reads
+    // as thousands of separate trees rather than a green wash — and it is not
+    // here because the photograph cannot say where the woodland is. Measured
+    // over six Esri tiles at zoom 16, scoring each pixel for how green it is
+    // and how rough it is at crown scale:
     //
-    // So the light and shade the photograph already has over a canopy is taken
-    // as relief and the normal is tilted into it — toward the brighter side,
-    // which is the sun-facing side of a crown. Nothing is added that is not in
-    // the picture: a mown field has no gradient worth tilting and gets nothing,
-    // and a stretched tile has none either, which is the right answer for
-    // ground we have no close photograph of.
+    //   Black Forest    green 0.85   roughness 0.63
+    //   Amazon          green 0.40   roughness 0.42
+    //   Cambridgeshire  green 0.67   roughness 0.82
+    //   Hyde Park       green 0.57   roughness 0.75
+    //   central Paris   green 0.09   roughness 2.57
+    //   Sahara          green 0.01   roughness 0.48
     //
-    // Everything here is a ratio rather than a level, because the texture is
-    // decoded to linear before the shader sees it and thresholds written for
-    // the numbers you read off a screenshot are wrong by a gamma. The first
-    // attempt did exactly that and tilted the normal by about nine
-    // thousandths — measured over the Black Forest, on and off were 11.73 and
-    // 11.77, which is to say it did nothing at all.
-    float lum = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
-    float greenness = albedo.g / (max(albedo.r, albedo.b) + 0.004) - 1.0;
-    float tone = sqrt(max(lum, 0.0));
-    float canopy = smoothstep(0.14, 0.45, greenness)
-      * (1.0 - smoothstep(0.30, 0.62, tone))
-      * uHasTexture * uCanopy;
-    if (canopy > 0.002) {
-      float texel = uTexel * uUvScale;
-      float scale = 1.0 / max(lum, 0.004);
-      float lx = (dot(texture2D(uMap, uv + vec2(texel, 0.0)).rgb, vec3(0.2126, 0.7152, 0.0722))
-                - dot(texture2D(uMap, uv - vec2(texel, 0.0)).rgb, vec3(0.2126, 0.7152, 0.0722))) * scale;
-      float lz = (dot(texture2D(uMap, uv + vec2(0.0, texel)).rgb, vec3(0.2126, 0.7152, 0.0722))
-                - dot(texture2D(uMap, uv - vec2(0.0, texel)).rgb, vec3(0.2126, 0.7152, 0.0722))) * scale;
-      // Tilt across the ground, never through it: the crowns sit on the slope
-      // the survey measured rather than replacing it. The two axes are the
-      // picture's own u and v laid flat on that slope — u runs east and v runs
-      // south, which is how the tile's uvs were built — so the gradient and the
-      // tilt are measured in the same directions. Deriving them from a cross
-      // product with up instead gets them swapped: cross(up, n) points north.
-      vec3 tu = normalize(vec3(1.0, 0.0, 0.0) - n * n.x);
-      vec3 tv = normalize(vec3(0.0, 0.0, 1.0) - n * n.z);
-      n = normalize(n + (tu * lx + tv * lz) * canopy * CANOPY_RELIEF);
-      flatness = smoothstep(0.30, 0.92, n.y);
-    }
+    // Neither separates a forest from a field of wheat — farmland scores
+    // *higher* on both than the Amazon does — so anything keyed off them would
+    // have lit tramlines in Cambridgeshire as if they were spruce. Where the
+    // woodland is is a thing somebody surveyed: OpenStreetMap's natural=wood
+    // and landuse=forest, which this project already fetches from Overpass for
+    // the buildings. That is where it should come from, and until it does there
+    // is nothing here.
 
     float lambert = max(dot(n, uSunDir), 0.0);
     float wrapped = lambert * 0.62 + 0.38;
@@ -376,11 +346,6 @@ export function createTerrainMaterial(shared) {
       // Set per node in Terrain.build; see the water block above.
       uMeasured: { value: 0 },
       uSink: { value: 0 },
-      // One texel of whatever picture this tile ends up wearing, in that
-      // picture's own uv. Providers differ — 256 for most, 512 for the @2x
-      // ones — so it is set from the texture when the texture is bound.
-      uTexel: { value: 1 / 256 },
-      uCanopy: shared.uCanopy,
     },
     vertexShader: TERRAIN_VERT,
     fragmentShader: TERRAIN_FRAG,
@@ -392,7 +357,6 @@ export function createSharedUniforms() {
   return {
     uEarthRadius: { value: 6378137 },
     uCurvature: { value: 1 },
-    uCanopy: { value: 1 },
     uSunDir: { value: new THREE.Vector3(0.4, 0.8, 0.3).normalize() },
     uSunColor: { value: new THREE.Color(1, 0.97, 0.92) },
     uAmbient: { value: new THREE.Color(0.34, 0.37, 0.44) },

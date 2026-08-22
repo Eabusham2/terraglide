@@ -780,11 +780,6 @@ export class Terrain {
       uniforms.uUvOffset.value.set(resolved.offsetX, resolved.offsetY);
       uniforms.uUvScale.value = resolved.scale;
       uniforms.uHasTexture.value = 1;
-      // The canopy gradient is taken across one texel of this picture, so it
-      // has to know how wide a texel is. Providers differ: 256 for most, 512
-      // for the @2x ones.
-      const image = resolved.texture.image;
-      uniforms.uTexel.value = 1 / Math.max(1, image?.width ?? 256);
       // Resolving *something* was being treated as being fine, and it is not.
       //
       // A tile can resolve four, sixteen or sixty-four levels of stretch off a
