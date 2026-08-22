@@ -1,0 +1,1145 @@
+import * as THREE from '../../vendor/three/three.module.js';
+import { clamp } from '../core/math.js';
+import { EDGE_SECTORS } from './edgeWall.js';
+import { settings } from '../core/settings.js';
+import { tileKey, wrapTileX } from '../geo/mercator.js';
+import { createTerrainMaterial } from './shaders.js';
+
+/**
+ * Terrain: a mercator quadtree streamed around the camera.
+ *
+ * Each frame we walk down from a handful of coarse root tiles, subdividing while
+ * a tile is closer than `lodFactor` times its own width, and draw the leaves.
+ * Leaves carry a grid mesh with a dropped skirt around the edge, which hides the
+ * one-pixel cracks where two different LODs meet without needing stitched index
+ * buffers.
+ *
+ * Everything that could stutter is budgeted: mesh building has a millisecond
+ * allowance per frame, texture loads are prioritised by distance and cancelled
+ * when they stop being wanted, and a tile with no texture yet borrows its
+ * parent's rather than popping in as a hole.
+ */
+
+/**
+ * Ceiling on how many tiles one frame may draw, per graphics preset.
+ *
+ * It is a safety rail rather than a budget: the walk is ordered by distance, so
+ * hitting it drops the farthest ground, and dropping ground leaves a hole. The
+ * numbers are high enough that a normal view never reaches them and low enough
+ * that a pathological one cannot lock the machine up.
+ */
+const MAX_DRAWN_TILES = { low: 520, medium: 760, high: 1100, ultra: 1500 };
+const SEA_LEVEL = 0;
+/** Mean Earth radius, for the geometric horizon. */
+const EARTH_RADIUS_M = 6371000;
+/**
+ * How much further than the render distance a built tile is kept before it may
+ * be thrown away. Turning round used to mean rebuilding everything behind you
+ * from nothing; a half again of margin means the ground you just flew over is
+ * still there when you come back to it.
+ */
+const KEEP_FACTOR = 1.5;
+/** How much further distant mode reaches than the render distance proper. */
+/**
+ * The most tiles one frame will rebuild for being plainly wrong rather than
+ * merely out of date. High enough that arriving somewhere new sorts itself out
+ * within a second or two, low enough that it cannot stall a frame outright.
+ */
+const REBUILD_CEILING = 48;
+/**
+ * The two sides of the split threshold, as fractions of it.
+ *
+ * Twelve per cent apart, which at any zoom is a comfortable few metres of
+ * camera movement — far more than a frame's worth of jitter and far less than
+ * a deliberate approach.
+ */
+/**
+ * How many coarse stand-ins may be rebuilt in one frame.
+ *
+ * Refreshing a stale stand-in is the cheapest rebuild there is *per pixel
+ * covered*, and that is exactly why it has to be rationed. A stand-in four
+ * levels up is a ten-kilometre mesh; while the elevation under it is still
+ * arriving it is marked stale again every frame, and every leaf that falls
+ * back to it asks for it to be rebuilt. Left alone, a handful of those ate
+ * the entire frame's build allowance, every frame, and the leaves that would
+ * have replaced them never got built at all — so a zoom-12 stand-in stayed on
+ * screen beside zoom-18 leaves that had managed to squeeze through. Six levels
+ * of texel density side by side is the patchwork.
+ */
+const STANDIN_REFRESHES = 2;
+/**
+ * How far along an edge to look when deciding how deep that point's skirt has
+ * to be, in grid samples. A neighbour one level coarser straightens two of our
+ * cells into one, two levels coarser straightens four; four either way covers
+ * both with room to spare, and costs nothing where the ground is level because
+ * a flat window still measures zero.
+ */
+const SKIRT_REACH = 4;
+const LOD_HYSTERESIS_IN = 0.88;
+const LOD_HYSTERESIS_OUT = 1.12;
+
+export class Terrain {
+  constructor({ scene, frame, streamer, elevation, shared }) {
+    this.scene = scene;
+    this.frame = frame;
+    this.streamer = streamer;
+    this.elevation = elevation;
+    this.shared = shared;
+
+    this.group = new THREE.Group();
+    this.group.name = 'terrain';
+    this.group.matrixAutoUpdate = false;
+    scene.add(this.group);
+
+    this.nodes = new Map();
+    /** Tile keys currently drawn as four children rather than as themselves. */
+    this.split = new Set();
+    this.drawn = [];
+    this.frustum = new THREE.Frustum();
+    this.projScreenMatrix = new THREE.Matrix4();
+    this.stats = { drawn: 0, built: 0, nodes: 0, baseZoom: 0, maxZoom: 0 };
+
+    this._box = new THREE.Box3();
+    this._ray = new THREE.Raycaster();
+    this._rayOrigin = new THREE.Vector3();
+    this._rayDown = new THREE.Vector3(0, -1, 0);
+    this._vecA = new THREE.Vector3();
+    this._norm = { nx: 0, ny: 0 };
+    this._world = { x: 0, z: 0 };
+    this._cover = { x: 0, z: 0 };
+    this._geo = { lat: 0, lon: 0 };
+    /**
+     * Optional test for "have I been here before", used by distant mode. Set by
+     * the game; left null the quadtree simply stops at the render distance.
+     */
+    this.explored = null;
+    /**
+     * How far ground actually reaches, by compass sector, in metres. Measured
+     * during the walk so the wall that closes the world off can sit on the
+     * real edge rather than on the setting. See `EdgeWall`.
+     */
+    this.edgeProfile = new Float32Array(EDGE_SECTORS);
+    /**
+     * Optional test for "is this ground already drawn as photogrammetry".
+     * Set by the game when the 3D tileset is connected; left null the quadtree
+     * draws everything, which is what it should do when there is no 3D at all.
+     */
+    this.covered3d = null;
+  }
+
+  get gridSize() {
+    const preset = settings.preset();
+    // The detail dial scales the mesh with everything else, so one control
+    // does the whole job rather than three that have to be kept in step.
+    const detail = clamp(settings.get('detailLimit') / 100, 0.25, 1);
+    return clamp(Math.round(preset.tileGridSize * settings.get('meshDetail') * detail), 5, 65);
+  }
+
+  /** How aggressively tiles subdivide; derived from the graphics preset. */
+  get lodFactor() {
+    return 4.6 / settings.preset().sseThreshold;
+  }
+
+  /** Ground height (metres, sea clamped) at a normalised mercator point. */
+  heightAtNorm(nx, ny) {
+    return Math.max(SEA_LEVEL, this.elevation.sampleNorm(nx, ny));
+  }
+
+  /** Ground height at a world-space XZ position. */
+  heightAt(x, z) {
+    this.frame.worldToNorm(x, z, this._norm);
+    return this.heightAtNorm(this._norm.nx, this._norm.ny);
+  }
+
+  /** Raw ground height including bathymetry, so water depth can be measured. */
+  bedAt(x, z) {
+    this.frame.worldToNorm(x, z, this._norm);
+    return this.elevation.sampleNorm(this._norm.nx, this._norm.ny);
+  }
+
+  /** True when real elevation has arrived for this spot. */
+  /**
+   * Bumped every time a new elevation tile lands.
+   *
+   * Anything that stands things *on* the ground watches this. Before the relief
+   * for a square has arrived, every height there reads back as exactly sea
+   * level and `hasElevationAt` is false — so a wood that OpenStreetMap has
+   * mapped is dropped rather than planted, and a building is founded at zero.
+   * Neither is retried on its own, because nothing about the wood or the
+   * building changed; what changed was the ground under them.
+   */
+  get elevationVersion() {
+    return this.elevation?.version ?? 0;
+  }
+
+  hasElevationAt(x, z) {
+    this.frame.worldToNorm(x, z, this._norm);
+    return this.elevation.hasDataAt(this._norm.nx, this._norm.ny);
+  }
+
+  /** Finest elevation zoom with real data at a world position, or -1. */
+  elevationZoomAt(x, z) {
+    this.frame.worldToNorm(x, z, this._norm);
+    return this.elevation.zoomAt(this._norm.nx, this._norm.ny);
+  }
+
+  /**
+   * The finest elevation available anywhere inside a tile's footprint.
+   *
+   * Asking only at the centre missed the commonest improvement there is: a DEM
+   * tile landing next door sharpens this tile's *edge* and leaves its middle
+   * exactly as it was, so the mesh was never marked stale and the seam with
+   * its neighbour stayed where it was — a step, at an LOD boundary, in the
+   * shape of the tile grid. Five samples cost nothing and catch it.
+   */
+  elevationZoomFor(x0, z0, size) {
+    const inset = size * 0.02;
+    let best = this.elevationZoomAt(x0 + size / 2, z0 + size / 2);
+    for (const [dx, dz] of [[inset, inset], [size - inset, inset], [inset, size - inset], [size - inset, size - inset]]) {
+      const z = this.elevationZoomAt(x0 + dx, z0 + dz);
+      if (z > best) best = z;
+    }
+    return best;
+  }
+
+  /** True when this spot is open water (DEM at or below sea level). */
+  isWaterAt(x, z) {
+    this.frame.worldToNorm(x, z, this._norm);
+    // Ground nobody has measured yet reads back as exactly sea level, and
+    // exactly sea level is not the same as being *at* sea. Without this guard
+    // every arrival is at sea for as long as the DEM takes to land — and
+    // since the probe rings around you read zero too, it is not merely at sea
+    // but "open ocean", in the middle of Australia, seven hundred metres up.
+    if (!this.elevation.hasDataAt(this._norm.nx, this._norm.ny)) return false;
+    return this.elevation.sampleNorm(this._norm.nx, this._norm.ny) <= SEA_LEVEL;
+  }
+
+  /** Surface normal at a world position, from finite differences. */
+  normalAt(x, z, out = new THREE.Vector3()) {
+    const d = 2;
+    const hl = this.heightAt(x - d, z);
+    const hr = this.heightAt(x + d, z);
+    const hu = this.heightAt(x, z - d);
+    const hd = this.heightAt(x, z + d);
+    return out.set(hl - hr, 2 * d, hu - hd).normalize();
+  }
+
+  /** Throw everything away — used when the local frame re-anchors. */
+  rebase() {
+    for (const node of this.nodes.values()) this.disposeNode(node);
+    this.nodes.clear();
+    this.split.clear();
+    this.drawn.length = 0;
+  }
+
+  update(camera, budgetMs) {
+    const preset = settings.preset();
+    // The ground always sharpens as far as the provider will actually serve
+    // here. The setting is a ceiling you may lower, not a target — there is no
+    // tick to forget to turn on any more — and the detail dial scales it down
+    // with everything else when the frame rate is short.
+    const detail = clamp(settings.get('detailLimit') / 100, 0.25, 1);
+    const ceiling = settings.get('maxTileZoom') - Math.round((1 - detail) * 4);
+    const maxZoom = Math.min(ceiling, this.streamer.maxUsefulZoom);
+    // Uses eyeAboveGround, which is set from the camera below; on the very
+    // first frame it is undefined and the setting stands, which is right.
+    this.eyeAboveGround = Math.max(0, camera.position.y - this.heightAt(camera.position.x, camera.position.z));
+    const renderDistance = this.renderDistance;
+    // Distant mode: keep drawing past the render distance, but only over
+    // country you have already flown across. Ground you have never seen stops
+    // at the edge as it always did, so the setting cannot quietly double what
+    // an unexplored world costs to stream.
+    // Two distances, because they cost completely different things. The near
+    // one is ground drawn anywhere and every kilometre of it has to be
+    // fetched; the far one only applies where the explored map says you have
+    // already been, so those tiles are cached and the cost is drawing. That is
+    // why one stops at 64 km and the other can run to 1024.
+    this.farDistance =
+      this.explored && settings.get('distantMode')
+        ? Math.max(renderDistance, settings.get('distantDistanceKm') * 1000)
+        : renderDistance;
+    this.keepDistance = this.farDistance * KEEP_FACTOR;
+    this.maxDrawn = MAX_DRAWN_TILES[settings.get('graphics')] ?? MAX_DRAWN_TILES.high;
+    // Which way you are facing, flattened. Ground in front of you is what you
+    // are about to look at, so it is what gets built first and sharpened
+    // furthest.
+    //
+    // Smoothed, because the heading now decides how finely ground subdivides
+    // as well as what order it is built in. Read raw, a flick of the mouse
+    // re-cuts the quadtree twice — once away and once back — and every re-cut
+    // is a rebuild you can see. Two thirds of a second of lag makes a
+    // deliberate turn count and a twitch not.
+    camera.getWorldDirection(this._vecA);
+    const wantLen = Math.hypot(this._vecA.x, this._vecA.z) || 1;
+    const wantX = this._vecA.x / wantLen;
+    const wantZ = this._vecA.z / wantLen;
+    const now = performance.now();
+    const viewDt = clamp((now - (this._viewTime ?? now)) / 1000, 0, 0.5);
+    this._viewTime = now;
+    const follow = this._viewX === undefined ? 1 : 1 - Math.exp(-viewDt / 0.66);
+    this._viewX = (this._viewX ?? wantX) + (wantX - (this._viewX ?? wantX)) * follow;
+    this._viewZ = (this._viewZ ?? wantZ) + (wantZ - (this._viewZ ?? wantZ)) * follow;
+    const flatLen = Math.hypot(this._viewX, this._viewZ) || 1;
+    this._viewX /= flatLen;
+    this._viewZ /= flatLen;
+
+    this.streamer.beginFrame();
+    this.elevation.beginFrame();
+
+    this.projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.projScreenMatrix);
+
+    const camX = camera.position.x;
+    const camZ = camera.position.z;
+
+    // Root zoom: the coarsest level whose tiles still comfortably cover the
+    // view distance, so the recursion starts with only a few tiles.
+    const worldSpan = 2 * Math.PI * this.frame.scale;
+    let baseZoom = Math.floor(Math.log2(worldSpan / Math.max(this.farDistance * 2, 1000)));
+    baseZoom = clamp(baseZoom, 1, Math.max(1, maxZoom - 1));
+
+    for (const node of this.drawn) node.mesh.visible = false;
+    this.drawn.length = 0;
+    // The near circle is drawn everywhere, so it is the floor. Sectors where
+    // distant mode reaches further raise it as the walk finds them.
+    this.edgeProfile.fill(renderDistance);
+
+    this.budget = { ms: budgetMs, start: performance.now(), built: 0, refreshed: 0 };
+
+    const n = Math.pow(2, baseZoom);
+    this.frame.worldToNorm(camX, camZ, this._norm);
+    const rootX = Math.floor(this._norm.nx * n);
+    const rootY = Math.floor(clamp(this._norm.ny, 0, 0.999999) * n);
+    // Enough root tiles to cover the view circle, however big the distance is.
+    const rootSize = this.frame.worldTileSize(baseZoom);
+    const span = clamp(Math.ceil(this.farDistance / rootSize) + 1, 1, 6);
+
+    // Visit nearest first so the closest ground always gets the frame's build
+    // budget. Doing it in fixed quadrant order let distant tiles eat the budget,
+    // which is why the ground under your feet could stay coarse while the
+    // horizon looked fine.
+    const roots = [];
+    for (let dy = -span; dy <= span; dy++) {
+      const ty = rootY + dy;
+      if (ty < 0 || ty >= n) continue;
+      for (let dx = -span; dx <= span; dx++) {
+        const cx = camX + (dx + 0.5) * rootSize;
+        const cz = camZ + (dy + 0.5) * rootSize;
+        roots.push({
+          z: baseZoom,
+          x: wrapTileX(rootX + dx, baseZoom),
+          y: ty,
+          d: this.viewDistance(cx, cz, camX, camZ, Math.hypot(dx, dy) * rootSize),
+        });
+      }
+    }
+    roots.sort((a, b) => a.d - b.d);
+    for (const root of roots) {
+      this.visit(root, camera, camX, camZ, renderDistance, maxZoom);
+    }
+
+    // Elevation follows the camera: coarse when high up, sharpest on foot.
+    const altitude = Math.max(1, camera.position.y - this.heightAt(camX, camZ));
+    const elevZoom = clamp(Math.round(19 - Math.log2(altitude + 1) * 1.35), 6, this.elevation.maxZoom);
+    this.elevation.ensureAround(this._norm.nx, this._norm.ny, elevZoom, 1);
+
+    this.streamer.pump();
+    this.streamer.evict();
+    this.evict(preset.textureCacheSize, camX, camZ);
+
+    this.stats.drawn = this.drawn.length;
+    this.stats.nodes = this.nodes.size;
+    this.stats.baseZoom = baseZoom;
+    this.stats.maxZoom = maxZoom;
+  }
+
+  /**
+   * Metres of ground drawn around the camera.
+   *
+   * However far you can actually see, within reason. Standing on the ground
+   * the horizon is five kilometres off and the setting governs; two thousand
+   * metres up it is a hundred and fifty, and drawing to the setting anyway
+   * stops the world at twenty-four — which puts a flat pale band of haze
+   * across the view where mountains should be, with clear sky above it. That
+   * band is the wall at the edge of the loaded world, standing a sixth of the
+   * way to the horizon.
+   *
+   * Reaching further is much cheaper than it sounds: a quadtree spends about
+   * the same on each ring however far out it is, because the rings coarsen
+   * with distance. Six times the setting is the ceiling, so the setting still
+   * means something.
+   */
+  get renderDistance() {
+    const setting = settings.get('renderDistanceKm') * 1000;
+    const horizon = Math.sqrt(2 * EARTH_RADIUS_M * Math.max(1, this.eyeAboveGround ?? 0));
+    return clamp(horizon, setting, setting * 6);
+  }
+
+  /**
+   * How far away a tile *effectively* is for ordering purposes.
+   *
+   * Straight-line distance alone builds the ground behind you at the same
+   * priority as the ground you are looking at, and on a frame where the budget
+   * runs out the difference is a hole in the view rather than a hole behind
+   * your head. Ground within the view cone keeps its real distance; ground
+   * behind you is treated as further off than it is.
+   */
+  viewDistance(cx, cz, camX, camZ, flat) {
+    const dx = cx - camX;
+    const dz = cz - camZ;
+    const len = Math.hypot(dx, dz);
+    if (len < 1) return flat;
+    const facing = (dx * this._viewX + dz * this._viewZ) / len;
+    // +1 dead ahead, -1 directly behind: a tile behind you sorts as up to
+    // three times its distance, which puts it after everything in front.
+    return flat * (1.6 - facing * 0.6);
+  }
+
+  /**
+   * Record how far the world reaches past a tile, by compass sector.
+   *
+   * The tile is far away by the time this is called, so it covers only a
+   * narrow wedge; its half-angle is taken from its own half-diagonal rather
+   * than from its corners, which avoids the wrap-around arithmetic entirely
+   * and is accurate to well under a sector at these distances.
+   */
+  noteEdge(x0, z0, x1, z1, camX, camZ) {
+    const cx = (x0 + x1) / 2;
+    const cz = (z0 + z1) / 2;
+    const dx = cx - camX;
+    const dz = cz - camZ;
+    const centre = Math.hypot(dx, dz);
+    if (centre < 1) return;
+    const half = Math.hypot(x1 - x0, z1 - z0) / 2;
+    // The far corner, which is where the ground genuinely ends.
+    const reach = centre + half;
+    const spread = Math.asin(Math.min(1, half / centre));
+    const step = (Math.PI * 2) / EDGE_SECTORS;
+    // Bearing, clockwise from north — the same convention the wall's ring is
+    // built in, so sector 0 is north on both sides of the handover.
+    const middle = Math.atan2(dx, -dz);
+    const from = Math.floor((middle - spread) / step);
+    const to = Math.ceil((middle + spread) / step);
+    for (let i = from; i <= to; i++) {
+      const sector = ((i % EDGE_SECTORS) + EDGE_SECTORS) % EDGE_SECTORS;
+      if (reach > this.edgeProfile[sector]) this.edgeProfile[sector] = reach;
+    }
+  }
+
+  /**
+   * How much further a tile may be and still subdivide, given where you look.
+   *
+   * Detail costs the same wherever it is spent, so spending it evenly means
+   * spending most of it on ground nobody is looking at. Tiles inside the view
+   * cone get a quarter more reach and tiles behind you a quarter less — a
+   * little over half a level either way — so the horizon you are facing
+   * reaches full detail sooner and the ground behind your head stays coarse
+   * until you turn round.
+   *
+   * Ground close enough to be underfoot is exempt: it is about to be in view
+   * whichever way you turn, and it is what you land on.
+   */
+  splitScale(cx, cz, camX, camZ, flatDist, size) {
+    if (flatDist < size) return 1;
+    const dx = cx - camX;
+    const dz = cz - camZ;
+    const len = Math.hypot(dx, dz);
+    if (len < 1) return 1;
+    return 1 + ((dx * this._viewX + dz * this._viewZ) / len) * 0.25;
+  }
+
+  visit(tile, camera, camX, camZ, renderDistance, maxZoom) {
+    if (this.drawn.length >= this.maxDrawn) return;
+
+    const size = this.frame.worldTileSize(tile.z);
+    const n = Math.pow(2, tile.z);
+    this.frame.normToWorld(tile.x / n, tile.y / n, this._world);
+    const x0 = this._world.x;
+    const z0 = this._world.z;
+    const x1 = x0 + size;
+    const z1 = z0 + size;
+
+    const dx = Math.max(x0 - camX, 0, camX - x1);
+    const dz = Math.max(z0 - camZ, 0, camZ - z1);
+    // Distance to the nearest point of the tile, so the view ends on a circle
+    // rather than a square with corners poking out.
+    const flatDist = Math.hypot(dx, dz);
+    if (flatDist > renderDistance) {
+      if (flatDist > this.farDistance) return;
+      if (!this.explored || !this.explored(tile)) return;
+    }
+
+    // Cheap vertical bounds for culling; refined once the tile is built.
+    //
+    // Only trust a node's own bounds if they were measured against the
+    // elevation we have now. A tile built before its relief arrived is flat at
+    // sea level and says so, and over ground that turns out to be four hundred
+    // metres up that box is nowhere near the mesh — so the frustum rejects it,
+    // and a rejected node is never in `drawn`, and what is never in `drawn` is
+    // never rebuilt. The tile stays a hole in the world for as long as you
+    // stand there, with every tile around it loaded and nothing failing. That
+    // is where the missing chunks came from, and it is why the fallback here
+    // is a generous box rather than a clever one.
+    const cached = this.nodes.get(tileKey(tile.z, tile.x, tile.y));
+    const measured = cached && cached.builtVersion === (this.elevation.version ?? 0);
+    const minY = measured ? cached.minY : -200;
+    const maxY = measured ? cached.maxY : 6000;
+
+    this._box.min.set(Math.min(x0, x1), minY, Math.min(z0, z1));
+    this._box.max.set(Math.max(x0, x1), maxY, Math.max(z0, z1));
+    if (!this.frustum.intersectsBox(this._box)) return;
+
+    // Splitting, with hysteresis.
+    //
+    // A tile sitting exactly on the threshold used to flip between itself and
+    // its four children every frame the camera twitched — and each flip is a
+    // build, a texture swap and a visible pop. Flying along a boundary made
+    // whole bands of ground appear and vanish and appear again, which is
+    // "things keep going away and coming back" and most of "gaps coming and
+    // going" too.
+    //
+    // So the two thresholds differ: a tile has to come 12% closer than the
+    // line to split, and go 12% past it to merge again. Anything in between
+    // keeps doing whatever it was already doing.
+    // Do not outrun the photographs.
+    //
+    // Splitting is decided by distance alone, and imagery arrives when it
+    // arrives, so a tile could be drawn at zoom 18 while the only photograph
+    // it can find is eight levels up — stretched over its whole width — with
+    // a neighbour beside it that did get its own. That is the patchwork: sharp
+    // forest canopy in irregular patches inside a smeared background, with
+    // hard tile-shaped edges between them. It is a pattern on the ground and
+    // it is nothing to do with what is growing there.
+    //
+    // A tile may only split once it has a photograph of its own, or its
+    // parent's at worst. Then every tile on screen is within one level of
+    // every other, the whole view sharpens together as the imagery lands, and
+    // the edges have nothing to mark. Ground close enough to stand on is
+    // exempt: geometry there matters more than the texture on it.
+    const key = tileKey(tile.z, tile.x, tile.y);
+    const photo = this.streamer.resolve(tile);
+    const sharpEnough = !photo || photo.scale >= 0.5 || flatDist < size;
+    const line = size * this.lodFactor * this.splitScale(
+      (x0 + x1) / 2, (z0 + z1) / 2, camX, camZ, flatDist, size,
+    );
+    const wasSplit = this.split.has(key);
+    const shouldSplit =
+      tile.z < maxZoom && sharpEnough &&
+      (wasSplit ? flatDist < line * LOD_HYSTERESIS_OUT : flatDist < line * LOD_HYSTERESIS_IN);
+    if (shouldSplit) this.split.add(key);
+    else this.split.delete(key);
+    if (shouldSplit) {
+      const cz = tile.z + 1;
+      const half = size / 2;
+      const children = [
+        { z: cz, x: tile.x * 2, y: tile.y * 2, cx: x0 + half * 0.5, cz2: z0 + half * 0.5 },
+        { z: cz, x: tile.x * 2 + 1, y: tile.y * 2, cx: x0 + half * 1.5, cz2: z0 + half * 0.5 },
+        { z: cz, x: tile.x * 2, y: tile.y * 2 + 1, cx: x0 + half * 0.5, cz2: z0 + half * 1.5 },
+        { z: cz, x: tile.x * 2 + 1, y: tile.y * 2 + 1, cx: x0 + half * 1.5, cz2: z0 + half * 1.5 },
+      ];
+      for (const child of children) {
+        child.order = this.viewDistance(
+          child.cx, child.cz2, camX, camZ,
+          Math.hypot(child.cx - camX, child.cz2 - camZ),
+        );
+      }
+      children.sort((a, b) => a.order - b.order);
+      for (const child of children) {
+        this.visit(child, camera, camX, camZ, renderDistance, maxZoom);
+      }
+      return;
+    }
+
+    // Ground beyond the near circle only exists where you have been, so it is
+    // this ground — and only this ground — that decides how far the world
+    // reaches in a given direction.
+    if (flatDist > renderDistance) this.noteEdge(x0, z0, x1, z1, camX, camZ);
+
+    // Real photogrammetry of this exact square is already drawn, so ours would
+    // only fight it for the same depth. Coarse tiles are exempt: a tile a
+    // kilometre across is far enough away that no photogrammetry reaches it,
+    // and testing its centre would throw away the ground either side of the
+    // one point that happened to be covered.
+    if (tile.z >= 15 && this.covered3d && this.covered3d((x0 + x1) / 2, (z0 + z1) / 2)) return;
+
+    // Pass the view-weighted distance, not the flat one: it decides both which
+    // tiles get the frame's build budget and which textures are asked for
+    // first, and both should favour the ground you are looking at.
+    this.draw(tile, x0, z0, size, this.viewDistance(
+      (x0 + x1) / 2, (z0 + z1) / 2, camX, camZ, flatDist,
+    ));
+  }
+
+  draw(tile, x0, z0, size, distance) {
+    // `distance` here is the view-weighted one from visit(): how far away the
+    // tile is *for the purpose of caring about it*, not how far away it is.
+    const key = tileKey(tile.z, tile.x, tile.y);
+    let node = this.nodes.get(key);
+
+    // A mesh made from coarser elevation than is now available is not merely
+    // coarse — it is a plateau. Zoom 6 gives one height per square kilometre,
+    // so a tile built from it is a flat plate, and once the finer relief lands
+    // that plate stands there cutting through the hillside around it: the pale
+    // and black wedges across the mountain, at the wrong height, wearing a
+    // stretched texture.
+    //
+    // The round-robin refresh could not clear them. It marks a few nodes a
+    // frame, and on arriving somewhere new every one of four hundred wants
+    // rebuilding at once. So the check happens here, on tiles that are
+    // actually being drawn, and it compares the zoom the mesh was built from
+    // against the zoom the field can offer now — which is a real improvement,
+    // unlike "some tile somewhere has landed".
+    const bestZoom = this.elevationZoomFor(x0, z0, size);
+    const builtFrom = node?.builtElevZoom ?? -1;
+    if (node && !node.dirty && bestZoom > builtFrom) node.dirty = true;
+    // Two levels coarser is a mesh that is merely soft. Three or more is a
+    // plateau standing in for a hillside, and no budget is worth leaving one
+    // of those in front of you: it is the wrong shape, at the wrong height,
+    // and it cuts through the ground either side of it.
+    const wrong = node && node.dirty && bestZoom - builtFrom >= 3;
+
+    if (!node || node.dirty) {
+      const spent = performance.now() - this.budget.start;
+      // Always afford the first few tiles of a frame: those are the nearest
+      // ones now that the walk is ordered by distance.
+      const affordable = wrong
+        ? this.budget.built < REBUILD_CEILING
+        : spent < this.budget.ms || this.budget.built < 8;
+      if (!affordable) {
+        // Out of build time this frame. A tile that already has a mesh keeps
+        // showing it — an out-of-date surface is far better than swapping the
+        // ground under your feet for its grandparent every time the budget
+        // runs out, which is a pop you can see.
+        if (node && node.mesh) {
+          this.show(node, tile, distance);
+          return;
+        }
+        // Nothing built here yet. Show the nearest built ancestor — but if the
+        // nearest thing we have is far coarser than this tile, spend a build
+        // on the level *below* it first.
+        //
+        // That one rule is what keeps the ground uniform. Without it the only
+        // stand-in on offer could be four or six levels up, and a zoom-12
+        // mesh ten kilometres across drawn beside zoom-18 leaves that happened
+        // to squeeze through the budget is a texel density sixty-four times
+        // coarser on one side of an edge than the other. Sampling the drawn
+        // zoom across the screen over the Black Forest found exactly that: 12
+        // and 18 alternating from one sample to the next. Sharp canopy in
+        // islands inside a smear, with hard tile-shaped edges — the pattern on
+        // the ground, and nothing to do with what is growing there.
+        //
+        // Filling in from the top instead means every stand-in on screen sits
+        // at about the same depth and the whole view sharpens together.
+        let ancestor = this.findBuiltAncestor(tile);
+        if (!ancestor || tile.z - ancestor.tile.z > 2) {
+          const grown = this.buildCover(tile, ancestor);
+          if (grown) ancestor = grown;
+        }
+        if (ancestor) {
+          // And refresh it if it is stale, which nothing else will ever do.
+          //
+          // `draw` only ever runs for leaves, and a stand-in is by definition
+          // not one — so a coarse tile that everything in an area is looking
+          // at could be marked dirty for ever and never rebuilt. Over Uluru
+          // that was measurable: the two nodes within a kilometre of the
+          // camera were flat plates at sea level, built a hundred and sixty
+          // elevation tiles ago, still flagged dirty, still on screen. The
+          // real ground there is seven hundred metres up, so they hung far
+          // below it and you looked straight through the gap between.
+          //
+          // One mesh, serving hundreds of leaves. It is the cheapest rebuild
+          // on the frame and the one that shows the most.
+          if (ancestor.dirty && this.budget.refreshed < STANDIN_REFRESHES) {
+            this.budget.refreshed++;
+            this.refresh(ancestor);
+          }
+          this.show(ancestor, tile, distance);
+          return;
+        }
+        // Nothing built above it either. Building this leaf anyway is what
+        // used to happen, and on the frame after a teleport that is *every*
+        // leaf — four or five hundred meshes in one frame, which is the
+        // second-long freeze on arriving somewhere. Build one coarse tile
+        // instead: it covers this leaf and a couple of hundred of its
+        // neighbours, so all of them have something to show on this same
+        // frame and the detail arrives underneath it over the next few.
+        const cover = this.buildCover(tile);
+        if (cover) {
+          this.show(cover, tile, distance);
+          return;
+        }
+        // Not even that was possible, so the choice is between going over
+        // budget and leaving a gap. A gap in the ground is a window straight
+        // through the planet — that is where the random holes came from — and
+        // one frame that runs long is cheaper than that.
+      }
+      node = this.build(tile, x0, z0, size, node);
+      this.budget.built++;
+      this.stats.built++;
+    }
+
+    this.show(node, tile, distance);
+  }
+
+  /**
+   * Grow the tree one level towards a leaf that has nothing built above it.
+   *
+   * With nothing at all built — the frame after a teleport — this builds a
+   * single root tile, which every one of the four or five hundred leaves in
+   * the view then shares. That is the difference between an arrival that takes
+   * a frame and one that takes a second: it used to build every leaf.
+   *
+   * With something built already, it builds one level below it. So each frame
+   * the tree deepens by a level and every stand-in on screen sits at the same
+   * depth, instead of a few very coarse ones standing next to fully detailed
+   * leaves. Coarse ground reads as ground; coarse ground beside sharp ground
+   * reads as a fault.
+   */
+  buildCover(tile, ancestor) {
+    if (this.budget.built >= REBUILD_CEILING) return null;
+    const z = Math.min(ancestor ? ancestor.tile.z + 1 : this.stats.baseZoom, tile.z - 1);
+    if (z < 0 || z >= tile.z) return null;
+    const shift = tile.z - z;
+    const x = tile.x >> shift;
+    const y = tile.y >> shift;
+    const existing = this.nodes.get(tileKey(z, x, y));
+    if (existing && existing.mesh && !existing.dirty) return existing;
+    const size = this.frame.worldTileSize(z);
+    const n = Math.pow(2, z);
+    this.frame.normToWorld(x / n, y / n, this._cover);
+    const node = this.build({ z, x, y }, this._cover.x, this._cover.z, size, existing);
+    this.budget.built++;
+    this.stats.built++;
+    return node;
+  }
+
+  /** Rebuild a node in place from the elevation as it stands now. */
+  refresh(node) {
+    if (this.budget.built >= REBUILD_CEILING) return node;
+    const size = node.size ?? this.frame.worldTileSize(node.tile.z);
+    const built = this.build(node.tile, node.mesh.position.x, node.mesh.position.z, size, node);
+    this.budget.built++;
+    this.stats.built++;
+    return built;
+  }
+
+  findBuiltAncestor(tile) {
+    let z = tile.z - 1;
+    let x = tile.x >> 1;
+    let y = tile.y >> 1;
+    while (z >= 0) {
+      const node = this.nodes.get(tileKey(z, x, y));
+      if (node && node.mesh) return node;
+      z--;
+      x >>= 1;
+      y >>= 1;
+    }
+    return null;
+  }
+
+  show(node, requestedTile, distance) {
+    node.used = this.streamer.frame;
+    // Stamp rather than reading mesh.visible: a mesh is born visible, and
+    // relying on that flag meant a freshly built tile never entered the drawn
+    // list and so could never be hidden again.
+    if (node.shownFrame !== this.streamer.frame) {
+      node.shownFrame = this.streamer.frame;
+      node.mesh.visible = true;
+      // Draw the ground under your feet before the ground on the horizon: the
+      // near tiles fill the depth buffer first and everything behind them is
+      // rejected cheaply, and a stutter shows up as a far tile arriving late
+      // rather than the one you are standing on.
+      node.mesh.renderOrder = Math.round(distance * 0.01);
+      this.drawn.push(node);
+    }
+
+    // A stand-in covers ground that some of its own descendants may be drawing
+    // for themselves, and over flat ground the two are exactly coplanar — so
+    // the depth test cannot separate them and they interleave pixel by pixel.
+    // On land the relief hides it; over the sea, where every vertex sits at
+    // exactly zero, it is a stipple of dotted lines across the water in the
+    // shape of the tile grid. Measured over Gibraltar: twenty coarse tiles
+    // overlapping finer ones in a single frame.
+    //
+    // So a stand-in is sunk a little, by a hand's breadth per level of
+    // coarseness. Polygon offset would have been the tidy way to do it and
+    // does nothing here: the logarithmic depth buffer writes depth from the
+    // fragment shader, and offsetting the rasteriser's interpolated depth
+    // cannot bias a value the shader computes itself. Moving the geometry
+    // works whatever writes the depth.
+    node.material.uniforms.uSink.value =
+      node.tile.z < requestedTile.z ? 0.25 * (requestedTile.z - node.tile.z) : 0;
+
+    // Texture: exact tile if we have it, otherwise the closest ancestor.
+    const priority = distance / Math.pow(2, 20 - requestedTile.z);
+    this.streamer.request(requestedTile, priority);
+    const resolved = this.streamer.resolve(node.tile);
+    const uniforms = node.material.uniforms;
+    if (resolved) {
+      uniforms.uMap.value = resolved.texture;
+      uniforms.uUvOffset.value.set(resolved.offsetX, resolved.offsetY);
+      uniforms.uUvScale.value = resolved.scale;
+      uniforms.uHasTexture.value = 1;
+      // Resolving *something* was being treated as being fine, and it is not.
+      //
+      // A tile can resolve four, sixteen or sixty-four levels of stretch off a
+      // distant ancestor, and once it does, nothing ever asked for the levels
+      // in between — the ancestor request only ran when there was nothing at
+      // all. So a tile could sit at sixty-four times magnification for as long
+      // as its own photograph took to arrive, while the tile beside it, whose
+      // own photograph did arrive, was sharp. Two textures from two different
+      // zooms meeting along a tile edge is a hard straight line across the
+      // sea, brighter on one side, and no amount of geometry work would ever
+      // have removed it because it was never geometry.
+      //
+      // Four times over is the point where the smear starts to read. Past it,
+      // ask for the intermediate zooms as well, so neighbours converge on the
+      // same level and the seam closes from both sides.
+      if (resolved.scale < 0.25) this.streamer.requestAncestors(node.tile, priority);
+    } else {
+      uniforms.uHasTexture.value = 0;
+      this.streamer.request(node.tile, priority);
+      // Nothing loaded anywhere above this tile either, so there is no
+      // photograph to stretch and the ground is drawn from the relief alone.
+      // Ask for the coarse ancestors as well: one tile six levels up covers
+      // this one and four thousand of its neighbours, so it is by far the
+      // cheapest way to stop a whole hillside being blank while the sharp
+      // tiles trickle in one at a time.
+      this.streamer.requestAncestors(node.tile, priority);
+    }
+
+    // Keep a matching elevation tile alive for this area.
+    const elevZ = Math.min(node.tile.z, this.elevation.maxZoom);
+    const shift = node.tile.z - elevZ;
+    this.elevation.request(
+      { z: elevZ, x: node.tile.x >> shift, y: node.tile.y >> shift },
+      distance,
+    );
+  }
+
+  build(tile, x0, z0, size, existing) {
+    const key = tileKey(tile.z, tile.x, tile.y);
+    const grid = this.gridSize;
+    const n = Math.pow(2, tile.z);
+    const nx0 = tile.x / n;
+    const ny0 = tile.y / n;
+    const step = 1 / n / (grid - 1);
+
+    const node = existing ?? {
+      key,
+      tile,
+      mesh: null,
+      geometry: null,
+      material: null,
+      minY: 0,
+      maxY: 0,
+      used: 0,
+      grid: 0,
+      shownFrame: -1,
+    };
+
+    const verts = grid + 2; // one skirt ring on each side
+    const count = verts * verts;
+    let positions = node.geometry && node.grid === grid ? node.geometry.attributes.position.array : null;
+    let normals = positions ? node.geometry.attributes.normal.array : null;
+    let uvs = positions ? node.geometry.attributes.uv.array : null;
+    let beds = positions ? node.geometry.attributes.bed.array : null;
+    const fresh = !positions;
+    if (fresh) {
+      positions = new Float32Array(count * 3);
+      normals = new Float32Array(count * 3);
+      uvs = new Float32Array(count * 2);
+      beds = new Float32Array(count);
+    }
+
+    const heights = new Float32Array(grid * grid);
+    // The same points unclamped, sea floor and all. The surface is clamped to
+    // sea level so the ocean is flat; the shader needs the real depth beneath
+    // it to tell a bay from a beach when there is no photograph to go on.
+    const bedHeights = new Float32Array(grid * grid);
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    for (let gy = 0; gy < grid; gy++) {
+      const ny = ny0 + gy * step;
+      for (let gx = 0; gx < grid; gx++) {
+        const raw = this.elevation.sampleNorm(nx0 + gx * step, ny);
+        const h = Math.max(SEA_LEVEL, raw);
+        heights[gy * grid + gx] = h;
+        bedHeights[gy * grid + gx] = raw;
+        if (h < minY) minY = h;
+        if (h > maxY) maxY = h;
+      }
+    }
+
+    const cell = size / (grid - 1);
+    // The skirt only has to be as deep as the crack it hides, and the crack is
+    // bounded by how much this tile's surface can differ from a neighbour at
+    // another level of detail *along the edge the two of them share* — which is
+    // that edge's own relief, since both sample the same profile and the
+    // coarser one only straightens it.
+    //
+    // Sizing every edge by the whole tile's relief, or giving each one a metre
+    // of curtain "just in case", hangs a wall off the flat sea. Seen almost
+    // edge-on from a thousand metres up those walls are exactly the dotted grid
+    // that used to lie over the water — 211 stray dark pixels in a patch of
+    // open sea with them, 15 without. A level edge has no crack to hide, so it
+    // gets no curtain. The depth is worked out separately for every point along
+    // every edge rather than once per tile, so the seaward half of a coastal
+    // tile's edge is bare while the half that runs up the headland keeps its
+    // full curtain. Over the Alps every point has relief around it, so the
+    // skirt there is the same depth it always was.
+    const cap = Math.max(12, size * 0.02);
+    const edgeDrop = (at) => {
+      const line = new Float32Array(grid);
+      for (let i = 0; i < grid; i++) line[i] = heights[at(i)];
+      const drops = new Float32Array(grid);
+      for (let i = 0; i < grid; i++) {
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (let j = Math.max(0, i - SKIRT_REACH); j <= Math.min(grid - 1, i + SKIRT_REACH); j++) {
+          if (line[j] < lo) lo = line[j];
+          if (line[j] > hi) hi = line[j];
+        }
+        drops[i] = clamp((hi - lo) * 0.6, 0, cap);
+      }
+      return drops;
+    };
+    const skirtTop = edgeDrop((i) => i);
+    const skirtBottom = edgeDrop((i) => (grid - 1) * grid + i);
+    const skirtLeft = edgeDrop((i) => i * grid);
+    const skirtRight = edgeDrop((i) => i * grid + grid - 1);
+
+    for (let vy = 0; vy < verts; vy++) {
+      const gy = clamp(vy - 1, 0, grid - 1);
+      for (let vx = 0; vx < verts; vx++) {
+        const gx = clamp(vx - 1, 0, grid - 1);
+        const i = (vy * verts + vx) * 3;
+        const h = heights[gy * grid + gx];
+
+        let drop = 0;
+        if (vy === 0) drop = Math.max(drop, skirtTop[gx]);
+        if (vy === verts - 1) drop = Math.max(drop, skirtBottom[gx]);
+        if (vx === 0) drop = Math.max(drop, skirtLeft[gy]);
+        if (vx === verts - 1) drop = Math.max(drop, skirtRight[gy]);
+
+        positions[i] = gx * cell;
+        positions[i + 1] = h - drop;
+        positions[i + 2] = gy * cell;
+        beds[vy * verts + vx] = bedHeights[gy * grid + gx];
+
+        const hl = heights[gy * grid + Math.max(0, gx - 1)];
+        const hr = heights[gy * grid + Math.min(grid - 1, gx + 1)];
+        const hu = heights[Math.max(0, gy - 1) * grid + gx];
+        const hd = heights[Math.min(grid - 1, gy + 1) * grid + gx];
+        const nxv = hl - hr;
+        const nzv = hu - hd;
+        const inv = 1 / Math.hypot(nxv, 2 * cell, nzv);
+        normals[i] = nxv * inv;
+        normals[i + 1] = 2 * cell * inv;
+        normals[i + 2] = nzv * inv;
+
+        const u = (vy * verts + vx) * 2;
+        uvs[u] = gx / (grid - 1);
+        uvs[u + 1] = gy / (grid - 1);
+      }
+    }
+
+    let geometry = node.geometry;
+    if (fresh || node.grid !== grid) {
+      if (geometry) geometry.dispose();
+      geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+      geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+      geometry.setAttribute('bed', new THREE.BufferAttribute(beds, 1));
+      geometry.setIndex(buildIndices(verts));
+    } else {
+      geometry.attributes.position.needsUpdate = true;
+      geometry.attributes.normal.needsUpdate = true;
+      geometry.attributes.bed.needsUpdate = true;
+    }
+    geometry.boundingSphere = new THREE.Sphere(
+      new THREE.Vector3(size / 2, (minY + maxY) / 2, size / 2),
+      Math.hypot(size, maxY - minY) * 0.75,
+    );
+
+    if (!node.material) node.material = createTerrainMaterial(this.shared);
+    if (!node.mesh) {
+      node.mesh = new THREE.Mesh(geometry, node.material);
+      node.mesh.frustumCulled = false;
+      node.mesh.matrixAutoUpdate = false;
+      node.mesh.visible = false;
+      this.group.add(node.mesh);
+    } else {
+      node.mesh.geometry = geometry;
+    }
+
+    node.mesh.position.set(x0, 0, z0);
+    node.mesh.updateMatrix();
+    node.mesh.updateMatrixWorld(true);
+    node.size = size;
+    node.geometry = geometry;
+    node.grid = grid;
+    node.tile = tile;
+    node.minY = minY - 5;
+    node.maxY = maxY + 5;
+    // The finest elevation this mesh could have been made from. See draw().
+    // Measured over the whole footprint, the same way the check that compares
+    // against it is, or the two would never agree.
+    node.builtElevZoom = this.elevationZoomFor(x0, z0, size);
+    // Ground at sea level is only water if somebody measured it. Unmeasured
+    // ground reads as sea level too, and shading that as ocean turns a
+    // continent into a sea for as long as its relief takes to arrive.
+    node.material.uniforms.uMeasured.value = node.builtElevZoom >= 0 ? 1 : 0;
+    node.dirty = false;
+    node.builtVersion = this.elevation.version ?? 0;
+    node.used = this.streamer.frame;
+
+    this.nodes.set(key, node);
+    return node;
+  }
+
+  /**
+   * Height of the *drawn* surface under a point, or null if nothing is drawn
+   * there yet.
+   *
+   * `heightAt` samples the elevation field, but a tile's mesh only carries a
+   * grid of those samples and interpolates between them — so on broken ground
+   * the surface you can see sits a little above the field, and standing at the
+   * field's height leaves you shin-deep in it. Asking the mesh directly is what
+   * keeps your feet on the ground you are actually looking at.
+   */
+  meshHeightAt(x, z) {
+    let best = null;
+    let bestSize = Infinity;
+    for (const node of this.drawn) {
+      // A tile's mesh sits with its corner at the origin, spanning `size`.
+      const dx = x - node.mesh.position.x;
+      const dz = z - node.mesh.position.z;
+      if (dx < 0 || dz < 0 || dx > node.size || dz > node.size) continue;
+      // The smallest tile covering the point is the most detailed one.
+      if (node.size < bestSize) {
+        bestSize = node.size;
+        best = node;
+      }
+    }
+    if (!best) return null;
+
+    this._ray.set(this._rayOrigin.set(x, 60000, z), this._rayDown);
+    const hit = this._ray.intersectObject(best.mesh, false);
+    return hit.length > 0 ? hit[0].point.y : null;
+  }
+
+  /**
+   * Mark nearby tiles for a rebuild when fresh elevation data lands.
+   *
+   * Every node, not only the ones being drawn. Walking `drawn` alone meant a
+   * tile that had been culled could never be refreshed, which mattered because
+   * the commonest reason to be culled was having been built flat before the
+   * relief arrived — so the nodes most in need of a rebuild were exactly the
+   * ones the loop could not see.
+   */
+  invalidateStale(camX, camZ, maxPerFrame = 400) {
+    const version = this.elevation.version ?? 0;
+    const reach = this.keepDistance ?? this.renderDistance;
+    let marked = 0;
+    for (const node of this.nodes.values()) {
+      if (marked >= maxPerFrame) break;
+      if (node.builtVersion === version || !node.mesh || node.dirty) continue;
+      const size = node.size ?? 0;
+      const dx = node.mesh.position.x + size / 2 - camX;
+      const dz = node.mesh.position.z + size / 2 - camZ;
+      // Out of reach entirely: leave it alone and leave its version alone too.
+      //
+      // It used to be *stamped* with the current version instead — "too far
+      // away to be worth a rebuild" — which does not mean "skip it", it means
+      // "declare it up to date". Six kilometres out, that was most of the
+      // world: ground is drawn to twenty-four and further, so every tile past
+      // six was permanently certified fresh and could never be rebuilt again,
+      // however much better the elevation under it got. Those are the terraces
+      // — meshes made before the relief landed, marked as finished, standing
+      // at the wrong height beside neighbours that were built later.
+      if (Math.hypot(dx, dz) > reach) continue;
+      // Only if there is actually something better to build it from. Any tile
+      // landing anywhere bumps the version, and marking every node on every
+      // bump would have the quadtree rebuilding the same mesh from the same
+      // numbers for as long as anything at all was streaming.
+      if (this.elevationZoomFor(node.mesh.position.x, node.mesh.position.z, size) <= node.builtElevZoom) continue;
+      node.dirty = true;
+      marked++;
+    }
+  }
+
+  /**
+   * Throw away the least recently used tiles, but never one that is still
+   * within reach.
+   *
+   * Ground you flew over thirty seconds ago used to be evicted the moment the
+   * cache filled, so turning round rebuilt it from nothing — a wall of empty
+   * ground where you had just been. Anything inside the keep radius survives
+   * the cull; only when *that* alone overflows does distance decide.
+   */
+  evict(limit, camX = 0, camZ = 0) {
+    if (this.nodes.size <= limit) return;
+    const keep = (this.keepDistance ?? Infinity) ** 2;
+    const near = [];
+    const far = [];
+    for (const node of this.nodes.values()) {
+      if (!node.mesh) continue;
+      const dx = node.mesh.position.x + (node.size ?? 0) / 2 - camX;
+      const dz = node.mesh.position.z + (node.size ?? 0) / 2 - camZ;
+      (dx * dx + dz * dz <= keep ? near : far).push(node);
+    }
+    far.sort((a, b) => a.used - b.used);
+    near.sort((a, b) => a.used - b.used);
+
+    let excess = this.nodes.size - limit;
+    for (const node of [...far, ...near]) {
+      if (excess <= 0) break;
+      if (node.mesh && node.mesh.visible) continue;
+      this.disposeNode(node);
+      this.nodes.delete(node.key);
+      excess--;
+    }
+  }
+
+  disposeNode(node) {
+    if (node.mesh) {
+      this.group.remove(node.mesh);
+      node.mesh.visible = false;
+    }
+    if (node.geometry) node.geometry.dispose();
+    if (node.material) node.material.dispose();
+    node.mesh = null;
+    node.geometry = null;
+    node.material = null;
+  }
+}
+
+const indexCache = new Map();
+
+function buildIndices(verts) {
+  const cached = indexCache.get(verts);
+  if (cached) return cached;
+  const quads = (verts - 1) * (verts - 1);
+  const array = quads * 6 > 65535 ? new Uint32Array(quads * 6) : new Uint16Array(quads * 6);
+  let o = 0;
+  for (let y = 0; y < verts - 1; y++) {
+    for (let x = 0; x < verts - 1; x++) {
+      const a = y * verts + x;
+      const b = a + 1;
+      const c = a + verts;
+      const d = c + 1;
+      array[o++] = a;
+      array[o++] = c;
+      array[o++] = b;
+      array[o++] = b;
+      array[o++] = c;
+      array[o++] = d;
+    }
+  }
+  const attribute = new THREE.BufferAttribute(array, 1);
+  indexCache.set(verts, attribute);
+  return attribute;
+}
