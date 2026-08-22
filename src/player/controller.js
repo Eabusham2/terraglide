@@ -37,7 +37,6 @@ const JUMP_SPEED = 8.4;
 const FALL_DRAG_PER_TICK = 0.98;
 const GROUND_ACCEL = 14;
 const AIR_ACCEL = 2.4;
-const CLIMB_SPEED = 3.4;
 const SWIM_SPEED = 2.4;
 const SWIM_SINK = 0.9;
 const SWIM_RISE = 3.2;
@@ -79,7 +78,6 @@ export class PlayerController {
     this.prevPosition = new THREE.Vector3();
     this.lastGroundContact = 0;
     this.landedThisFrame = false;
-    this.climbing = false;
     /** Jump-key bookkeeping, read at frame rate rather than tick rate. */
     this.clock = 0;
     this.jumpHeld = false;
@@ -281,13 +279,6 @@ export class PlayerController {
           ? -SWIM_RISE * strideScale
           : -SWIM_SINK;
       player.velocity.y = damp(player.velocity.y, target, WATER_DRAG, step);
-    } else if (this.climbing) {
-      // Stair shaft: hold jump to go up, crouch to come down.
-      player.velocity.y = input.jump
-        ? CLIMB_SPEED * strideScale
-        : input.crouch
-          ? -CLIMB_SPEED * strideScale
-          : 0;
     } else {
       player.velocity.y -= GRAVITY * step;
       // Drag on the fall, so terminal velocity exists. Raised to the power of
@@ -363,8 +354,6 @@ export class PlayerController {
     const height = player.height;
     const stepUp = Math.max(0.35, height * 0.3);
 
-    this.climbing = false;
-    player.inBuilding = false;
 
     if (cheats.noclip) {
       // Nothing stops you: no walls, no floor, not even the sea.
@@ -409,25 +398,15 @@ export class PlayerController {
         }
       }
 
-      if (pointInPolygon(player.position.x, player.position.z, collider.polygon)) {
-        player.inBuilding = player.position.y < collider.top - 0.5;
-        if (collider.stair) {
-          const d = Math.hypot(
-            player.position.x - collider.stair.x,
-            player.position.z - collider.stair.z,
-          );
-          if (d < 1.5 + radius && (input.jump || input.crouch) && player.position.y < collider.top) {
-            this.climbing = true;
-          }
-        }
-        // Ceilings: do not let the head pass up through a slab.
-        for (const floorY of collider.floors) {
-          const head = player.position.y + height;
-          if (floorY > player.position.y + 0.2 && floorY < head) {
-            player.position.y = floorY - height - 0.02;
-            if (player.velocity.y > 0) player.velocity.y = 0;
-          }
-        }
+      // A building is solid. Standing inside the footprint below the roof can
+      // only happen by being put there, so it lifts you out onto the roof
+      // rather than trapping you in a box with no door.
+      if (
+        player.position.y < collider.top
+        && pointInPolygon(player.position.x, player.position.z, collider.polygon)
+      ) {
+        player.position.y = collider.top;
+        if (player.velocity.y < 0) player.velocity.y = 0;
       }
     }
 
@@ -490,10 +469,7 @@ export class PlayerController {
     }
   }
 
-  /**
-   * Highest walkable surface under a point: terrain, a building roof, or an
-   * interior floor slab.
-   */
+  /** Highest walkable surface under a point: the terrain, or a building roof. */
   groundHeightAt(x, z, referenceY, colliders) {
     let ground = this.terrain.heightAt(x, z);
 
@@ -531,13 +507,8 @@ export class PlayerController {
 
     for (const collider of list) {
       if (!pointInPolygon(x, z, collider.polygon)) continue;
-      if (referenceY >= collider.top - 0.05) {
-        ground = Math.max(ground, collider.top);
-        continue;
-      }
-      for (const floorY of collider.floors) {
-        if (floorY <= referenceY + 0.05 && floorY > ground) ground = floorY;
-      }
+      // Solid: the ground inside a footprint is its roof, at any height.
+      ground = Math.max(ground, collider.top);
     }
     return ground;
   }

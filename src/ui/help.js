@@ -88,7 +88,8 @@ export class HelpCard {
         </div>
         <p class="help-note">
           Satellite imagery and elevation work with no account at all. <strong>Settings → Providers</strong>
-          swaps in Google, Azure or Mapbox if you have a key, or falls back to a generated world offline.
+          swaps in Google, Azure or Mapbox if you have a key. With no network there is nothing to fly
+          over: the ground stays bare rather than being made up.
         </p>
         <p class="help-note">
           On a touch screen the on-screen stick and buttons appear by themselves. To play with no internet

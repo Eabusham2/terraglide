@@ -31,7 +31,11 @@ export class MapTileCache {
     this.queue = [];
     this.listeners = new Set();
     this.generation = 0;
-    /** Mirrors the 3D streamer: draw generated tiles when a provider is down. */
+    /**
+     * Mirrors the 3D streamer's own flag: the provider has been given up on.
+     * Nothing is drawn in its place — the cached tiles are thrown away so the
+     * map stops showing a world it can no longer refresh.
+     */
     this.degraded = false;
     /**
      * Providers to try when the one before refuses.
@@ -324,3 +328,13 @@ export class MapTileCache {
 }
 
 export const mapTiles = new MapTileCache();
+
+/**
+ * The drawn street map the maps show for ground you have not seen.
+ *
+ * A second cache rather than a second mode on the first: the two layers are
+ * different providers at different depths, both are wanted on screen at once,
+ * and sharing one cache would have each layer evicting the other's tiles every
+ * time the map moved.
+ */
+export const streetTiles = new MapTileCache();

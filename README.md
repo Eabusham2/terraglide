@@ -393,11 +393,11 @@ and Antarctica is overcast and bone dry.
   exactly when a static photo would start to look wrong. Google's flat 90°
   faces are re-projected into an equirectangular strip in the worker first.
 - **Buildings** are real OpenStreetMap footprints, extruded to their tagged
-  height, hollow, with a door cut into the longest wall, a floor slab per storey
-  and a climbable stair shaft. To be straight about it: the *outside* is real
-  data and the *inside* is generated to match the footprint, because nobody
-  publishes interior geometry for the whole planet. The alternative was a sealed
-  box you bounce off.
+  height and capped with a roof the colour the aerial photograph says it is.
+  They are solid. There used to be an inside — a door cut into the longest
+  wall, a floor slab per storey, a climbable stair shaft — and it is gone,
+  because nobody publishes interior geometry for the whole planet, so every bit
+  of it was made up to match the footprint.
 
 ### Keeping it smooth
 

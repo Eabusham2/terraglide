@@ -1866,7 +1866,7 @@ console.log('\nwhat the world says about itself');
     /backoffUntil = performance\.now\(\)[\s\S]{0,600}emit\('address', \{ label: 'Address unavailable'/.test(geo));
 }
 
-console.log('\none map, one layer');
+console.log('\nphotograph where you have been, drawn map where you have not');
 {
   const renderer = readFileSync(new URL('../src/ui/mapRenderer.js', import.meta.url), 'utf8');
   // Tiles are published at whole zooms. The view moves in half steps, and
@@ -1877,13 +1877,35 @@ console.log('\none map, one layer');
     /const tileScale = Math\.pow\(2, zoom - tileZoom\);/.test(renderer));
   ok('and never asks a cache for a fractional zoom',
     !/resolve\(zoom,/.test(renderer) && !/isExplored\(zoom,/.test(renderer));
-  ok('and draws one tile set, not two',
-    !/streetTiles/.test(renderer) &&
-    !/streetTiles/.test(readFileSync(new URL('../src/game.js', import.meta.url), 'utf8')));
-  // No grey. The map draws the world as it is; it does not drain, dim or wash
-  // anything over to say where you have not been.
-  ok('and nothing on it is greyed out',
-    !/grayscale/.test(renderer) && !/asMap/.test(renderer));
+  // The fog is the difference between two real pictures of the world, not a
+  // wash laid over one of them: photograph where you have been, drawn street
+  // map where you have not.
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  ok('the unexplored half is a drawn map, not the photograph dimmed',
+    /paint\(ctx, layers\.street, '#161a1f'\)/.test(renderer)
+    && !/grayscale/.test(renderer) && !/asMap/.test(renderer));
+  ok('and it comes from its own cache and its own keyless providers',
+    /export const streetTiles/.test(readFileSync(new URL('../src/ui/mapTiles.js', import.meta.url), 'utf8'))
+    && /imageryProvider: 'esri-street'/.test(game)
+    && /imageryProvider: 'openfreemap'/.test(game));
+  ok('so swapping which satellite you fly over does not change the fog',
+    /streetTiles\.setSource\(createImagerySource\(\{ \.\.\.settings\.values, imageryProvider: 'esri-street' \}\)\)/.test(game));
+
+  // The edge follows what you could see from where you stood — exploration
+  // records by horizon, not by the square you are in — and is then feathered,
+  // because the record is kept on a grid and what it records is not.
+  ok('the photograph is cut to the explored shape',
+    /globalCompositeOperation = 'destination-in'/.test(renderer)
+    && /layers\.exploration\.isExplored\(maskZoom/.test(renderer));
+  ok('with a soft edge rather than a staircase of squares',
+    /const FOG_FEATHER = 0\.45;/.test(renderer) && /filter = `blur\(/.test(renderer));
+  ok('the mask is blurred once, composited once',
+    /blurring them one at a time and/.test(renderer));
+  ok('and the scratch canvases match the real backing store',
+    /Math\.round\(width \* pixelRatio\)/.test(renderer)
+    && /target\.setTransform\(pixelRatio, 0, 0, pixelRatio, 0, 0\)/.test(renderer));
+  ok('with the photograph simply drawn everywhere when there is no fog to draw',
+    /if \(!pair\) \{\n    paint\(ctx, layers\.tiles, '#161a1f'\);/.test(renderer));
 }
 
 console.log('\nphotogrammetry that stays put');
@@ -2134,6 +2156,38 @@ console.log('\none north marker on the minimap, not two');
   ok('and nothing still tries to rotate it', !/northLabel/.test(minimap));
   ok('the canvas compass is the one that is left',
     /compass: true,/.test(minimap) && /function drawCompass/.test(renderer));
+}
+
+console.log('\nnothing left that makes the world up');
+{
+  const buildings = readFileSync(new URL('../src/world/buildings.js', import.meta.url), 'utf8');
+  const controller = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  const elevation = readFileSync(new URL('../src/tiles/elevation.js', import.meta.url), 'utf8');
+  const providers = readFileSync(new URL('../src/tiles/providers.js', import.meta.url), 'utf8');
+  const help = readFileSync(new URL('../src/ui/help.js', import.meta.url), 'utf8');
+  const panel = readFileSync(new URL('../src/ui/settingsPanel.js', import.meta.url), 'utf8');
+
+  // A footprint and a height are surveyed. A door, a floor slab every three
+  // metres and a stair shaft in the corner are not — they were fitted to the
+  // footprint because a sealed box felt worse to walk into. That is exactly
+  // the kind of invention this project does not do, so it is gone and a
+  // building is the shell somebody measured.
+  ok('buildings have no invented interior', !/DOOR_WIDTH|stairPoint|enterable/.test(buildings));
+  ok('and nothing still reads one', !/collider\.floors|collider\.stair/.test(controller));
+  ok('nor climbs one', !/CLIMB_SPEED|this\.climbing/.test(controller));
+  ok('nor arrives inside one', !/Arrived indoors/.test(game));
+  ok('a building is solid: inside its footprint, the roof is the ground',
+    /Solid: the ground inside a footprint is its roof/.test(controller));
+
+  // There is no generated provider and no generated relief either, so the
+  // branches that served them are dead weight and the copy that promised them
+  // is a lie.
+  ok('no provider claims to generate tiles', !/synthetic/.test(providers) && !/synthetic/.test(elevation));
+  ok('and the height field says plainly that it falls back to sea level',
+    /get givenUp\(\)/.test(elevation) && !/get invented\(\)/.test(elevation));
+  ok('nothing in the interface still offers a generated world',
+    !/generated world/.test(help) && !/generated world/.test(panel) && !/generated terrain/.test(game));
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed\n`);

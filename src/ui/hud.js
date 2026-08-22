@@ -352,7 +352,6 @@ function modeLabel(player, state) {
     return player.rocketTicksLeft > 0 ? 'Gliding · rocket' : 'Gliding';
   }
   if (player.mode === 'fall') return 'Falling';
-  if (player.inBuilding) return 'Indoors';
   if (state.onWater) return 'At sea';
   return player.onGround ? 'On foot' : 'On foot';
 }

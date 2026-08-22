@@ -46,8 +46,8 @@ export const IMAGERY_PROVIDERS = [
     attribution: 'Imagery courtesy of the U.S. Geological Survey, The National Map',
     note:
       'Keyless and very good, over the United States and nowhere else. Outside it '
-      + 'every tile is a 404 and you get generated ground, so this is one to pick '
-      + 'when you know where you are going.',
+      + 'every tile is a 404 and the ground goes bare, so this is one to pick when '
+      + 'you know where you are going.',
   },
   {
     id: 'gibs',
@@ -365,15 +365,6 @@ export class TileSource {
     return this.descriptor.attribution;
   }
 
-  /**
-   * Kept as a constant false so callers that still ask read something sane.
-   * There is no such thing as a generated provider any more: every source in
-   * the lists is a real survey or a real photograph of the real planet.
-   */
-  get synthetic() {
-    return false;
-  }
-
   get key() {
     const slot = this.descriptor.needsKey;
     return slot ? (this.keys[slot] ?? '') : '';
@@ -381,14 +372,10 @@ export class TileSource {
 
   /** True when tiles can be requested right now. */
   get ready() {
-    return this.synthetic || this.state === 'ready';
+    return this.state === 'ready';
   }
 
   async prepare() {
-    if (this.synthetic) {
-      this.state = 'ready';
-      return;
-    }
     if (this.state === 'ready') return;
     if (this.preparing) return this.preparing;
 
@@ -520,10 +507,9 @@ export class TileSource {
     this.googleSession = data.session;
   }
 
-  /** URL for a tile, or null when the source generates tiles locally. */
+  /** URL for a tile, or null when this source cannot serve that tile. */
   urlFor(tile) {
     const d = this.descriptor;
-    if (d.kind === 'synthetic') return null;
     if (d.kind === 'bing') {
       if (!this.bingTemplate) return null;
       const subs = this.bingSubdomains ?? [''];
@@ -743,12 +729,6 @@ export async function testProviders(list, values, tile, onResult) {
   for (const descriptor of list) {
     const result = { id: descriptor.id, label: descriptor.label, state: 'checking', detail: '' };
     results.push(result);
-    if (descriptor.kind === 'synthetic') {
-      result.state = 'ok';
-      result.detail = 'generated in the browser — no network involved';
-      onResult?.(result);
-      continue;
-    }
     if (descriptor.needsKey && !values[descriptor.needsKey]) {
       result.state = 'no-key';
       const name = KEY_LABELS[descriptor.needsKey] ?? descriptor.needsKey;

@@ -14,8 +14,9 @@ import { drawMap, metresPerPixel, project, unproject, worldPixelSize } from './m
  */
 
 export class WorldMap {
-  constructor(root, { tiles, exploration, waypointStore, trail }) {
+  constructor(root, { tiles, street, exploration, waypointStore, trail }) {
     this.tiles = tiles;
+    this.street = street;
     this.exploration = exploration;
     this.waypointStore = waypointStore;
     this.trail = trail;
@@ -355,6 +356,7 @@ export class WorldMap {
       },
       {
         tiles: this.tiles,
+        street: this.street,
         exploration: this.exploration,
         waypointStore: this.waypointStore,
         trail: this.trail,

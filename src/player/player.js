@@ -95,7 +95,6 @@ export class Player extends Emitter {
      * hillside rather than as level ground that happens to be moving.
      */
     this.groundSlope = 0;
-    this.inBuilding = false;
     this.lat = 0;
     this.lon = 0;
 

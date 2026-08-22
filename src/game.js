@@ -39,7 +39,7 @@ import { CheatPanel } from './ui/cheatPanel.js';
 import { exploration } from './ui/exploration.js';
 import { HelpCard } from './ui/help.js';
 import { HUD } from './ui/hud.js';
-import { mapTiles } from './ui/mapTiles.js';
+import { mapTiles, streetTiles } from './ui/mapTiles.js';
 import { Minimap } from './ui/minimap.js';
 import { SettingsPanel } from './ui/settingsPanel.js';
 import { TouchControls } from './ui/touch.js';
@@ -158,8 +158,15 @@ export class Game {
 
     this.onStatus('Building interface');
     this.hud = new HUD(ui);
-    this.minimap = new Minimap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints, trail });
-    this.worldmap = new WorldMap(ui, { tiles: mapTiles, exploration, waypointStore: waypoints, trail });
+    const mapLayers = {
+      tiles: mapTiles,
+      street: streetTiles,
+      exploration,
+      waypointStore: waypoints,
+      trail,
+    };
+    this.minimap = new Minimap(ui, mapLayers);
+    this.worldmap = new WorldMap(ui, mapLayers);
     this.settingsPanel = new SettingsPanel(ui);
     this.help = new HelpCard(ui);
     this.cheatPanel = new CheatPanel(ui);
@@ -276,7 +283,7 @@ export class Game {
 
     this.streamer.on('degraded', () => {
       mapTiles.setDegraded(true);
-      this.toast('Imagery provider unreachable — showing generated terrain', 'warn');
+      this.toast('Imagery provider unreachable — the ground stays bare', 'warn');
     });
 
     window.addEventListener('resize', () => this.resize());
@@ -353,19 +360,23 @@ export class Game {
         : createImagerySource({ ...settings.values, imageryProvider: 'sentinel2' }),
     );
     mapTiles.setDegraded(false);
-    // The maps draw one tile set. There used to be a second one — the OSM
-    // street map, fetched separately and drawn over unvisited ground — and it
-    // is gone: two pictures of the world to different conventions, meeting
-    // along the edge of wherever you had flown, each square waiting on its own
-    // download. Unvisited ground is the same photograph with the colour taken
-    // out of it now, which needs no second provider, no second cache and no
-    // second thing to wait for.
+    // The second tile set: the drawn street map the flat maps show for ground
+    // you have not seen yet. Esri's street basemap first because it is raster
+    // and goes to zoom 19, OpenFreeMap behind it because it is explicitly
+    // unmetered and so is the one that survives a map being panned about.
+    // Neither needs a key, and neither depends on which imagery you chose to
+    // fly over — the fog should not change when you swap satellites.
+    streetTiles.setSource(createImagerySource({ ...settings.values, imageryProvider: 'esri-street' }));
+    streetTiles.setFallback([
+      createImagerySource({ ...settings.values, imageryProvider: 'openfreemap' }),
+    ]);
     // The water probe gets the standbys too: whether somewhere is the sea must
     // not depend on which company has flown over it.
     waterMap.setSource(this.imagerySource, this.streamer.standbys ?? []);
     if (rebuild) this.terrain.rebase();
     this.imagerySource.prepare();
     this.elevationSource.prepare();
+    streetTiles.source?.prepare();
   }
 
   /**
@@ -951,21 +962,9 @@ export class Game {
     this.arrivalPending = false;
     const player = this.player;
 
-    // Arriving indoors and arriving with street-level photography on are both
-    // simply what happens now. They were options, and an option nobody knew
-    // to turn on is a feature nobody has.
-    if (settings.get('buildings')) {
-      const near = this.buildings.collidersNear(player.position.x, player.position.z, 90);
-      const inside = near.find((collider) => collider.floors && collider.floors.length > 0);
-      if (inside) {
-        const centre = polygonCentre(inside.polygon);
-        player.position.x = centre.x;
-        player.position.z = centre.z;
-        player.position.y = (inside.floors[0] ?? player.groundHeight) + 0.1;
-        player.velocity.set(0, 0, 0);
-        this.toast('Arrived indoors');
-      }
-    }
+    // Arriving indoors used to be one of the things that could happen here. It
+    // cannot any more: there is no indoors. A building is the shell OpenStreetMap
+    // surveyed, and everything that used to be behind its walls was invented.
 
     if (settings.get('panoramaProvider') !== 'none') {
       settings.set('streetLevel', true);
@@ -1363,16 +1362,4 @@ export class Game {
       `mode ${player.mode}  vel ${player.velocity.length().toFixed(1)} m/s  land ${(this.landFraction * 100).toFixed(0)}%`,
     ].join('\n');
   }
-}
-
-/** Centre of a building footprint, in world XZ. */
-function polygonCentre(polygon) {
-  let x = 0;
-  let z = 0;
-  for (const point of polygon) {
-    x += point[0];
-    z += point[1];
-  }
-  const n = Math.max(1, polygon.length);
-  return { x: x / n, z: z / n };
 }

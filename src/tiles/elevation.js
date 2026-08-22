@@ -7,9 +7,9 @@ import { latToNormY, lonToNormX, tileKey, wrapTileX } from '../geo/mercator.js';
  * Height tiles are a separate, much shallower pyramid than imagery (real DEM
  * tiles stop around zoom 14-15), so the terrain mesh never asks for "the height
  * tile matching this imagery tile" — it just samples this field at a point and
- * gets the best data currently in memory, falling back through parents to
- * generated relief. That keeps ground collision and mesh building identical and
- * stops the player sinking into a tile that has not landed yet.
+ * gets the best data currently in memory, falling back through parents and, in
+ * the end, to sea level. That keeps ground collision and mesh building identical
+ * and stops the player sinking into a tile that has not landed yet.
  */
 
 const GRID = 65;
@@ -69,7 +69,6 @@ export class ElevationField {
    * do its job over ground that simply has not streamed in yet.
    */
   hasDataAt(nx, ny) {
-    if (this.source && this.source.synthetic) return true;
     const x = nx - Math.floor(nx);
     const y = clamp(ny, 0, 0.999999);
     for (let z = this.maxZoom; z >= 3; z--) {
@@ -269,7 +268,7 @@ export class ElevationField {
 
   pump() {
     if (!this.source) return;
-    if (!this.source.ready && !this.source.synthetic) {
+    if (!this.source.ready) {
       this.source.prepare();
       return;
     }
@@ -278,7 +277,7 @@ export class ElevationField {
       const entry = this.queue.shift();
       if (!entry || entry.state === STATE_PENDING || entry.state === STATE_READY) continue;
       const url = this.source.urlFor(entry.tile);
-      if (url === null && !this.source.synthetic) continue;
+      if (url === null) continue;
       const id = this.nextId++;
       entry.state = STATE_PENDING;
       this.jobs.set(id, entry);
@@ -306,11 +305,11 @@ export class ElevationField {
     if (!msg.ok || !msg.heights) {
       entry.state = STATE_FAILED;
       entry.retryAt = performance.now() + 20000;
-      const wasInvented = this.invented;
+      const hadHope = !this.givenUp;
       this.failed++;
       // Crossing into "given up" changes what every sample returns, so the
       // terrain has to be told its meshes are stale.
-      if (!wasInvented && this.invented) this.version = (this.version ?? 0) + 1;
+      if (hadHope && this.givenUp) this.version = (this.version ?? 0) + 1;
       return;
     }
     entry.heights = msg.heights;
@@ -322,30 +321,33 @@ export class ElevationField {
 
   /** True when a real provider is selected but nothing has ever arrived. */
   get unreachable() {
-    return Boolean(this.source && !this.source.synthetic && this.loaded === 0 && this.failed >= 6);
+    return Boolean(this.source && this.loaded === 0 && this.failed >= 6);
   }
 
   /**
-   * Is the relief being made up rather than measured?
+   * Have we stopped expecting elevation to arrive?
    *
-   * True for the generated world, and true once a real provider has been given
-   * up on. The imagery streamer reads this to decide whether it may invent
-   * tiles: invented ground may wear invented paint, measured ground may not.
+   * True with no provider at all, and true once the chosen one has failed
+   * enough times to be given up on. Either way every sample from here on is
+   * exactly sea level: there is no invented relief to fall back to any more,
+   * and a flat plate is the honest answer to "how high is the ground" when
+   * nobody has measured it for us.
    */
-  get invented() {
+  get givenUp() {
     return !this.source || this.unreachable;
   }
 
   /**
-   * Is there relief to read at all — measured or invented?
+   * Is the height field settled — either data has arrived, or we have stopped
+   * waiting for it?
    *
    * False only in the gap where a real provider has been asked and has not yet
-   * answered or failed enough times to be given up on. In that gap every
-   * sample is exactly sea level, and anything that reasons about height or
-   * slope is reasoning about a flat plate.
+   * answered or failed enough times to be given up on. Worth telling apart
+   * from the flat plate that follows, because in the gap the flatness is
+   * temporary and anything that reasons about slope should hold off.
    */
   get hasRelief() {
-    return this.invented || this.loaded > 0;
+    return this.givenUp || this.loaded > 0;
   }
 
   evict() {

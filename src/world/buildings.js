@@ -8,15 +8,15 @@ import { overpass } from './overpass.js';
 /**
  * Buildings.
  *
- * Footprints come from OpenStreetMap via Overpass and are extruded into walls,
- * a roof and a floor slab per storey. They are hollow and have a door gap cut
- * into one wall, so you can walk inside, stand on the ground floor and climb the
- * stair shaft in the corner.
+ * Footprints come from OpenStreetMap via Overpass, extruded to the surveyed
+ * height and capped with a roof. Every number is measured: where the wall runs,
+ * how high it stands, what colour the photograph says the roof is.
  *
- * To be straight about it: nobody publishes real interior geometry for the whole
- * planet, so the *outside* of a building here is real data and the *inside* is
- * generated to match the footprint. The alternative was a sealed box you bounce
- * off, which felt worse.
+ * There used to be an inside as well — a floor slab per storey, a door gap cut
+ * into the longest wall, a stair shaft in the corner — and it is gone. Nobody
+ * publishes interior geometry for the whole planet, so all of that was made up
+ * to match the footprint, and made-up geometry is exactly what this project is
+ * not for. A building is the shell somebody measured, and it is solid.
  */
 
 /**
@@ -48,8 +48,6 @@ const STOREY_M = 3.2;
  * recorded nothing measurable for miles.
  */
 const DEFAULT_LEVELS = 2;
-const DOOR_WIDTH = 1.4;
-const DOOR_HEIGHT = 2.3;
 /**
  * Only used when the aerial photograph of a roof has not arrived yet.
  *
@@ -678,38 +676,10 @@ export class Buildings {
       roof = ROOF_COLOUR.clone();
     }
 
-    // Door goes in the longest wall, which is nearly always the street side.
-    let doorIndex = 0;
-    let longest = -1;
-    for (let i = 0; i < ring.length; i++) {
-      const a = ring[i];
-      const b = ring[(i + 1) % ring.length];
-      const len = a.distanceTo(b);
-      if (len > longest) {
-        longest = len;
-        doorIndex = i;
-      }
-    }
-    const enterable = longest > DOOR_WIDTH * 2.2 && height > 3;
-
     const segments = [];
     for (let i = 0; i < ring.length; i++) {
       const a = ring[i];
       const b = ring[(i + 1) % ring.length];
-      if (enterable && i === doorIndex) {
-        const dir = new THREE.Vector2().subVectors(b, a);
-        const len = dir.length();
-        dir.divideScalar(len);
-        const midStart = (len - DOOR_WIDTH) / 2;
-        const p1 = new THREE.Vector2().copy(a).addScaledVector(dir, midStart);
-        const p2 = new THREE.Vector2().copy(a).addScaledVector(dir, midStart + DOOR_WIDTH);
-        pushWall(positions, normals, colors, a, p1, base, base + height, wall);
-        pushWall(positions, normals, colors, p2, b, base, base + height, wall);
-        // Lintel above the doorway.
-        pushWall(positions, normals, colors, p1, p2, base + DOOR_HEIGHT, base + height, wall);
-        segments.push([a.x, a.y, p1.x, p1.y], [p2.x, p2.y, b.x, b.y]);
-        continue;
-      }
       pushWall(positions, normals, colors, a, b, base, base + height, wall);
       segments.push([a.x, a.y, b.x, b.y]);
     }
@@ -731,31 +701,16 @@ export class Buildings {
       true,
     );
 
-    const floors = [base];
-    if (enterable) {
-      const floorColour = wall.clone().multiplyScalar(0.82);
-      for (let level = 1; level < Math.min(levels, 40); level++) {
-        const y = base + level * (height / levels);
-        if (y > base + height - 1.6) break;
-        pushCap(positions, normals, colors, ring, triangles, y, floorColour, true);
-        floors.push(y);
-      }
-    }
-
     const bounds = ringBounds(ring);
     return {
       polygon: ring.map((p) => [p.x, p.y]),
       segments,
-      floors,
       base,
       top: base + height,
-      enterable,
       minX: bounds.minX,
       maxX: bounds.maxX,
       minZ: bounds.minZ,
       maxZ: bounds.maxZ,
-      // Stair shaft: a climbable column just inside the door.
-      stair: enterable ? stairPoint(ring, doorIndex) : null,
       name: tags.name ?? '',
       levels,
     };
@@ -862,17 +817,4 @@ function pushCap(positions, normals, colors, ring, triangles, y, shade, up) {
       colors.push(colour.r, colour.g, colour.b);
     }
   }
-}
-
-/** A point a couple of metres inside the wall next to the door. */
-function stairPoint(ring, doorIndex) {
-  const a = ring[doorIndex];
-  const b = ring[(doorIndex + 1) % ring.length];
-  const mx = (a.x + b.x) / 2;
-  const mz = (a.y + b.y) / 2;
-  const dx = b.x - a.x;
-  const dz = b.y - a.y;
-  const len = Math.hypot(dx, dz) || 1;
-  // Inward normal (ring is wound counter-clockwise after the fix-up above).
-  return { x: mx - (dz / len) * 2.2, z: mz + (dx / len) * 2.2 };
 }

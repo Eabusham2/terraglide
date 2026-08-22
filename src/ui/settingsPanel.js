@@ -60,10 +60,10 @@ const SECTIONS = [
         ],
         help: (value) =>
           value === 'off'
-            ? 'Real satellite imagery, real elevation and real OpenStreetMap buildings and woodland \u2014 all of it keyless, and what nearly everyone should be flying. Falls back to a generated world only when there is no network at all.'
+            ? 'Real satellite imagery, real elevation and real OpenStreetMap buildings and woodland \u2014 all of it keyless, and what nearly everyone should be flying. With no network the ground stays bare; nothing here is made up to fill it.'
             : value === 'cesium'
               ? 'The same scanned world as the Google option, served through Cesium ion on an ion access token \u2014 a different account and a different quota. Terrain steps aside where it loads. Test providers will tell you whether the token is working.'
-              : 'Not a stylised world and not a generated one: aeroplanes flew over with cameras, and the buildings, trees and bridges you see are the mesh they measured, wearing the photographs they took. It is the most real thing here, and it is the one thing that cannot be keyless \u2014 Google meters it. Needs a Google Maps Platform key with the Map Tiles API enabled, and it is not cheap to run. Terrain steps aside where it loads.',
+              : 'Not a stylised world and nothing drawn from a description: aeroplanes flew over with cameras, and the buildings, trees and bridges you see are the mesh they measured, wearing the photographs they took. It is the most real thing here, and it is the one thing that cannot be keyless \u2014 Google meters it. Needs a Google Maps Platform key with the Map Tiles API enabled, and it is not cheap to run. Terrain steps aside where it loads.',
       },
       {
         key: 'world3dAsset',
@@ -101,7 +101,7 @@ const SECTIONS = [
       { key: 'mapillaryToken', label: 'Mapillary token', type: 'secret' },
       { key: 'maxarConnectId', label: 'Maxar SecureWatch connect ID', type: 'secret', help: 'Maxar\u2019s own imagery service. An enterprise credential \u2014 Esri, Bing and Google all serve Maxar scenes without one.' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },
-      { key: 'buildings', label: 'OpenStreetMap buildings', type: 'toggle', help: 'Extrudes real footprints near the ground. Interiors are generated.' },
+      { key: 'buildings', label: 'OpenStreetMap buildings', type: 'toggle', help: 'Extrudes real footprints near the ground to their surveyed height. Solid \u2014 there is no invented inside.' },
       { key: 'streetLevel', label: 'Blend street-level photos', type: 'toggle', help: 'Fades ground photography in when you stand still. Needs a key.' },
     ],
   },
