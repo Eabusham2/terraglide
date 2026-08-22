@@ -28,6 +28,16 @@ import { latToNormY, lonToNormX, wrapTileX } from '../geo/mercator.js';
  */
 
 /**
+ * What a square of the drawn map looks like before it has arrived.
+ *
+ * The paper colour of the street map itself, not the near-black the photograph
+ * layer uses. A half-loaded map should read as a map still drawing, which is
+ * what blank paper looks like; the dark fill made it read as a hole punched
+ * through the world.
+ */
+const STREET_BLANK = '#eceae3';
+
+/**
  * How far the fog edge is feathered, as a fraction of one exploration cell.
  * Half a cell: enough that the grid the record is kept on stops being legible,
  * not so much that the shape you actually flew is lost.
@@ -176,12 +186,12 @@ export function drawMap(ctx, view, layers) {
     : null;
 
   if (drawnOnly) {
-    paint(ctx, layers.street, '#161a1f');
+    paint(ctx, layers.street, STREET_BLANK);
   } else if (!pair) {
     paint(ctx, layers.tiles, '#161a1f');
   } else {
     // Unexplored first, over everything: the drawn map is the ground state.
-    paint(ctx, layers.street, '#161a1f');
+    paint(ctx, layers.street, STREET_BLANK);
 
     // One exploration cell per this many map-tile subdivisions. Sixteen is the
     // finest the record goes; below that the cells would be smaller than the

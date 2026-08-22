@@ -1882,7 +1882,7 @@ console.log('\nphotograph where you have been, drawn map where you have not');
   // map where you have not.
   const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
   ok('the unexplored half is a drawn map, not the photograph dimmed',
-    /paint\(ctx, layers\.street, '#161a1f'\)/.test(renderer)
+    /paint\(ctx, layers\.street, STREET_BLANK\)/.test(renderer)
     && !/grayscale/.test(renderer) && !/asMap/.test(renderer));
   ok('and it comes from its own cache and its own keyless providers',
     /export const streetTiles/.test(readFileSync(new URL('../src/ui/mapTiles.js', import.meta.url), 'utf8'))
@@ -2312,6 +2312,20 @@ console.log('\nthe world map is not a black square');
   // out of reach.
   ok('the tile lookup walks all the way up for something to stretch',
     /resolve\(z, x, y, maxSteps = 24\)/.test(tiles));
+
+  // But only the photograph may be stretched that far. A drawn map is not
+  // scale-free: its labels and road casings are sized for their own zoom, so
+  // four levels of stretch writes the city's name across the whole city and
+  // draws residential streets at motorway width. Next to a sharp tile that
+  // reads as a broken map rather than a loading one — which is exactly what
+  // walking to the top did to the world map before this cap existed.
+  ok('but a drawn map may be stretched one level and no further',
+    /this\.maxStretch = 24;/.test(tiles)
+    && /const steps = Math\.min\(maxSteps, this\.maxStretch\);/.test(tiles)
+    && /streetTiles\.maxStretch = 1;/.test(readFileSync(new URL('../src/game.js', import.meta.url), 'utf8')));
+  ok('and a square of it that has not arrived is blank paper, not a hole',
+    /const STREET_BLANK = '#eceae3';/.test(renderer)
+    && /paint\(ctx, layers\.street, STREET_BLANK\)/.test(renderer));
   ok('and asks for a coarse tile as well as the sharp one when it finds nothing',
     /if \(z > 4\) this\.get\(z - 4, x >> 4, y >> 4, false\);/.test(tiles));
 

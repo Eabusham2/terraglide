@@ -12,7 +12,17 @@ import { renderVectorTile } from './vectorMap.js';
  */
 
 const LIMIT = 260;
-const MAX_ACTIVE = 6;
+/**
+ * Tile fetches in flight per cache.
+ *
+ * Six was the old browser limit on connections to one host, and it has not
+ * applied since HTTP/2: the maps fetch over a multiplexed connection where the
+ * browser decides the real concurrency. Watching the world map fill at zoom 12
+ * over Vienna, this sat pinned at six the whole time while fifty-seven squares
+ * queued behind it. There are two of these caches — the photograph and the
+ * drawn map — so this is per layer.
+ */
+const MAX_ACTIVE = 14;
 /**
  * How long the queue may get before unurgent work stops being accepted.
  * Colour sampling asks once per building, so over a city it will ask for
@@ -50,6 +60,19 @@ export class MapTileCache {
     this.usingFallback = false;
     /** Deepest zoom the current provider serves; see `resolve`. */
     this.maxZoom = Infinity;
+    /**
+     * How many levels a tile may be stretched up from before it is better to
+     * draw nothing.
+     *
+     * Wide for photographs, because a stretched photograph is just a soft
+     * photograph and always beats a hole. Narrow for a drawn street map,
+     * because a drawn map is not scale-free: its labels and road casings are
+     * drawn at the size they should be *at that zoom*, so stretching one four
+     * levels writes the city's name across the whole city and turns residential
+     * streets into motorways. Sitting next to a sharp tile it does not read as
+     * "still loading", it reads as broken.
+     */
+    this.maxStretch = 24;
   }
 
   /**
@@ -164,7 +187,8 @@ export class MapTileCache {
       ty >>= 1;
       tz -= 1;
     }
-    for (let step = 0; step <= maxSteps && tz >= 0; step++) {
+    const steps = Math.min(maxSteps, this.maxStretch);
+    for (let step = 0; step <= steps && tz >= 0; step++) {
       const bitmap = step === 0 ? this.get(tz, tx, ty, true) : this.peek(tz, tx, ty);
       if (bitmap) return { bitmap, scale, ox, oy };
       ox = (ox + (tx & 1)) * 0.5;

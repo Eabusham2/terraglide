@@ -366,6 +366,13 @@ export class Game {
     // unmetered and so is the one that survives a map being panned about.
     // Neither needs a key, and neither depends on which imagery you chose to
     // fly over — the fog should not change when you swap satellites.
+    // A drawn map may be stretched one level and no further. Past that its
+    // labels and road widths are plainly wrong for what they cover — two levels
+    // writes the city's name across the whole city and draws residential
+    // streets at motorway width — and next to a sharp tile that reads as a
+    // broken map rather than a loading one. A photograph has no such problem:
+    // stretched, it is simply a soft photograph, so it keeps the wide default.
+    streetTiles.maxStretch = 1;
     streetTiles.setSource(createImagerySource({ ...settings.values, imageryProvider: 'esri-street' }));
     streetTiles.setFallback([
       createImagerySource({ ...settings.values, imageryProvider: 'openfreemap' }),
