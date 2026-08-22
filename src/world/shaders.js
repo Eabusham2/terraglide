@@ -43,7 +43,27 @@ const TERRAIN_VERT = /* glsl */ `
     vec2 groundOffset = worldPos.xz - cameraPosition.xz;
     float d = length(groundOffset);
     vDist = d;
-    worldPos.y -= uSink + uCurvature * (d * d) / (2.0 * uEarthRadius);
+    // Sink the middle of a stand-in, never its edge.
+    //
+    // A stand-in has to lose the depth test to the finer tiles drawn over the
+    // same ground, and with a logarithmic depth buffer the only way to bias a
+    // depth the fragment shader writes is to move the geometry. Sinking the
+    // whole tile did that — and put a step of up to half a metre between it and
+    // whichever neighbour was not sunk. Seen from three hundred metres up at a
+    // grazing angle that step is a gap you look straight through, and the haze
+    // behind it is the bright line across the sea: 123 pixels of it over the
+    // Strait, gone the moment a deep enough curtain was hung back on the edges.
+    //
+    // Curtains are the wrong answer here, because a curtain deep enough to hide
+    // the step is itself visible from above — sweeping the floor from nothing to
+    // two metres took the line to zero and the dark speckle from 23 pixels to
+    // 287. The step is what has to go. It goes by tapering the sink to nothing
+    // over the outermost few per cent of the tile, so neighbours still meet
+    // exactly along their shared edge while the middle — which is all the finer
+    // tiles ever cover — is pushed down as far as it ever was.
+    float edgeFade = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+    float sink = uSink * smoothstep(0.0, 0.03, edgeFade);
+    worldPos.y -= sink + uCurvature * (d * d) / (2.0 * uEarthRadius);
     vNormalW = normalize(mat3(modelMatrix) * normal);
     gl_Position = projectionMatrix * viewMatrix * worldPos;
     #include <logdepthbuf_vertex>

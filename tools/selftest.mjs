@@ -2091,7 +2091,7 @@ console.log('\nthe sea is not black');
   ok('a stand-in is sunk so the detail wins the depth test',
     /uSink\.value =\s*\n?\s*node\.tile\.z < requestedTile\.z \? 0\.25 \* \(requestedTile\.z - node\.tile\.z\) : 0;/.test(terrain));
   ok('by moving it, because polygon offset cannot bias a depth the shader writes',
-    /worldPos\.y -= uSink \+ uCurvature/.test(shaders) && !/polygonOffset/.test(terrain));
+    /worldPos\.y -= sink \+ uCurvature/.test(shaders) && !/polygonOffset/.test(terrain));
 
   // The skirt hides the crack between two levels of detail. The crack is
   // bounded by the relief along the shared edge, not by how wide the tile
@@ -2265,6 +2265,36 @@ console.log('\nno band along the horizon');
     /smoothstep\(0\.0, -0\.12, vDir\.y\)/.test(wall) && /smoothstep\(0\.0, -0\.12, up\)/.test(shaders));
   ok('with the darkening held back until well below the rim',
     /smoothstep\(0\.02, 0\.30, vDepth\)/.test(wall));
+}
+console.log('\nthe sea has no seams in it, from any height');
+{
+  const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+
+  // Two artefacts, one cause, and they pull in opposite directions.
+  //
+  // A stand-in is sunk so the finer tiles drawn over it win the depth test.
+  // Sinking the whole tile put a half-metre step between it and any neighbour
+  // that was not sunk, and from three hundred metres up at a grazing angle you
+  // look straight through that step at the haze behind: a bright line across
+  // the water, 123 pixels of it over the Strait of Gibraltar.
+  //
+  // A curtain on the tile edges hides it — and a curtain deep enough to do that
+  // is itself visible from higher up, edge-on, as the dotted grid. Sweeping the
+  // floor from nothing to two metres took the line from 123 to 0 and the dark
+  // speckle at 1400 m from 23 to 287. There is no depth that is right for both.
+  //
+  // So the step goes instead of being hidden. The sink tapers to nothing over
+  // the outermost few per cent of the tile, so neighbours meet exactly along
+  // their shared edge while the middle — all the finer tiles ever cover — sinks
+  // as far as it ever did. Both measurements then read zero.
+  ok('the stand-in sink tapers to nothing at the tile edge',
+    /float edgeFade = min\(min\(uv\.x, 1\.0 - uv\.x\), min\(uv\.y, 1\.0 - uv\.y\)\);/.test(shaders)
+    && /float sink = uSink \* smoothstep\(0\.0, 0\.03, edgeFade\);/.test(shaders));
+  ok('and it is the tapered sink that moves the geometry, not the flat one',
+    /worldPos\.y -= sink \+ uCurvature/.test(shaders) && !/worldPos\.y -= uSink \+/.test(shaders));
+  ok('so a level edge still hangs no curtain at all',
+    /drops\[i\] = clamp\(\(hi - lo\) \* 0\.6, 0, cap\);/.test(terrain));
 }
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);
