@@ -38,6 +38,7 @@ const WALL_VERT = /* glsl */ `
   uniform float uCurvature;
   attribute float aRadius;
   varying float vDepth;
+  varying vec3 vDir;
 
   void main() {
     vec3 local = vec3(position.x * aRadius, position.y, position.z * aRadius);
@@ -48,27 +49,71 @@ const WALL_VERT = /* glsl */ `
     world.y -= uCurvature * (d * d) / (2.0 * uEarthRadius);
     // 0 at the top edge, 1 a long way down.
     vDepth = 0.5 - position.y;
+    // Which way this bit of the rim is, so it can be painted the colour the
+    // sky is in that direction rather than one colour all the way round.
+    vDir = normalize(world.xyz - cameraPosition);
     gl_Position = projectionMatrix * viewMatrix * world;
   }
 `;
 
 const WALL_FRAG = /* glsl */ `
   precision highp float;
+
+  #include <common>
+
   uniform vec3 uFogColor;
+  uniform vec3 uSunDir;
+  uniform vec3 uSunColor;
   uniform float uNight;
   varying float vDepth;
+  varying vec3 vDir;
 
   void main() {
     // Darkening with depth, the way a cliff face does.
     vec3 base = mix(vec3(0.30, 0.31, 0.33), vec3(0.12, 0.125, 0.135), clamp(vDepth * 4.0, 0.0, 1.0));
     base *= mix(1.0, 0.3, uNight);
-    // Aerial perspective. Almost all of it, because the wall is at the far
-    // edge of the view by definition.
-    vec3 colour = mix(base, uFogColor, 0.8);
+    // At the rim, the sky — the same sky, worked out the same way.
+    //
+    // The wall's top edge sits on the horizon, and anything there that is not
+    // the colour of the horizon is a band across the whole view. It was:
+    // measured over the Alps at 2 km up, the rim came out (158, 175, 195)
+    // against a sky of (214, 225, 237) directly above it, eighty-four levels
+    // darker in a strip running from one side of the screen to the other.
+    // Hiding the wall put those rows back in line with the sky, which is what
+    // pinned it on the wall rather than on the terrain's own fog.
+    //
+    // Painting it the fog colour was not enough — 84 levels became 41 — because
+    // the fog colour is the sky's *base* horizon tint and the sky itself is
+    // brighter than that near the sun: the sky shader adds forward scattering,
+    // and the whole quarter of the sky around the sun glows with it. So the
+    // scattering is worked out here too, from this bit of the rim's own
+    // direction, exactly as the sky does it. The rim is at the horizon, where
+    // the sky's thickness term has already saturated, so the base is the fog
+    // colour and only the scattering has to be added back.
+    float toward = max(dot(vDir, uSunDir), 0.0);
+    float scatter = pow(toward, 9.0) * 0.34 + pow(toward, 2.0) * 0.11;
+    // The sky multiplies its sun colour by 1.6; the shared one is unscaled.
+    vec3 haze = mix(uFogColor, uSunColor * 1.6, clamp(scatter, 0.0, 0.62));
+    // And below the horizon the sky darkens toward its own ground tint, so the
+    // wall follows it there too.
+    haze = mix(haze, uFogColor * 0.55, smoothstep(0.0, -0.12, vDir.y));
+    // The darkening only comes in well below the rim, where the wall is
+    // standing in for a genuine hole in the ground rather than for the horizon
+    // and reading as a far-off face is the point.
+    float solid = smoothstep(0.02, 0.30, vDepth);
+    vec3 colour = mix(haze, mix(base, haze, 0.8), solid);
     // Feather the top few metres so the horizon is a soft line rather than a
     // cut-out, and taper the bottom away instead of ending on a hard rim.
     float alpha = smoothstep(0.0, 0.035, vDepth) * (1.0 - smoothstep(0.75, 1.0, vDepth));
     gl_FragColor = vec4(colour, alpha);
+    // Everything else that draws — terrain, sky, clouds — converts to the
+    // renderer's output colour space on the way out, and this did not. It was
+    // writing linear numbers into an sRGB framebuffer, which is a large,
+    // uniform darkening: the fog colour came out (181, 201, 224) where the sky
+    // beside it, from the same colour, came out (214, 225, 237). That is the
+    // pale band along the horizon, and no amount of adjusting the wall's own
+    // shade was ever going to close it.
+    #include <colorspace_fragment>
   }
 `;
 
@@ -105,6 +150,8 @@ export class EdgeWall {
         uEarthRadius: shared.uEarthRadius,
         uCurvature: shared.uCurvature,
         uFogColor: shared.uFogColor,
+        uSunDir: shared.uSunDir,
+        uSunColor: shared.uSunColor,
         uNight: shared.uNight,
       },
       vertexShader: WALL_VERT,

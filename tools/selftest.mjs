@@ -2231,5 +2231,40 @@ console.log('\nthe ground is the photograph, at the brightness the photograph ha
   ok('and nothing runs a tone curve over it',
     !/toneMapping/.test(shaders) && !/uExposure/.test(shaders));
 }
+console.log('\nno band along the horizon');
+{
+  const wall = readFileSync(new URL('../src/world/edgeWall.js', import.meta.url), 'utf8');
+  const weather = readFileSync(new URL('../src/world/weather.js', import.meta.url), 'utf8');
+  const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
+
+  // The pale strip above the mountains was the wall at the edge of the loaded
+  // world, and it was there because that shader never converted to the output
+  // colour space: it wrote linear numbers into an sRGB framebuffer, so the fog
+  // colour came out (181, 201, 224) where the sky beside it, from that same
+  // colour, came out (214, 225, 237). Eighty-four levels, full width. The cloud
+  // deck had the omission too, which is why an overcast sky was a dark smear.
+  //
+  // Anything that writes a pixel converts on the way out. No exceptions — this
+  // check walks every shader in the project rather than naming the two that
+  // were wrong.
+  for (const [name, src] of [['terrain, sky and clouds', shaders], ['the edge wall', wall], ['the weather deck', weather]]) {
+    const writes = (src.match(/gl_FragColor\s*=/g) ?? []).length;
+    const converts = (src.match(/#include <colorspace_fragment>/g) ?? []).length;
+    ok(`${name} converts every pixel it writes to the output colour space`,
+      writes > 0 && writes === converts, `${writes} written, ${converts} converted`);
+  }
+
+  // And the rim is painted the colour the sky is in that direction, scattering
+  // included, so it matches near the sun as well as away from it. Measured over
+  // the Alps at 2 km: the rim was 84 levels off the sky above it, and is now
+  // within 3 across the whole strip.
+  ok('the wall rim takes the sky\u2019s own forward scattering',
+    /pow\(toward, 9\.0\) \* 0\.34 \+ pow\(toward, 2\.0\) \* 0\.11/.test(wall)
+    && /pow\(toward, 9\.0\) \* 0\.34 \+ pow\(toward, 2\.0\) \* 0\.11/.test(shaders));
+  ok('and follows the sky down past the horizon',
+    /smoothstep\(0\.0, -0\.12, vDir\.y\)/.test(wall) && /smoothstep\(0\.0, -0\.12, up\)/.test(shaders));
+  ok('with the darkening held back until well below the rim',
+    /smoothstep\(0\.02, 0\.30, vDepth\)/.test(wall));
+}
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);

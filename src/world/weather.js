@@ -30,6 +30,9 @@ void main() {
 
 const CLOUD_FRAG = `
 precision highp float;
+
+#include <common>
+
 varying vec2 vUv;
 varying vec3 vWorld;
 uniform float uTime;
@@ -75,6 +78,11 @@ void main() {
   // And fade as you approach it, so you are never inside a flat sheet.
   float approach = smoothstep(0.0, 320.0, abs(vWorld.y - uCameraPos.y));
   gl_FragColor = vec4(lit, density * radial * approach * 0.92);
+  // Same omission the edge wall had: without this the deck is written as linear
+  // numbers into an sRGB framebuffer, so a lit cloud comes out as a dark grey
+  // smear instead of a cloud. Everything else that draws converts on the way
+  // out; this now does too.
+  #include <colorspace_fragment>
 }`;
 
 export class Weather {
