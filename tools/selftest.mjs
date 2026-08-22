@@ -2215,5 +2215,21 @@ console.log('\nnot asking for photographs nobody has');
     /i < 4 && z > 1/.test(streamer));
   ok('and moving somewhere else forgets it', /this\.barren\.clear\(\);/.test(streamer));
 }
+console.log('\nthe ground is the photograph, at the brightness the photograph has');
+{
+  const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
+
+  // Measured straight down over the Champ de Mars from 124 m, against the raw
+  // Esri tile for the same 90 m square: the game drew it at 0.618 of its
+  // brightness and 0.73 of its contrast. The cloud shadow was almost the whole
+  // of it — an overcast sky took 62% of the light off a picture that was taken
+  // in sunshine. In the same band as the relief it is 0.909 and 0.962.
+  ok('cloud shadow modulates around one rather than relighting the ground',
+    /return 1\.0 - density \* 0\.18;/.test(shaders));
+  ok('in the same band the relief uses, so neither can grade the photograph',
+    /float relief = \(0\.82 \+ 0\.18 \* wrapped\)/.test(shaders));
+  ok('and nothing runs a tone curve over it',
+    !/toneMapping/.test(shaders) && !/uExposure/.test(shaders));
+}
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);

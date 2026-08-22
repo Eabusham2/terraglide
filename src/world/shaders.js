@@ -119,7 +119,19 @@ const TERRAIN_FRAG = /* glsl */ `
       amplitude *= 0.5;
     }
     float density = smoothstep(0.62 - uCloudCover * 0.55, 0.92 - uCloudCover * 0.42, total);
-    return 1.0 - density * 0.62;
+    // A modulation around one, in the same band as the relief above it — not a
+    // relight. This used to take 62% of the light off, and under an overcast
+    // sky that is most of the ground most of the time: measured straight down
+    // over the Champ de Mars at 124 m, the game drew Esri's own tile at 0.618
+    // of its brightness, and the cloud shadow was very nearly all of it.
+    //
+    // Two reasons that was wrong. The picture was taken in sunshine and has its
+    // own light already in it, so multiplying it by a cloud is grading a
+    // finished photograph — the thing this file refuses to do everywhere else.
+    // And a 62% multiply is a *hard* shadow, which is what scattered cloud
+    // gives you; under real overcast the light is diffuse and the ground goes
+    // flat and slightly dull rather than dark.
+    return 1.0 - density * 0.18;
   }
 
   /**
