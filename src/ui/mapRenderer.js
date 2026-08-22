@@ -3,9 +3,9 @@ import { latToNormY, lonToNormX, wrapTileX } from '../geo/mercator.js';
 /**
  * Shared 2D map painter for the minimap and the world map.
  *
- * One layer. The whole world is satellite imagery; ground you have not been to
- * is the same photograph with the colour taken out of it, so the fog is a
- * treatment rather than a different map.
+ * One layer, in colour, everywhere. The whole world is satellite imagery and
+ * none of it is drained, dimmed or washed over: what the map shows is what is
+ * there.
  *
  * It used to be two tile sets side by side — photographs where you had been and
  * separately fetched, separately rendered vector street tiles where you had
@@ -96,8 +96,6 @@ export function drawMap(ctx, view, layers) {
       const wrappedX = wrapTileX(tx, tileZoom);
       const screenX = (tx * TILE_PX - tileCentre.x) * tileScale;
       const screenY = (ty * TILE_PX - tileCentre.y) * tileScale;
-      const explored = !layers.exploration || layers.exploration.isExplored(tileZoom, wrappedX, ty);
-      const asMap = !explored && options.fog !== false;
       const resolved = layers.tiles.resolve(tileZoom, wrappedX, ty);
 
       if (resolved) {
@@ -105,10 +103,6 @@ export function drawMap(ctx, view, layers) {
         const sw = bitmap.width * scale;
         const sh = bitmap.height * scale;
         ctx.save();
-        // Unvisited: the same photograph, drained. Coastlines, rivers, roads
-        // and towns all still read — you can find yourself on the planet — but
-        // nothing there looks like somewhere you have been.
-        if (asMap) ctx.filter = 'grayscale(1) brightness(1.3) contrast(0.62)';
         ctx.drawImage(
           bitmap,
           ox * bitmap.width,
@@ -121,14 +115,10 @@ export function drawMap(ctx, view, layers) {
           drawSize + 0.5,
         );
         ctx.restore();
-        if (asMap) {
-          // And a wash, so the two halves separate at a glance rather than
-          // only on inspection.
-          ctx.fillStyle = 'rgba(24, 28, 34, 0.3)';
-          ctx.fillRect(screenX, screenY, drawSize + 0.5, drawSize + 0.5);
-        }
       } else {
-        ctx.fillStyle = explored ? '#1b1f24' : '#141619';
+        // Nothing loaded here yet. One flat tone — not a second colour for
+        // "unexplored", because there is no such thing on this map any more.
+        ctx.fillStyle = '#161a1f';
         ctx.fillRect(screenX, screenY, drawSize, drawSize);
       }
     }

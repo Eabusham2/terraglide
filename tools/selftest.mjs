@@ -1984,8 +1984,10 @@ console.log('\none map, one layer');
   ok('and draws one tile set, not two',
     !/streetTiles/.test(renderer) &&
     !/streetTiles/.test(readFileSync(new URL('../src/game.js', import.meta.url), 'utf8')));
-  ok('unvisited ground is the same photograph, drained',
-    /if \(asMap\) ctx\.filter = 'grayscale\(1\)/.test(renderer));
+  // No grey. The map draws the world as it is; it does not drain, dim or wash
+  // anything over to say where you have not been.
+  ok('and nothing on it is greyed out',
+    !/grayscale/.test(renderer) && !/asMap/.test(renderer));
 }
 
 console.log('\nphotogrammetry that stays put');
