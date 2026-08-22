@@ -2427,5 +2427,37 @@ console.log('\nwhat you uncover is a circle');
     /const flatDist = Math\.hypot\(dx, dz\);/.test(terrain)
     && /if \(flatDist > renderDistance\) \{/.test(terrain));
 }
+console.log('\nthere is sea behind the sea');
+{
+  const sea = readFileSync(new URL('../src/world/seaFloor.js', import.meta.url), 'utf8');
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
+
+  // The last of the grid was a line of bright specks strung along the tile
+  // edges. They are cracks — a stand-in sunk so the finer tiles win the depth
+  // test, a curvature bend sampled at two vertex spacings — a pixel or two
+  // wide, and through them you saw the sky dome's below-horizon tint, which is
+  // far paler than deep water.
+  //
+  // Curtains cannot win that: swept from nothing to three metres the bright
+  // specks went 20, 1, 0, 0, 0 while the dark ones went 0, 43, 206, 335, 266.
+  // Putting sea behind the sea does: 26 bright specks became 3.
+  ok('a sheet of sea sits below the surface',
+    /export class SeaFloor/.test(sea) && /const DEPTH_M = 12;/.test(sea));
+  ok('bent by the same curvature as the ground, so it stays underneath',
+    /world\.y -= uCurvature \* \(d \* d\) \/ \(2\.0 \* uEarthRadius\);/.test(sea));
+  ok('and wearing the same Fresnel as the surface, so a crack matches its edges',
+    /float fresnel = 0\.08 \+ 0\.92 \* pow\(1\.0 - facing, 5\.0\);/.test(sea)
+    && /float fresnel = 0\.08 \+ 0\.92 \* pow\(1\.0 - facing, 5\.0\);/.test(shaders));
+  ok('it is a disc, not a square, so it ends where the ground ends',
+    /new THREE\.CircleGeometry\(1, 96\)/.test(sea));
+  ok('drawn behind the ground and in front of the sky',
+    /this\.mesh\.renderOrder = -2;/.test(sea));
+  ok('and it converts to the output colour space like everything else',
+    /#include <colorspace_fragment>/.test(sea));
+  ok('the game builds it and follows the camera with it',
+    /new SeaFloor\(this\.scene, this\.shared\)/.test(game)
+    && /this\.seaFloor\.update\(this\.camera, this\.terrain\.farDistance\)/.test(game));
+}
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);

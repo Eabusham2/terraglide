@@ -32,6 +32,7 @@ import { Panorama } from './world/panorama.js';
 import { pickRandomDestination } from './world/rtp.js';
 import { createSharedUniforms } from './world/shaders.js';
 import { EdgeWall } from './world/edgeWall.js';
+import { SeaFloor } from './world/seaFloor.js';
 import { Sky } from './world/sky.js';
 import { Terrain } from './world/terrain.js';
 import { Weather } from './world/weather.js';
@@ -129,6 +130,7 @@ export class Game {
     this.terrain.explored = (tile) => exploration.isExplored(tile.z, tile.x, tile.y);
     this.sky = new Sky(this.scene, this.shared);
     this.edgeWall = new EdgeWall(this.scene, this.shared);
+    this.seaFloor = new SeaFloor(this.scene, this.shared);
     this.weather = new Weather(this.scene, this.shared);
     /** Real photogrammetry, loaded on demand — see loadWorld3D(). */
     this.tiles3d = null;
@@ -686,6 +688,7 @@ export class Game {
     // drawing this frame, so the wall goes exactly there rather than at some
     // guess that would either float in front of the last tiles or leave a gap.
     this.edgeWall.update(this.camera, this.terrain.edgeProfile);
+    this.seaFloor.update(this.camera, this.terrain.farDistance);
 
     const groundHeight = player.groundHeight;
     this.sky.setLandFraction(this.landFraction);
