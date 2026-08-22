@@ -1986,5 +1986,20 @@ console.log('\ngraded as one photograph');
     /uSunColor \* wrapped \* shade/.test(shaders));
 }
 
+console.log('\nno seam where two zooms meet');
+{
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  // Resolving *something* was treated as being fine. A tile could sit at
+  // sixty-four times magnification off a distant ancestor for as long as its
+  // own photograph took to arrive, because the ancestor request only ran when
+  // there was nothing at all — so the intermediate zooms were never asked for.
+  // Beside a tile that did get its own photograph, that is a hard straight
+  // line across the sea, and no amount of geometry work would have removed it.
+  ok('a heavily stretched tile still asks for the zooms in between',
+    /if \(resolved\.scale < 0\.25\) this\.streamer\.requestAncestors\(node\.tile, priority\);/.test(terrain));
+  ok('and a tile with nothing at all still asks for them too',
+    /uHasTexture\.value = 0;[\s\S]{0,700}requestAncestors\(node\.tile, priority\)/.test(terrain));
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);

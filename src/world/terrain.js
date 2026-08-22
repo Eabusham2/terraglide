@@ -689,6 +689,22 @@ export class Terrain {
       uniforms.uUvOffset.value.set(resolved.offsetX, resolved.offsetY);
       uniforms.uUvScale.value = resolved.scale;
       uniforms.uHasTexture.value = 1;
+      // Resolving *something* was being treated as being fine, and it is not.
+      //
+      // A tile can resolve four, sixteen or sixty-four levels of stretch off a
+      // distant ancestor, and once it does, nothing ever asked for the levels
+      // in between — the ancestor request only ran when there was nothing at
+      // all. So a tile could sit at sixty-four times magnification for as long
+      // as its own photograph took to arrive, while the tile beside it, whose
+      // own photograph did arrive, was sharp. Two textures from two different
+      // zooms meeting along a tile edge is a hard straight line across the
+      // sea, brighter on one side, and no amount of geometry work would ever
+      // have removed it because it was never geometry.
+      //
+      // Four times over is the point where the smear starts to read. Past it,
+      // ask for the intermediate zooms as well, so neighbours converge on the
+      // same level and the seam closes from both sides.
+      if (resolved.scale < 0.25) this.streamer.requestAncestors(node.tile, priority);
     } else {
       uniforms.uHasTexture.value = 0;
       this.streamer.request(node.tile, priority);
