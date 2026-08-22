@@ -23,6 +23,11 @@ const TERRAIN_VERT = /* glsl */ `
 
   uniform float uEarthRadius;
   uniform float uCurvature;
+  /**
+   * How far to sink this tile, in metres. Non-zero only when it is standing in
+   * for finer tiles that may also be drawing the same ground; see Terrain.show.
+   */
+  uniform float uSink;
   attribute float bed;
   varying vec2 vUv;
   varying vec3 vNormalW;
@@ -44,7 +49,7 @@ const TERRAIN_VERT = /* glsl */ `
     vec2 groundOffset = worldPos.xz - cameraPosition.xz;
     float d = length(groundOffset);
     vDist = d;
-    worldPos.y -= uCurvature * (d * d) / (2.0 * uEarthRadius);
+    worldPos.y -= uSink + uCurvature * (d * d) / (2.0 * uEarthRadius);
     vNormalW = normalize(mat3(modelMatrix) * normal);
     gl_Position = projectionMatrix * viewMatrix * worldPos;
     #include <logdepthbuf_vertex>
@@ -75,6 +80,7 @@ const TERRAIN_FRAG = /* glsl */ `
   uniform float uCloudTime;
   uniform float uCloudCover;
   uniform float uCloudHeight;
+  uniform float uMeasured;
 
   varying vec2 vUv;
   varying vec3 vNormalW;
@@ -220,14 +226,23 @@ const TERRAIN_FRAG = /* glsl */ `
     //
     // The sea here is the ground clamped to sea level, and the photograph over
     // it is a real picture of that sea — so the photograph stays. What a
-    // picture taken from directly overhead cannot contain is what the surface
-    // does from *where you are*: the sky it reflects at a grazing angle and
-    // the sun it throws back at you. Both are physics rather than decoration,
-    // and between them they are most of why real water reads as a surface and
-    // not as a blue floor. The depth they fade in over is the surveyed depth,
-    // which is why an estuary shelves and a trench does not.
+    // picture taken from orbit looking straight down cannot contain is what
+    // the surface does from *where you are*: the sky it reflects at a grazing
+    // angle and the sun it throws back at you. Both are physics rather than
+    // decoration, and between them they are the whole reason the sea is not
+    // black. Measured over the Strait of Gibraltar, the raw Esri pixels there
+    // are (3, 12, 19) — deep ocean seen from space really is almost black, and
+    // drawing it as a bare photograph is drawing it as almost black.
+    //
+    // Water used to be recognised by having a surveyed depth under it, and
+    // that was the bug: of eighty tiles standing at sea level in that view,
+    // five had bathymetry. The other seventy-five were open ocean that the
+    // water shading never touched. What actually marks water is that the
+    // surface got clamped to sea level — with one guard, because ground whose
+    // elevation has not arrived reads as sea level too, and without the guard
+    // an unmeasured continent would come up as an ocean.
     float depth = max(0.0, -vBed);
-    float wet = smoothstep(0.0, 3.0, depth);
+    float wet = uMeasured * (1.0 - smoothstep(0.0, 2.0, vHeight));
     if (wet > 0.001) {
       vec3 view = normalize(cameraPosition - vWorld);
       float facing = clamp(view.y, 0.0, 1.0);
@@ -313,6 +328,10 @@ export function createTerrainMaterial(shared) {
       uCloudTime: shared.uCloudTime,
       uCloudCover: shared.uCloudCover,
       uCloudHeight: shared.uCloudHeight,
+      // Whether this tile's relief was actually measured when it was built.
+      // Set per node in Terrain.build; see the water block above.
+      uMeasured: { value: 0 },
+      uSink: { value: 0 },
     },
     vertexShader: TERRAIN_VERT,
     fragmentShader: TERRAIN_FRAG,

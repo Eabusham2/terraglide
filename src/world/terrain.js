@@ -679,6 +679,23 @@ export class Terrain {
       this.drawn.push(node);
     }
 
+    // A stand-in covers ground that some of its own descendants may be drawing
+    // for themselves, and over flat ground the two are exactly coplanar — so
+    // the depth test cannot separate them and they interleave pixel by pixel.
+    // On land the relief hides it; over the sea, where every vertex sits at
+    // exactly zero, it is a stipple of dotted lines across the water in the
+    // shape of the tile grid. Measured over Gibraltar: twenty coarse tiles
+    // overlapping finer ones in a single frame.
+    //
+    // So a stand-in is sunk a little, by a hand's breadth per level of
+    // coarseness. Polygon offset would have been the tidy way to do it and
+    // does nothing here: the logarithmic depth buffer writes depth from the
+    // fragment shader, and offsetting the rasteriser's interpolated depth
+    // cannot bias a value the shader computes itself. Moving the geometry
+    // works whatever writes the depth.
+    node.material.uniforms.uSink.value =
+      node.tile.z < requestedTile.z ? 0.25 * (requestedTile.z - node.tile.z) : 0;
+
     // Texture: exact tile if we have it, otherwise the closest ancestor.
     const priority = distance / Math.pow(2, 20 - requestedTile.z);
     this.streamer.request(requestedTile, priority);
@@ -782,7 +799,14 @@ export class Terrain {
     }
 
     const cell = size / (grid - 1);
-    const skirt = Math.max(12, size * 0.02);
+    // The skirt only has to be as deep as the crack it hides, and the crack is
+    // bounded by how much the surface can differ between two levels of detail
+    // *here* — which is the relief, not the tile's width. A flat tile has no
+    // crack to hide, and a hundred-metre curtain hanging off every edge of it
+    // is a grid of dark lines across a calm sea, seen almost edge-on from
+    // above. Over the Alps the same formula still gives the full skirt.
+    const relief = maxY - minY;
+    const skirt = clamp(relief * 0.6 + 1, 1, Math.max(12, size * 0.02));
 
     for (let vy = 0; vy < verts; vy++) {
       const gy = clamp(vy - 1, 0, grid - 1);
@@ -858,6 +882,10 @@ export class Terrain {
     // Measured over the whole footprint, the same way the check that compares
     // against it is, or the two would never agree.
     node.builtElevZoom = this.elevationZoomFor(x0, z0, size);
+    // Ground at sea level is only water if somebody measured it. Unmeasured
+    // ground reads as sea level too, and shading that as ocean turns a
+    // continent into a sea for as long as its relief takes to arrive.
+    node.material.uniforms.uMeasured.value = node.builtElevZoom >= 0 ? 1 : 0;
     node.dirty = false;
     node.builtVersion = this.elevation.version ?? 0;
     node.used = this.streamer.frame;

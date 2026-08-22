@@ -2042,5 +2042,36 @@ console.log('\nApple Maps, for the parts Apple actually publishes');
     /Geocoding: Apple Maps/.test(readFileSync(new URL('../src/game.js', import.meta.url), 'utf8')));
 }
 
+console.log('\nthe sea is not black');
+{
+  const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+
+  // Deep ocean photographed from orbit really is nearly black — measured over
+  // the Strait of Gibraltar, the raw Esri pixels are (3, 12, 19). What lifts it
+  // is the sky it reflects, and that only runs where the shader knows it is
+  // water. Keying that off surveyed bathymetry meant five of the eighty tiles
+  // standing at sea level in that view got it, and seventy-five did not.
+  ok('water is recognised by the surface being clamped to sea level',
+    /float wet = uMeasured \* \(1\.0 - smoothstep\(0\.0, 2\.0, vHeight\)\);/.test(shaders));
+  ok('and not by whether anyone surveyed the depth under it',
+    !/float wet = smoothstep\(0\.0, 3\.0, depth\);/.test(shaders));
+  ok('with a guard, so unmeasured ground does not come up as ocean',
+    /uMeasured\.value = node\.builtElevZoom >= 0 \? 1 : 0;/.test(terrain));
+
+  // A stand-in and the finer tiles under it are exactly coplanar over flat
+  // water, and the depth test cannot separate them.
+  ok('a stand-in is sunk so the detail wins the depth test',
+    /uSink\.value =\s*\n?\s*node\.tile\.z < requestedTile\.z \? 0\.25 \* \(requestedTile\.z - node\.tile\.z\) : 0;/.test(terrain));
+  ok('by moving it, because polygon offset cannot bias a depth the shader writes',
+    /worldPos\.y -= uSink \+ uCurvature/.test(shaders) && !/polygonOffset/.test(terrain));
+
+  // The skirt hides the crack between two levels of detail. The crack is
+  // bounded by the relief, not by how wide the tile happens to be.
+  ok('the skirt is sized by the relief it has to cover',
+    /const skirt = clamp\(relief \* 0\.6 \+ 1, 1, Math\.max\(12, size \* 0\.02\)\);/.test(terrain));
+  ok('so a flat tile hangs no curtain', /const relief = maxY - minY;/.test(terrain));
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);
