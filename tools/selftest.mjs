@@ -1988,5 +1988,73 @@ console.log('\none map, one layer');
     /if \(asMap\) ctx\.filter = 'grayscale\(1\)/.test(renderer));
 }
 
+console.log('\nphotogrammetry that stays put');
+{
+  const { Tiles3D } = await import('../src/world/tiles3d.js');
+  const THREE = await import('../vendor/three/three.module.js');
+
+  // A parent with four children, REPLACE refinement, all near enough that the
+  // error test wants to refine. Coordinates are ECEF-ish but the arithmetic
+  // does not care: what is being tested is which content ends up drawn.
+  const makeTree = () => ({
+    boundingVolume: { sphere: [0, 0, 0, 4000] },
+    geometricError: 900,
+    refine: 'REPLACE',
+    content: { uri: 'parent.glb' },
+    children: [0, 1, 2, 3].map((i) => ({
+      boundingVolume: { sphere: [i * 300 - 450, 0, 0, 200] },
+      geometricError: 2,
+      content: { uri: `kid${i}.glb` },
+    })),
+  });
+
+  const probe = (loaded) => ({
+    budget: { sse: 16, active: 8 },
+    tilesets: new Map(),
+    loaded: new Map(loaded.map((u) => [u, {}])),
+    pending: new Set(),
+    copyrights: new Set(),
+    visible: new Set(),
+    wanted: [],
+    _matrix2: new THREE.Vector3(),
+    _ecefToLocal: new THREE.Matrix4(),
+    _camX: 0, _camZ: 0, _viewX: 1, _viewZ: 0,
+    requestTileset() {},
+    traverse: Tiles3D.prototype.traverse,
+    want: Tiles3D.prototype.want,
+  });
+
+  const cam = new THREE.Vector3(0, 0, 0);
+  const nothing = probe([]);
+  const readyA = nothing.traverse(makeTree(), new THREE.Matrix4(), cam, 900, 1.2, 0);
+  ok('a coarse tile keeps drawing while its replacements are still loading',
+    nothing.visible.has('parent.glb') && !readyA,
+    [...nothing.visible].join(','));
+  ok('and the replacements are all asked for', nothing.wanted.length === 5,
+    `${nothing.wanted.length} wanted`);
+
+  const all = probe(['kid0.glb', 'kid1.glb', 'kid2.glb', 'kid3.glb']);
+  const readyB = all.traverse(makeTree(), new THREE.Matrix4(), cam, 900, 1.2, 0);
+  ok('and lets go once they have actually arrived',
+    readyB && !all.visible.has('parent.glb') && all.visible.size === 4,
+    [...all.visible].join(','));
+
+  const some = probe(['kid0.glb', 'kid1.glb', 'kid2.glb']);
+  some.traverse(makeTree(), new THREE.Matrix4(), cam, 900, 1.2, 0);
+  ok('one missing child is enough to hold the coarse tile',
+    some.visible.has('parent.glb'));
+
+  // Ordering: looking along +x, the tile at +450 should be fetched before the
+  // one at -450 even though both are the same distance away.
+  const order = nothing.wanted.filter((w) => w.uri.startsWith('kid'));
+  const ahead = order.find((w) => w.uri === 'kid3.glb');
+  const behind = order.find((w) => w.uri === 'kid0.glb');
+  ok('content in front of you is fetched before content behind you',
+    ahead.order < behind.order, `${ahead.order.toFixed(0)} vs ${behind.order.toFixed(0)}`);
+  const sorted = [...nothing.wanted].sort((a, b) => a.order - b.order);
+  ok('and the nearest of all is fetched first',
+    sorted[0].order <= sorted[sorted.length - 1].order);
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);

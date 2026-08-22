@@ -164,7 +164,11 @@ export class Tiles3D {
     this.coverage = new Set();
 
     this._matrix = new THREE.Matrix4();
+    this._forward = new THREE.Vector3();
+    this._matrix2 = new THREE.Vector3();
     this._ecefToLocal = new THREE.Matrix4();
+    /** Content wanted this frame but not yet loaded, in the order to fetch it. */
+    this.wanted = [];
     this._anchorSerial = -1;
     /** Which provider and credential the current connection belongs to. */
     this._connectedAs = '';
@@ -309,7 +313,29 @@ export class Tiles3D {
     const fov = (camera.fov * Math.PI) / 180;
 
     this.visible = new Set();
+    // Where the camera looks, flattened, in the local frame — so content can
+    // be fetched in the order you are going to see it rather than in whatever
+    // order the tree happens to be written in.
+    camera.getWorldDirection(this._forward);
+    const flat = Math.hypot(this._forward.x, this._forward.z) || 1;
+    this._viewX = this._forward.x / flat;
+    this._viewZ = this._forward.z / flat;
+    this._camX = camera.position.x;
+    this._camZ = camera.position.z;
+    this.wanted = [];
     this.traverse(this.root, new THREE.Matrix4(), cameraEcef, screenHeight, fov, 0);
+
+    // Nearest first, and ground you are facing before ground behind you.
+    //
+    // Content used to be requested as the walk reached it, so the six
+    // concurrent slots went to whichever tiles the tree happened to list
+    // first. That is why the city assembled in no particular order and why
+    // what was in front of you could be the last thing to arrive.
+    this.wanted.sort((a, b) => a.order - b.order);
+    for (const item of this.wanted) {
+      if (this.active >= this.budget.active) break;
+      this.requestContent(item.uri, item.transform);
+    }
 
     // Anything not wanted this frame goes, oldest first.
     const maxLoaded = this.budget.loaded;
@@ -382,23 +408,32 @@ export class Tiles3D {
    * Walk the tileset, refining while a tile would show too much error. Standard
    * 3D Tiles traversal: a tile's transform multiplies down the tree, `ADD`
    * refinement draws parent and child, `REPLACE` draws the child instead.
+   *
+   * Returns whether everything this subtree wants to draw is actually loaded.
+   * That answer is the whole of the fix for 3D that vanishes and comes back: a
+   * REPLACE parent used to stop being drawn the moment the error test said
+   * "refine", which is long before any of its children have arrived. So the
+   * ground under a city dropped out, stayed out for as long as the download
+   * took, and came back the instant you moved far enough for the test to flip
+   * the other way — flying towards a city made it blink. A parent is only let
+   * go now once the tiles that replace it are really there.
    */
   traverse(tile, parentTransform, cameraEcef, screenHeight, fov, depth) {
-    if (!tile || depth > 24) return;
+    if (!tile || depth > 24) return true;
 
     const transform = tile.transform
       ? new THREE.Matrix4().fromArray(tile.transform).premultiply(parentTransform)
       : parentTransform.clone();
 
     const sphere = boundingSphereOf(tile.boundingVolume);
-    if (!sphere) return;
+    if (!sphere) return true;
 
     const centre = new THREE.Vector3(sphere.x, sphere.y, sphere.z).applyMatrix4(transform);
     const distance = Math.max(1, centre.distanceTo(cameraEcef) - sphere.radius);
 
     // Beyond the render distance there is no point even considering it.
     const reach = settings.get('renderDistanceKm') * 1000;
-    if (distance > reach) return;
+    if (distance > reach) return true;
 
     const error = screenSpaceError(tile.geometricError ?? 0, distance, screenHeight, fov);
     const wantsChildren = error > this.budget.sse && Array.isArray(tile.children) && tile.children.length > 0;
@@ -410,24 +445,47 @@ export class Tiles3D {
       // A child tileset: fetch it and splice it in where it belongs.
       const child = this.tilesets.get(uri);
       if (child) {
-        this.traverse(child.root, transform, cameraEcef, screenHeight, fov, depth + 1);
         if (child.asset?.copyright) this.copyrights.add(child.asset.copyright);
-      } else {
-        this.requestTileset(uri);
+        return this.traverse(child.root, transform, cameraEcef, screenHeight, fov, depth + 1);
       }
-      return;
+      this.requestTileset(uri);
+      return false;
     }
 
     if (wantsChildren) {
+      let ready = true;
       for (const child of tile.children) {
-        this.traverse(child, transform, cameraEcef, screenHeight, fov, depth + 1);
+        if (!this.traverse(child, transform, cameraEcef, screenHeight, fov, depth + 1)) ready = false;
       }
-      if (tile.refine !== 'ADD') return;
+      // The children cover this tile and they are all here, so it can go.
+      if (tile.refine !== 'ADD' && ready) return true;
+      // Otherwise fall through and keep drawing this one as well — either
+      // because ADD refinement says to, or because the replacement has not
+      // arrived and coarse ground beats no ground.
     }
 
-    if (!uri) return;
+    if (!uri) return true;
     this.visible.add(uri);
-    if (!this.loaded.has(uri)) this.requestContent(uri, transform);
+    if (this.loaded.has(uri)) return true;
+    this.want(uri, transform, centre);
+    return false;
+  }
+
+  /**
+   * Note that a piece of content is wanted, and how badly.
+   *
+   * Ordering is by distance from the camera with the ground you are facing
+   * counted nearer than the ground behind you, so the city builds outwards
+   * from under your feet in the direction you are going.
+   */
+  want(uri, transform, centreEcef) {
+    if (this.pending.has(uri)) return;
+    const local = this._matrix2.copy(centreEcef).applyMatrix4(this._ecefToLocal);
+    const dx = local.x - this._camX;
+    const dz = local.z - this._camZ;
+    const len = Math.hypot(dx, dz);
+    const facing = len < 1 ? 1 : (dx * this._viewX + dz * this._viewZ) / len;
+    this.wanted.push({ uri, transform, order: len * (1.6 - facing * 0.6) });
   }
 
   requestTileset(uri) {
