@@ -167,12 +167,17 @@ export function drawMap(ctx, view, layers) {
   // the photograph is simply drawn everywhere, which is what the map did before
   // the fog came back and is still the right answer on a canvas that cannot
   // make scratch surfaces.
-  const fogged = options.fog !== false && !!layers.exploration && !!layers.street;
+  // Drawn map only: the street layer everywhere, no photography and no fog,
+  // because with no photograph on the map there is nothing left to reveal.
+  const drawnOnly = !!options.drawnOnly && !!layers.street;
+  const fogged = !drawnOnly && options.fog !== false && !!layers.exploration && !!layers.street;
   const pair = fogged
     ? scratchPair(Math.round(width * pixelRatio), Math.round(height * pixelRatio))
     : null;
 
-  if (!pair) {
+  if (drawnOnly) {
+    paint(ctx, layers.street, '#161a1f');
+  } else if (!pair) {
     paint(ctx, layers.tiles, '#161a1f');
   } else {
     // Unexplored first, over everything: the drawn map is the ground state.

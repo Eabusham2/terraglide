@@ -2296,5 +2296,65 @@ console.log('\nthe sea has no seams in it, from any height');
   ok('so a level edge still hangs no curtain at all',
     /drops\[i\] = clamp\(\(hi - lo\) \* 0\.6, 0, cap\);/.test(terrain));
 }
+console.log('\nthe world map is not a black square');
+{
+  const tiles = readFileSync(new URL('../src/ui/mapTiles.js', import.meta.url), 'utf8');
+  const world = readFileSync(new URL('../src/ui/worldmap.js', import.meta.url), 'utf8');
+  const renderer = readFileSync(new URL('../src/ui/mapRenderer.js', import.meta.url), 'utf8');
+
+  // Open the world map over a city and it drew nothing: an empty grid with a
+  // compass on it. Two faults, both of them about what happens before a tile
+  // has landed.
+  //
+  // The lookup walked at most five levels up for something to stretch, and the
+  // overview the maps always keep sits at zoom 6 — from zoom 12 that is six
+  // steps. The one tile set guaranteed to be in the cache was exactly one level
+  // out of reach.
+  ok('the tile lookup walks all the way up for something to stretch',
+    /resolve\(z, x, y, maxSteps = 24\)/.test(tiles));
+  ok('and asks for a coarse tile as well as the sharp one when it finds nothing',
+    /if \(z > 4\) this\.get\(z - 4, x >> 4, y >> 4, false\);/.test(tiles));
+
+  // And it repaints only when marked dirty. The satellite cache marked it; the
+  // street cache did not — and with the fog on, the street map is what fills
+  // everywhere you have not been, which on a map opened somewhere new is all
+  // of it.
+  ok('a street tile arriving redraws the world map',
+    /this\.street\?\.onTileLoaded\?\.\(\(\) => \{/.test(world));
+  ok('and so does exploring somewhere new',
+    /this\.exploration\.on\('change', \(\) => \{/.test(world));
+
+  // A drawn map with no photography on it at all, for reading rather than
+  // looking at.
+  ok('the world map can be asked for the drawn map only',
+    /data-drawn/.test(world) && /mapDrawnOnly/.test(world));
+  ok('and the renderer draws just the street layer when it is',
+    /const drawnOnly = !!options\.drawnOnly && !!layers\.street;/.test(renderer)
+    && /if \(drawnOnly\) \{\n    paint\(ctx, layers\.street/.test(renderer));
+}
+
+console.log('\nbuildings wear the roof the survey gave them');
+{
+  const b = readFileSync(new URL('../src/world/buildings.js', import.meta.url), 'utf8');
+
+  // OpenStreetMap records roof:shape on a great many buildings and it was all
+  // being thrown away: every building was a box with a flat lid. A gabled house
+  // twelve metres tall with a four-metre roof now comes out as fourteen
+  // triangles — eight of wall, four of slope, two of gable end — measured in
+  // the browser, with its apex four metres above its eaves.
+  ok('the roof shape is read from the survey',
+    /tags\['roof:shape'\]/.test(b) && /tags\['roof:height'\]/.test(b) && /tags\['roof:levels'\]/.test(b));
+  ok('and a part that starts above the ground starts there',
+    /tags\.min_height/.test(b) && /tags\['building:min_level'\]/.test(b));
+  ok('walls stop at the eaves rather than running through the roof',
+    /const eaves = base \+ height - roofHeight;/.test(b));
+  ok('ridges, hips, lean-tos, pyramids and domes are all built',
+    /gabled\|round\|hipped/.test(b) && /skillion\|lean_to/.test(b) && /dome\|onion\|round/.test(b));
+
+  // The one rule: no shape without a surveyed height for it. "Gabled" with no
+  // roof height would mean choosing one, and choosing one is inventing.
+  ok('but nothing is drawn without a height that was surveyed',
+    /roofHeight > 0\.2 && roofShape && roofShape !== 'flat'/.test(b));
+}
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);

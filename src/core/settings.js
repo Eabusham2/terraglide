@@ -111,6 +111,14 @@ export const DEFAULT_SETTINGS = {
 
   /* world / exploration */
   units: defaultUnits(),
+  /**
+   * Draw the flat maps as a street map only, with no photography anywhere.
+   *
+   * Off by default, because the photograph is the point of flying. On, the
+   * world map is the drawn map at every zoom — roads, coastlines and names —
+   * which is what you want when you are reading it rather than looking at it.
+   */
+  mapDrawnOnly: false,
   exploreSeas: false,
   /** How far out to sea a random teleport may drop you, in km. Default: no limit. */
   seaDistanceKm: 501,

@@ -133,8 +133,19 @@ export class MapTileCache {
     return null;
   }
 
-  /** Best available bitmap for a tile: itself or an ancestor, with a UV window. */
-  resolve(z, x, y, maxSteps = 5) {
+  /**
+   * Best available bitmap for a tile: itself or an ancestor, with a UV window.
+   *
+   * The walk goes all the way to the top. It used to stop after five steps,
+   * which sounds generous and is not: the maps keep a whole-world overview
+   * around zoom 6, and from zoom 12 — a city — that is six steps up. So the
+   * one tile set guaranteed to be in the cache was exactly one level out of
+   * reach, and a map opened over a city drew nothing at all until its own
+   * tiles arrived: an empty grid with a compass on it. Stretching a coarse
+   * tile is what every slippy map does while the sharp ones load, and it is
+   * always better than a hole.
+   */
+  resolve(z, x, y, maxSteps = 24) {
     let tz = z;
     let tx = wrapTileX(x, z);
     let ty = y;
@@ -163,6 +174,11 @@ export class MapTileCache {
       ty >>= 1;
       tz -= 1;
     }
+    // Nothing at any level. Ask for something coarse and wide as well as the
+    // sharp tile: one tile four levels up covers this one and two hundred and
+    // fifty-five of its neighbours, so it turns the whole view from a hole
+    // into a soft picture in a single round trip.
+    if (z > 4) this.get(z - 4, x >> 4, y >> 4, false);
     return null;
   }
 

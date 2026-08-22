@@ -63,6 +63,7 @@ export class WorldMap {
             <button type="button" data-action="teleport" data-directed hidden>Travel to centre</button>
           </div>
           <label class="worldmap-tick"><input type="checkbox" data-trail /> Show my trail</label>
+          <label class="worldmap-tick"><input type="checkbox" data-drawn /> Drawn map only — no satellite</label>
           <div class="worldmap-stats"></div>
           <h3>Waypoints</h3>
           <ul class="worldmap-list" data-list="waypoints"></ul>
@@ -88,8 +89,20 @@ export class WorldMap {
       this.renderLists();
       this.dirty = true;
     });
-    // A street tile arriving changes unexplored ground, so redraw for it too.
+    // This map repaints only when something marks it dirty, so everything that
+    // can change what it shows has to say so. The satellite cache already did.
+    // The street cache did not — and with the fog on, the street map is what
+    // fills every part of the view you have not been to, which on a map opened
+    // somewhere new is all of it. So it painted once, at the moment it opened,
+    // with nothing loaded, and then sat there: an empty grid with a compass on
+    // it and no map at all, until you happened to drag it.
     this.tiles.onTileLoaded(() => {
+      this.dirty = true;
+    });
+    this.street?.onTileLoaded?.(() => {
+      this.dirty = true;
+    });
+    this.exploration.on('change', () => {
       this.dirty = true;
     });
   }
@@ -161,6 +174,10 @@ export class WorldMap {
 
     const trailTick = this.element.querySelector('[data-trail]');
     trailTick.addEventListener('change', () => settings.set('showTrail', trailTick.checked));
+
+    const drawnTick = this.element.querySelector('[data-drawn]');
+    drawnTick.addEventListener('change', () => settings.set('mapDrawnOnly', drawnTick.checked));
+
     cheats.on('unlock', () => this.applyPermissions());
   }
 
@@ -307,6 +324,7 @@ export class WorldMap {
     this.resize();
     this.renderLists();
     this.element.querySelector('[data-trail]').checked = settings.get('showTrail');
+    this.element.querySelector('[data-drawn]').checked = settings.get('mapDrawnOnly');
     this.applyPermissions();
   }
 
@@ -363,6 +381,7 @@ export class WorldMap {
         player,
         options: {
           fog: settings.get('minimapFog'),
+          drawnOnly: settings.get('mapDrawnOnly'),
           trail: settings.get('showTrail'),
           waypoints: true,
           labels: true,

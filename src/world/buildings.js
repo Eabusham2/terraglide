@@ -640,6 +640,34 @@ export class Buildings {
     );
     const height = clamp(taggedHeight || levels * STOREY_M, 2.5, 460);
 
+    /**
+     * The roof, and where the walls start, both out of the survey.
+     *
+     * A building was a box: four walls and a flat lid, whatever OpenStreetMap
+     * actually said about it. But the survey often says a great deal — that
+     * this roof is gabled and two metres of the height belong to it, that this
+     * building:part starts eight metres up because it is a tower on a podium —
+     * and all of it was being thrown away and drawn as a flat top.
+     *
+     * Nothing here is guessed. A shape with no surveyed roof height stays flat,
+     * because "gabled" without a height would mean picking one, and picking one
+     * is exactly what this project does not do.
+     */
+    const roofShape = String(tags['roof:shape'] ?? '').toLowerCase();
+    const roofLevels = Number(tags['roof:levels']) || 0;
+    const roofHeight = clamp(
+      Number(tags['roof:height']) || roofLevels * STOREY_M || 0,
+      0,
+      height * 0.75,
+    );
+    // A building:part that starts above the ground: a tower on a podium, an
+    // upper storey stepped back from the street.
+    const minHeight = clamp(
+      Number(tags.min_height) || (Number(tags['building:min_level']) || 0) * STOREY_M || 0,
+      0,
+      Math.max(0, height - 2),
+    );
+
     // Sit the building on the lowest ground under its footprint so it does not
     // float on a slope.
     let base = Infinity;
@@ -676,30 +704,28 @@ export class Buildings {
       roof = ROOF_COLOUR.clone();
     }
 
+    const eaves = base + height - roofHeight;
     const segments = [];
     for (let i = 0; i < ring.length; i++) {
       const a = ring[i];
       const b = ring[(i + 1) % ring.length];
-      pushWall(positions, normals, colors, a, b, base, base + height, wall);
+      pushWall(positions, normals, colors, a, b, base + minHeight, eaves, wall);
       segments.push([a.x, a.y, b.x, b.y]);
     }
 
     const triangles = triangulate(ring);
-    pushCap(
-      positions,
-      normals,
-      colors,
-      ring,
-      triangles,
-      base + height,
-      sampled
-        ? (p) => {
-            const here = sampleImageryAt(this.frame, p.x, p.y);
-            return here ? this._roofAt.setRGB(here.r, here.g, here.b) : roof;
-          }
-        : roof,
-      true,
-    );
+    const roofAt = sampled
+      ? (p) => {
+          const here = sampleImageryAt(this.frame, p.x, p.y);
+          return here ? this._roofAt.setRGB(here.r, here.g, here.b) : roof;
+        }
+      : roof;
+
+    if (roofHeight > 0.2 && roofShape && roofShape !== 'flat') {
+      pushRoof(positions, normals, colors, ring, triangles, eaves, roofHeight, roofShape, roofAt, wall);
+    } else {
+      pushCap(positions, normals, colors, ring, triangles, base + height, roofAt, true);
+    }
 
     const bounds = ringBounds(ring);
     return {
@@ -804,6 +830,151 @@ function pushWall(positions, normals, colors, a, b, bottom, top, colour) {
  * and half moss, and a long terrace does not become one flat swatch. That is
  * real imagery stretched over real geometry, which is the whole idea.
  */
+/**
+ * A roof of the shape the survey says it is.
+ *
+ * OpenStreetMap records `roof:shape` on a great many buildings, and every one
+ * of them was being drawn as a flat lid. These are the shapes it is worth
+ * knowing, built from the footprint that was surveyed and the roof height that
+ * was surveyed — no shape is drawn without both.
+ *
+ *   pyramidal, dome, onion   one apex over the centroid
+ *   gabled, round            a ridge along the footprint's long axis
+ *   hipped, half-hipped      the same ridge, pulled in at the ends
+ *   skillion, lean_to        one slope, down the short axis
+ *
+ * A polygon that is not a simple quadrilateral cannot have its ridge worked out
+ * this way, so anything ridged falls back to an apex over the centroid — which
+ * is what a hipped roof on an irregular footprint looks like anyway.
+ */
+function pushRoof(positions, normals, colors, ring, triangles, eaves, roofHeight, shape, shade, wallColour) {
+  const at = typeof shade === 'function' ? shade : () => shade;
+  const apex = eaves + roofHeight;
+  let cx = 0;
+  let cz = 0;
+  for (const p of ring) { cx += p.x; cz += p.y; }
+  cx /= ring.length;
+  cz /= ring.length;
+
+  const tri = (ax, ay, az, bx, by, bz, dx, dy, dz, colour) => {
+    // One flat normal for the face, so a pitched roof reads as pitched.
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = dx - ax, vy = dy - ay, vz = dz - az;
+    let nx = uy * vz - uz * vy;
+    let ny = uz * vx - ux * vz;
+    let nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    nx /= len; ny /= len; nz /= len;
+    if (ny < 0) { nx = -nx; ny = -ny; nz = -nz; }
+    positions.push(ax, ay, az, bx, by, bz, dx, dy, dz);
+    normals.push(nx, ny, nz, nx, ny, nz, nx, ny, nz);
+    colors.push(colour.r, colour.g, colour.b, colour.r, colour.g, colour.b, colour.r, colour.g, colour.b);
+  };
+
+  const ridged = /^(gabled|round|hipped|half-hipped|half_hipped|gambrel|mansard)$/.test(shape);
+  const skillion = /^(skillion|lean_to|lean-to|shed)$/.test(shape);
+  const quad = ring.length === 4;
+
+  if (ridged && quad) {
+    // The ridge runs along whichever pair of opposite sides is longer, halfway
+    // between them: the roof a rectangular house actually has.
+    const side = (i) => Math.hypot(ring[(i + 1) % 4].x - ring[i].x, ring[(i + 1) % 4].y - ring[i].y);
+    const along = side(0) + side(2) >= side(1) + side(3) ? 0 : 1;
+    const mid = (i, j) => ({
+      x: (ring[i].x + ring[j].x) / 2,
+      z: (ring[i].y + ring[j].y) / 2,
+    });
+    // Ends of the ridge: the midpoints of the two short sides.
+    const e0 = along === 0 ? mid(1, 2) : mid(2, 3);
+    const e1 = along === 0 ? mid(3, 0) : mid(0, 1);
+    // A hipped roof pulls the ridge in from the gable ends; a gabled one does
+    // not, and the wall carries on up to it as a triangle.
+    const hip = /^(hipped|half-hipped|half_hipped)$/.test(shape) ? 0.25 : 0;
+    const r0 = { x: e0.x + (e1.x - e0.x) * hip, z: e0.z + (e1.z - e0.z) * hip };
+    const r1 = { x: e1.x + (e0.x - e1.x) * hip, z: e1.z + (e0.z - e1.z) * hip };
+    for (let i = 0; i < 4; i++) {
+      const a = ring[i];
+      const b = ring[(i + 1) % 4];
+      const isLong = (i % 2) === along;
+      const colour = at(a);
+      if (isLong) {
+        // A slope, from this side up to the ridge.
+        tri(a.x, eaves, a.y, b.x, eaves, b.y, r1.x, apex, r1.z, colour);
+        tri(b.x, eaves, b.y, r0.x, apex, r0.z, r1.x, apex, r1.z, colour);
+      } else if (hip > 0) {
+        // The hipped end: a triangle of roof rather than a triangle of wall.
+        const near = Math.hypot(a.x - r0.x, a.y - r0.z) < Math.hypot(a.x - r1.x, a.y - r1.z) ? r0 : r1;
+        tri(a.x, eaves, a.y, b.x, eaves, b.y, near.x, apex, near.z, colour);
+      } else {
+        // The gable end: this is wall, not roof.
+        const near = Math.hypot(a.x - r0.x, a.y - r0.z) < Math.hypot(a.x - r1.x, a.y - r1.z) ? r0 : r1;
+        tri(a.x, eaves, a.y, b.x, eaves, b.y, near.x, apex, near.z, wallColour);
+      }
+    }
+    return;
+  }
+
+  if (skillion) {
+    // One slope. Down the shorter axis of the footprint's bounding box, which
+    // is the way a lean-to is built unless the survey says otherwise.
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const p of ring) {
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minZ = Math.min(minZ, p.y); maxZ = Math.max(maxZ, p.y);
+    }
+    const acrossX = maxX - minX <= maxZ - minZ;
+    const lift = (p) => (acrossX
+      ? (p.x - minX) / Math.max(1e-3, maxX - minX)
+      : (p.y - minZ) / Math.max(1e-3, maxZ - minZ));
+    for (const t of triangles) {
+      const p0 = ring[t[0]], p1 = ring[t[1]], p2 = ring[t[2]];
+      if (!p0 || !p1 || !p2) continue;
+      tri(
+        p0.x, eaves + roofHeight * lift(p0), p0.y,
+        p1.x, eaves + roofHeight * lift(p1), p1.y,
+        p2.x, eaves + roofHeight * lift(p2), p2.y,
+        at(p0),
+      );
+    }
+    // Close the two triangular sides so the slope is not open underneath.
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i], b = ring[(i + 1) % ring.length];
+      const ya = eaves + roofHeight * lift(a);
+      const yb = eaves + roofHeight * lift(b);
+      if (Math.abs(ya - yb) < 1e-3) continue;
+      tri(a.x, eaves, a.y, b.x, eaves, b.y, b.x, yb, b.y, wallColour);
+      tri(a.x, eaves, a.y, b.x, yb, b.y, a.x, ya, a.y, wallColour);
+    }
+    return;
+  }
+
+  // An apex over the middle: pyramidal outright, and the honest stand-in for a
+  // ridge on a footprint too irregular to find one on. A dome is the same fan
+  // with a curved profile rather than a straight one.
+  const domed = /^(dome|onion|round)$/.test(shape);
+  const RINGS = domed ? 4 : 1;
+  for (let step = 0; step < RINGS; step++) {
+    const t0 = step / RINGS;
+    const t1 = (step + 1) / RINGS;
+    // A quarter-circle profile: full width at the eaves, nothing at the apex.
+    const r0 = domed ? Math.cos((t0 * Math.PI) / 2) : 1 - t0;
+    const r1 = domed ? Math.cos((t1 * Math.PI) / 2) : 1 - t1;
+    const y0 = eaves + roofHeight * (domed ? Math.sin((t0 * Math.PI) / 2) : t0);
+    const y1 = eaves + roofHeight * (domed ? Math.sin((t1 * Math.PI) / 2) : t1);
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i];
+      const b = ring[(i + 1) % ring.length];
+      const colour = at(a);
+      const ax0 = cx + (a.x - cx) * r0, az0 = cz + (a.y - cz) * r0;
+      const bx0 = cx + (b.x - cx) * r0, bz0 = cz + (b.y - cz) * r0;
+      const ax1 = cx + (a.x - cx) * r1, az1 = cz + (a.y - cz) * r1;
+      const bx1 = cx + (b.x - cx) * r1, bz1 = cz + (b.y - cz) * r1;
+      tri(ax0, y0, az0, bx0, y0, bz0, bx1, y1, bz1, colour);
+      if (r1 > 1e-4) tri(ax0, y0, az0, bx1, y1, bz1, ax1, y1, az1, colour);
+    }
+  }
+}
+
 function pushCap(positions, normals, colors, ring, triangles, y, shade, up) {
   const at = typeof shade === 'function' ? shade : () => shade;
   for (const tri of triangles) {
