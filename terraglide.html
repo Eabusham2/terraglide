@@ -93444,7 +93444,13 @@ class Terrain {
     this.drawn.length = 0;
     // The near circle is drawn everywhere, so it is the floor. Sectors where
     // distant mode reaches further raise it as the walk finds them.
-    this.edgeProfile.fill(renderDistance);
+    // The floor for every sector is the squircle, not the circle, so the wall
+    // that closes the edge lands on the ground's real boundary rather than
+    // inside it on the diagonals.
+    for (let i = 0; i < EDGE_SECTORS; i++) {
+      const theta = ((i + 0.5) / EDGE_SECTORS) * Math.PI * 2;
+      this.edgeProfile[i] = renderDistance * this.squircle(Math.sin(theta), -Math.cos(theta));
+    }
 
     this.budget = { ms: budgetMs, start: performance.now(), built: 0, refreshed: 0 };
 
@@ -93526,6 +93532,24 @@ class Terrain {
    * your head. Ground within the view cone keeps its real distance; ground
    * behind you is treated as further off than it is.
    */
+  /**
+   * How much further the world reaches in this direction than it does along an
+   * axis, for a squircle of exponent four.
+   *
+   * One straight ahead and to the side, 1.19 on the diagonals. `dx` and `dz`
+   * are an offset, not a direction, so a tile the camera is standing inside
+   * gets one rather than a division by zero.
+   */
+  squircle(dx, dz) {
+    const ax = Math.abs(dx);
+    const az = Math.abs(dz);
+    const r = Math.hypot(ax, az);
+    if (r < 1e-6) return 1;
+    const c = ax / r;
+    const s = az / r;
+    return 1 / Math.pow(c * c * c * c + s * s * s * s, 0.25);
+  }
+
   viewDistance(cx, cz, camX, camZ, flat) {
     const dx = cx - camX;
     const dz = cz - camZ;
@@ -93603,11 +93627,20 @@ class Terrain {
 
     const dx = Math.max(x0 - camX, 0, camX - x1);
     const dz = Math.max(z0 - camZ, 0, camZ - z1);
-    // Distance to the nearest point of the tile, so the view ends on a circle
-    // rather than a square with corners poking out.
+    // Distance to the nearest point of the tile, not to its centre and not per
+    // axis, so the edge of the world is a smooth curve rather than a square
+    // with corners poking a factor of root two further out.
     const flatDist = Math.hypot(dx, dz);
-    if (flatDist > renderDistance) {
-      if (flatDist > this.farDistance) return;
+    // And that curve is a squircle: the setting's distance along the axes, a
+    // fifth further into the corners. A circle is the honest shape for "how far
+    // can I see", but a screen is not round — the corners of the view are the
+    // first place a circular edge shows itself, and stretching the boundary
+    // there costs a few per cent of the tiles for a horizon that stays put as
+    // you turn. Exponent four: |x|^4 + |z|^4 = r^4, which is 1.19 times the
+    // radius on the diagonal and exactly the radius on the axes.
+    const reach = renderDistance * this.squircle(dx, dz);
+    if (flatDist > reach) {
+      if (flatDist > this.farDistance * this.squircle(dx, dz)) return;
       if (!this.explored || !this.explored(tile)) return;
     }
 

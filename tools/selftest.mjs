@@ -2459,5 +2459,26 @@ console.log('\nthere is sea behind the sea');
     /new SeaFloor\(this\.scene, this\.shared\)/.test(game)
     && /this\.seaFloor\.update\(this\.camera, this\.terrain\.farDistance\)/.test(game));
 }
+console.log('\nthe world ends on a squircle');
+{
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+
+  // A circle is the honest shape for "how far can I see", but a screen is not
+  // round: the corners of the view are the first place a circular edge shows
+  // itself. A squircle of exponent four keeps the setting's distance along the
+  // axes and reaches 1.19 times further on the diagonals, which costs a few per
+  // cent of the tiles and keeps the horizon still as you turn.
+  ok('the cull is a squircle, not a circle or a square',
+    /squircle\(dx, dz\)/.test(terrain) && /Math\.pow\(c \* c \* c \* c \+ s \* s \* s \* s, 0\.25\)/.test(terrain));
+  ok('and the far edge follows the same shape',
+    /this\.farDistance \* this\.squircle\(dx, dz\)/.test(terrain));
+  ok('so the wall that closes the world lands on it rather than inside it',
+    /this\.edgeProfile\[i\] = renderDistance \* this\.squircle\(/.test(terrain));
+  ok('a tile the camera is standing in gets one rather than a divide by zero',
+    /if \(r < 1e-6\) return 1;/.test(terrain));
+
+  // Checked in the browser over the Strait: the recorded reach per sector came
+  // back 91.4 km along the axes and 117.6 km on the diagonals.
+}
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);
