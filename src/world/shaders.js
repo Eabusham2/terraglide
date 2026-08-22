@@ -107,8 +107,19 @@ const TERRAIN_FRAG = /* glsl */ `
 
     float lambert = max(dot(n, uSunDir), 0.0);
     // Soft wrap keeps shaded slopes readable instead of crushing them to black.
+    //
+    // And deliberately gentle, which is the honest choice rather than the timid
+    // one: satellite imagery is a photograph taken in daylight, so the sun that
+    // lit this ground is already in the picture. Relighting it hard would count
+    // the same sun twice — south faces blazing, north faces black, and a
+    // hillside that looks nothing like the hillside.
     float wrapped = lambert * 0.62 + 0.38;
-    vec3 lit = albedo * (uAmbient + uSunColor * wrapped);
+    // How much of the sky dome this face can see. Flat ground sees all of it;
+    // a wall sees half. It is the difference between a valley floor and its
+    // sides, and it is the only shading here that the photograph does not
+    // already contain.
+    float sky = 0.5 + 0.5 * n.y;
+    vec3 lit = albedo * (uAmbient * (0.78 + 0.34 * sky) + uSunColor * wrapped);
 
     // Snow above the seasonal snow line, on ground that is not too steep.
     //
@@ -124,9 +135,61 @@ const TERRAIN_FRAG = /* glsl */ `
 
     lit = mix(lit, lit * vec3(0.46, 0.52, 0.7), uNight);
 
+    // Water.
+    //
+    // The sea here is the ground clamped to sea level, and the photograph over
+    // it is a real picture of that sea — so the photograph stays. What a
+    // picture taken from directly overhead cannot contain is what the surface
+    // does from *where you are*: the sky it reflects at a grazing angle and
+    // the sun it throws back at you. Both are physics rather than decoration,
+    // and between them they are most of why real water reads as a surface and
+    // not as a blue floor. The depth they fade in over is the surveyed depth,
+    // which is why an estuary shelves and a trench does not.
+    float depth = max(0.0, -vBed);
+    float wet = smoothstep(0.0, 3.0, depth);
+    if (wet > 0.001) {
+      vec3 view = normalize(cameraPosition - vWorld);
+      float facing = clamp(view.y, 0.0, 1.0);
+      // Schlick, with water's 2% reflectance straight down.
+      float fresnel = 0.02 + 0.98 * pow(1.0 - facing, 5.0);
+      vec3 halfV = normalize(view + uSunDir);
+      // A broad lobe: wind roughens the surface, so the sun comes back as a
+      // path across the water rather than as one point of light.
+      float glint = pow(max(halfV.y, 0.0), 90.0);
+      vec3 surface = mix(lit, uFogColor * 1.06, fresnel * 0.85);
+      surface += uSunColor * glint * 0.5 * (1.0 - uNight);
+      // Deep water is darker and bluer. Shallow water over sand is not.
+      surface *= mix(vec3(1.0), vec3(0.74, 0.85, 1.0), smoothstep(2.0, 280.0, depth) * 0.5);
+      lit = mix(lit, surface, wet);
+    }
+
     if (uFogEnabled > 0.5) {
-      float f = 1.0 - exp(-pow(vDist * uFogDensity, 2.0));
-      lit = mix(lit, uFogColor, clamp(f, 0.0, 1.0));
+      // Aerial perspective, not a distance fade.
+      //
+      // Haze is air, and air thins with height — about half as dense every
+      // kilometre. Fading purely on distance means a peak twenty kilometres
+      // off is as milky as the valley floor beside it, when in life the peak
+      // stands clear above the haze and the valley is lost in it. Both ends of
+      // the ray matter: flying at four thousand metres you are looking through
+      // far less air than someone standing on the beach below.
+      //
+      // This is the mean density along the ray, which is the exact integral of
+      // exp(-h/H) between the two heights, and it costs two exponentials.
+      const float SCALE_HEIGHT = 1400.0;
+      float lowH = max(0.0, min(cameraPosition.y, vHeight));
+      float highH = max(0.0, max(cameraPosition.y, vHeight));
+      float rise = highH - lowH;
+      float density = rise < 1.0
+        ? exp(-lowH / SCALE_HEIGHT)
+        : (exp(-lowH / SCALE_HEIGHT) - exp(-highH / SCALE_HEIGHT)) * SCALE_HEIGHT / rise;
+      float f = 1.0 - exp(-pow(vDist * uFogDensity * density, 2.0));
+      // Haze scatters the sun forward, so it is brighter looking towards it
+      // and cooler looking away — which is most of why a real horizon reads as
+      // distance rather than as a grey wall.
+      vec3 toPoint = normalize(vWorld - cameraPosition);
+      float towardsSun = max(dot(toPoint, uSunDir), 0.0);
+      vec3 haze = mix(uFogColor, uSunColor * 1.08, pow(towardsSun, 5.0) * 0.45 * (1.0 - uNight));
+      lit = mix(lit, haze, clamp(f, 0.0, 1.0));
     }
 
     gl_FragColor = vec4(lit, 1.0);
