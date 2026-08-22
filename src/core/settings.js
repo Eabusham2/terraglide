@@ -1,4 +1,5 @@
 import { Emitter } from './events.js';
+import { defaultUnits } from './units.js';
 import { readJSON, removeKey, writeJSON } from './storage.js';
 
 /**
@@ -109,7 +110,7 @@ export const DEFAULT_SETTINGS = {
   playerHeightM: 1.98, // 6 ft 6 in
 
   /* world / exploration */
-  units: 'metric',
+  units: defaultUnits(),
   exploreSeas: false,
   /** How far out to sea a random teleport may drop you, in km. Default: no limit. */
   seaDistanceKm: 501,

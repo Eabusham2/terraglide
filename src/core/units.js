@@ -1,3 +1,32 @@
+/**
+ * Which units to start in.
+ *
+ * Three countries do not use the metric system for everyday distance — the
+ * United States, Liberia and Myanmar — and the United Kingdom still measures
+ * road distance in miles. Everywhere else is metric. The browser already knows
+ * which one you are in, so asking it is better than picking one and making
+ * half the world change it.
+ *
+ * Only ever the starting value: once you set the units yourself, that is what
+ * is stored and this is not consulted again.
+ */
+export function defaultUnits() {
+  try {
+    const locales = navigator.languages?.length ? navigator.languages : [navigator.language];
+    for (const tag of locales) {
+      if (!tag) continue;
+      const region = new Intl.Locale(tag).maximize().region;
+      if (region) return IMPERIAL_REGIONS.has(region) ? 'imperial' : 'metric';
+    }
+  } catch {
+    /* No Intl.Locale, or a tag it will not parse. Metric is the safer guess. */
+  }
+  return 'metric';
+}
+
+/** Regions that measure everyday distance in feet and miles. */
+const IMPERIAL_REGIONS = new Set(['US', 'GB', 'LR', 'MM']);
+
 const M_PER_FT = 0.3048;
 const M_PER_MI = 1609.344;
 

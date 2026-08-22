@@ -37,7 +37,6 @@ export class Minimap {
     this.overlay = document.createElement('div');
     this.overlay.className = 'minimap-overlay';
     this.overlay.innerHTML = `
-      <span class="minimap-north">N</span>
       <div class="minimap-scale"><i></i><span>—</span></div>
       <div class="minimap-zoom">
         <button type="button" data-zoom="1" title="Zoom in">+</button>
@@ -52,7 +51,6 @@ export class Minimap {
     this.scaleLabel = this.overlay.querySelector('.minimap-scale span');
     this.scaleBar = this.overlay.querySelector('.minimap-scale i');
     this.zoomLabel = this.overlay.querySelector('.minimap-z');
-    this.northLabel = this.overlay.querySelector('.minimap-north');
     this.hintKey = this.overlay.querySelector('.minimap-hint kbd');
     const refreshHint = () => {
       this.hintKey.textContent = keybinds.labelFor('worldMap');
@@ -176,6 +174,9 @@ export class Minimap {
     this.scaleBar.style.width = `${barPx}px`;
     this.scaleLabel.textContent = formatDistance(mpp * barPx, settings.get('units'), 0);
     this.zoomLabel.textContent = `z${zoom}`;
-    this.northLabel.style.transform = `rotate(${rotation}rad)`;
+    // One north marker, not two. There used to be an HTML "N" pinned over the
+    // corner as well as the compass the canvas draws, so a rotated minimap had
+    // two of them disagreeing about which way north was — the HTML one turned
+    // with the map, the drawn one stayed with the compass.
   }
 }

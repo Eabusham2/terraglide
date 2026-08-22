@@ -67,6 +67,14 @@ const REBUILD_CEILING = 48;
  * of texel density side by side is the patchwork.
  */
 const STANDIN_REFRESHES = 2;
+/**
+ * How far along an edge to look when deciding how deep that point's skirt has
+ * to be, in grid samples. A neighbour one level coarser straightens two of our
+ * cells into one, two levels coarser straightens four; four either way covers
+ * both with room to spare, and costs nothing where the ground is level because
+ * a flat window still measures zero.
+ */
+const SKIRT_REACH = 4;
 const LOD_HYSTERESIS_IN = 0.88;
 const LOD_HYSTERESIS_OUT = 1.12;
 
@@ -866,25 +874,57 @@ export class Terrain {
 
     const cell = size / (grid - 1);
     // The skirt only has to be as deep as the crack it hides, and the crack is
-    // bounded by how much the surface can differ between two levels of detail
-    // *here* — which is the relief, not the tile's width. A flat tile has no
-    // crack to hide, and a hundred-metre curtain hanging off every edge of it
-    // is a grid of dark lines across a calm sea, seen almost edge-on from
-    // above. Over the Alps the same formula still gives the full skirt.
-    const relief = maxY - minY;
-    const skirt = clamp(relief * 0.6 + 1, 1, Math.max(12, size * 0.02));
+    // bounded by how much this tile's surface can differ from a neighbour at
+    // another level of detail *along the edge the two of them share* — which is
+    // that edge's own relief, since both sample the same profile and the
+    // coarser one only straightens it.
+    //
+    // Sizing every edge by the whole tile's relief, or giving each one a metre
+    // of curtain "just in case", hangs a wall off the flat sea. Seen almost
+    // edge-on from a thousand metres up those walls are exactly the dotted grid
+    // that used to lie over the water — 211 stray dark pixels in a patch of
+    // open sea with them, 15 without. A level edge has no crack to hide, so it
+    // gets no curtain. The depth is worked out separately for every point along
+    // every edge rather than once per tile, so the seaward half of a coastal
+    // tile's edge is bare while the half that runs up the headland keeps its
+    // full curtain. Over the Alps every point has relief around it, so the
+    // skirt there is the same depth it always was.
+    const cap = Math.max(12, size * 0.02);
+    const edgeDrop = (at) => {
+      const line = new Float32Array(grid);
+      for (let i = 0; i < grid; i++) line[i] = heights[at(i)];
+      const drops = new Float32Array(grid);
+      for (let i = 0; i < grid; i++) {
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (let j = Math.max(0, i - SKIRT_REACH); j <= Math.min(grid - 1, i + SKIRT_REACH); j++) {
+          if (line[j] < lo) lo = line[j];
+          if (line[j] > hi) hi = line[j];
+        }
+        drops[i] = clamp((hi - lo) * 0.6, 0, cap);
+      }
+      return drops;
+    };
+    const skirtTop = edgeDrop((i) => i);
+    const skirtBottom = edgeDrop((i) => (grid - 1) * grid + i);
+    const skirtLeft = edgeDrop((i) => i * grid);
+    const skirtRight = edgeDrop((i) => i * grid + grid - 1);
 
     for (let vy = 0; vy < verts; vy++) {
       const gy = clamp(vy - 1, 0, grid - 1);
-      const edgeY = vy === 0 || vy === verts - 1;
       for (let vx = 0; vx < verts; vx++) {
         const gx = clamp(vx - 1, 0, grid - 1);
-        const edgeX = vx === 0 || vx === verts - 1;
         const i = (vy * verts + vx) * 3;
         const h = heights[gy * grid + gx];
 
+        let drop = 0;
+        if (vy === 0) drop = Math.max(drop, skirtTop[gx]);
+        if (vy === verts - 1) drop = Math.max(drop, skirtBottom[gx]);
+        if (vx === 0) drop = Math.max(drop, skirtLeft[gy]);
+        if (vx === verts - 1) drop = Math.max(drop, skirtRight[gy]);
+
         positions[i] = gx * cell;
-        positions[i + 1] = edgeX || edgeY ? h - skirt : h;
+        positions[i + 1] = h - drop;
         positions[i + 2] = gy * cell;
         beds[vy * verts + vx] = bedHeights[gy * grid + gx];
 

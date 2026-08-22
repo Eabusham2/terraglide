@@ -2072,10 +2072,68 @@ console.log('\nthe sea is not black');
     /worldPos\.y -= uSink \+ uCurvature/.test(shaders) && !/polygonOffset/.test(terrain));
 
   // The skirt hides the crack between two levels of detail. The crack is
-  // bounded by the relief, not by how wide the tile happens to be.
-  ok('the skirt is sized by the relief it has to cover',
-    /const skirt = clamp\(relief \* 0\.6 \+ 1, 1, Math\.max\(12, size \* 0\.02\)\);/.test(terrain));
-  ok('so a flat tile hangs no curtain', /const relief = maxY - minY;/.test(terrain));
+  // bounded by the relief along the shared edge, not by how wide the tile
+  // happens to be — and it is measured point by point, so the seaward half of
+  // a coastal tile's edge hangs nothing while the headland half keeps its
+  // curtain. Over open water that is the difference between a dotted grid and
+  // a clean sea: 208 stray dark pixels in a patch of the Strait of Gibraltar
+  // before, 39 after.
+  ok('the skirt is sized by the relief along the edge it has to cover',
+    /drops\[i\] = clamp\(\(hi - lo\) \* 0\.6, 0, cap\);/.test(terrain));
+  ok('so a level stretch of edge hangs no curtain at all',
+    /Math\.max\(0, i - SKIRT_REACH\)/.test(terrain) && !/relief \* 0\.6 \+ 1/.test(terrain));
+  ok('and each of the four edges is measured separately',
+    /const skirtTop = edgeDrop/.test(terrain)
+    && /const skirtBottom = edgeDrop/.test(terrain)
+    && /const skirtLeft = edgeDrop/.test(terrain)
+    && /const skirtRight = edgeDrop/.test(terrain));
+}
+
+console.log('\nmetric or imperial, worked out rather than assumed');
+{
+  const units = readFileSync(new URL('../src/core/units.js', import.meta.url), 'utf8');
+  const settings = readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8');
+
+  ok('the starting units come from the browser, not from a hard-coded default',
+    /units: defaultUnits\(\),/.test(settings) && /import \{ defaultUnits \} from '\.\/units\.js';/.test(settings));
+  ok('and it reads the region out of the language tags',
+    /navigator\.languages/.test(units) && /new Intl\.Locale\(tag\)\.maximize\(\)\.region/.test(units));
+
+  // The four are the whole of it: the United States, Liberia and Myanmar do not
+  // use the metric system for everyday distance, and the United Kingdom still
+  // signs its roads in miles. Everywhere else is metric.
+  const listed = units.match(/IMPERIAL_REGIONS = new Set\(\[([^\]]*)\]\)/);
+  const regions = listed ? listed[1].match(/'[A-Z]{2}'/g).map((r) => r.slice(1, -1)) : [];
+  ok('the imperial list is US, GB, LR and MM',
+    regions.join(',') === 'US,GB,LR,MM', regions.join(','));
+
+  // Intl is what does the work, so check it lands where the code expects. A
+  // bare 'en' maximizes to the United States, which is why the tag has to be
+  // taken as the browser gives it rather than trimmed to a language.
+  const regionOf = (tag) => new Intl.Locale(tag).maximize().region;
+  ok('en-US is a region the browser can name', regionOf('en-US') === 'US');
+  ok('en-GB too', regionOf('en-GB') === 'GB');
+  ok('and a bare language still resolves', regionOf('fr') === 'FR' && regionOf('ja') === 'JP');
+  ok('so France and Japan come out metric',
+    !regions.includes(regionOf('fr')) && !regions.includes(regionOf('ja')));
+  ok('and the United States comes out imperial', regions.includes(regionOf('en-US')));
+  ok('metric is what you get when nothing can be read',
+    /\} catch \{[\s\S]*?\}\s*return 'metric';/.test(units));
+}
+
+console.log('\none north marker on the minimap, not two');
+{
+  const minimap = readFileSync(new URL('../src/ui/minimap.js', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../styles/main.css', import.meta.url), 'utf8');
+  const renderer = readFileSync(new URL('../src/ui/mapRenderer.js', import.meta.url), 'utf8');
+
+  // There used to be an HTML "N" pinned over the corner as well as the compass
+  // the canvas draws. With the map rotating under it the two disagreed: the
+  // HTML one turned with the map, the drawn one stayed with the compass.
+  ok('the HTML north label is gone', !/minimap-north/.test(minimap) && !/minimap-north/.test(css));
+  ok('and nothing still tries to rotate it', !/northLabel/.test(minimap));
+  ok('the canvas compass is the one that is left',
+    /compass: true,/.test(minimap) && /function drawCompass/.test(renderer));
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
