@@ -1,5 +1,6 @@
 import { Emitter } from '../core/events.js';
 import { settings } from '../core/settings.js';
+import { appleMaps } from './appleMaps.js';
 
 /**
  * Reverse geocoding for the address readout, plus forward search for the world
@@ -85,6 +86,15 @@ export class Geocoder extends Emitter {
   }
 
   async reverse(lat, lon) {
+    // Apple first where a Maps token is pasted: its addresses are the ones you
+    // would read in Apple Maps, and the Server API answers a browser directly.
+    if (appleMaps.available) {
+      const place = await appleMaps.reverse(lat, lon);
+      if (place) return place;
+      // Apple knows the world but has nothing addressable here. That is an
+      // answer, not a failure, and it is the same answer Nominatim gives.
+      return { label: 'Unmapped location', detail: 'Nothing addressable here', source: 'apple' };
+    }
     const key = settings.get('googleKey');
     if (key) {
       const url =
@@ -126,6 +136,7 @@ export class Geocoder extends Emitter {
   async search(query, limit = 6) {
     const trimmed = query.trim();
     if (!trimmed) return [];
+    if (appleMaps.available) return appleMaps.search(trimmed, limit);
     const key = settings.get('googleKey');
     if (key) {
       const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(trimmed)}&key=${encodeURIComponent(key)}`;

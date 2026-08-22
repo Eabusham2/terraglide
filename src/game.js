@@ -1342,7 +1342,11 @@ export class Game {
     if (this.imagerySource?.attribution) parts.push(this.imagerySource.attribution);
     if (this.elevationSource?.attribution) parts.push(this.elevationSource.attribution);
     if (settings.get('buildings')) parts.push('Buildings © OpenStreetMap contributors');
-    if (settings.get('addressLookup') && !settings.get('googleKey')) parts.push('Geocoding: Nominatim');
+    if (settings.get('addressLookup')) {
+      // Whoever's addresses you are actually reading gets the credit.
+      if (settings.get('appleMapsToken').trim()) parts.push('Geocoding: Apple Maps');
+      else if (!settings.get('googleKey')) parts.push('Geocoding: Nominatim');
+    }
     return parts.join(' · ');
   }
 

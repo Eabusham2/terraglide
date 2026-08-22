@@ -2001,5 +2001,46 @@ console.log('\nno seam where two zooms meet');
     /uHasTexture\.value = 0;[\s\S]{0,700}requestAncestors\(node\.tile, priority\)/.test(terrain));
 }
 
+console.log('\nApple Maps, for the parts Apple actually publishes');
+{
+  const { appleMaps } = await import('../src/geo/appleMaps.js');
+  const { settings: S } = await import('../src/core/settings.js');
+  const before = S.get('appleMapsToken');
+
+  S.set('appleMapsToken', '');
+  ok('nothing happens without a token', !appleMaps.available);
+  let threw = '';
+  await appleMaps.accessToken().catch((e) => { threw = String(e.message); });
+  ok('and asking for one says so plainly rather than hanging',
+    /no Apple Maps token/.test(threw), threw);
+
+  S.set('appleMapsToken', '  eyJhbGciOiJFUzI1NiJ9.test  ');
+  ok('a pasted token is trimmed before use', appleMaps.token === 'eyJhbGciOiJFUzI1NiJ9.test');
+  ok('and switches the source on', appleMaps.available);
+
+  // Minting is cached against the token it was minted from, so replacing the
+  // token in Settings cannot leave a stale access token in play.
+  appleMaps.access = 'stale';
+  appleMaps.mintedFrom = 'a-different-token';
+  appleMaps.expires = performance.now() + 1e6;
+  ok('a replaced token invalidates the access token it minted',
+    appleMaps.mintedFrom !== appleMaps.token);
+
+  S.set('appleMapsToken', before ?? '');
+  appleMaps.access = '';
+  appleMaps.mintedFrom = '';
+  appleMaps.expires = 0;
+
+  const client = readFileSync(new URL('../src/geo/appleMaps.js', import.meta.url), 'utf8');
+  ok('the Server API is called, not a tile endpoint that does not exist',
+    /https:\/\/maps-api\.apple\.com\/v1/.test(client) &&
+    !/tile|satellite|elevation/i.test(client.replace(/\/\*[\s\S]*?\*\//g, '')));
+  const geo = readFileSync(new URL('../src/geo/geocode.js', import.meta.url), 'utf8');
+  ok('and it takes precedence over the keyless fallback when present',
+    /if \(appleMaps\.available\)/.test(geo));
+  ok('the credit follows whoever answered',
+    /Geocoding: Apple Maps/.test(readFileSync(new URL('../src/game.js', import.meta.url), 'utf8')));
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);
