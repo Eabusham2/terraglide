@@ -87925,20 +87925,6 @@ const IMAGERY_PROVIDERS = [
     attribution: '© Mapbox © Maxar',
   },
   {
-    id: 'osm',
-    label: 'OpenStreetMap (map, not satellite)',
-    kind: 'xyz',
-    needsKey: null,
-    maxZoom: 19,
-    template: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '© OpenStreetMap contributors',
-    // Not offered as flight imagery: a drawn map draped over terrain looks
-    // like a mistake. It is still used, though — it is the layer the maps
-    // draw unexplored ground with, which is what a street map is good for.
-    hidden: true,
-    note: 'Drawn map rather than photography. Used for unexplored ground on the maps.',
-  },
-  {
     id: 'esri-street',
     label: 'Esri World Street Map',
     kind: 'xyz',
@@ -87947,12 +87933,14 @@ const IMAGERY_PROVIDERS = [
     template:
       'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
     attribution: 'Map \u00a9 Esri',
-    // Same job as the OpenStreetMap layer above and offered for the same
-    // reason everything else here has a second option: OSM's raster server is
-    // one community machine with a fair-use policy, and when it says no the
-    // maps should still have a street map to draw.
+    // The drawn map the flat maps show for ground you have not seen. It used
+    // to sit behind OpenStreetMap's own raster server, and that entry is gone:
+    // tile.openstreetmap.org is one community machine with a fair-use policy
+    // that this is not covered by, and asked from a browser on a third-party
+    // site it answers HTTP 200 with a picture that says "Access blocked"
+    // — which the game would have drawn as if it were a map.
     hidden: true,
-    note: 'Drawn map. The standby for unexplored ground when the OSM tile server is busy.',
+    note: 'Drawn map rather than photography. What the flat maps show for ground you have not seen.',
   },
   {
     id: 'openfreemap',
@@ -88160,6 +88148,18 @@ class TileSource {
   async prepare() {
     if (this.state === 'ready') return;
     if (this.preparing) return this.preparing;
+    // A handshake that failed is not retried until its backoff is up.
+    //
+    // The streamer calls this from `dispatch` for every queued tile whose
+    // source is not ready, which is every tile on screen, every frame. So a
+    // Google key that fails `createSession` — wrong key, API not enabled,
+    // quota gone — used to re-run the handshake continuously for as long as the
+    // game was open, against an endpoint that is metered and rate-limited. The
+    // wait doubles from two seconds to a minute and resets the moment one
+    // succeeds, so a network that comes back is picked up quickly and a key
+    // that is simply wrong is asked about once a minute instead of sixty times
+    // a second.
+    if (this.state === 'error' && Date.now() < (this.retryAt ?? 0)) return;
 
     if (this.descriptor.needsKey && !this.key) {
       this.state = 'needs-key';
@@ -88176,9 +88176,13 @@ class TileSource {
         else if (this.descriptor.kind === 'ion') await this.prepareIon();
         this.state = 'ready';
         this.error = '';
+        this.handshakeFailures = 0;
       } catch (err) {
         this.state = 'error';
         this.error = err instanceof Error ? err.message : String(err);
+        this.handshakeFailures = (this.handshakeFailures ?? 0) + 1;
+        this.retryAt = Date.now()
+          + Math.min(60000, 2000 * Math.pow(2, this.handshakeFailures - 1));
       } finally {
         this.preparing = null;
       }

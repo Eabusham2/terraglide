@@ -833,7 +833,7 @@ console.log('\nProviders and detail budgets');
 
   // Drawn maps are not flight imagery: a street map draped over terrain looks
   // like a mistake, so they are offered to the flat maps only.
-  for (const id of ['osm', 'esri-street', 'openfreemap']) {
+  for (const id of ['esri-street', 'openfreemap']) {
     ok(`${id} is kept out of the flight-imagery menu`, byId[id]?.hidden === true);
   }
 
@@ -841,6 +841,23 @@ console.log('\nProviders and detail budgets');
   // finished processing answers with a transparent tile — a hole in the world
   // rather than an error. The template is dated a few days back for that.
   const { gibsDate } = await import('../src/tiles/providers.js');
+  // The streamer calls prepare() for every queued tile whose source is not
+  // ready — every tile on screen, every frame. A handshake that failed used to
+  // be retried on every one of those, so a Google key that cannot open a
+  // session hammered a metered endpoint for as long as the game was open.
+  const providerSrc = readFileSync(new URL('../src/tiles/providers.js', import.meta.url), 'utf8');
+  ok('a failed handshake waits before it is tried again',
+    /if \(this\.state === 'error' && Date\.now\(\) < \(this\.retryAt \?\? 0\)\) return;/.test(providerSrc));
+  ok('and the wait doubles, capped at a minute',
+    /Math\.min\(60000, 2000 \* Math\.pow\(2, this\.handshakeFailures - 1\)\)/.test(providerSrc));
+  ok('and resets as soon as one succeeds',
+    /this\.handshakeFailures = 0;/.test(providerSrc));
+
+  // tile.openstreetmap.org answers a browser on a third-party site with HTTP
+  // 200 and a picture reading "Access blocked", which is worse than an error
+  // because the game would draw it. It is not in the list at all.
+  ok('OpenStreetMap raster tiles are not fetched', byId.osm === undefined);
+
   ok('the GIBS template carries a date', /\{date\}/.test(byId.gibs?.template ?? ''));
   const lag = (Date.now() - Date.parse(`${gibsDate()}T00:00:00Z`)) / 86400000;
   ok('and the date asked for is safely in the past', lag >= 2.5 && lag <= 4.5, `${lag.toFixed(1)} days`);
