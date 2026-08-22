@@ -30,6 +30,8 @@ import { createTerrainMaterial } from './shaders.js';
  */
 const MAX_DRAWN_TILES = { low: 520, medium: 760, high: 1100, ultra: 1500 };
 const SEA_LEVEL = 0;
+/** Mean Earth radius, for the geometric horizon. */
+const EARTH_RADIUS_M = 6371000;
 /**
  * How much further than the render distance a built tile is kept before it may
  * be thrown away. Turning round used to mean rebuilding everything behind you
@@ -231,6 +233,9 @@ export class Terrain {
     const detail = clamp(settings.get('detailLimit') / 100, 0.25, 1);
     const ceiling = settings.get('maxTileZoom') - Math.round((1 - detail) * 4);
     const maxZoom = Math.min(ceiling, this.streamer.maxUsefulZoom);
+    // Uses eyeAboveGround, which is set from the camera below; on the very
+    // first frame it is undefined and the setting stands, which is right.
+    this.eyeAboveGround = Math.max(0, camera.position.y - this.heightAt(camera.position.x, camera.position.z));
     const renderDistance = this.renderDistance;
     // Distant mode: keep drawing past the render distance, but only over
     // country you have already flown across. Ground you have never seen stops
@@ -340,9 +345,26 @@ export class Terrain {
     this.stats.maxZoom = maxZoom;
   }
 
-  /** Metres of ground drawn around the camera, and how far to keep it after. */
+  /**
+   * Metres of ground drawn around the camera.
+   *
+   * However far you can actually see, within reason. Standing on the ground
+   * the horizon is five kilometres off and the setting governs; two thousand
+   * metres up it is a hundred and fifty, and drawing to the setting anyway
+   * stops the world at twenty-four — which puts a flat pale band of haze
+   * across the view where mountains should be, with clear sky above it. That
+   * band is the wall at the edge of the loaded world, standing a sixth of the
+   * way to the horizon.
+   *
+   * Reaching further is much cheaper than it sounds: a quadtree spends about
+   * the same on each ring however far out it is, because the rings coarsen
+   * with distance. Six times the setting is the ceiling, so the setting still
+   * means something.
+   */
   get renderDistance() {
-    return settings.get('renderDistanceKm') * 1000;
+    const setting = settings.get('renderDistanceKm') * 1000;
+    const horizon = Math.sqrt(2 * EARTH_RADIUS_M * Math.max(1, this.eyeAboveGround ?? 0));
+    return clamp(horizon, setting, setting * 6);
   }
 
   /**

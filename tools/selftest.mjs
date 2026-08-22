@@ -1959,16 +1959,21 @@ console.log('\ngraded as one photograph');
   const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
   const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
   const weather = readFileSync(new URL('../src/world/weather.js', import.meta.url), 'utf8');
-  const { EXPOSURE } = await import('../src/world/shaders.js');
-
-  ok('the ground goes through a film curve rather than straight to the screen',
-    /gl_FragColor = vec4\(toneMap\(lit\), 1\.0\);/.test(shaders));
-  ok('and so does the sky, so the horizon is one picture',
-    /sky \*= uExposure;/.test(shaders));
-  ok('and the renderer grades its own materials the same way',
-    /ACESFilmicToneMapping/.test(game) && /toneMappingExposure = EXPOSURE/.test(game));
-  ok('off one shared exposure, not three copies of a number',
-    typeof EXPOSURE === 'number' && EXPOSURE > 0 && EXPOSURE < 3, String(EXPOSURE));
+  // No film curve anywhere. Every colour in this scene is already
+  // display-referred — the imagery is a finished photograph, the sky colours
+  // are authored as the colours they should be — so a tone curve only grades
+  // a picture that was graded once already. Measured: no combination of
+  // lighting gain and exposure returns the source within seventeen levels,
+  // because the curve crushes shadows and compresses highlights by design.
+  ok('the photograph is not re-graded on its way to the screen',
+    /gl_FragColor = vec4\(lit, 1\.0\);/.test(shaders) && !/toneMap\(/.test(shaders));
+  ok('and the renderer does not grade it either',
+    /toneMapping = THREE\.NoToneMapping/.test(game) && !/ACESFilmic/.test(game));
+  ok('relief modulates the photograph rather than relighting it',
+    /float relief = \(0\.82 \+ 0\.18 \* wrapped\) \* \(0\.94 \+ 0\.06 \* sky\);/.test(shaders) &&
+    /vec3 lit = albedo \* relief \* shade;/.test(shaders));
+  ok('and ground with no photograph still gets the full relief treatment',
+    /vec3 bare = groundNotLoaded\(flatness\)/.test(shaders));
 
   // The shadow has to be cast by the cloud that is actually drawn, or it is
   // just a second pattern moving over the ground on its own.

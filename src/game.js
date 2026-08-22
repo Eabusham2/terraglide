@@ -30,7 +30,7 @@ import { createTileWorker } from './tiles/workerHost.js';
 import { Buildings } from './world/buildings.js';
 import { Panorama } from './world/panorama.js';
 import { pickRandomDestination } from './world/rtp.js';
-import { EXPOSURE, createSharedUniforms } from './world/shaders.js';
+import { createSharedUniforms } from './world/shaders.js';
 import { EdgeWall } from './world/edgeWall.js';
 import { Sky } from './world/sky.js';
 import { Terrain } from './world/terrain.js';
@@ -97,14 +97,12 @@ export class Game {
     });
     this.renderer.setClearColor(0x0d0f12, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    // The same filmic curve our own shaders apply, so the buildings and the
-    // player are graded exactly like the ground they stand on. Without it,
-    // everything went from the arithmetic straight to the screen — highlights
-    // clipped flat with nowhere to roll off, which is most of what makes a
-    // render read as a photograph pasted onto geometry rather than a
-    // photograph of somewhere.
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = EXPOSURE;
+    // No tone curve. Everything in this scene is already display-referred —
+    // the imagery is a finished photograph, the sky colours are authored as
+    // the colours they should be, the fog colour is taken from the sky. There
+    // is no high-dynamic-range content here for a film curve to bring into
+    // range, so applying one only grades a picture that was already graded.
+    this.renderer.toneMapping = THREE.NoToneMapping;
 
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.FogExp2(0xaebccd, 1 / 26000);
