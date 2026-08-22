@@ -173,11 +173,14 @@ firework burning while it does holds it up longer.
 - **Seasonal temperature**, top left: the average temperature for the season you
   are standing in, from latitude, elevation, time of year and how much land
   surrounds you. It is a climate model, not a weather feed, and says so.
-- **Minimap**, top right: satellite imagery for ground you have explored, and
-  the drawn OpenStreetMap street map for ground you have not — so the whole
-  world is legible, with named roads and coastlines where you have not been,
-  and photography where you have. It fills in behind you as you travel. Zoom
-  with `=`/`-` or the wheel, click it to open the big map.
+- **Minimap**, top right: satellite imagery for ground you have seen, and a
+  drawn street map for ground you have not — so the whole world is legible,
+  with named roads and coastlines where you have not been, and photography
+  where you have. The boundary is what you could actually see from where you
+  were, worked out from the geometric horizon at your height rather than from
+  the square you were standing in, and it is feathered so it reads as a shape
+  you flew rather than a staircase of tiles. It fills in behind you as you
+  travel. Zoom with `=`/`-` or the wheel, click it to open the big map.
 - **World map** (`G`): the same thing at any zoom, plus search, your waypoints,
   your drawn paths, and how much of the world you have covered. Drag to pan,
   wheel to zoom.
