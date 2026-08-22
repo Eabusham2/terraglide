@@ -31,7 +31,6 @@ import { Buildings } from './world/buildings.js';
 import { Panorama } from './world/panorama.js';
 import { pickRandomDestination } from './world/rtp.js';
 import { createSharedUniforms } from './world/shaders.js';
-import { Scatter } from './world/scatter.js';
 import { EdgeWall } from './world/edgeWall.js';
 import { Sky } from './world/sky.js';
 import { Terrain } from './world/terrain.js';
@@ -126,8 +125,6 @@ export class Game {
     this.sky = new Sky(this.scene, this.shared);
     this.edgeWall = new EdgeWall(this.scene, this.shared);
     this.weather = new Weather(this.scene);
-    this.scatter = new Scatter({ scene: this.scene, terrain: this.terrain, frame: this.frame });
-    this.scatter.loadTextures();
     /** Real photogrammetry, loaded on demand — see loadWorld3D(). */
     this.tiles3d = null;
     this.buildings = new Buildings({ scene: this.scene, frame: this.frame, terrain: this.terrain });
@@ -695,7 +692,7 @@ export class Game {
     this.weather.update(this.camera, dt, this.sky);
 
     // Real photogrammetry first, where it is switched on and reaching Google.
-    // Where its tiles are drawn, our own terrain, scenery and extruded
+    // Where its tiles are drawn, our own terrain and extruded
     // footprints step aside rather than fighting them for the same ground.
     if (settings.get('world3d') !== 'off' && !this.tiles3d) this.loadWorld3D();
     if (this.tiles3d) this.tiles3d.update(this.camera, player);
@@ -727,9 +724,6 @@ export class Game {
 
     // Trees, scrub and rock, in the places OpenStreetMap says they are. Where
     // it has nothing mapped, nothing is drawn.
-    if (!photoreal) this.scatter.update(this.camera, player);
-    else this.scatter.group.visible = false;
-
     // Nothing to extrude where Google is already handing us the real thing:
     // asking Overpass for footprints we are not going to draw is a request
     // against a shared community endpoint for nothing at all.
@@ -980,7 +974,6 @@ export class Game {
     this.player.position.set(0, y, 0);
     this.terrain.rebase();
     this.buildings.rebase();
-    this.scatter.rebase();
     this.panorama.rebase();
     this.camera.position.set(0, y + this.player.eyeHeight, 0);
     if (this.rig.isFreecam) this.rig.freecam.position.set(0, y + 40, 0);
@@ -998,7 +991,6 @@ export class Game {
     this.frame.setAnchor(lat, lon);
     this.terrain.rebase();
     this.buildings.rebase();
-    this.scatter.rebase();
     this.panorama.clear();
     this.streamer.clear();
 
@@ -1319,8 +1311,6 @@ export class Game {
     } else if (this.notice3d) {
       parts.push(this.notice3d);
     }
-    const scenery = this.scatter.status();
-    if (scenery) parts.push(scenery);
     if (this.debugVisible) {
       const structures = this.buildings.status();
       if (structures) parts.push(structures);
@@ -1357,7 +1347,7 @@ export class Game {
       `draws ${this.renderer.info.render.calls}  tris ${(this.renderer.info.render.triangles / 1000).toFixed(0)}k`,
       `tiles drawn ${t.drawn}  nodes ${t.nodes}  z ${t.baseZoom}-${t.maxZoom}`,
       `imagery cache ${this.streamer.entries.size}  loading ${this.streamer.stats.pending}  failed ${this.streamer.stats.failed}`,
-      `elevation tiles ${this.elevation.tiles.size}  buildings ${this.buildings.stats.buildings}  scenery ${this.scatter.stats.placed} from ${this.scatter.stats.areas} areas / ${this.scatter.stats.points} trees`,
+      `elevation tiles ${this.elevation.tiles.size}  buildings ${this.buildings.stats.buildings}`,
       this.tiles3d ? `3d tiles ${this.tiles3d.stats.drawn} drawn / ${this.tiles3d.stats.loaded} loaded / ${this.tiles3d.stats.failed} failed` : '3d tiles off',
       `pos ${player.position.x.toFixed(1)}, ${player.position.y.toFixed(1)}, ${player.position.z.toFixed(1)}`,
       `geo ${player.lat.toFixed(5)}, ${player.lon.toFixed(5)}  ground ${player.groundHeight.toFixed(1)}m`,

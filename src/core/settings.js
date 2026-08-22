@@ -77,8 +77,6 @@ export const DEFAULT_SETTINGS = {
   fpsTarget: 60,
   fog: true,
   weather: true,
-  scenery: true,
-  sceneryFromImagery: true,
   maxTileZoom: 22,
   /**
    * Detail ceiling, as a percentage of the preset's own budgets.
@@ -151,7 +149,6 @@ export const GRAPHICS_PRESETS = {
     textureCacheSize: 320,
     anisotropy: 2,
     buildingRadiusM: 420,
-    sceneryRadiusM: 420,
     pixelRatioCap: 1,
     // What picking this preset also sets. A preset that only moved three
     // hidden numbers was not a preset, it was a hint — you could sit on "Low"
@@ -164,7 +161,6 @@ export const GRAPHICS_PRESETS = {
       maxTileZoom: 18,
       fog: true,
       weather: false,
-      scenery: false,
       buildings: false,
       streetLevel: false,
       world3dDetail: 'low',
@@ -177,7 +173,6 @@ export const GRAPHICS_PRESETS = {
     textureCacheSize: 560,
     anisotropy: 16,
     buildingRadiusM: 750,
-    sceneryRadiusM: 700,
     pixelRatioCap: 1.5,
     applies: {
       renderDistanceKm: 16,
@@ -187,7 +182,6 @@ export const GRAPHICS_PRESETS = {
       maxTileZoom: 20,
       fog: true,
       weather: true,
-      scenery: true,
       buildings: true,
       streetLevel: true,
       world3dDetail: 'medium',
@@ -200,7 +194,6 @@ export const GRAPHICS_PRESETS = {
     textureCacheSize: 900,
     anisotropy: 8,
     buildingRadiusM: 1200,
-    sceneryRadiusM: 1200,
     applies: {
       renderDistanceKm: 24,
       distantMode: true,
@@ -209,7 +202,6 @@ export const GRAPHICS_PRESETS = {
       maxTileZoom: 22,
       fog: true,
       weather: true,
-      scenery: true,
       buildings: true,
       streetLevel: true,
       world3dDetail: 'high',
@@ -227,7 +219,6 @@ export const GRAPHICS_PRESETS = {
     textureCacheSize: 1400,
     anisotropy: 16,
     buildingRadiusM: 1800,
-    sceneryRadiusM: 1900,
     pixelRatioCap: 3,
     applies: {
       renderDistanceKm: 64,
@@ -237,7 +228,6 @@ export const GRAPHICS_PRESETS = {
       maxTileZoom: 22,
       fog: true,
       weather: true,
-      scenery: true,
       buildings: true,
       streetLevel: true,
       world3dDetail: 'ultra',

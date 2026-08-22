@@ -27,7 +27,6 @@ import { stepGlide, stepRocket, rocketTicks, rocketPowerFor, TICK } from '../src
 import { Autopilot } from '../src/player/autopilot.js';
 import { UNLOCK_CODE, cheats } from '../src/core/cheats.js';
 import { resolvePlace } from '../src/ui/cheatPanel.js';
-import { classify, parseFeatures, pointInRing } from '../src/world/landcover.js';
 import {
   applyMatrix,
   boundingSphereOf,
@@ -306,7 +305,7 @@ console.log('\nNothing is generated');
   ok('the terrain generator is gone', !existsSync(new URL('../src/tiles/procedural.js', import.meta.url)));
   for (const file of [
     'tiles/elevation.js', 'tiles/streamer.js', 'tiles/tileJobs.js',
-    'ui/mapTiles.js', 'geo/water.js', 'world/scatter.js',
+    'ui/mapTiles.js', 'geo/water.js',
   ]) {
     ok(`${file} does not reach for a generator`, !/procedural/i.test(read(file)));
   }
@@ -430,61 +429,6 @@ console.log('\nauto-travel');
   player.onGround = true;
   auto.step(1 / 20, idle);
   ok('lets go once you are down', auto.active === false);
-}
-
-console.log('\nOpenStreetMap land cover');
-{
-  // What counts as what. These are the tags the scenery actually keys off.
-  ok('needleleaved wood is conifer', classify({ natural: 'wood', leaf_type: 'needleleaved' }).kind === 'conifer');
-  ok('broadleaved wood is broadleaf', classify({ natural: 'wood', leaf_type: 'broadleaved' }).kind === 'broadleaf');
-  ok('untyped forest is mixed', classify({ landuse: 'forest' }).kind === 'mixed');
-  ok('scrub is bush', classify({ natural: 'scrub' }).kind === 'bush');
-  ok('bare rock is rock', classify({ natural: 'bare_rock' }).kind === 'rock');
-  ok('scree is rock', classify({ natural: 'scree' }).kind === 'rock');
-  ok('orchards are planted closer', classify({ landuse: 'orchard' }).spacing === 10);
-  ok('a building is not scenery', classify({ building: 'yes' }) === null);
-  ok('an unrelated way is not scenery', classify({ highway: 'residential' }) === null);
-  ok('no tags at all is not scenery', classify({}) === null);
-
-  // A canned Overpass reply, shaped exactly as `out geom` returns one.
-  const response = {
-    elements: [
-      {
-        type: 'way',
-        id: 1,
-        tags: { natural: 'wood', leaf_type: 'needleleaved' },
-        geometry: [
-          { lat: 46.5, lon: 7.9 },
-          { lat: 46.5, lon: 7.91 },
-          { lat: 46.51, lon: 7.91 },
-          { lat: 46.51, lon: 7.9 },
-          { lat: 46.5, lon: 7.9 },
-        ],
-      },
-      { type: 'way', id: 2, tags: { building: 'house' }, geometry: [{ lat: 46.5, lon: 7.9 }, { lat: 46.5, lon: 7.901 }, { lat: 46.501, lon: 7.901 }, { lat: 46.5, lon: 7.9 }] },
-      { type: 'way', id: 3, tags: { natural: 'wood' }, geometry: [{ lat: 46.5, lon: 7.9 }, { lat: 46.5, lon: 7.901 }] },
-      { type: 'node', id: 4, lat: 46.505, lon: 7.905, tags: { natural: 'tree', leaf_type: 'broadleaved' } },
-      { type: 'node', id: 5, lat: 46.506, lon: 7.906, tags: { amenity: 'bench' } },
-    ],
-  };
-  const parsed = parseFeatures(response);
-  ok('the wood is picked up', parsed.areas.length === 1 && parsed.areas[0].kind === 'conifer', `${parsed.areas.length} areas`);
-  ok('the building is not', !parsed.areas.some((a) => a.id === 2));
-  ok('a two-point way is not an area', !parsed.areas.some((a) => a.id === 3));
-  ok('the mapped tree is picked up', parsed.points.length === 1 && parsed.points[0].lat === 46.505);
-  ok('a bench is not a tree', !parsed.points.some((p) => p.lat === 46.506));
-  ok('an empty response yields nothing', parseFeatures({ elements: [] }).areas.length === 0);
-  ok('a missing response yields nothing', parseFeatures(undefined).areas.length === 0);
-
-  // Point in polygon: a square, then an L that a naive test gets wrong.
-  const square = [0, 0, 100, 0, 100, 100, 0, 100];
-  ok('inside the square', pointInRing(square, 50, 50));
-  ok('outside the square', !pointInRing(square, 150, 50));
-  ok('outside on the other axis', !pointInRing(square, 50, -10));
-  const ell = [0, 0, 100, 0, 100, 40, 40, 40, 40, 100, 0, 100];
-  ok('inside the arm of the L', pointInRing(ell, 20, 80));
-  ok('in the notch of the L is outside', !pointInRing(ell, 80, 80), 'the bit an axis-aligned test gets wrong');
-  ok('inside the base of the L', pointInRing(ell, 80, 20));
 }
 
 console.log('\nearth-centred coordinates');
@@ -725,16 +669,16 @@ console.log('\nReal data first, invention last');
   ok('and the invented grey is only a placeholder',
     /placeholder|not arrived/.test(buildings));
 
-  const scatter = read('world/scatter.js');
-  ok('scenery prefers surveyed land cover', /parseFeatures|record\.areas/.test(scatter));
-  ok('and only reads the image where the survey is silent',
-    /placedNothing\(counts\)[\s\S]{0,160}fillFromImagery/.test(scatter));
-  ok('the imagery fallback can be turned off', /sceneryFromImagery/.test(scatter));
-
-  // Generated textures stay in the generated world; the player's kit is exempt
-  // because no provider publishes a photograph of your jacket.
-  ok('generated scenery textures are gated to the offline world',
-    /imageryProvider'\) === 'offline'/.test(scatter));
+  // Scenery is gone. The trees, scrub and rock were generated shapes on a
+  // hashed grid, planted wherever a survey — or, failing that, the colour of a
+  // pixel — suggested vegetation. Over Kansas farmland that is a forest to the
+  // horizon, and the grid it stands on is the pattern you could see through it.
+  // The photograph already shows the trees that are there.
+  ok('there is no generated scenery left to plant',
+    !existsSync(new URL('../src/world/scatter.js', import.meta.url)) &&
+    !existsSync(new URL('../src/world/landclass.js', import.meta.url)));
+  ok('and nothing still asks for it',
+    !/Scatter|scatter\./.test(read('game.js')) && !/scenery/.test(read('core/settings.js')));
 
   // Unmeasured ground reads as sea level and says so. It used to read as
   // invented relief, which is a different and much worse kind of wrong.
@@ -765,47 +709,8 @@ console.log('\nReal data first, invention last');
 
   // Photogrammetry, where a key allows it, replaces all of the above.
   const game = read('game.js');
-  ok('real 3D tiles take precedence over the game\'s own scenery',
-    /photoreal[\s\S]{0,120}scatter/.test(game));
-}
-
-// ---------------------------------------------------------------------------
-console.log('\nLand cover read off the photograph');
-{
-  const { classifyPixel, COVER, COVER_DENSITY, COVER_KIND } =
-    await import('../src/world/landclass.js');
-
-  // Where OSM has nothing, the aerial image is the second source. The rule it
-  // must never break: nothing grows where the picture says nothing grows.
-  const cases = [
-    ['dark forest canopy', [34, 64, 30], COVER.forest],
-    ['pine plantation', [28, 52, 34], COVER.forest],
-    ['pasture', [120, 148, 82], COVER.grass],
-    ['meadow', [138, 160, 96], COVER.grass],
-    ['grey rock', [128, 126, 122], COVER.rock],
-    ['scree', [150, 145, 138], COVER.rock],
-    ['ploughed earth', [140, 112, 78], COVER.rock],
-    ['deep water', [22, 44, 78], COVER.none],
-    ['shallow sea', [40, 90, 120], COVER.none],
-    ['snow', [236, 240, 244], COVER.none],
-    ['cloud', [228, 228, 230], COVER.none],
-    ['asphalt', [62, 62, 64], COVER.none],
-    ['dark asphalt', [48, 48, 50], COVER.none],
-    ['deep shadow', [18, 20, 22], COVER.none],
-  ];
-  for (const [label, [r, g, b], want] of cases) {
-    ok(`${label} reads as ${['nothing', 'grass', 'forest', 'rock'][want]}`,
-      classifyPixel(r, g, b) === want);
-  }
-
-  // The three that must never grow anything, stated as one invariant.
-  ok('water, snow and tarmac never grow anything',
-    [[22, 44, 78], [236, 240, 244], [55, 55, 57]]
-      .every(([r, g, b]) => COVER_DENSITY[classifyPixel(r, g, b)] === 0));
-
-  ok('forest is denser than scrub', COVER_DENSITY[COVER.forest] > COVER_DENSITY[COVER.grass]);
-  ok('each cover class plants something', [COVER.grass, COVER.forest, COVER.rock]
-    .every((c) => !!COVER_KIND[c]));
+  ok('real 3D tiles take precedence over the extruded footprints',
+    /photoreal[\s\S]{0,160}buildings\.setVisible/.test(game));
 }
 
 // ---------------------------------------------------------------------------
@@ -980,10 +885,6 @@ console.log('\nGenerated art stays where it belongs');
     .every((part) => !!manifest.kit?.[part]));
   ok('the two groups are kept apart', manifest.textures !== manifest.kit);
 
-  const scatter = readFileSync(new URL('../src/world/scatter.js', import.meta.url), 'utf8');
-  ok('scenery textures are gated on the generated world',
-    /imageryProvider'\) === 'offline'/.test(scatter));
-
   const avatar = readFileSync(new URL('../src/player/avatar.js', import.meta.url), 'utf8');
   ok('the player kit is not gated on a provider', !/imageryProvider/.test(avatar));
 
@@ -1099,11 +1000,6 @@ console.log('\nPut back on the ground when the ground turns up');
   // because nothing about the wood or the building had changed.
   const terrainSource = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
   ok('the terrain says when new relief has landed', /get elevationVersion\(\)/.test(terrainSource));
-
-  const scatterSource = readFileSync(new URL('../src/world/scatter.js', import.meta.url), 'utf8');
-  ok('the scenery watches it', /watchElevation\(\)/.test(scatterSource));
-  ok('and replanting is throttled, because relief arrives in a burst',
-    /ELEVATION_SETTLE_MS/.test(scatterSource));
 
   const { Buildings } = await import('../src/world/buildings.js');
   // A bare stand-in: the only thing under test is when a tile is rebuilt.
