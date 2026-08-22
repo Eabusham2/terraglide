@@ -2423,9 +2423,10 @@ console.log('\nwhat you uncover is a circle');
   // The ground itself has always ended on a circle: the quadtree measures to
   // the nearest point of each tile, not to its centre and not per axis, so the
   // corners never poke out past the sides.
-  ok('and the ground it draws ends on a circle too',
+  ok('and the ground it draws ends on a smooth curve too',
     /const flatDist = Math\.hypot\(dx, dz\);/.test(terrain)
-    && /if \(flatDist > renderDistance\) \{/.test(terrain));
+    && /const reach = renderDistance \* this\.squircle\(dx, dz\);/.test(terrain)
+    && /if \(flatDist > reach\) \{/.test(terrain));
 }
 console.log('\nthere is sea behind the sea');
 {
