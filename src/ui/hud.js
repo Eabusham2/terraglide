@@ -325,8 +325,12 @@ export class HUD {
       const meta = host.querySelector(`[data-slot-meta="${index}"]`);
       if (!meta) return;
       const item = HOTBAR[index];
-      // No countdown: a rocket has a duration and a power, not a timer.
-      if (meta.textContent !== item.hint) meta.textContent = item.hint;
+      // No countdown: a rocket has a burn and a speed, not a timer. Both are
+      // real numbers now — a bigger rocket pushes harder as well as longer, in
+      // the same proportion — and the speed is formatted in whichever units
+      // the player is using.
+      const hint = `${item.burnSeconds.toFixed(1)}s · ${formatSpeed(item.topSpeed, settings.get('units'))}`;
+      if (meta.textContent !== hint) meta.textContent = hint;
     });
   }
 

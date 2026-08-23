@@ -23,7 +23,7 @@ import {
 import { annualMeanC, climateAt } from '../src/geo/climate.js';
 import { solarPosition } from '../src/geo/sun.js';
 import { isWaterPixel } from '../src/geo/water.js';
-import { stepGlide, stepRocket, rocketTicks, rocketPowerFor, TICK } from '../src/player/elytra.js';
+import { stepGlide, stepRocket, rocketTicks, rocketPowerFor, rocketTopSpeed, TICK } from '../src/player/elytra.js';
 import { Autopilot } from '../src/player/autopilot.js';
 import { UNLOCK_CODE, cheats } from '../src/core/cheats.js';
 import { resolvePlace } from '../src/ui/cheatPanel.js';
@@ -215,8 +215,31 @@ console.log('\nelytra flight model');
     ok(`rocket ${duration} burns for Minecraft's ${ticks} ticks`,
       rocketTicks(duration) === ticks, `${(ticks * TICK).toFixed(1)} s`);
   }
-  ok('every rocket pushes exactly as hard as every other, as in Minecraft',
-    [1, 2, 3, 4, 5].every((d) => rocketPowerFor(d) === 1));
+  // A bigger rocket pushes harder as well as longer, in exactly the proportion
+  // its burn is longer. This is the one place the flight model departs from
+  // Minecraft, and only because it was asked for: vanilla gives every firework
+  // the same 1.5 blocks a tick, so a Rocket V there is a Rocket I that lasts
+  // longer. Thrust is now `10N + 6` over Rocket I's sixteen, so slot one is
+  // unchanged at vanilla's figure and the rest follow the durations exactly.
+  ok('rocket I is still vanilla\u2019s own push', rocketPowerFor(1) === 1);
+  for (const [duration, power] of [[2, 1.625], [3, 2.25], [4, 2.875], [5, 3.5]]) {
+    ok(`rocket ${duration} pushes ${power}x, the same ratio as its burn`,
+      Math.abs(rocketPowerFor(duration) - power) < 1e-9
+      && Math.abs(rocketPowerFor(duration) - rocketTicks(duration) / rocketTicks(1)) < 1e-9);
+  }
+
+  // What that actually gets you, flown through the real tick. Each is slower
+  // than its thrust ratio because drag rises with speed, and each is faster
+  // than the one below it, which is the whole point of the change.
+  {
+    const speeds = [1, 2, 3, 4, 5].map((d) => rocketTopSpeed(d));
+    ok('every rocket is faster than the one below it',
+      speeds.every((v, i) => i === 0 || v > speeds[i - 1] + 5),
+      speeds.map((v) => `${Math.round(v)} m/s`).join(' '));
+    ok('rocket I still settles at Minecraft\u2019s 33 m/s',
+      Math.abs(speeds[0] - 33.5) < 1);
+    ok('and rocket V at about 107', Math.abs(speeds[4] - 107) < 2);
+  }
 
   // Minecraft accelerates you toward 1.5 blocks/tick, which is 30 m/s. Held
   // level that is where a rocket settles you — the famous "elytra and rockets
@@ -783,12 +806,19 @@ console.log('\nThe HUD fits the window');
   ok('and the hotbar itself sheds width before it overflows',
     /@media \(max-width: 660px\)[\s\S]{0,260}slot-label[\s\S]{0,60}display: none/.test(css));
 
-  // The slot hint has to fit the slot, and has to be true. It read
-  // "dur 5 - pwr 5", which was neither, and then "5s", which was also not the
-  // burn. It prints Minecraft's own tick count in seconds now.
+  // The slot label has to fit the slot and has to be true. It read
+  // "dur 5 - pwr 5", which was neither, then "5s", which was not the burn,
+  // then the burn alone — which was true but only half of what a rocket is now
+  // that a bigger one pushes harder too. It carries both, and the speed is
+  // measured by flying the real tick rather than quoted, so it cannot drift
+  // away from the physics.
   const player = readFileSync(new URL('../src/player/player.js', import.meta.url), 'utf8');
-  ok('the slot hint states the real burn in seconds',
-    /hint: `\$\{\(rocketTicks\(duration\) \/ 20\)\.toFixed\(1\)\}s burn`/.test(player));
+  const hud = readFileSync(new URL('../src/ui/hud.js', import.meta.url), 'utf8');
+  ok('the slot carries the real burn and the real top speed',
+    /burnSeconds: rocketTicks\(duration\) \/ 20,/.test(player)
+    && /topSpeed: rocketTopSpeed\(duration\),/.test(player));
+  ok('and the HUD prints them in the units the player chose',
+    /formatSpeed\(item\.topSpeed, settings\.get\('units'\)\)/.test(hud));
 }
 
 // ---------------------------------------------------------------------------

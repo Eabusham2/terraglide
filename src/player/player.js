@@ -3,7 +3,7 @@ import { cheats } from '../core/cheats.js';
 import { Emitter } from '../core/events.js';
 import { clamp, damp } from '../core/math.js';
 import { settings } from '../core/settings.js';
-import { rocketPowerFor, rocketTicks } from './elytra.js';
+import { rocketPowerFor, rocketTicks, rocketTopSpeed } from './elytra.js';
 
 /**
  * Player state: where you are, how fast, how big, what is in the hotbar.
@@ -17,14 +17,14 @@ import { rocketPowerFor, rocketTicks } from './elytra.js';
  * The hotbar is five rockets and nothing else, and they are Minecraft's five.
  *
  * The Roman numeral is the *flight duration* tag, exactly as it is in the
- * game: it decides how long the push lasts and nothing else. Every firework
- * pushes equally hard — toward 1.5 blocks a tick along your look — so a bigger
- * rocket is a longer rocket, never a harder one. Crafting caps the tag at
- * three; four and five are command-block rockets, and Minecraft's own
- * `10N + 6` ticks runs straight on through them.
+ * game: Minecraft's own `10N + 6` ticks decides how long the push lasts, and
+ * here it decides how hard it pushes as well, in the same proportion. Crafting
+ * caps the tag at three; four and five are command-block rockets, and the
+ * formula runs straight on through them.
  *
- * The label prints the real burn in seconds so the numeral is never mistaken
- * for a strength.
+ * The label prints both, because both are now real: the burn in seconds and
+ * the speed it will hold you at. Rocket I is vanilla's — a shade over thirty
+ * metres a second — and Rocket V is three and a half times its push.
  */
 /**
  * One colour per strength, cool to hot, so a glance tells you what you are
@@ -39,9 +39,13 @@ export const HOTBAR = [1, 2, 3, 4, 5].map((duration) => ({
   power: rocketPowerFor(duration),
   colour: ROCKET_COLOURS[duration - 1],
   label: `Rocket ${'I II III IV V'.split(' ')[duration - 1]}`,
-  // The burn, in seconds, from Minecraft's own tick count. No multiplier,
-  // because there is not one: every rocket pushes the same.
-  hint: `${(rocketTicks(duration) / 20).toFixed(1)}s burn`,
+  // Both halves of what this rocket is: how long it burns and how fast it
+  // holds you. Measured from the flight model rather than quoted, so the label
+  // cannot drift away from the physics — see rocketTopSpeed. The HUD does the
+  // formatting, because whether that speed reads in km/h or mph is the
+  // player's setting and this list is built once at load.
+  burnSeconds: rocketTicks(duration) / 20,
+  topSpeed: rocketTopSpeed(duration),
 }));
 
 /**

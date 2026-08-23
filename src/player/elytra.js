@@ -13,7 +13,9 @@
  *   vertical dive    terminal 78.4 m/s
  *   rocket           accelerates you toward 1.5 blocks a tick along your look
  *
- * Nothing here differs from vanilla. Every constant is Minecraft's.
+ * One thing differs from vanilla, and only because it was asked for: a bigger
+ * rocket pushes harder as well as longer, in exactly the proportion its burn is
+ * longer. See rocketPowerFor. Everything else is Minecraft's own constant.
  *
  * Everything below runs at a fixed 20 steps a second in blocks-per-tick, the
  * units the constants were tuned in, then converts back to metres per second.
@@ -170,16 +172,60 @@ export function rocketTicks(duration) {
 /**
  * Thrust multiplier for a slot.
  *
- * One, for every slot. Minecraft gives every firework the same push — it
- * accelerates you toward 1.5 blocks a tick along your look, whatever is in it
- * — and varies only how long the push lasts. A bigger rocket is a longer
- * rocket, not a harder one.
+ * A bigger rocket pushes harder, in the same proportion that it burns longer.
  *
- * It used to compound a fifth per slot, so a Rocket V pushed twice as hard as
- * a Rocket I. That is a nicer toy and it is not this game's job.
+ * Minecraft does not do this: there, every firework accelerates you toward the
+ * same 1.5 blocks a tick and only the duration changes, so a Rocket V feels
+ * exactly like a Rocket I that lasts longer. That parity was the rule here for
+ * a while, and the answer to "where did the speed boost go" was "it was taken
+ * out on purpose". Asked for directly, it is back — and scaled off the burn
+ * rather than off a number picked to feel right, so there is one rule for both
+ * halves of what a rocket is.
+ *
+ * The burn is Minecraft's own `10N + 6` ticks. Thrust is that same figure over
+ * Rocket I's sixteen, so Rocket I is unchanged at vanilla's 1.5 blocks a tick
+ * and the rest follow the durations exactly:
+ *
+ *   I    16 ticks   x1.000   1.50 blocks/tick
+ *   II   26 ticks   x1.625   2.44
+ *   III  36 ticks   x2.250   3.38
+ *   IV   46 ticks   x2.875   4.31
+ *   V    56 ticks   x3.500   5.25
  */
-export function rocketPowerFor() {
-  return 1;
+export function rocketPowerFor(duration = 1) {
+  return rocketTicks(duration) / rocketTicks(1);
+}
+
+/**
+ * What a rocket of this duration actually holds you at, in metres per second.
+ *
+ * Flown rather than quoted: this runs the real tick — the same `stepRocket`
+ * and `stepGlide` the game runs — level along the look vector for the whole
+ * burn and reports the fastest it got. So the number on the hotbar cannot
+ * drift away from the flight model, because it is the flight model.
+ *
+ * It comes out below the raw thrust each time, and further below it the bigger
+ * the rocket, because drag rises with speed: thrust scales 1, 1.625, 2.25,
+ * 2.875, 3.5 and the speed reached scales 1, 1.55, 2.10, 2.65, 3.19.
+ *
+ *   I    0.8s    33 m/s     120 km/h
+ *   II   1.3s    52 m/s     187 km/h
+ *   III  1.8s    70 m/s     253 km/h
+ *   IV   2.3s    89 m/s     319 km/h
+ *   V    2.8s   107 m/s     385 km/h
+ */
+export function rocketTopSpeed(duration) {
+  const look = { x: 0, y: 0, z: -1 };
+  const velocity = { x: 0, y: 0, z: 0 };
+  const ticks = rocketTicks(duration);
+  const power = rocketPowerFor(duration);
+  let peak = 0;
+  for (let tick = 0; tick < ticks; tick++) {
+    stepRocket(velocity, look, power, tick / ticks);
+    stepGlide(velocity, look, 0);
+    peak = Math.max(peak, Math.hypot(velocity.x, velocity.y, velocity.z));
+  }
+  return peak;
 }
 
 /**
