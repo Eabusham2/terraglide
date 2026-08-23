@@ -205,8 +205,26 @@ const TERRAIN_FRAG = /* glsl */ `
     // have lit tramlines in Cambridgeshire as if they were spruce. Where the
     // woodland is is a thing somebody surveyed: OpenStreetMap's natural=wood
     // and landuse=forest, which this project already fetches from Overpass for
-    // the buildings. That is where it should come from, and until it does there
-    // is nothing here.
+    // the buildings.
+    //
+    // That was then built with the survey as the mask — the polygons fetched,
+    // a sheet laid over each one following the terrain, each vertex normal
+    // tilted toward the brighter side of its own patch of photograph — and it
+    // was thrown away too, for a different reason. The sheet has to be painted
+    // to be drawn, and its colour comes from a vertex every fourteen metres,
+    // while the ground under it wears a photograph with a texel every half
+    // metre. Covering sharp imagery with a coarse Gouraud sheet loses more
+    // detail than the tilted normals add: measured over the Black Forest, in
+    // the densest patch of canopy on screen, local relief went from 16.42
+    // without the sheet to 15.60 with it — 0.95 times, the wrong way.
+    //
+    // The design that can work is the survey rasterised into a mask texture
+    // beside each terrain tile's photograph, so the shading is done by this
+    // shader at the photograph's own resolution and the mask only says where.
+    // That is a real piece of plumbing — a second sampler per tile, uploaded
+    // when the polygons for that square arrive — and it is not here yet. Two
+    // attempts, both measured, both rejected; the third one needs building
+    // properly rather than guessing again.
 
     float lambert = max(dot(n, uSunDir), 0.0);
     float wrapped = lambert * 0.62 + 0.38;
