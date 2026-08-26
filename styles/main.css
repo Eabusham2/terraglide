@@ -503,7 +503,11 @@ input[type='checkbox'] {
   display: flex;
   align-items: center;
   gap: 7px;
-  width: 118px;
+  /* Wide enough for the longest thing the meta line ever says: a burn time,
+     a separator and a three-figure speed with its unit. It was 118px, which
+     was right when the line read "hold to fly" and truncated to "0.8s · 120 …"
+     the moment it started carrying real numbers. */
+  width: 134px;
   height: 50px;
   padding: 4px 8px 5px;
   text-align: left;
@@ -560,7 +564,7 @@ input[type='checkbox'] {
 
 .slot-meta {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-faint);
 }
 
@@ -1356,6 +1360,14 @@ body.touch-active .hud-hotbar {
     width: 74px;
     height: 44px;
   }
+
+  /* 74px is an icon and a keycap wide. The name and the burn-and-speed line
+     do not fit and were being cut off mid-word; on a touch screen you pick a
+     rocket by its colour anyway. */
+  body.touch-active .hud-hotbar .slot .slot-label,
+  body.touch-active .hud-hotbar .slot .slot-meta {
+    display: none;
+  }
 }
 
 body.touch-active .hud-bottomleft {
@@ -1369,7 +1381,7 @@ body.touch-active .hud-crosshair {
 
 /* ---------------------------------------------------------------- narrow windows
 
-   The hotbar is five 118px slots plus gaps — a shade over 600px — and it is
+   The hotbar is five 134px slots plus gaps — a shade over 680px — and it is
    centred. The location panel and the attribution live in the bottom corners
    on the same row, so once the window drops below about 1180px the three
    collide and the hotbar's panel background covers the text underneath.
@@ -1451,8 +1463,10 @@ body.touch-active .hud-crosshair {
 }
 
 /* Narrower still and the hotbar itself will not fit across the window, so the
-   slots shed their padding and then their labels rather than overflowing. */
-@media (max-width: 660px) {
+   slots shed their padding and then their labels rather than overflowing. Five
+   134px slots and their gaps come to 682px, so the labels have to go before
+   the window does, not after. */
+@media (max-width: 720px) {
   .hud-hotbar .slot {
     width: 62px;
     padding: 4px 5px 5px;

@@ -9,8 +9,8 @@ import { destination, latToNormY, lonToNormX, tileKey, wrapTileX } from './merca
  * There is no offline coastline dataset in this project, so instead of shipping
  * one we read the answer off a single low-zoom imagery tile per region and
  * cache a 32x32 water mask from it. One small tile covers a whole continent's
- * worth of teleport attempts. With no imagery provider the generated terrain's
- * own sea level is used instead.
+ * worth of teleport attempts. With no imagery there is nothing to read and no
+ * invented coastline to fall back on, so the answer is "land" — see isWater.
  */
 
 const PROBE_ZOOM = 6;

@@ -689,6 +689,9 @@ export class Game {
     // guess that would either float in front of the last tiles or leave a gap.
     this.edgeWall.update(this.camera, this.terrain.edgeProfile);
     this.seaFloor.update(this.camera, this.terrain.farDistance);
+    // Which of that disc is actually sea. A few rows a frame, off the same
+    // elevation field the ground is built from.
+    this.seaFloor.updateMask(this.terrain, this.camera, this.terrain.farDistance);
 
     const groundHeight = player.groundHeight;
     this.sky.setLandFraction(this.landFraction);

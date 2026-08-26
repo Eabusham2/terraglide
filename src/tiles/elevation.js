@@ -68,10 +68,10 @@ export class ElevationField {
    * — and anything that treats sea level as *sea* will then quietly refuse to
    * do its job over ground that simply has not streamed in yet.
    */
-  hasDataAt(nx, ny) {
+  hasDataAt(nx, ny, topZoom = this.maxZoom) {
     const x = nx - Math.floor(nx);
     const y = clamp(ny, 0, 0.999999);
-    for (let z = this.maxZoom; z >= 3; z--) {
+    for (let z = Math.min(topZoom, this.maxZoom); z >= 3; z--) {
       const n = Math.pow(2, z);
       const entry = this.tiles.get(tileKey(z, Math.floor(x * n), Math.floor(y * n)));
       if (entry && entry.state === STATE_READY) return true;
@@ -103,6 +103,21 @@ export class ElevationField {
   /** Height in metres at a normalised mercator point. */
   sampleNorm(nx, ny) {
     return this.sampleFrom(this.maxZoom, nx - Math.floor(nx), clamp(ny, 0, 0.999999));
+  }
+
+  /**
+   * The same height, but from data no finer than `topZoom`.
+   *
+   * For questions where a kilometre either way does not matter — "is this the
+   * sea?" over a hundred-kilometre disc, tens of thousands of times — and the
+   * walk down from zoom fifteen would be most of the cost.
+   */
+  sampleCoarse(nx, ny, topZoom) {
+    return this.sampleFrom(
+      Math.min(topZoom, this.maxZoom),
+      nx - Math.floor(nx),
+      clamp(ny, 0, 0.999999),
+    );
   }
 
   /**

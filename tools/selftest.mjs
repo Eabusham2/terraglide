@@ -803,8 +803,25 @@ console.log('\nThe HUD fits the window');
   const css = readFileSync(new URL('../styles/main.css', import.meta.url), 'utf8');
   ok('the corners step above the hotbar on a narrow window',
     /@media \(max-width: 1180px\)[\s\S]{0,220}hud-bottomright[\s\S]{0,80}bottom:/.test(css));
+  // Not a fixed breakpoint: the numbers have to agree with each other. Five
+  // slots and their gaps must fit inside the window at which the labels are
+  // still being shown, or the bar overflows the screen for a band of widths.
+  // They did not — the slot grew from 118px to 134px to fit a burn time and a
+  // real top speed, and the breakpoint stayed at 660.
+  const slotWidth = Number(/\.hud-hotbar \.slot \{[\s\S]{0,400}?width: (\d+)px/.exec(css)?.[1]);
+  const barGap = Number(/\.hud-hotbar \{[\s\S]{0,200}?gap: (\d+)px/.exec(css)?.[1]);
+  const shedAt = Number(
+    /@media \(max-width: (\d+)px\)[\s\S]{0,320}?slot-label[\s\S]{0,80}?display: none/.exec(css)?.[1],
+  );
   ok('and the hotbar itself sheds width before it overflows',
-    /@media \(max-width: 660px\)[\s\S]{0,260}slot-label[\s\S]{0,60}display: none/.test(css));
+    Number.isFinite(slotWidth) && Number.isFinite(barGap) && Number.isFinite(shedAt)
+      && slotWidth * 5 + barGap * 4 <= shedAt);
+
+  // A touch screen shrinks the slot to 74px, which is an icon and a keycap
+  // wide. The name and the burn-and-speed line were left in it and truncated
+  // mid-word; on a touch screen you pick a rocket by its colour.
+  ok('and a touch-sized slot drops them too',
+    /body\.touch-active \.hud-hotbar \.slot \.slot-label[\s\S]{0,120}display: none/.test(css));
 
   // The slot label has to fit the slot and has to be true. It read
   // "dur 5 - pwr 5", which was neither, then "5s", which was not the burn,
@@ -2506,6 +2523,34 @@ console.log('\nthere is sea behind the sea');
   ok('the game builds it and follows the camera with it',
     /new SeaFloor\(this\.scene, this\.shared\)/.test(game)
     && /this\.seaFloor\.update\(this\.camera, this\.terrain\.farDistance\)/.test(game));
+
+  // And it paints sea only. A disc a hundred kilometres across, twelve metres
+  // under sea level, is far below the Spanish plateau and therefore hidden by
+  // it — right up until you arrive and the ground has not streamed in yet.
+  // Then it was what showed through: twelve point eight per cent of the frame
+  // slate blue at twenty-five seconds over the Meseta, against two point three
+  // with no sheet at all. Two point two now.
+  ok('and only over ground the elevation field says is sea',
+    /uniform sampler2D uMask/.test(sea)
+    && /texture2D\(uMask, muv\)\.r < 0\.5\) discard/.test(sea));
+  ok('with unmeasured ground left alone rather than claimed',
+    /hasDataAt\(nx, ny, MASK_ZOOM\)/.test(sea)
+    && /const sea =\s*\n?\s*known &&/.test(sea));
+  ok('the mask is published whole, never half of one sweep and half of another',
+    /this\.sweepRow >= MASK/.test(sea)
+    && /this\.maskTexture\.image\.data\.set\(this\.pending\)/.test(sea));
+  ok('and nothing is drawn before the first sweep lands',
+    /uHasMask < 0\.5\) discard/.test(sea));
+  ok('the game sweeps it off the same elevation the ground is built from',
+    /this\.seaFloor\.updateMask\(this\.terrain, this\.camera, this\.terrain\.farDistance\)/.test(game));
+
+  // Reading it from zoom nine rather than the finest tile loaded saves six
+  // levels of walking down the pyramid, sixteen thousand times a sweep, for an
+  // answer that is thrown away at a kilometre and a half a texel anyway.
+  const elev = readFileSync(new URL('../src/tiles/elevation.js', import.meta.url), 'utf8');
+  ok('and the field can be asked coarsely, which is what that costs less',
+    /sampleCoarse\(nx, ny, topZoom\)/.test(elev)
+    && /hasDataAt\(nx, ny, topZoom = this\.maxZoom\)/.test(elev));
 }
 console.log('\nthe world ends on a squircle');
 {
