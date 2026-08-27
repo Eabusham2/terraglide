@@ -971,6 +971,21 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
   // requests a square for a blur; pick the valley's and the city stays a smear.
   ok('the published maximum is a stop, not a coverage claim', esri.maxZoom >= 22);
 
+  // And the lid must not sit below it. The slider was capped at 22 with a help
+  // line calling that "the deepest any provider here publishes" for a while
+  // after Esri's entry had been raised past it — so a level that did exist
+  // could not have been reached. Both now read the providers.
+  const { DEEPEST_IMAGERY_ZOOM } = await import('../src/tiles/providers.js');
+  const { DEFAULT_SETTINGS, GRAPHICS_PRESETS } = await import('../src/core/settings.js');
+  ok('the deepest zoom is derived from the providers, not written down',
+    DEEPEST_IMAGERY_ZOOM === Math.max(...IMAGERY_PROVIDERS.map((p) => p.maxZoom ?? 0)));
+  ok('and nothing caps the quadtree below what a provider offers',
+    DEFAULT_SETTINGS.maxTileZoom >= DEEPEST_IMAGERY_ZOOM
+    && Object.values(GRAPHICS_PRESETS).every((g) => (g.maxTileZoom ?? 99) >= DEEPEST_IMAGERY_ZOOM));
+  const panel = readFileSync(new URL('../src/ui/settingsPanel.js', import.meta.url), 'utf8');
+  ok('including the slider a player sees',
+    /key: 'maxTileZoom'[\s\S]{0,120}max: DEEPEST_IMAGERY_ZOOM/.test(panel));
+
   // Because the depth is measured per square instead.
   ok('a resample is told from a real level by how much contrast it keeps',
     SHARPNESS_RATIO > 0.35 && SHARPNESS_RATIO < 0.55);
@@ -1695,11 +1710,18 @@ console.log('\nA provider only gets asked as deep as it answers');
     ok('the terrain asks for the smaller of the ceiling and what is served',
       /Math\.min\(ceiling, this\.streamer\.maxUsefulZoom\)/.test(terrainSource));
     // "As detailed as possible" is not a tick any more, it is simply how it
-    // works: the only ceiling is the one you set, and the deepest any provider
-    // publishes is 22.
+    // works: the only ceiling is the one you set, and it starts at whatever
+    // the deepest provider serves.
+    //
+    // This used to pin the number — 22 — and the number is exactly the thing
+    // that moves. It went stale the moment Esri's entry was raised past it,
+    // and a stale ceiling silently caps the quadtree below a level that does
+    // exist. So the relationship is asserted instead of the value.
     const { DEFAULT_SETTINGS: D } = await import('../src/core/settings.js');
+    const { DEEPEST_IMAGERY_ZOOM: deepest } = await import('../src/tiles/providers.js');
     ok('there is no tick to forget to turn on', !('maxTileZoomAuto' in D));
-    ok('and the ceiling starts at the deepest zoom anyone serves', D.maxTileZoom === 22);
+    ok('and the ceiling starts at the deepest zoom anyone serves',
+      D.maxTileZoom === deepest, `${D.maxTileZoom} vs ${deepest}`);
     ok('which the detail dial scales down with everything else',
       /detailLimit'\) \/ 100/.test(terrainSource));
   }

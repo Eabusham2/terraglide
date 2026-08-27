@@ -44,9 +44,24 @@ export const IMAGERY_PROVIDERS = [
      * what the one above it had is marked as the finest there is — the
      * quadtree stops descending there and nothing below it is ever requested.
      * See sharpness.js and `Streamer.atFinest`. This is the ceiling on that
-     * search, not a claim about coverage: twenty-three is the deepest Esri
-     * publish anywhere, so nothing real is cut off, and the measurement stops
-     * long before it everywhere else.
+     * search, not a claim about coverage.
+     *
+     * And it is a generous one. Esri document level 23 in select areas; asked
+     * for it directly, three cities that have some of their best imagery all
+     * hand back the "no data" card instead:
+     *
+     *                   z20    z21           z22           z23
+     *   Vienna          4.89   3.65 (x0.75)  1.67 (x0.46)  card
+     *   Westminster     card   card          card          card
+     *   Times Square    4.22   card          card          card
+     *
+     * So twenty-two is the deepest real level found anywhere so far, in one
+     * city, and it sits at 0.46 against a threshold of 0.45 — near enough to
+     * the line that its verdict could go either way, which is worth knowing
+     * before trusting it. The lid is set here rather than lower so that if a
+     * provider does start serving deeper the game can follow without a code
+     * change; the measurement and the card stop it long before, everywhere
+     * tested.
      */
     maxZoom: 23,
     template: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -211,6 +226,27 @@ export const IMAGERY_PROVIDERS = [
       + 'panned around rather than looked at once.',
   },
 ];
+
+/**
+ * The deepest zoom any imagery provider here says it will serve.
+ *
+ * Derived, not written down. The ceiling in Settings and the presets' own
+ * default both read this, so a provider that starts serving a level deeper
+ * raises the lid by itself. Written down, it goes stale the moment one of the
+ * entries above changes — the slider was capped at 22 with a help line saying
+ * "twenty-two is the deepest any provider here publishes" for a while after
+ * Esri's entry had already been raised past it, so the game could not have
+ * reached the deeper level even where it existed.
+ *
+ * It is a lid, not a promise. What is actually fetched is decided per square
+ * by measuring the photographs — see sharpness.js — and by whether the
+ * provider answers with a picture or with its "no data" card.
+ */
+export const DEEPEST_IMAGERY_ZOOM = IMAGERY_PROVIDERS.reduce(
+  (deepest, provider) => Math.max(deepest, provider.maxZoom ?? 0),
+  1,
+);
+
 
 export const ELEVATION_PROVIDERS = [
   {

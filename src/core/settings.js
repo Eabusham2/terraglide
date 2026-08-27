@@ -1,4 +1,5 @@
 import { Emitter } from './events.js';
+import { DEEPEST_IMAGERY_ZOOM } from '../tiles/providers.js';
 import { defaultUnits } from './units.js';
 import { readJSON, removeKey, writeJSON } from './storage.js';
 
@@ -86,7 +87,7 @@ export const DEFAULT_SETTINGS = {
   fpsTarget: 60,
   fog: true,
   weather: true,
-  maxTileZoom: 22,
+  maxTileZoom: DEEPEST_IMAGERY_ZOOM,
   /**
    * Detail ceiling, as a percentage of the preset's own budgets.
    *
@@ -209,7 +210,7 @@ export const GRAPHICS_PRESETS = {
       distantMode: false,
       distantDistanceKm: 64,
       meshDetail: 1,
-      maxTileZoom: 22,
+      maxTileZoom: DEEPEST_IMAGERY_ZOOM,
       fog: true,
       weather: false,
       buildings: false,
@@ -230,7 +231,7 @@ export const GRAPHICS_PRESETS = {
       distantMode: false,
       distantDistanceKm: 128,
       meshDetail: 1.2,
-      maxTileZoom: 22,
+      maxTileZoom: DEEPEST_IMAGERY_ZOOM,
       fog: true,
       weather: true,
       buildings: true,
@@ -250,7 +251,7 @@ export const GRAPHICS_PRESETS = {
       distantMode: true,
       distantDistanceKm: 256,
       meshDetail: 1.4,
-      maxTileZoom: 22,
+      maxTileZoom: DEEPEST_IMAGERY_ZOOM,
       fog: true,
       weather: true,
       buildings: true,
@@ -276,7 +277,7 @@ export const GRAPHICS_PRESETS = {
       distantMode: true,
       distantDistanceKm: 1024,
       meshDetail: 1.6,
-      maxTileZoom: 22,
+      maxTileZoom: DEEPEST_IMAGERY_ZOOM,
       fog: true,
       weather: true,
       buildings: true,
