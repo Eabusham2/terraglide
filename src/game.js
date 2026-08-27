@@ -795,6 +795,7 @@ export class Game {
     trail.tick(dt);
 
     this.address = geocoder.lookup(player.lat, player.lon)?.label ?? this.address;
+    this.refreshGoogleAttribution(player);
 
     this.hud.update({
       player,
@@ -1342,6 +1343,43 @@ export class Game {
     }
     if (settings.get('showFps')) parts.push(`${Math.round(this.perf.fps)} fps`);
     return parts.join(' · ');
+  }
+
+  /**
+   * Ask Google what has to be shown for the ground you are over.
+   *
+   * Their policy is that the attribution comes from the viewport reply, not
+   * from a constant in our source, and the string really does change — over
+   * most of the world their satellite line names Airbus or Maxar or a national
+   * mapping agency alongside Google. Once a minute, or whenever you have moved
+   * far enough that the answer could differ, which a teleport always has.
+   */
+  refreshGoogleAttribution(player) {
+    const source = this.imagerySource;
+    if (source?.descriptor?.kind !== 'google' || !source.ready) return;
+    const now = performance.now();
+    const moved =
+      Math.abs(player.lat - (this.googleViewAt?.lat ?? 999)) > 0.25 ||
+      Math.abs(player.lon - (this.googleViewAt?.lon ?? 999)) > 0.25;
+    if (!moved && now - (this.googleViewedAt ?? -Infinity) < 60000) return;
+    this.googleViewedAt = now;
+    this.googleViewAt = { lat: player.lat, lon: player.lon };
+    // A degree either way: wide enough that one reply covers a good long
+    // flight, narrow enough that the answer is about where you actually are.
+    const half = 0.5;
+    source
+      .googleViewport(
+        {
+          north: Math.min(85, player.lat + half),
+          south: Math.max(-85, player.lat - half),
+          east: player.lon + half,
+          west: player.lon - half,
+        },
+        this.terrain.stats.maxZoom ?? 16,
+      )
+      .catch(() => {
+        /* The tiles still draw; the corner keeps the line it had. */
+      });
   }
 
   attributionLine() {

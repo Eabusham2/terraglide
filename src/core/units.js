@@ -24,6 +24,26 @@ export function defaultUnits() {
   return 'metric';
 }
 
+/**
+ * The CLDR region the browser is set to, or null.
+ *
+ * Google's Map Tiles API wants one on every `createSession` call, and the only
+ * honest answer is the one the browser already holds. See prepareGoogle.
+ */
+export function localeRegion() {
+  try {
+    const locales = navigator.languages?.length ? navigator.languages : [navigator.language];
+    for (const tag of locales) {
+      if (!tag) continue;
+      const region = new Intl.Locale(tag).maximize().region;
+      if (region) return region;
+    }
+  } catch {
+    /* No Intl.Locale, or a tag it will not parse. */
+  }
+  return null;
+}
+
 /** Regions that measure everyday distance in feet and miles. */
 const IMPERIAL_REGIONS = new Set(['US', 'GB', 'LR', 'MM']);
 

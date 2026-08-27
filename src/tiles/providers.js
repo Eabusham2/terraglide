@@ -1,4 +1,5 @@
 import { latToNormY, lonToNormX, quadKey } from '../geo/mercator.js';
+import { localeRegion } from '../core/units.js';
 import { isNoDataCard } from './noData.js';
 import { BING_SIDE, GOOGLE_SIDE, encodePolyline, googleSamplePoints, tileBounds } from './elevationGrid.js';
 
@@ -338,6 +339,10 @@ export class TileSource {
     this.state = 'idle'; // idle | preparing | ready | needs-key | error
     this.error = '';
     this.googleSession = null;
+    this.googleSessionExpiry = 0;
+    /** Google's own attribution line for wherever you are, once asked for. */
+    this.googleCopyright = '';
+    this.googleMaxZoomRects = null;
     this.preparing = null;
   }
 
@@ -350,6 +355,10 @@ export class TileSource {
   }
 
   get attribution() {
+    // Google's policy is that their own returned string is the attribution, so
+    // when it has arrived it replaces the descriptor's placeholder rather than
+    // sitting beside it.
+    if (this.googleCopyright) return this.googleCopyright;
     return this.descriptor.attribution;
   }
 
@@ -485,15 +494,26 @@ export class TileSource {
   }
 
   async prepareGoogle() {
+    // `region` is a required field, and this used to leave it out on the
+    // reasoning that a region identifier is a statement about whose borders and
+    // labels you want, and a satellite session draws neither. That reasoning is
+    // about what the field *does*; the API asks for it regardless, and a
+    // createSession call without it is a session you never get — which is what
+    // "Google Maps not working" was.
+    //
+    // The browser's own region is the answer, rather than pinning everyone to
+    // the United States. Where it cannot say, 'US' is the fallback Google's own
+    // examples use; with no roadmap layer requested there is nothing on the
+    // imagery for it to change.
+    const region = localeRegion() ?? 'US';
+    const language =
+      (typeof navigator !== 'undefined' && navigator.language) || 'en-US';
     const res = await fetch(
       `https://tile.googleapis.com/v1/createSession?key=${encodeURIComponent(this.key)}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // No region. Pinning it to the United States is a statement about
-        // which country's borders and labels you want, not about where you are
-        // flying, and it is not needed for satellite imagery at all.
-        body: JSON.stringify({ mapType: 'satellite', language: 'en-US' }),
+        body: JSON.stringify({ mapType: 'satellite', language, region }),
       },
     );
     if (!res.ok) {
@@ -509,6 +529,68 @@ export class TileSource {
     const data = await res.json();
     if (!data.session) throw new Error('Google session token missing');
     this.googleSession = data.session;
+    this.googleSessionExpiry = Number(data.expiry) * 1000 || 0;
+  }
+
+  /**
+   * The attribution string Google requires for the ground you are looking at.
+   *
+   * Not optional and not a constant: their policy is that "data returned from
+   * the Map Tiles API requires the display of attribution and copyright
+   * information from the appropriate metadata or viewport information
+   * requests", and the string genuinely differs from place to place because the
+   * imagery under it comes from different people. A fixed "Imagery © Google"
+   * in the corner is not what they asked for and is not true either — over most
+   * of the world their satellite line names Airbus, Maxar or a national mapping
+   * agency alongside them.
+   *
+   * The same call returns `maxZoomRects`: how far in the imagery actually goes
+   * for each patch of the viewport. That is the difference between stopping at
+   * the last real zoom and asking for tiles that were never flown.
+   *
+   * @param {{ north: number, south: number, east: number, west: number }} view
+   * @param {number} zoom
+   */
+  async googleViewport(view, zoom) {
+    if (!this.googleSession) return null;
+    const q = new URLSearchParams({
+      session: this.googleSession,
+      key: this.key,
+      zoom: String(Math.round(zoom)),
+      north: view.north.toFixed(6),
+      south: view.south.toFixed(6),
+      east: view.east.toFixed(6),
+      west: view.west.toFixed(6),
+    });
+    const res = await fetch(`https://tile.googleapis.com/tile/v1/viewport?${q}`);
+    if (!res.ok) throw new Error(`Google viewport failed (${res.status})`);
+    const data = await res.json();
+    if (data.copyright) this.googleCopyright = String(data.copyright);
+    this.googleMaxZoomRects = Array.isArray(data.maxZoomRects) ? data.maxZoomRects : [];
+    return data;
+  }
+
+  /**
+   * The finest zoom Google flew over a point, from the last viewport reply.
+   *
+   * Null when nothing has been asked yet, or when the point is outside every
+   * rectangle that reply covered — both of which mean "no opinion", not "no
+   * imagery", so the caller carries on as before.
+   */
+  googleMaxZoomAt(lat, lon) {
+    const rects = this.googleMaxZoomRects;
+    if (!rects?.length) return null;
+    let best = null;
+    for (const r of rects) {
+      if (lat > r.north || lat < r.south) continue;
+      // East of west and west of east, the long way round included.
+      const inside = r.west <= r.east
+        ? lon >= r.west && lon <= r.east
+        : lon >= r.west || lon <= r.east;
+      if (!inside) continue;
+      if (best === null || r.maxZoom > best) best = r.maxZoom;
+    }
+    return best;
   }
 
   /** URL for a tile, or null when this source cannot serve that tile. */

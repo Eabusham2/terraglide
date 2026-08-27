@@ -21,7 +21,8 @@ install, it runs in the tab.
 **No internet at all?** Download
 [terraglide.html](https://eabusham2.github.io/terraglide/terraglide.html) — the
 whole game in one file. Save it anywhere and double-click it; no server, no
-install, works on a Chromebook, and the generated world runs entirely offline.
+install, works on a Chromebook. It still needs a network for the map data, because
+the map data is the world — there is no offline stand-in for it.
 
 **One file, always current?** Download
 [terraglide-online.html](https://eabusham2.github.io/terraglide/terraglide-online.html)
@@ -192,20 +193,33 @@ firework burning while it does holds it up longer.
 
 ## Map data
 
-**TerraGlide ships with no map data and no API keys.** Out of the box it renders
-a generated world — a seamless fractal planet with coastlines, mountain ranges
-and a snow line — so it runs with no account and no network at all.
+**TerraGlide ships with no map data and no API keys.** It fetches the real thing
+at run time, keyless by default: Esri World Imagery for photography, AWS Terrain
+Tiles for relief, OpenStreetMap for what is standing on the ground. No account
+needed to fly.
 
-Open **Settings → Providers** to point it at the real thing:
+There is no generated world behind it and no fallback planet. That was removed
+on purpose: a fractal continent is a convincing-looking lie about somewhere that
+exists, and it painted invented coastlines across measured ground. What happens
+when data is missing is described below, and the short version is that nothing
+is invented to cover the gap.
+
+Open **Settings → Providers** to change any of it:
 
 | Slot | Options |
 | --- | --- |
 | Photorealistic 3D | Google Photorealistic 3D Tiles (needs a key), the same via Cesium ion (needs a token), or off — with a four-step detail dial |
-| Imagery | Esri World Imagery (keyless), Google Maps, Bing Maps, Azure Maps, Mapbox Satellite, or the generated world |
-| Elevation | AWS Terrain Tiles (keyless, the default), Mapbox Terrain-RGB, or generated relief |
+| Imagery | Esri World Imagery (keyless, the default), Google Maps, Bing Maps, Azure Maps, Mapbox Satellite |
+| Elevation | AWS Terrain Tiles (keyless, the default), Mapbox Terrain-RGB, Bing Elevation |
 | Street level | Google Street View, Mapillary, or off |
 | Buildings | OpenStreetMap footprints, infrastructure and bridge decks via Overpass, on by default |
-| Addresses | Google Geocoding if a key is set, otherwise Nominatim |
+| Addresses | Apple Maps if a token is set, Google Geocoding if a key is set, otherwise Nominatim |
+
+Apple is addresses only, and that is not an omission. Apple publishes no map
+tiles for third-party use: MapKit JS draws its own map into its own view and
+cannot be draped over terrain, and the Server API is geocoding and search. There
+is no Apple satellite imagery, elevation or 3D to fetch, from any endpoint, at
+any price — so the token slot buys place search and nothing else.
 
 Requests go straight from your browser to that provider, on your quota and under
 their terms — see `THIRD-PARTY.md` for the links, and read them before you switch
@@ -215,18 +229,17 @@ Attribution for whatever you have selected stays in the corner of the screen and
 must not be removed.
 
 If a provider cannot be reached, the status line says so rather than leaving you
-guessing — and what happens next depends on what is still real. Missing
-*photography* over measured ground is never filled in with invented photography:
-the generator paints its own coastlines from its own relief, so over real
-elevation it would put oceans on mountains. The ground is coloured from the
-elevation instead — height, depth below sea level, slope and latitude, blended
-with slow noise — which cannot fail to line up with the land it is painting.
-Only when the *elevation* has been given up on too does the whole world fall
-back to the generator, and then both halves agree with each other again.
+guessing — and nothing is invented to cover for it. Missing *photography* over
+measured ground is coloured from the elevation instead: height, depth below sea
+level, slope and latitude, which cannot fail to line up with the land it is
+painting. Missing *elevation* is left flat rather than given invented relief;
+the code can tell "no data" from "sea level" and does not confuse the two.
+Ground that has not arrived yet is a hole you can see the sky through, and it
+stays that way until the real thing lands.
 
 A provider you have selected but not given a key to falls back to the keyless
-one in the same list rather than dropping the world to generated terrain, and
-the status line names both.
+one in the same list rather than leaving the ground bare, and the status line
+names both.
 
 ### Three tiers, most real first
 
@@ -258,7 +271,10 @@ the status line names both.
    on 3D altogether.
 2. **With no key** — everything below: real satellite imagery, real elevation,
    real OpenStreetMap buildings and land cover. None of it needs an account.
-3. **With no network at all** — a generated world, so it still runs.
+3. **With no network at all** — nothing. There is no offline world any more.
+   The game boots, the sky and the flying model work, and the ground stays
+   empty until it can reach a provider, because the alternative was a fictional
+   planet wearing a real place's coordinates.
 
 The 3D loaders are fetched only when you turn the option on, so a player who
 never touches it never downloads them. The single-file build carries them
@@ -350,9 +366,11 @@ One rule, applied in one order, everywhere:
    of that exact roof, so terracotta in Tuscany is terracotta. A photograph of
    a forest is evidence of a forest; this is a coarser source than a survey and
    it is used only where there is no survey.
-4. **Generated**, and only then: the individual trunk positions inside a wood
-   that is really there, the inside of a building, and — with no network at all
-   — the whole world.
+4. **Generated**, and only then, and only in one place left: the individual
+   trunk positions inside a wood that is really there. Building interiors used
+   to be on this list and were removed — an invented staircase inside a real
+   address is exactly the thing this list exists to prevent — and so was the
+   whole-world generator.
 
 What never happens is something invented standing in for something real: no
 tree where the picture says bare rock, no relief invented under real imagery,
@@ -364,12 +382,13 @@ across measured ground.
 There are AI-generated textures in `assets/`, and exactly one rule governs
 them: **nothing generated may stand in for real map data.**
 
-That splits them in two. The foliage and rock textures dress *scenery*, so they
-are drawn only on the generated world — pick any real imagery provider and they
-come straight back off, and the trees take their colour from the satellite
-image over that ground instead. The jacket, trousers, wings and rocket dress
-*you*, and no provider on Earth publishes a photograph of your character, so
-there is nothing for them to displace; they are drawn in every mode. The
+There used to be two groups. The foliage and rock textures dressed *scenery* on
+the generated world; that world is gone, so they had nothing left to dress and
+were deleted rather than left sitting in the download. Trees take their colour
+from the satellite image over the ground they stand on. What is left is the
+jacket, trousers, wings and rocket, which dress *you* — no provider on Earth
+publishes a photograph of your character, so there is nothing for them to
+displace, and they are drawn in every mode. The
 manifest keeps the two groups in separate blocks and `selftest.mjs` checks that
 the gate on one and the absence of a gate on the other both survive.
 
@@ -470,8 +489,8 @@ node tools/selftest.mjs   # 173 checks: projection, frame, flight, the avatar, c
 
 `tools/selftest.mjs` runs the pure maths headlessly — mercator round-trips, the
 local frame's tile geometry, the glide and rocket integrators, the seasonal
-temperature curve, the water classifier, the world generator, the cheat code and
-the auto-travel steering laws.
+temperature curve, the water classifier, the cheat code and the auto-travel
+steering laws.
 
 ---
 
@@ -486,15 +505,14 @@ src/
   game.js           wiring, frame loop, teleports, re-anchoring
   core/             settings, key bindings, units, storage, maths, perf, cheats
   geo/              mercator, the local world frame, sun, climate, geocoding, water
-  tiles/            provider registry, worker, imagery streamer, elevation field,
-                    the offline world generator
+  tiles/            provider registry, worker, imagery streamer, elevation field
   world/            terrain quadtree, shaders, sky, weather, scenery, buildings,
                     panorama, teleport
   player/           state, walking and collision, elytra physics, autopilot, avatar
   camera/           camera rig, freecam, input and mouse modes
   ui/               HUD, minimap, world map, settings, cheats, help, waypoints,
                     exploration, touch controls
-assets/             optional generated textures — scenery and player kit (+ manifest)
+assets/             optional generated textures — player kit only (+ manifest)
 tools/              check.mjs, selftest.mjs
 vendor/three/       three.js (MIT), vendored so there is nothing to install
 ```
@@ -519,6 +537,6 @@ provider keeps theirs (`THIRD-PARTY.md`).
 
 ## Not for navigation
 
-The world here is an approximation stitched from third-party imagery, a
-simplified earth model and, where data is missing, invented terrain. Do not use
-it to navigate anything.
+The world here is an approximation stitched from third-party imagery and a
+simplified earth model, with gaps left as gaps. Do not use it to navigate
+anything.

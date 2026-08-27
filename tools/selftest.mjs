@@ -935,19 +935,64 @@ console.log('\nProviders and detail budgets');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nGoogle imagery asks for what Google asks for');
+{
+  const providers = readFileSync(new URL('../src/tiles/providers.js', import.meta.url), 'utf8');
+  const wiring = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  // `region` is a required field on createSession and this used to leave it
+  // out, on the reasoning that a region identifier picks whose borders and
+  // labels you get and a satellite session draws neither. True, and beside the
+  // point: without it there is no session, and with no session there are no
+  // tiles. That was "Google Maps not working".
+  ok('createSession sends the region it requires',
+    /body: JSON\.stringify\(\{ mapType: 'satellite', language, region \}\)/.test(providers));
+  ok('and takes it from the browser rather than pinning everyone to one country',
+    /const region = localeRegion\(\) \?\? 'US'/.test(providers));
+
+  // Their policy: the attribution is the string the viewport request returns,
+  // not a constant in our source. It differs from place to place because the
+  // imagery does — Airbus, Maxar or a national mapping agency alongside Google.
+  ok('the viewport request exists and is asked the right question',
+    /tile\.googleapis\.com\/tile\/v1\/viewport/.test(providers)
+    && /north: view\.north\.toFixed\(6\)/.test(providers));
+  ok('and what comes back is what gets shown',
+    /if \(this\.googleCopyright\) return this\.googleCopyright;/.test(providers));
+  ok('the game asks again when you have moved far enough to matter',
+    /refreshGoogleAttribution\(player\)/.test(wiring)
+    && /now - \(this\.googleViewedAt \?\? -Infinity\) < 60000/.test(wiring));
+
+  // maxZoomRects says how far in the imagery actually goes for each patch of
+  // the viewport, which is the difference between stopping at the last real
+  // zoom and asking for tiles that were never flown.
+  ok('and remembers how far in Google actually flew',
+    /googleMaxZoomAt\(lat, lon\)/.test(providers)
+    && /r\.west <= r\.east/.test(providers));
+
+  const units = readFileSync(new URL('../src/core/units.js', import.meta.url), 'utf8');
+  ok('the browser region is read once, where the units are read',
+    /export function localeRegion\(\)/.test(units));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nGenerated art stays where it belongs');
 {
-  // The rule, stated once so it cannot drift: generated textures may dress the
-  // *generated* world and the player's own kit, and may never stand in for
-  // real map data. The manifest is the contract both loaders read, so the
-  // check is that it keeps saying two different things about the two groups.
+  // The rule, stated once so it cannot drift: nothing generated may stand in
+  // for real map data. There used to be a second group here — foliage and rock
+  // for the generated world — and the check was that the manifest kept saying
+  // two different things about the two groups. The generated world is gone, so
+  // the honest version of that check is that the group is gone with it and
+  // what remains is only ever the player's own kit.
   const manifest = JSON.parse(
     readFileSync(new URL('../assets/manifest.json', import.meta.url), 'utf8'),
   );
-  ok('scenery textures are declared', !!manifest.textures?.foliage && !!manifest.textures.rock);
+  ok('nothing generated dresses the ground any more', !manifest.textures);
+  ok('and the two files it used to name are not in the download',
+    !existsSync(new URL('../assets/foliage.jpg', import.meta.url))
+    && !existsSync(new URL('../assets/rock.jpg', import.meta.url)));
   ok('kit textures are declared', ['jacket', 'trousers', 'wing', 'rocket']
     .every((part) => !!manifest.kit?.[part]));
-  ok('the two groups are kept apart', manifest.textures !== manifest.kit);
+  ok('and the rule is written down where both loaders read it',
+    /stand in for real map data/i.test(manifest.rule ?? ''));
 
   const avatar = readFileSync(new URL('../src/player/avatar.js', import.meta.url), 'utf8');
   ok('the player kit is not gated on a provider', !/imageryProvider/.test(avatar));
@@ -971,7 +1016,7 @@ console.log('\nGenerated art stays where it belongs');
   ok('and the single-file build never asks for it',
     /__TERRAGLIDE_INLINE_WORKER__[\s\S]{0,200}detailedPlayerModel/.test(avatar2));
 
-  for (const file of [...Object.values(manifest.textures), ...Object.values(manifest.kit)]) {
+  for (const file of Object.values(manifest.kit)) {
     if (!file.endsWith('.jpg') && !file.endsWith('.png')) continue;
     const path = new URL(`../assets/${file}`, import.meta.url);
     ok(`${file} is present`, existsSync(path) && statSync(path).size > 1024);

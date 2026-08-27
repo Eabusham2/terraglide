@@ -1,20 +1,17 @@
 {
   "note": "Optional textures for the served copy. The single-file build has no assets folder and falls back to flat colour, so nothing here is required to play.",
+  "rule": "Nothing generated may stand in for real map data. Everything left in here dresses the player, who has no real-world counterpart to fetch, so nothing invented is displacing anything measured.",
   "generatedWith": "Pixa (FLUX 2 Klein), prompted for seamless tileable material",
-  "textures": {
-    "note": "Scenery. Generated, so these are only ever drawn on the generated world \u2014 with any real imagery provider selected the scenery takes its colour from the imagery instead.",
-    "foliage": "foliage.jpg",
-    "rock": "rock.jpg"
-  },
   "kit": {
-    "note": "The character's own gear. Not held to the rule above: there is no real-world counterpart to fetch for a player's jacket, so nothing invented is standing in for real map data.",
+    "note": "The character's own gear — drawn in every mode, because no provider on Earth publishes a photograph of your jacket.",
     "jacket": "jacket.jpg",
     "trousers": "trousers.jpg",
     "wing": "wing.jpg",
     "rocket": "rocket.jpg"
   },
   "model": {
-    "note": "Generated character mesh, TRELLIS.2 via Hugging Face, then cut down: the baked ground plane removed, textures halved and re-encoded, normals and UVs quantised. 3.9 MB to 0.9 MB. Off by default \u2014 it has no skeleton, so it cannot animate.",
+    "note": "Generated character mesh, TRELLIS.2 via Hugging Face, then cut down: the baked ground plane removed, textures halved and re-encoded, normals and UVs quantised. 3.9 MB to 0.9 MB. Off by default — it has no skeleton, so it cannot animate.",
     "player": "player.glb"
-  }
+  },
+  "removed": "There used to be a scenery group here — foliage.jpg and rock.jpg — for the generated world. That world is gone: nothing is drawn from invented map data any more, so the two textures had nothing left to dress and were deleted rather than left sitting in the download."
 }
