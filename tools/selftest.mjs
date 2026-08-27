@@ -935,6 +935,42 @@ console.log('\nProviders and detail budgets');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe snow line is a property of the place, not of your altitude');
+{
+  const { snowLineM, climateAt } = await import('../src/geo/climate.js');
+  const august = new Date(Date.UTC(2025, 7, 15));
+
+  // The 155 in snowLineM is 1000 / 6.5 — the environmental lapse rate turned
+  // round — so it wants the sea-level average. It was being handed the average
+  // at the ground under your feet, which already has the lapse rate in it, so
+  // the rate went in twice and the answer moved with the camera.
+  const valley = climateAt({ lat: 46.54, elevationM: 800, date: august });
+  const massif = climateAt({ lat: 46.54, elevationM: 3970, date: august });
+  ok('two heights in one place give one sea-level average',
+    Math.abs(valley.seaLevelAvgC - massif.seaLevelAvgC) < 0.001);
+  ok('and so one snow line, wherever you are standing',
+    snowLineM(valley.seaLevelAvgC) === snowLineM(massif.seaLevelAvgC));
+  ok('which is not what the old input did',
+    Math.abs(snowLineM(valley.avgC) - snowLineM(massif.avgC)) > 1000,
+    `${Math.round(snowLineM(valley.avgC))} m vs ${Math.round(snowLineM(massif.avgC))} m`);
+
+  // And the number itself has to be about right, or the tint is in the wrong
+  // place however stable it is. August in the Alps: the real snow line runs
+  // around three thousand metres.
+  const alpine = snowLineM(massif.seaLevelAvgC);
+  ok('August in the Alps puts it near three thousand metres',
+    alpine > 2400 && alpine < 3800, `${Math.round(alpine)} m`);
+  // Standing high used to collapse it to the clamp, which painted 45% flat
+  // white over every piece of flat ground above 600 m in view.
+  ok('and standing on the massif no longer collapses it to the floor',
+    snowLineM(massif.seaLevelAvgC) > -400);
+
+  const sky = readFileSync(new URL('../src/world/sky.js', import.meta.url), 'utf8');
+  ok('the sky feeds it the sea-level average',
+    /snowLineM\(this\.climate\.seaLevelAvgC\)/.test(sky));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nA wood reads as a canopy');
 {
   const wood = readFileSync(new URL('../src/world/woodland.js', import.meta.url), 'utf8');

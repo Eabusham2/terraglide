@@ -136,7 +136,7 @@ export class Sky {
       date: this.date,
       landFraction: this.landFraction ?? 0.6,
     });
-    shared.uSnowLine.value = snowLineM(this.climate.avgC);
+    shared.uSnowLine.value = snowLineM(this.climate.seaLevelAvgC);
   }
 
   setLandFraction(value) {

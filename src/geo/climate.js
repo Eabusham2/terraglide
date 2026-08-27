@@ -63,6 +63,16 @@ export function climateAt({ lat, elevationM = 0, date = new Date(), landFraction
     hemisphere: south ? 'S' : 'N',
     /** Average temperature for this season at this spot, Celsius. */
     avgC: seasonAvg,
+    /**
+     * The same average with the height taken back out — what this latitude and
+     * this time of year come to at sea level.
+     *
+     * Anything asking "how high does it have to be before it is cold" needs
+     * this one, not `avgC`: `avgC` already has the lapse rate applied for
+     * wherever you happen to be standing, and feeding it back into a lapse-rate
+     * calculation applies it twice. See snowLineM.
+     */
+    seaLevelAvgC: clamp(mean + amplitude * phase, -70, 56),
     /** Annual mean at this spot, for context. */
     annualC: clamp(mean + lapse, -70, 56),
     amplitudeC: amplitude,
@@ -84,7 +94,21 @@ function climateBand(lat, meanC) {
 /**
  * Snow line for the current conditions — used to tint high terrain white so
  * mountains read correctly even when imagery was captured in another season.
+ *
+ * This takes the **sea-level** seasonal average, and the 155 is why: it is
+ * 1000 / 6.5, the environmental lapse rate turned round. The sum is "how far up
+ * do you have to go before this place's air reaches freezing", plus a two
+ * degree allowance for snow lying a little below the freezing level.
+ *
+ * It was being handed `avgC` instead, which already has the lapse rate applied
+ * for the ground under your feet — so the rate went in twice and the answer
+ * depended on how high *you* were standing rather than on where you were. Up on
+ * the Jungfrau massif at 3,970 m that put the snow line at −400 m, the clamp,
+ * and the shader duly mixed 45% flat white over every piece of flat ground
+ * above 600 m in view: the valley floors, the forests, the villages. Measured
+ * from the same spot, sea-level August at 46.5°N gives 3,255 m instead, which
+ * is about where the Alpine snow line actually is in August.
  */
-export function snowLineM(avgC) {
-  return clamp((avgC + 2) * 155, -400, 5200);
+export function snowLineM(seaLevelAvgC) {
+  return clamp((seaLevelAvgC + 2) * 155, -400, 5200);
 }
