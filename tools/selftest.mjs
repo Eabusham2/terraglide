@@ -935,6 +935,28 @@ console.log('\nProviders and detail budgets');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe keyless imagery goes as deep as it is actually flown');
+{
+  const { IMAGERY_PROVIDERS } = await import('../src/tiles/providers.js');
+  const esri = IMAGERY_PROVIDERS.find((p) => p.id === 'esri');
+  // Nineteen is Esri's global guarantee, not their ceiling. Taking it as the
+  // ceiling threw away a real level over every city flown better than that,
+  // and twelve metres over Vienna the ground was a smear because the best tile
+  // asked for was a zoom-19 one magnified ten times.
+  ok('Esri imagery is not capped at its global floor', esri.maxZoom >= 20);
+  // And not past what is really there: 21 is an upsample on a mountain and a
+  // "no data" card over farmland, which would be sixteen requests a square
+  // against a keyless community endpoint for a blur.
+  ok('and not past the level that is only sometimes flown', esri.maxZoom <= 20);
+
+  const streamer = readFileSync(new URL('../src/tiles/streamer.js', import.meta.url), 'utf8');
+  ok('a square nobody has flown is written off rather than re-asked',
+    /this\.barren\.add\(entry\.key\)/.test(streamer));
+  ok('and a level a whole region lacks pulls the depth back',
+    /reviewDepth\(z\)/.test(streamer));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe snow line is a property of the place, not of your altitude');
 {
   const { snowLineM, climateAt } = await import('../src/geo/climate.js');

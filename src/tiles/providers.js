@@ -17,7 +17,41 @@ export const IMAGERY_PROVIDERS = [
     kind: 'xyz',
     needsKey: null,
     recommended: true,
-    maxZoom: 19,
+    /**
+     * Twenty, not nineteen.
+     *
+     * Nineteen is what Esri guarantee everywhere, and taking it as the ceiling
+     * everywhere threw away real detail over every city they have flown better
+     * than that. Standing twelve metres over Singerstraße in Vienna the ground
+     * is a smear, and the reason is that the best tile the game will ask for is
+     * a zoom-19 one being magnified about ten times.
+     *
+     * Measured, per-pixel contrast down each level — a genuine new level of
+     * resolution holds most of its contrast, a plain upsample halves it:
+     *
+     *   Vienna centre     z19 6.96   z20 4.89 (x0.70)   z21 3.65 (x0.75)
+     *   Jungfrau massif   z19 9.74   z20 5.77 (x0.59)   z21 1.84 (x0.32)
+     *   Meseta farmland   z19 4.84   z20 2.65 (x0.55)   z21 0.56 (x0.21)
+     *
+     * Twenty is real in all three. Twenty-one is real in the city and is an
+     * upsample on the mountain and a "no data" card over the farmland, so it is
+     * not taken: a level that is only sometimes there would be sixteen requests
+     * per square against a keyless community endpoint for a blur.
+     *
+     * This costs nothing at altitude. The depth the quadtree walks to is set by
+     * screen-space error, so a higher ceiling only draws more tiles when you
+     * are close enough to the ground to see them — which is exactly where the
+     * smear was. Where twenty is not flown, the no-data card is recognised and
+     * that square is marked barren, and `reviewDepth` pulls the whole level
+     * back if a region has none of it.
+     *
+     * The cost is real and worth stating. Flown at twelve metres for
+     * forty-five seconds, this level is 99 extra tiles over Vienna and 24 over
+     * the Meseta, both with nothing refused; over the Jungfrau, where Esri has
+     * not flown it, it is 161 refusals and 56 squares written off — paid once
+     * per area and then remembered, never asked again.
+     */
+    maxZoom: 20,
     template: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
     note: 'Keyless. Fair use only — do not bulk download.',
