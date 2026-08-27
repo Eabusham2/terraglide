@@ -21,7 +21,17 @@ what is left · `[?]` needs a decision from you.
       nothing). And a module that fails to download now says so and offers the
       single file, instead of leaving that first message on screen. Still open
       until you can confirm on the machine it fails on.
-- [ ] A9. Does not work on Chromebook
+- [~] A9. Does not work on Chromebook
+      — two causes found and fixed. There was no handling for the graphics
+      context being lost, which on a low-memory machine is not an edge case:
+      Chrome kills the GPU process, every texture goes with it, and the loop
+      carries on drawing into nothing — a frozen canvas with no error. It now
+      catches that, calls preventDefault (without which the browser never
+      offers a context back), stops, rebuilds and resumes; verified by taking
+      the context away and giving it back. And the graphics preset defaulted to
+      High for everybody, so a Chromebook started at a quality it could never
+      hold; the first run now reads the GPU name, memory and core count and
+      starts Low on a modest machine. Open until you confirm on yours.
 - [ ] A10. Online single file broken; single file missing things
 - [ ] A11. Freecam shows the ground not holding; breaks in freecam
 

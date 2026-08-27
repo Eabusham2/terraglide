@@ -298,6 +298,13 @@ class SettingsStore extends Emitter {
       const v = saved[key];
       if (v !== undefined && typeof v === typeof DEFAULT_SETTINGS[key]) this.values[key] = v;
     }
+    /** Which keys came from storage rather than from the defaults above. */
+    this.stored = new Set(Object.keys(saved ?? {}));
+  }
+
+  /** Has this key ever been chosen — by the player, or by anything else? */
+  wasChosen(key) {
+    return this.stored.has(key);
   }
 
   get(key) {
@@ -305,6 +312,7 @@ class SettingsStore extends Emitter {
   }
 
   set(key, value) {
+    this.stored.add(key);
     if (this.values[key] === value) return;
     this.values[key] = value;
     this.persist();

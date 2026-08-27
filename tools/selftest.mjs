@@ -1032,6 +1032,54 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nA modest machine is not asked to run like a desktop');
+{
+  const { tierFrom } = await import('../src/core/deviceTier.js');
+  // The preset defaulted to "high" for everybody — right on a desktop, wrong
+  // on exactly the machines that most need it right. A low-end Chromebook
+  // started at high, ran at single figures, and auto-quality spent the first
+  // minute of play climbing down from somewhere it should never have started.
+  ok('a Chromebook does not start on high',
+    tierFrom({ gpu: 'mali-g72', memoryGB: 4, cores: 4 }) === 'low');
+  ok('nor does one with Intel integrated graphics and two cores',
+    tierFrom({ gpu: 'intel(r) uhd graphics 600', memoryGB: 4, cores: 2 }) === 'low');
+  ok('software rendering is a warning, not a tier',
+    tierFrom({ gpu: 'swiftshader', memoryGB: 8, cores: 8 }) === 'low');
+  ok('and a real desktop is left alone',
+    tierFrom({ gpu: 'nvidia geforce rtx 4070', memoryGB: 8, cores: 16 }) === 'high');
+  // One signal is too easy to get wrong: good laptops report four cores, and
+  // plenty of browsers decline to report memory at all.
+  ok('a browser that says nothing is not punished for it', tierFrom({}) === 'high');
+  ok('and four cores alone is not enough to condemn a machine',
+    tierFrom({ gpu: 'apple m2', memoryGB: 0, cores: 4 }) !== 'low');
+
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  const settingsSrc = readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8');
+  ok('and it only ever applies when nothing has been chosen',
+    /if \(settings\.wasChosen\('graphics'\)\) return;/.test(game)
+    && /wasChosen\(key\)/.test(settingsSrc));
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nLosing the graphics context is survivable');
+{
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  // There was no handling at all. On a low-memory machine Chrome kills the GPU
+  // process, every texture goes with it, and the frame loop carries on drawing
+  // into a context that no longer exists — a frozen canvas, no error, nothing
+  // on screen to say what happened.
+  ok('the loss is caught', /webglcontextlost/.test(game));
+  // And this is the line that decides whether it can ever come back.
+  ok('and preventDefault is called, or the browser never offers one back',
+    /webglcontextlost[\s\S]{0,320}event\.preventDefault\(\)/.test(game));
+  ok('the loop stops rather than drawing into nothing',
+    /webglcontextlost[\s\S]{0,420}this\.running = false/.test(game));
+  ok('and on restore the world is rebuilt, not drawn with dead handles',
+    /webglcontextrestored[\s\S]{0,500}this\.terrain\.rebase\(\)/.test(game)
+    && /webglcontextrestored[\s\S]{0,700}this\.running = true/.test(game));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nJump opens the wings and never shuts them');
 {
   const controller = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');

@@ -84412,6 +84412,13 @@ class SettingsStore extends Emitter {
       const v = saved[key];
       if (v !== undefined && typeof v === typeof DEFAULT_SETTINGS[key]) this.values[key] = v;
     }
+    /** Which keys came from storage rather than from the defaults above. */
+    this.stored = new Set(Object.keys(saved ?? {}));
+  }
+
+  /** Has this key ever been chosen — by the player, or by anything else? */
+  wasChosen(key) {
+    return this.stored.has(key);
   }
 
   get(key) {
@@ -84419,6 +84426,7 @@ class SettingsStore extends Emitter {
   }
 
   set(key, value) {
+    this.stored.add(key);
     if (this.values[key] === value) return;
     this.values[key] = value;
     this.persist();
@@ -84697,6 +84705,85 @@ const PRESET_NAMES = Object.keys(GRAPHICS_PRESETS);
 __tg_exports["TIERS"] = TIERS;
 __tg_exports["Benchmark"] = Benchmark;
 __tg_exports["PRESET_NAMES"] = PRESET_NAMES;
+};
+__tg_modules["src/core/deviceTier.js"] = function (__tg_exports) {
+/**
+ * What this machine can probably manage, for the first run only.
+ *
+ * The graphics preset defaulted to "high" for everybody, which is a guess that
+ * happens to be right on a desktop and wrong on the machines that most need it
+ * to be right. A low-end Chromebook would start at high, run at single-figure
+ * frame rates, and the auto-quality dial would then spend a minute climbing
+ * down from a place it should never have started — with the first minute of
+ * play, the one that decides whether the thing is worth using at all, spent
+ * stuttering.
+ *
+ * Nothing here is a benchmark. It reads what the browser already knows: how
+ * much memory it will admit to, how many cores, and what the GPU calls itself.
+ * Those are coarse and sometimes absent, and that is fine, because the answer
+ * only has to be better than assuming a gaming desktop — and auto-quality
+ * measures the real frame clock from there.
+ *
+ * First run only. Once the setting has been chosen, by you or by auto-quality,
+ * this is never consulted again.
+ */
+
+/** Substrings that mean integrated, mobile or software rendering. */
+const MODEST_GPUS = [
+  'swiftshader', 'llvmpipe', 'software', 'mesa', 'basic render',
+  'mali', 'adreno', 'powervr', 'videocore',
+  'intel hd', 'intel(r) hd', 'uhd graphics', 'gma',
+];
+
+/** @returns {string} the unmasked renderer string, lowercased, or '' */
+function gpuName(gl) {
+  try {
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    return String(name ?? '').toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * @param {{ gpu?: string, memoryGB?: number, cores?: number, touch?: boolean }} probe
+ * @returns {'low'|'medium'|'high'|'ultra'}
+ */
+function tierFrom({ gpu = '', memoryGB = 0, cores = 0, touch = false } = {}) {
+  const modestGpu = MODEST_GPUS.some((needle) => gpu.includes(needle));
+  // deviceMemory is capped at 8 by the spec and absent on Safari, so a zero
+  // means "did not say" rather than "has none".
+  const smallMemory = memoryGB > 0 && memoryGB <= 4;
+  const fewCores = cores > 0 && cores <= 4;
+
+  // Software rendering is not a tier, it is a warning. Nothing above low is
+  // going to produce a playable frame.
+  if (gpu.includes('swiftshader') || gpu.includes('llvmpipe') || gpu.includes('software')) return 'low';
+  // Two of the three signals agreeing is enough. One alone is too easy to get
+  // wrong: plenty of good laptops report four cores, and plenty of browsers
+  // decline to report memory at all.
+  const marks = (modestGpu ? 1 : 0) + (smallMemory ? 1 : 0) + (fewCores ? 1 : 0);
+  if (marks >= 2) return 'low';
+  if (marks === 1) return 'medium';
+  // A touch device with nothing else against it is still a phone or a tablet.
+  if (touch) return 'medium';
+  return 'high';
+}
+
+/** Read the probe from this browser. `gl` may be null; the rest still counts. */
+function detectTier(gl) {
+  return tierFrom({
+    gpu: gl ? gpuName(gl) : '',
+    memoryGB: Number(navigator?.deviceMemory ?? 0),
+    cores: Number(navigator?.hardwareConcurrency ?? 0),
+    touch: typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches,
+  });
+}
+
+__tg_exports["gpuName"] = gpuName;
+__tg_exports["tierFrom"] = tierFrom;
+__tg_exports["detectTier"] = detectTier;
 };
 __tg_modules["src/ui/wheel.js"] = function (__tg_exports) {
 /**
@@ -98945,6 +99032,7 @@ const { clamp, damp } = __tg_require("src/core/math.js");
 const { PerfGovernor } = __tg_require("src/core/perf.js");
 const { Benchmark } = __tg_require("src/core/benchmark.js");
 const { settings } = __tg_require("src/core/settings.js");
+const { detectTier } = __tg_require("src/core/deviceTier.js");
 const { readJSON, writeJSON } = __tg_require("src/core/storage.js");
 const { formatDistance, formatLatLon } = __tg_require("src/core/units.js");
 const { InputManager } = __tg_require("src/camera/input.js");
@@ -99081,6 +99169,8 @@ class Game {
       stencil: false,
       logarithmicDepthBuffer: true,
     });
+    this.watchContext(canvas);
+    this.pickFirstRunQuality();
     this.renderer.setClearColor(0x0d0f12, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     // No tone curve. Everything in this scene is already display-referred —
@@ -99285,6 +99375,74 @@ class Game {
       exploration.save();
       trail.save();
       this.savePosition();
+    });
+  }
+
+  /**
+   * On the very first run, start at a quality this machine can actually manage.
+   *
+   * The preset defaulted to "high" for everybody. That is right on a desktop
+   * and wrong on exactly the machines that most need it to be right: a low-end
+   * Chromebook started at high, ran at single figures, and auto-quality then
+   * spent the first minute of play climbing down from somewhere it should
+   * never have started. The first minute is the one that decides whether the
+   * thing is worth using.
+   *
+   * Only when nothing has been chosen. The moment you pick a preset yourself —
+   * or auto-quality picks one — that is the answer and this never runs again.
+   */
+  pickFirstRunQuality() {
+    if (settings.wasChosen('graphics')) return;
+    const tier = detectTier(this.renderer.getContext());
+    if (tier === settings.get('graphics')) return;
+    settings.set('graphics', tier);
+    // Announced from `start`, not here: this runs in the constructor, before
+    // there is a HUD to say it to.
+    this.firstRunTier = tier;
+  }
+
+  /**
+   * Survive the graphics context being taken away.
+   *
+   * There was no handling for this at all, and on a low-memory machine it is
+   * not an edge case — it is Tuesday. Chrome kills the GPU process when it is
+   * squeezed, every texture and buffer goes with it, and the frame loop
+   * carries on drawing into a context that no longer exists: a frozen or black
+   * canvas, no error, nothing on screen to say what happened. That is what
+   * "doesn't work on Chromebook" looks like from the inside.
+   *
+   * Two things matter here. Calling preventDefault on the lost event is what
+   * makes the context restorable at all — without it the browser will never
+   * offer one back, so a recoverable blip becomes permanent. And on restore
+   * everything uploaded to the old context is gone, so the world is rebuilt
+   * from scratch rather than drawn with handles that point at nothing.
+   */
+  watchContext(canvas) {
+    canvas.addEventListener('webglcontextlost', (event) => {
+      // Without this the context is gone for good.
+      event.preventDefault();
+      this.contextLost = true;
+      this.running = false;
+      this.onStatus('Graphics context lost — recovering');
+      this.toast('The graphics driver dropped the world. Getting it back…', 'warn');
+    });
+
+    canvas.addEventListener('webglcontextrestored', () => {
+      this.contextLost = false;
+      // Everything that lived on the old context is gone. Rebuilding is the
+      // honest response: the alternative is drawing with handles to nothing.
+      try {
+        this.streamer.clear();
+        this.terrain.rebase();
+        this.buildings.rebase();
+        this.panorama.clear();
+      } catch (err) {
+        console.error('rebuild after context restore failed', err);
+      }
+      this.running = true;
+      this.lastTime = performance.now();
+      requestAnimationFrame((t) => this.loop(t));
+      this.toast('Graphics recovered', 'good');
     });
   }
 
@@ -99526,6 +99684,9 @@ class Game {
     this.lastTime = performance.now();
     requestAnimationFrame((t) => this.loop(t));
 
+    if (this.firstRunTier === 'low') {
+      this.toast('Starting on Low for this machine — change it in Settings → Graphics');
+    }
     if (this.help.firstRun) this.help.show();
   }
 

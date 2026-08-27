@@ -4,6 +4,7 @@ import { clamp, damp } from './core/math.js';
 import { PerfGovernor } from './core/perf.js';
 import { Benchmark } from './core/benchmark.js';
 import { settings } from './core/settings.js';
+import { detectTier } from './core/deviceTier.js';
 import { readJSON, writeJSON } from './core/storage.js';
 import { formatDistance, formatLatLon } from './core/units.js';
 import { InputManager } from './camera/input.js';
@@ -145,6 +146,8 @@ export class Game {
       stencil: false,
       logarithmicDepthBuffer: true,
     });
+    this.watchContext(canvas);
+    this.pickFirstRunQuality();
     this.renderer.setClearColor(0x0d0f12, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     // No tone curve. Everything in this scene is already display-referred —
@@ -349,6 +352,74 @@ export class Game {
       exploration.save();
       trail.save();
       this.savePosition();
+    });
+  }
+
+  /**
+   * On the very first run, start at a quality this machine can actually manage.
+   *
+   * The preset defaulted to "high" for everybody. That is right on a desktop
+   * and wrong on exactly the machines that most need it to be right: a low-end
+   * Chromebook started at high, ran at single figures, and auto-quality then
+   * spent the first minute of play climbing down from somewhere it should
+   * never have started. The first minute is the one that decides whether the
+   * thing is worth using.
+   *
+   * Only when nothing has been chosen. The moment you pick a preset yourself —
+   * or auto-quality picks one — that is the answer and this never runs again.
+   */
+  pickFirstRunQuality() {
+    if (settings.wasChosen('graphics')) return;
+    const tier = detectTier(this.renderer.getContext());
+    if (tier === settings.get('graphics')) return;
+    settings.set('graphics', tier);
+    // Announced from `start`, not here: this runs in the constructor, before
+    // there is a HUD to say it to.
+    this.firstRunTier = tier;
+  }
+
+  /**
+   * Survive the graphics context being taken away.
+   *
+   * There was no handling for this at all, and on a low-memory machine it is
+   * not an edge case — it is Tuesday. Chrome kills the GPU process when it is
+   * squeezed, every texture and buffer goes with it, and the frame loop
+   * carries on drawing into a context that no longer exists: a frozen or black
+   * canvas, no error, nothing on screen to say what happened. That is what
+   * "doesn't work on Chromebook" looks like from the inside.
+   *
+   * Two things matter here. Calling preventDefault on the lost event is what
+   * makes the context restorable at all — without it the browser will never
+   * offer one back, so a recoverable blip becomes permanent. And on restore
+   * everything uploaded to the old context is gone, so the world is rebuilt
+   * from scratch rather than drawn with handles that point at nothing.
+   */
+  watchContext(canvas) {
+    canvas.addEventListener('webglcontextlost', (event) => {
+      // Without this the context is gone for good.
+      event.preventDefault();
+      this.contextLost = true;
+      this.running = false;
+      this.onStatus('Graphics context lost — recovering');
+      this.toast('The graphics driver dropped the world. Getting it back…', 'warn');
+    });
+
+    canvas.addEventListener('webglcontextrestored', () => {
+      this.contextLost = false;
+      // Everything that lived on the old context is gone. Rebuilding is the
+      // honest response: the alternative is drawing with handles to nothing.
+      try {
+        this.streamer.clear();
+        this.terrain.rebase();
+        this.buildings.rebase();
+        this.panorama.clear();
+      } catch (err) {
+        console.error('rebuild after context restore failed', err);
+      }
+      this.running = true;
+      this.lastTime = performance.now();
+      requestAnimationFrame((t) => this.loop(t));
+      this.toast('Graphics recovered', 'good');
     });
   }
 
@@ -590,6 +661,9 @@ export class Game {
     this.lastTime = performance.now();
     requestAnimationFrame((t) => this.loop(t));
 
+    if (this.firstRunTier === 'low') {
+      this.toast('Starting on Low for this machine — change it in Settings → Graphics');
+    }
     if (this.help.firstRun) this.help.show();
   }
 
