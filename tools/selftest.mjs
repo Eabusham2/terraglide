@@ -1076,6 +1076,56 @@ console.log('\nAuto graphics is a dial, not a label');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe game clock keeps up with the wall clock');
+{
+  const { FixedStep, catchUpSteps, MAX_FRAME_S } = await import('../src/core/perf.js');
+
+  // How much game time a machine drawing at this rate actually simulates, run
+  // through the same accumulator the controller runs.
+  const keepUp = (fps, timeScale = 1) => {
+    const step = 1 / 20;
+    const fixed = new FixedStep(step);
+    const dt = Math.min(1 / fps, MAX_FRAME_S) * timeScale;
+    let game = 0;
+    let wall = 0;
+    while (wall < 20) {
+      fixed.maxSteps = catchUpSteps(step, timeScale);
+      fixed.run(dt, (s) => { game += s; });
+      wall += dt;
+    }
+    return game / wall;
+  };
+
+  // The catch-up ceiling was five ticks — a quarter of a second — while the
+  // frame clock clamped at a second and a half. Everything between the two was
+  // thrown away, so below four frames a second the world ran in slow motion and
+  // gravity did a fraction of its job. At two frames a second, exactly half.
+  ok('a machine at four frames a second runs at full speed', keepUp(4) > 0.99);
+  ok('and so does one at two', keepUp(2) > 0.99);
+  ok('and so does one at one', keepUp(1) > 0.99);
+  ok('a stretched clock still gets all of its ticks', keepUp(2, 8) > 0.99);
+
+  // The two numbers must come from one place, or they drift apart again.
+  const perf = readFileSync(new URL('../src/core/perf.js', import.meta.url), 'utf8');
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  const controller = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');
+  ok('the ceiling is stated once', /export const MAX_FRAME_S/.test(perf));
+  ok('the frame clock clamps to it', /const elapsed = clamp\(.*MAX_FRAME_S\)/.test(game));
+  ok('and the fixed step sizes its catch-up from it',
+    /catchUpSteps\(TICK, cheats\.gameSpeed\)/.test(controller));
+  ok('with no second opinion about how many ticks that is',
+    !/maxSteps\s*=\s*Math\.ceil\(\s*\d/.test(controller));
+
+  // Seconds, not milliseconds. `elapsed` is already divided by a thousand, and
+  // dividing again put the four-second window an hour of wall clock away — so
+  // the tier everyone now starts on could never once move. The dial's own
+  // checks all called update() directly with the right units and passed
+  // throughout; only the call site was wrong.
+  ok('auto quality is handed seconds', /autoQuality\.update\(elapsed\)/.test(game));
+  ok('and the frame governor too', /perf\.update\(elapsed\)/.test(game));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nCoarse cover is not thrown away like detail');
 {
   const streamer = readFileSync(new URL('../src/tiles/streamer.js', import.meta.url), 'utf8');

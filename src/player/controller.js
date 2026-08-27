@@ -1,7 +1,7 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { cheats } from '../core/cheats.js';
 import { clamp, damp } from '../core/math.js';
-import { FixedStep } from '../core/perf.js';
+import { FixedStep, catchUpSteps } from '../core/perf.js';
 import { settings } from '../core/settings.js';
 import { TICK, stepGlide, stepRocket } from './elytra.js';
 
@@ -71,7 +71,7 @@ export class PlayerController {
     this.player = player;
     this.terrain = terrain;
     this.buildings = buildings;
-    this.fixed = new FixedStep(TICK, 5);
+    this.fixed = new FixedStep(TICK);
     this.look = new THREE.Vector3();
     this.tmp = new THREE.Vector3();
     /** Where the player was at the start of the most recent physics tick. */
@@ -111,7 +111,13 @@ export class PlayerController {
 
     // A stretched clock needs proportionally more catch-up ticks per frame, or
     // the substep cap quietly swallows the extra speed on a slow machine.
-    this.fixed.maxSteps = Math.ceil(5 * Math.max(1, cheats.gameSpeed));
+    //
+    // Sized from the same ceiling the frame clock clamps to, rather than from
+    // a number of its own. It was five ticks — a quarter of a second — while
+    // the frame clock allowed a second and a half, so below four frames a
+    // second the game threw the difference away and ran in slow motion: at two
+    // frames a second gravity was doing exactly half its job. See MAX_FRAME_S.
+    this.fixed.maxSteps = catchUpSteps(TICK, cheats.gameSpeed);
     this.fixed.run(dt, (step) => this.tick(step, input));
 
     // Draw somewhere between the last two ticks rather than on the last one.

@@ -84574,22 +84574,40 @@ class PerfGovernor {
 }
 
 /**
- * Fixed-timestep accumulator so physics stay identical at any frame rate.
+ * The longest frame the game will simulate, in seconds of wall clock.
  *
- * `maxSteps` is the catch-up ceiling, and it was six — three tenths of a
- * second. That is fine at sixty frames a second and a disaster below about
- * three, because everything past the ceiling is *thrown away*: the game clock
- * simply runs slower than the wall clock, and the whole world moves in slow
- * motion. Falling too slowly, gliding too slowly, a jump that hangs — all one
- * bug, and it only shows up on the machines least able to afford it.
+ * Everything past this is thrown away: the game clock runs slower than the
+ * wall clock and the whole world moves in slow motion. Falling too slowly,
+ * gliding too slowly, a jump that hangs, gravity that feels like it is
+ * missing — all one bug, and it only shows up on the machines least able to
+ * afford it.
  *
- * Thirty steps is a second and a half of catch-up, which covers a frame rate
- * down to about one. It is still a ceiling rather than no ceiling, because
- * without one a machine that cannot keep up spends longer simulating than
- * drawing and never recovers.
+ * A second and a half covers a frame rate down to about one. It is a ceiling
+ * rather than no ceiling because without one a machine that cannot keep up
+ * spends longer simulating than drawing and never recovers.
+ *
+ * This number is exported because two places need it and they must not
+ * disagree. The frame clock clamps to it; the fixed step sizes its catch-up
+ * from it. They were separate numbers once — 1.5 s at the clock and 0.25 s at
+ * the step — and the smaller one silently won, so the clamp was generous and
+ * the physics still ran at half speed below four frames a second.
  */
+const MAX_FRAME_S = 1.5;
+
+/**
+ * Catch-up steps a fixed clock of this size needs to cover MAX_FRAME_S.
+ *
+ * The game-speed cheat stretches the clock, so a frame can carry that many
+ * times more game seconds and needs proportionally more steps to swallow
+ * them.
+ */
+function catchUpSteps(step, timeScale = 1) {
+  return Math.ceil((MAX_FRAME_S / step) * Math.max(1, timeScale));
+}
+
+/** Fixed-timestep accumulator so physics stay identical at any frame rate. */
 class FixedStep {
-  constructor(step, maxSteps = 30) {
+  constructor(step, maxSteps = catchUpSteps(step)) {
     this.step = step;
     this.maxSteps = maxSteps;
     this.acc = 0;
@@ -84613,6 +84631,8 @@ class FixedStep {
 
 __tg_exports["MIN_SCALE"] = MIN_SCALE;
 __tg_exports["PerfGovernor"] = PerfGovernor;
+__tg_exports["MAX_FRAME_S"] = MAX_FRAME_S;
+__tg_exports["catchUpSteps"] = catchUpSteps;
 __tg_exports["FixedStep"] = FixedStep;
 };
 __tg_modules["src/core/benchmark.js"] = function (__tg_exports) {
@@ -88254,7 +88274,7 @@ __tg_modules["src/player/controller.js"] = function (__tg_exports) {
 const THREE = __tg_require("vendor/three/three.module.js");
 const { cheats } = __tg_require("src/core/cheats.js");
 const { clamp, damp } = __tg_require("src/core/math.js");
-const { FixedStep } = __tg_require("src/core/perf.js");
+const { FixedStep, catchUpSteps } = __tg_require("src/core/perf.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { TICK, stepGlide, stepRocket } = __tg_require("src/player/elytra.js");
 
@@ -88324,7 +88344,7 @@ class PlayerController {
     this.player = player;
     this.terrain = terrain;
     this.buildings = buildings;
-    this.fixed = new FixedStep(TICK, 5);
+    this.fixed = new FixedStep(TICK);
     this.look = new THREE.Vector3();
     this.tmp = new THREE.Vector3();
     /** Where the player was at the start of the most recent physics tick. */
@@ -88364,7 +88384,13 @@ class PlayerController {
 
     // A stretched clock needs proportionally more catch-up ticks per frame, or
     // the substep cap quietly swallows the extra speed on a slow machine.
-    this.fixed.maxSteps = Math.ceil(5 * Math.max(1, cheats.gameSpeed));
+    //
+    // Sized from the same ceiling the frame clock clamps to, rather than from
+    // a number of its own. It was five ticks — a quarter of a second — while
+    // the frame clock allowed a second and a half, so below four frames a
+    // second the game threw the difference away and ran in slow motion: at two
+    // frames a second gravity was doing exactly half its job. See MAX_FRAME_S.
+    this.fixed.maxSteps = catchUpSteps(TICK, cheats.gameSpeed);
     this.fixed.run(dt, (step) => this.tick(step, input));
 
     // Draw somewhere between the last two ticks rather than on the last one.
@@ -99178,7 +99204,7 @@ __tg_modules["src/game.js"] = function (__tg_exports) {
 const THREE = __tg_require("vendor/three/three.module.js");
 const { cheats } = __tg_require("src/core/cheats.js");
 const { clamp, damp } = __tg_require("src/core/math.js");
-const { PerfGovernor } = __tg_require("src/core/perf.js");
+const { MAX_FRAME_S, PerfGovernor } = __tg_require("src/core/perf.js");
 const { Benchmark } = __tg_require("src/core/benchmark.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { detectTier } = __tg_require("src/core/deviceTier.js");
@@ -99881,18 +99907,21 @@ class Game {
     if (!this.running) return;
     requestAnimationFrame((t) => this.loop(t));
 
-    // A second and a half, matching the fixed-step catch-up ceiling. A quarter
-    // of a second here meant a machine drawing at three frames a second threw
-    // three quarters of every second on the floor, and the whole world moved
-    // in slow motion — which is what 'falling too slowly' actually was.
-    const elapsed = clamp((now - this.lastTime) / 1000, 0, 1.5);
+    // Clamped to the fixed step's own catch-up ceiling rather than to a number
+    // that happens to match it. A machine drawing slower than this throws the
+    // difference on the floor and the whole world moves in slow motion — which
+    // is what 'falling too slowly' and 'is there gravity?' actually were.
+    const elapsed = clamp((now - this.lastTime) / 1000, 0, MAX_FRAME_S);
     this.lastTime = now;
     if (document.hidden) return;
 
     // The frame-rate governor wants real seconds; everything else runs on the
     // game clock, which the game-speed cheat is allowed to stretch.
     this.perf.update(elapsed);
-    const tierChange = this.autoQuality.update(elapsed / 1000);
+    // Seconds, not milliseconds: `elapsed` is already divided above. Dividing
+    // again put auto-quality's four-second window an hour out of reach, so the
+    // tier everyone now starts on never once moved.
+    const tierChange = this.autoQuality.update(elapsed);
     if (tierChange) this.toast(`Graphics: ${tierChange.to} (${tierChange.fps} fps)`);
     // Anything waiting on a real drawn frame — the benchmark, and nothing else
     // — is told how long this one took. Measuring the game is the only honest

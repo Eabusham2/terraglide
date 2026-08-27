@@ -1,7 +1,7 @@
 import * as THREE from '../vendor/three/three.module.js';
 import { cheats } from './core/cheats.js';
 import { clamp, damp } from './core/math.js';
-import { PerfGovernor } from './core/perf.js';
+import { MAX_FRAME_S, PerfGovernor } from './core/perf.js';
 import { Benchmark } from './core/benchmark.js';
 import { settings } from './core/settings.js';
 import { detectTier } from './core/deviceTier.js';
@@ -709,18 +709,21 @@ export class Game {
     if (!this.running) return;
     requestAnimationFrame((t) => this.loop(t));
 
-    // A second and a half, matching the fixed-step catch-up ceiling. A quarter
-    // of a second here meant a machine drawing at three frames a second threw
-    // three quarters of every second on the floor, and the whole world moved
-    // in slow motion — which is what 'falling too slowly' actually was.
-    const elapsed = clamp((now - this.lastTime) / 1000, 0, 1.5);
+    // Clamped to the fixed step's own catch-up ceiling rather than to a number
+    // that happens to match it. A machine drawing slower than this throws the
+    // difference on the floor and the whole world moves in slow motion — which
+    // is what 'falling too slowly' and 'is there gravity?' actually were.
+    const elapsed = clamp((now - this.lastTime) / 1000, 0, MAX_FRAME_S);
     this.lastTime = now;
     if (document.hidden) return;
 
     // The frame-rate governor wants real seconds; everything else runs on the
     // game clock, which the game-speed cheat is allowed to stretch.
     this.perf.update(elapsed);
-    const tierChange = this.autoQuality.update(elapsed / 1000);
+    // Seconds, not milliseconds: `elapsed` is already divided above. Dividing
+    // again put auto-quality's four-second window an hour out of reach, so the
+    // tier everyone now starts on never once moved.
+    const tierChange = this.autoQuality.update(elapsed);
     if (tierChange) this.toast(`Graphics: ${tierChange.to} (${tierChange.fps} fps)`);
     // Anything waiting on a real drawn frame — the benchmark, and nothing else
     // — is told how long this one took. Measuring the game is the only honest

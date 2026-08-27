@@ -61,22 +61,40 @@ export class PerfGovernor {
 }
 
 /**
- * Fixed-timestep accumulator so physics stay identical at any frame rate.
+ * The longest frame the game will simulate, in seconds of wall clock.
  *
- * `maxSteps` is the catch-up ceiling, and it was six — three tenths of a
- * second. That is fine at sixty frames a second and a disaster below about
- * three, because everything past the ceiling is *thrown away*: the game clock
- * simply runs slower than the wall clock, and the whole world moves in slow
- * motion. Falling too slowly, gliding too slowly, a jump that hangs — all one
- * bug, and it only shows up on the machines least able to afford it.
+ * Everything past this is thrown away: the game clock runs slower than the
+ * wall clock and the whole world moves in slow motion. Falling too slowly,
+ * gliding too slowly, a jump that hangs, gravity that feels like it is
+ * missing — all one bug, and it only shows up on the machines least able to
+ * afford it.
  *
- * Thirty steps is a second and a half of catch-up, which covers a frame rate
- * down to about one. It is still a ceiling rather than no ceiling, because
- * without one a machine that cannot keep up spends longer simulating than
- * drawing and never recovers.
+ * A second and a half covers a frame rate down to about one. It is a ceiling
+ * rather than no ceiling because without one a machine that cannot keep up
+ * spends longer simulating than drawing and never recovers.
+ *
+ * This number is exported because two places need it and they must not
+ * disagree. The frame clock clamps to it; the fixed step sizes its catch-up
+ * from it. They were separate numbers once — 1.5 s at the clock and 0.25 s at
+ * the step — and the smaller one silently won, so the clamp was generous and
+ * the physics still ran at half speed below four frames a second.
  */
+export const MAX_FRAME_S = 1.5;
+
+/**
+ * Catch-up steps a fixed clock of this size needs to cover MAX_FRAME_S.
+ *
+ * The game-speed cheat stretches the clock, so a frame can carry that many
+ * times more game seconds and needs proportionally more steps to swallow
+ * them.
+ */
+export function catchUpSteps(step, timeScale = 1) {
+  return Math.ceil((MAX_FRAME_S / step) * Math.max(1, timeScale));
+}
+
+/** Fixed-timestep accumulator so physics stay identical at any frame rate. */
 export class FixedStep {
-  constructor(step, maxSteps = 30) {
+  constructor(step, maxSteps = catchUpSteps(step)) {
     this.step = step;
     this.maxSteps = maxSteps;
     this.acc = 0;
