@@ -520,7 +520,11 @@ input[type='checkbox'] {
   display: flex;
   align-items: center;
   gap: 7px;
-  width: 118px;
+  /* Wide enough for the longest thing the meta line ever says: a burn time,
+     a separator and a three-figure speed with its unit. It was 118px, which
+     was right when the line read "hold to fly" and truncated to "0.8s · 120 …"
+     the moment it started carrying real numbers. */
+  width: 134px;
   height: 50px;
   padding: 4px 8px 5px;
   text-align: left;
@@ -577,7 +581,7 @@ input[type='checkbox'] {
 
 .slot-meta {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-faint);
 }
 
@@ -589,7 +593,16 @@ input[type='checkbox'] {
   bottom: 4px;
   text-align: right;
   max-width: 260px;
-  opacity: 0.75;
+  opacity: 0.85;
+  /* Small and faint is fine; illegible is not. Pale grey text with nothing
+     behind it disappears completely over pale ground — over the tan hills
+     north-east of Santo Antônio do Itambé the provider credits could not be
+     read at all, and a credit you cannot read is not a credit. A shadow keeps
+     the corner uncluttered and keeps the line separate from whatever is
+     underneath it, which a panel background would not do as quietly. */
+  text-shadow:
+    0 1px 2px rgba(18, 17, 14, 0.9),
+    0 0 5px rgba(18, 17, 14, 0.7);
 }
 
 .status-line {
@@ -1362,21 +1375,51 @@ body.touch-active .hud-hotbar {
   top: 40px;
 }
 
-/* On a narrow touch screen the hotbar sits across the top, so the temperature
-   and the toolbar move down out from under it. */
+/* A narrow touch screen puts the hotbar above the thumbs, not under them.
+
+   It used to go across the top for that, and on a phone the top is where the
+   minimap is. Measured at 390x844 the two overlapped by 133x44 px — which hid
+   rockets four and five completely, so on a phone you could not select them at
+   all — and at 360 wide the bar also ran eleven pixels off the left edge.
+   
+   So it goes back along the bottom, in the band above the one the stick and
+   the buttons reserve for themselves: clear of both thumbs and of the minimap.
+   The slots are sized to the window rather than to a fixed 74px, because five
+   of anything fixed will eventually not fit. */
 @media (max-width: 900px) {
   body.touch-active .hud-topleft {
-    top: 104px;
+    top: 40px;
+  }
+
+  body.touch-active .hud-hotbar {
+    top: auto;
+    /* The stick is 132px tall and sits 22px up, so its top is at 154. */
+    bottom: 182px;
   }
 
   body.touch-active .hud-hotbar .slot {
-    width: 74px;
+    width: min(74px, calc((100vw - 28px) / 5));
     height: 44px;
+  }
+
+  /* Above the hotbar, which is above the controls. */
+  body.touch-active .hud-bottomleft {
+    bottom: 234px;
+  }
+
+  /* 74px is an icon and a keycap wide. The name and the burn-and-speed line
+     do not fit and were being cut off mid-word; on a touch screen you pick a
+     rocket by its colour anyway. */
+  body.touch-active .hud-hotbar .slot .slot-label,
+  body.touch-active .hud-hotbar .slot .slot-meta {
+    display: none;
   }
 }
 
+/* Wide touch screens keep the hotbar along the bottom too, so the location
+   panel clears both it and the controls. Narrow ones override this above. */
 body.touch-active .hud-bottomleft {
-  bottom: 168px;
+  bottom: 234px;
 }
 
 body.touch-active .hud-crosshair {
@@ -1384,9 +1427,82 @@ body.touch-active .hud-crosshair {
 }
 
 
+/* ---------------------------------------------------------------- short windows
+
+   A phone on its side is 390px tall, and at their ordinary sizes the four
+   things that want the left edge do not fit in that: the climate and toolbar
+   block is 122px, the location panel 111, the hotbar 44 and the stick 154.
+   That is 431px of content in 390px of screen, and what it did instead of
+   overflowing was overlap — the location panel sat on top of the toolbar,
+   measured at 282x91px of collision.
+
+   So on a short screen everything on that edge gets smaller: the climate loses
+   its second line, the toolbar its padding, the location panel its figures
+   row, and the stick and buttons come down to a size that still suits a thumb
+   on a screen this short. Nothing is hidden that you cannot get at another way
+   — the figures are on the HUD readout and the climate detail is in the
+   forecast.
+*/
+@media (max-height: 460px) {
+  .climate-sub {
+    display: none;
+  }
+
+  .toolbar button {
+    padding: 4px 6px;
+    font-size: 10.5px;
+  }
+
+  .location-figures {
+    display: none;
+  }
+
+  .location-address {
+    font-size: 12px;
+  }
+
+  .touch-stick {
+    width: 92px;
+    height: 92px;
+    left: 14px;
+    bottom: 12px;
+  }
+
+  .touch-stick i {
+    width: 38px;
+    height: 38px;
+    margin: -19px 0 0 -19px;
+  }
+
+  .touch-buttons {
+    grid-template-columns: repeat(2, 74px);
+    gap: 6px;
+    right: 12px;
+    bottom: 12px;
+  }
+
+  .touch-buttons button {
+    height: 40px;
+    font-size: 12px;
+  }
+
+  /* Stick tops out at 104; hotbar above it; location panel above that. */
+  body.touch-active .hud-hotbar {
+    bottom: 112px;
+  }
+
+  body.touch-active .hud-bottomleft {
+    bottom: 164px;
+  }
+
+  body.touch-active .hud {
+    padding-bottom: 164px;
+  }
+}
+
 /* ---------------------------------------------------------------- narrow windows
 
-   The hotbar is five 118px slots plus gaps — a shade over 600px — and it is
+   The hotbar is five 134px slots plus gaps — a shade over 680px — and it is
    centred. The location panel and the attribution live in the bottom corners
    on the same row, so once the window drops below about 1180px the three
    collide and the hotbar's panel background covers the text underneath.
@@ -1462,14 +1578,18 @@ body.touch-active .hud-crosshair {
     order: 2;
   }
 
+  /* The controls' own band, plus the hotbar's row above it, so the two blocks
+     that join the flow on a phone stack clear of both. */
   body.touch-active .hud {
-    padding-bottom: 174px;
+    padding-bottom: 234px;
   }
 }
 
 /* Narrower still and the hotbar itself will not fit across the window, so the
-   slots shed their padding and then their labels rather than overflowing. */
-@media (max-width: 660px) {
+   slots shed their padding and then their labels rather than overflowing. Five
+   134px slots and their gaps come to 682px, so the labels have to go before
+   the window does, not after. */
+@media (max-width: 720px) {
   .hud-hotbar .slot {
     width: 62px;
     padding: 4px 5px 5px;
@@ -82415,6 +82535,174 @@ __tg_exports["TOUCH_HOLD_MS"] = TOUCH_HOLD_MS;
 __tg_exports["CHEAT_DEFAULTS"] = CHEAT_DEFAULTS;
 __tg_exports["cheats"] = cheats;
 };
+__tg_modules["src/geo/mercator.js"] = function (__tg_exports) {
+const { DEG, RAD, clamp } = __tg_require("src/core/math.js");
+
+/** Spherical earth / Web Mercator constants. */
+const EARTH_RADIUS = 6378137;
+const EARTH_CIRCUMFERENCE = 2 * Math.PI * EARTH_RADIUS;
+/** Latitude where the Web Mercator square closes. */
+const MAX_LATITUDE = 85.05112878;
+
+/** Longitude (deg) to normalised mercator X in [0,1]. */
+function lonToNormX(lon) {
+  return (wrapLon(lon) + 180) / 360;
+}
+
+/** Latitude (deg) to normalised mercator Y in [0,1] (0 = north pole side). */
+function latToNormY(lat) {
+  const phi = clamp(lat, -MAX_LATITUDE, MAX_LATITUDE) * DEG;
+  return 0.5 - Math.log(Math.tan(Math.PI / 4 + phi / 2)) / (2 * Math.PI);
+}
+
+function normXToLon(x) {
+  return x * 360 - 180;
+}
+
+function normYToLat(y) {
+  return (2 * Math.atan(Math.exp((0.5 - y) * 2 * Math.PI)) - Math.PI / 2) * RAD;
+}
+
+function wrapLon(lon) {
+  let x = (lon + 180) % 360;
+  if (x < 0) x += 360;
+  return x - 180;
+}
+
+/** Mercator ordinate in radians: ln(tan(pi/4 + phi/2)). Used by the local frame. */
+function mercatorPhi(lat) {
+  const phi = clamp(lat, -MAX_LATITUDE, MAX_LATITUDE) * DEG;
+  return Math.log(Math.tan(Math.PI / 4 + phi / 2));
+}
+
+function inverseMercatorPhi(y) {
+  return (2 * Math.atan(Math.exp(y)) - Math.PI / 2) * RAD;
+}
+
+function tileCount(z) {
+  return Math.pow(2, z);
+}
+
+function wrapTileX(x, z) {
+  const n = tileCount(z);
+  return ((x % n) + n) % n;
+}
+
+function lonLatToTile(lat, lon, z) {
+  const n = tileCount(z);
+  const x = Math.floor(lonToNormX(lon) * n);
+  const y = Math.floor(latToNormY(lat) * n);
+  return { z, x: wrapTileX(x, z), y: clamp(y, 0, n - 1) };
+}
+
+/** North-west corner of a tile. */
+function tileNorthWest(tile) {
+  const n = tileCount(tile.z);
+  return { lat: normYToLat(tile.y / n), lon: normXToLon(tile.x / n) };
+}
+
+function tileCenter(tile) {
+  const n = tileCount(tile.z);
+  return { lat: normYToLat((tile.y + 0.5) / n), lon: normXToLon((tile.x + 0.5) / n) };
+}
+
+/** Ground resolution (metres per pixel) for a 256 px tile at a latitude. */
+function metresPerPixel(lat, z) {
+  return (EARTH_CIRCUMFERENCE * Math.cos(lat * DEG)) / (256 * tileCount(z));
+}
+
+/** Bing Maps quadkey for a tile. */
+function quadKey(tile) {
+  let key = '';
+  for (let i = tile.z; i > 0; i--) {
+    let digit = 0;
+    const mask = 1 << (i - 1);
+    if ((tile.x & mask) !== 0) digit += 1;
+    if ((tile.y & mask) !== 0) digit += 2;
+    key += digit;
+  }
+  return key;
+}
+
+/** Great-circle distance in metres. */
+function haversine(a, b) {
+  const dLat = (b.lat - a.lat) * DEG;
+  const dLon = (b.lon - a.lon) * DEG;
+  const lat1 = a.lat * DEG;
+  const lat2 = b.lat * DEG;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 2 * EARTH_RADIUS * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** Initial bearing in radians, clockwise from north. */
+function bearing(a, b) {
+  const lat1 = a.lat * DEG;
+  const lat2 = b.lat * DEG;
+  const dLon = (b.lon - a.lon) * DEG;
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  return Math.atan2(y, x);
+}
+
+/** Travel `distance` metres from `origin` along `bearingRad`. */
+function destination(origin, bearingRad, distance) {
+  const d = distance / EARTH_RADIUS;
+  const lat1 = origin.lat * DEG;
+  const lon1 = origin.lon * DEG;
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(d) + Math.cos(lat1) * Math.sin(d) * Math.cos(bearingRad),
+  );
+  const lon2 =
+    lon1 +
+    Math.atan2(
+      Math.sin(bearingRad) * Math.sin(d) * Math.cos(lat1),
+      Math.cos(d) - Math.sin(lat1) * Math.sin(lat2),
+    );
+  return { lat: lat2 * RAD, lon: wrapLon(lon2 * RAD) };
+}
+
+/**
+ * Uniformly distributed point on the sphere, clipped to the mercator band so it
+ * is always somewhere the tile pyramid can actually show.
+ */
+function randomLatLon(rng = Math.random) {
+  const lat = clamp(Math.asin(rng() * 2 - 1) * RAD, -MAX_LATITUDE, MAX_LATITUDE);
+  return { lat, lon: rng() * 360 - 180 };
+}
+
+/** Uniform random point inside a radius (metres) of an origin. */
+function randomNear(origin, radiusM, rng = Math.random) {
+  return destination(origin, rng() * Math.PI * 2, radiusM * Math.sqrt(rng()));
+}
+
+function tileKey(z, x, y) {
+  return `${z}/${x}/${y}`;
+}
+
+__tg_exports["EARTH_RADIUS"] = EARTH_RADIUS;
+__tg_exports["EARTH_CIRCUMFERENCE"] = EARTH_CIRCUMFERENCE;
+__tg_exports["MAX_LATITUDE"] = MAX_LATITUDE;
+__tg_exports["lonToNormX"] = lonToNormX;
+__tg_exports["latToNormY"] = latToNormY;
+__tg_exports["normXToLon"] = normXToLon;
+__tg_exports["normYToLat"] = normYToLat;
+__tg_exports["wrapLon"] = wrapLon;
+__tg_exports["mercatorPhi"] = mercatorPhi;
+__tg_exports["inverseMercatorPhi"] = inverseMercatorPhi;
+__tg_exports["tileCount"] = tileCount;
+__tg_exports["wrapTileX"] = wrapTileX;
+__tg_exports["lonLatToTile"] = lonLatToTile;
+__tg_exports["tileNorthWest"] = tileNorthWest;
+__tg_exports["tileCenter"] = tileCenter;
+__tg_exports["metresPerPixel"] = metresPerPixel;
+__tg_exports["quadKey"] = quadKey;
+__tg_exports["haversine"] = haversine;
+__tg_exports["bearing"] = bearing;
+__tg_exports["destination"] = destination;
+__tg_exports["randomLatLon"] = randomLatLon;
+__tg_exports["randomNear"] = randomNear;
+__tg_exports["tileKey"] = tileKey;
+};
 __tg_modules["src/core/units.js"] = function (__tg_exports) {
 /**
  * Which units to start in.
@@ -82440,6 +82728,26 @@ function defaultUnits() {
     /* No Intl.Locale, or a tag it will not parse. Metric is the safer guess. */
   }
   return 'metric';
+}
+
+/**
+ * The CLDR region the browser is set to, or null.
+ *
+ * Google's Map Tiles API wants one on every `createSession` call, and the only
+ * honest answer is the one the browser already holds. See prepareGoogle.
+ */
+function localeRegion() {
+  try {
+    const locales = navigator.languages?.length ? navigator.languages : [navigator.language];
+    for (const tag of locales) {
+      if (!tag) continue;
+      const region = new Intl.Locale(tag).maximize().region;
+      if (region) return region;
+    }
+  } catch {
+    /* No Intl.Locale, or a tag it will not parse. */
+  }
+  return null;
 }
 
 /** Regions that measure everyday distance in feet and miles. */
@@ -82521,6 +82829,7 @@ function formatBearing(radians) {
 }
 
 __tg_exports["defaultUnits"] = defaultUnits;
+__tg_exports["localeRegion"] = localeRegion;
 __tg_exports["formatDistance"] = formatDistance;
 __tg_exports["formatAltitude"] = formatAltitude;
 __tg_exports["formatSpeed"] = formatSpeed;
@@ -82530,6 +82839,1214 @@ __tg_exports["formatLatLon"] = formatLatLon;
 __tg_exports["formatDms"] = formatDms;
 __tg_exports["compassPoint"] = compassPoint;
 __tg_exports["formatBearing"] = formatBearing;
+};
+__tg_modules["src/tiles/noData.js"] = function (__tg_exports) {
+/** OffscreenCanvas in a worker, a normal canvas on the main thread. */
+function makeCanvas(width, height) {
+  if (typeof OffscreenCanvas === 'function') return new OffscreenCanvas(width, height);
+  if (typeof document !== 'undefined') {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+  }
+  throw new Error('no canvas available');
+}
+
+/**
+ * Is this tile a provider's "nothing here" card rather than a photograph?
+ *
+ * Esri answers a request for ground it has never imaged with HTTP 200 and a
+ * picture of the words "Map data not yet available" on a flat grey field.
+ * Every check we have says the tile arrived fine, so it gets drawn, and the
+ * result is the pale rectangles with text across the world and the minimap.
+ * The availability endpoint does not help — it reports the placeholder as
+ * present, because it *is* present.
+ *
+ * So look at it, and weigh it. Measured against the real thing:
+ *
+ *   the card        1.8–2.6 kB   mean 205–232   spread 0–19   variance 0.6–34
+ *   London          22 kB        mean 76        spread 26     variance 1225
+ *   Sahara          13 kB        mean 174       spread 110    variance 176
+ *   Greenland       2.6 kB       mean 53        spread 54     variance 2.8
+ *
+ * Bright, colourless, flat *and* tiny is a corner of that space nothing real
+ * sits in. The size test carries most of the weight — a 256-pixel JPEG of
+ * anything with texture in it does not compress to two kilobytes — and the
+ * pixels stop a genuinely featureless snowfield being thrown away for it.
+ */
+function isNoDataCard(bitmap, bytes) {
+  if (bytes > 6000) return false;
+  try {
+    const size = 8;
+    const canvas = makeCanvas(size, size);
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return false;
+    ctx.drawImage(bitmap, 0, 0, size, size);
+    const { data } = ctx.getImageData(0, 0, size, size);
+    let sum = 0;
+    let sumSq = 0;
+    let maxSpread = 0;
+    const n = size * size;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const lum = (r + g + b) / 3;
+      sum += lum;
+      sumSq += lum * lum;
+      maxSpread = Math.max(maxSpread, Math.max(r, g, b) - Math.min(r, g, b));
+    }
+    const mean = sum / n;
+    const variance = sumSq / n - mean * mean;
+    return mean > 195 && maxSpread <= 24 && variance < 80;
+  } catch {
+    return false;
+  }
+}
+
+
+__tg_exports["makeCanvas"] = makeCanvas;
+__tg_exports["isNoDataCard"] = isNoDataCard;
+};
+__tg_modules["src/tiles/elevationGrid.js"] = function (__tg_exports) {
+const { normXToLon, normYToLat } = __tg_require("src/geo/mercator.js");
+
+/**
+ * Elevation from services that answer with a grid of numbers rather than a
+ * picture.
+ *
+ * Mapbox and Terrarium pack height into the channels of a PNG, so a tile is
+ * one image request and decoding it is arithmetic on pixels. Bing and Google
+ * publish elevation as JSON instead: you hand them a rectangle (or a list of
+ * points) and they hand back a list of metres. That is a different shape of
+ * answer, and this is where the two are made to look the same to everything
+ * downstream.
+ *
+ * Both are coarser than the raster sources and both cost a request per tile
+ * against your own account, which is why their descriptors cap the zoom low:
+ * a shallow tile covers a lot of ground for one call. Where you have the
+ * choice, Terrarium is finer and free — these exist because a Bing or Google
+ * key is a thing people have, and having one should be enough.
+ */
+
+/** Bing's cap: rows * cols may not exceed 1024. */
+const BING_SIDE = 32;
+/** Google's cap is 512 locations a request; 22 x 22 leaves a little room. */
+const GOOGLE_SIDE = 22;
+
+/** Geographic edges of a slippy tile, in degrees. */
+function tileBounds(tile) {
+  const n = Math.pow(2, tile.z);
+  return {
+    west: normXToLon(tile.x / n),
+    east: normXToLon((tile.x + 1) / n),
+    north: normYToLat(tile.y / n),
+    south: normYToLat((tile.y + 1) / n),
+  };
+}
+
+/**
+ * Google's encoded polyline, which is how a few hundred coordinates fit in a
+ * URL. Each value is offset from the last, shifted left one bit with the sign
+ * folded into bit 0, then emitted five bits at a time with a continuation flag
+ * and an ASCII offset of 63. Straight from the published algorithm.
+ */
+function encodePolyline(points) {
+  let out = '';
+  let lastLat = 0;
+  let lastLon = 0;
+  const chunk = (value) => {
+    let v = value < 0 ? ~(value << 1) : value << 1;
+    while (v >= 0x20) {
+      out += String.fromCharCode((0x20 | (v & 0x1f)) + 63);
+      v >>>= 5;
+    }
+    out += String.fromCharCode(v + 63);
+  };
+  for (const [lat, lon] of points) {
+    const y = Math.round(lat * 1e5);
+    const x = Math.round(lon * 1e5);
+    chunk(y - lastLat);
+    chunk(x - lastLon);
+    lastLat = y;
+    lastLon = x;
+  }
+  return out;
+}
+
+/**
+ * The sample points Google is asked for, north row first — the same order the
+ * raster decoders produce, so nothing downstream has to know the difference.
+ */
+function googleSamplePoints(tile, side = GOOGLE_SIDE) {
+  const { west, east, north, south } = tileBounds(tile);
+  const points = [];
+  for (let row = 0; row < side; row++) {
+    const lat = north + ((south - north) * row) / (side - 1);
+    for (let col = 0; col < side; col++) {
+      points.push([lat, west + ((east - west) * col) / (side - 1)]);
+    }
+  }
+  return points;
+}
+
+function bilinear(values, side, fx, fy) {
+  const x0 = Math.max(0, Math.min(side - 1, Math.floor(fx)));
+  const y0 = Math.max(0, Math.min(side - 1, Math.floor(fy)));
+  const x1 = Math.min(side - 1, x0 + 1);
+  const y1 = Math.min(side - 1, y0 + 1);
+  const tx = Math.max(0, Math.min(1, fx - x0));
+  const ty = Math.max(0, Math.min(1, fy - y0));
+  const top = values[y0 * side + x0] * (1 - tx) + values[y0 * side + x1] * tx;
+  const bottom = values[y1 * side + x0] * (1 - tx) + values[y1 * side + x1] * tx;
+  return top * (1 - ty) + bottom * ty;
+}
+
+/** Stretch a small square grid up to the size the terrain mesh wants. */
+function resampleGrid(values, side, size) {
+  const out = new Float32Array(size * size);
+  const scale = (side - 1) / (size - 1);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) out[y * size + x] = bilinear(values, side, x * scale, y * scale);
+  }
+  return out;
+}
+
+/**
+ * Bing's Elevation/Bounds answer.
+ *
+ * The documented order is "starting with the southwest corner, and then
+ * proceed west to east and south to north" — so the first row is the *bottom*
+ * of the tile and every raster decoder in this project starts at the top. The
+ * rows are flipped here rather than anywhere further downstream, where the
+ * mistake would show up as terrain mirrored about its own middle.
+ */
+function decodeBingElevation(json, size, side = BING_SIDE) {
+  const values = json?.resourceSets?.[0]?.resources?.[0]?.elevations;
+  if (!Array.isArray(values) || values.length < side * side) {
+    throw new Error('Bing elevation returned no grid');
+  }
+  const north = new Float32Array(side * side);
+  for (let row = 0; row < side; row++) {
+    const from = (side - 1 - row) * side;
+    for (let col = 0; col < side; col++) north[row * side + col] = values[from + col];
+  }
+  return resampleGrid(north, side, size);
+}
+
+/** Google's Elevation answer: results in the order the points were sent. */
+function decodeGoogleElevation(json, size, side = GOOGLE_SIDE) {
+  if (json?.status && json.status !== 'OK') {
+    throw new Error(`Google elevation: ${json.error_message ?? json.status}`);
+  }
+  const results = json?.results;
+  if (!Array.isArray(results) || results.length < side * side) {
+    throw new Error('Google elevation returned no grid');
+  }
+  const values = new Float32Array(side * side);
+  for (let i = 0; i < side * side; i++) values[i] = Number(results[i].elevation) || 0;
+  return resampleGrid(values, side, size);
+}
+
+__tg_exports["BING_SIDE"] = BING_SIDE;
+__tg_exports["GOOGLE_SIDE"] = GOOGLE_SIDE;
+__tg_exports["tileBounds"] = tileBounds;
+__tg_exports["encodePolyline"] = encodePolyline;
+__tg_exports["googleSamplePoints"] = googleSamplePoints;
+__tg_exports["resampleGrid"] = resampleGrid;
+__tg_exports["decodeBingElevation"] = decodeBingElevation;
+__tg_exports["decodeGoogleElevation"] = decodeGoogleElevation;
+};
+__tg_modules["src/tiles/providers.js"] = function (__tg_exports) {
+const { latToNormY, lonToNormX, quadKey } = __tg_require("src/geo/mercator.js");
+const { localeRegion } = __tg_require("src/core/units.js");
+const { isNoDataCard } = __tg_require("src/tiles/noData.js");
+const { BING_SIDE, GOOGLE_SIDE, encodePolyline, googleSamplePoints, tileBounds } = __tg_require("src/tiles/elevationGrid.js");
+
+/**
+ * Provider registry. TerraGlide ships with every key slot empty; a provider is
+ * only contacted once you pick it in Settings. Each descriptor knows how to
+ * turn a tile id into a URL, how deep it can be zoomed, and what attribution
+ * has to stay on screen.
+ */
+
+const IMAGERY_PROVIDERS = [
+  {
+    id: 'esri',
+    label: 'Esri World Imagery',
+    kind: 'xyz',
+    needsKey: null,
+    recommended: true,
+    /**
+     * Not a coverage number any more: a hard stop, with the real depth
+     * measured per square.
+     *
+     * Nineteen is what Esri guarantee everywhere, and taking it as the ceiling
+     * threw away real detail over every city they have flown better than that
+     * — twelve metres over Singerstraße the ground was a smear because the
+     * best tile the game would ask for was a zoom-19 one magnified ten times.
+     * Twenty fixed that and was still a guess: measured per-pixel contrast down
+     * each level, where a genuine new level of resolution keeps most of its
+     * contrast and a resample halves it,
+     *
+     *   Vienna centre     z19 6.96   z20 4.89 (x0.70)   z21 3.65 (x0.75)
+     *   Jungfrau massif   z19 9.74   z20 5.77 (x0.59)   z21 1.84 (x0.32)
+     *   Meseta farmland   z19 4.84   z20 2.65 (x0.55)   z21 0.56 (x0.21)
+     *
+     * — twenty-one is real over the city and a resample on the mountain. One
+     * number could not be right for both, and the same is true of whatever
+     * they fly next: pick the city's number and every valley pays sixteen
+     * requests a square for a blur; pick the valley's and the city stays a
+     * smear.
+     *
+     * So the number here stops being the answer. Every tile that lands is
+     * measured, and a square whose finer tile brings back less than half of
+     * what the one above it had is marked as the finest there is — the
+     * quadtree stops descending there and nothing below it is ever requested.
+     * See sharpness.js and `Streamer.atFinest`. This is the ceiling on that
+     * search, not a claim about coverage.
+     *
+     * And it is a generous one. Esri document level 23 in select areas; asked
+     * for it directly, three cities that have some of their best imagery all
+     * hand back the "no data" card instead:
+     *
+     *                   z20    z21           z22           z23
+     *   Vienna          4.89   3.65 (x0.75)  1.67 (x0.46)  card
+     *   Westminster     card   card          card          card
+     *   Times Square    4.22   card          card          card
+     *
+     * So twenty-two is the deepest real level found anywhere so far, in one
+     * city, and it sits at 0.46 against a threshold of 0.45 — near enough to
+     * the line that its verdict could go either way, which is worth knowing
+     * before trusting it. The lid is set here rather than lower so that if a
+     * provider does start serving deeper the game can follow without a code
+     * change; the measurement and the card stop it long before, everywhere
+     * tested.
+     */
+    maxZoom: 23,
+    template: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
+    note: 'Keyless. Fair use only — do not bulk download.',
+  },
+  {
+    id: 'sentinel2',
+    label: 'Sentinel-2 cloudless',
+    kind: 'xyz',
+    needsKey: null,
+    maxZoom: 16,
+    template: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg',
+    attribution: 'Sentinel-2 cloudless by EOX IT Services, from modified Copernicus Sentinel data',
+    note:
+      'Keyless, whole planet, ten metres a pixel, and \u2014 the point of it \u2014 a '
+      + 'cloudless mosaic, so there is never a white smear where the weather was '
+      + 'on the day the satellite went over. Softer than Esri close up; better than '
+      + 'Esri anywhere Esri has only old low-resolution cover.',
+  },
+  {
+    id: 'usgs',
+    label: 'USGS imagery (United States)',
+    kind: 'xyz',
+    needsKey: null,
+    maxZoom: 16,
+    template:
+      'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Imagery courtesy of the U.S. Geological Survey, The National Map',
+    note:
+      'Keyless and very good, over the United States and nowhere else. Outside it '
+      + 'every tile is a 404 and the ground goes bare, so this is one to pick when '
+      + 'you know where you are going.',
+  },
+  {
+    id: 'gibs',
+    label: 'NASA GIBS (this week\u2019s Earth)',
+    kind: 'xyz',
+    needsKey: null,
+    maxZoom: 9,
+    template:
+      'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor' +
+      '/default/{date}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg',
+    attribution: 'Imagery courtesy of NASA EOSDIS GIBS / VIIRS',
+    note:
+      'What the planet looked like a few days ago, cloud and snow and all, from '
+      + 'the VIIRS instrument. Keyless and global, but only nine zoom levels deep '
+      + '\u2014 about six hundred metres a pixel \u2014 so it is a view from orbit '
+      + 'rather than something to fly a valley in.',
+  },
+  {
+    id: 'google',
+    label: 'Google Maps (satellite)',
+    kind: 'google',
+    needsKey: 'googleKey',
+    maxZoom: 21,
+    attribution: 'Imagery © Google',
+    note: 'Needs a Map Tiles API key. A session token is created on first use.',
+  },
+  {
+    id: 'bing',
+    label: 'Bing Maps (aerial)',
+    kind: 'bing',
+    needsKey: 'bingKey',
+    maxZoom: 20,
+    attribution: 'Imagery © Microsoft, Maxar',
+    note:
+      'Bing still has coverage and zoom levels Azure has not inherited, so it is '
+      + 'worth keeping alongside. Tile URLs come from the imagery metadata service. '
+      + 'Microsoft is retiring it, so treat it as the older of the two.',
+  },
+  {
+    id: 'azure',
+    label: 'Azure Maps (satellite)',
+    kind: 'xyz',
+    needsKey: 'azureKey',
+    maxZoom: 19,
+    template:
+      'https://atlas.microsoft.com/map/tile?api-version=2024-04-01' +
+      '&tilesetId=microsoft.imagery&zoom={z}&x={x}&y={y}&subscription-key={key}',
+    attribution: 'Imagery © Microsoft, Airbus DS, Maxar',
+    note:
+      'Microsoft\u2019s current satellite imagery, on an Azure Maps subscription key. ' +
+      'This is where Bing Maps is being retired to. Imagery only \u2014 Azure serves no ' +
+      'photogrammetry, so it cannot drive the 3D option.',
+  },
+  {
+    id: 'maxar',
+    label: 'Maxar SecureWatch',
+    kind: 'xyz',
+    needsKey: 'maxarConnectId',
+    maxZoom: 20,
+    template:
+      'https://securewatch.digitalglobe.com/earthservice/wmtsaccess?connectid={key}' +
+      '&SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=DigitalGlobe:ImageryTileService' +
+      '&FORMAT=image/jpeg&TileMatrixSet=EPSG:3857&TileMatrix=EPSG:3857:{z}&TileRow={y}&TileCol={x}',
+    attribution: 'Imagery © Maxar Technologies',
+    note:
+      'Maxar\u2019s own service, on a SecureWatch connect ID. That is an enterprise '
+      + 'credential rather than something you sign up for in an afternoon \u2014 and if '
+      + 'you have not got one you are not missing the imagery, only the direct '
+      + 'route to it: Esri, Bing and Google all serve Maxar scenes and all three '
+      + 'credit them.',
+  },
+  {
+    id: 'cesium-ion',
+    label: 'Cesium ion imagery',
+    kind: 'ion',
+    needsKey: 'cesiumToken',
+    maxZoom: 19,
+    attribution: 'Imagery served by Cesium ion',
+    note:
+      'Anything raster in your Cesium ion account, on the same token the '
+      + 'photorealistic 3D option uses \u2014 Bing Aerial is asset 2 and is what '
+      + 'this asks for unless you change it in Settings. ion meters it per '
+      + 'account, which is why it needs the token: there is no keyless door to '
+      + 'it, and the API says so itself if you knock without one.',
+  },
+  {
+    id: 'mapbox',
+    label: 'Mapbox Satellite',
+    kind: 'xyz',
+    needsKey: 'mapboxKey',
+    maxZoom: 22,
+    template: 'https://api.mapbox.com/v4/mapbox.satellite/{z}/{x}/{y}@2x.jpg90?access_token={key}',
+    attribution: '© Mapbox © Maxar',
+  },
+  {
+    id: 'esri-street',
+    label: 'Esri World Street Map',
+    kind: 'xyz',
+    needsKey: null,
+    maxZoom: 19,
+    template:
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Map \u00a9 Esri',
+    // The drawn map the flat maps show for ground you have not seen. It used
+    // to sit behind OpenStreetMap's own raster server, and that entry is gone:
+    // tile.openstreetmap.org is one community machine with a fair-use policy
+    // that this is not covered by, and asked from a browser on a third-party
+    // site it answers HTTP 200 with a picture that says "Access blocked"
+    // — which the game would have drawn as if it were a map.
+    hidden: true,
+    note: 'Drawn map rather than photography. What the flat maps show for ground you have not seen.',
+  },
+  {
+    id: 'openfreemap',
+    label: 'OpenFreeMap (vector street map)',
+    kind: 'openmaptiles',
+    needsKey: null,
+    // The vectors stop at 14 and are drawn at any zoom above it: one tile of
+    // geometry covers every level below itself, which is the whole point of
+    // serving geometry instead of pictures.
+    maxZoom: 14,
+    attribution:
+      '\u00a9 OpenFreeMap \u00a9 OpenMapTiles, map data \u00a9 OpenStreetMap contributors',
+    hidden: true,
+    note:
+      'The roads and coastlines themselves rather than a picture of them, drawn '
+      + 'here. Keyless and explicitly unmetered, which the community raster '
+      + 'servers are not \u2014 so it is the one to lean on when a map is being '
+      + 'panned around rather than looked at once.',
+  },
+];
+
+/**
+ * The deepest zoom any imagery provider here says it will serve.
+ *
+ * Derived, not written down. The ceiling in Settings and the presets' own
+ * default both read this, so a provider that starts serving a level deeper
+ * raises the lid by itself. Written down, it goes stale the moment one of the
+ * entries above changes — the slider was capped at 22 with a help line saying
+ * "twenty-two is the deepest any provider here publishes" for a while after
+ * Esri's entry had already been raised past it, so the game could not have
+ * reached the deeper level even where it existed.
+ *
+ * It is a lid, not a promise. What is actually fetched is decided per square
+ * by measuring the photographs — see sharpness.js — and by whether the
+ * provider answers with a picture or with its "no data" card.
+ */
+const DEEPEST_IMAGERY_ZOOM = IMAGERY_PROVIDERS.reduce(
+  (deepest, provider) => Math.max(deepest, provider.maxZoom ?? 0),
+  1,
+);
+
+/**
+ * The end of the slider: as deep as it goes, with no number at all.
+ *
+ * Every ceiling in this file has been wrong in the same way. Nineteen was
+ * wrong, then twenty, then the derived maximum — each one a guess about what
+ * providers will serve, made once and then outlived. So the slider runs to
+ * twenty-five and then to no ceiling: past the last notch there is nothing
+ * stopping the quadtree except the two things that can actually answer, which
+ * are the provider refusing and the photographs themselves stopping getting
+ * sharper. Neither of those needs updating when somebody flies a city better.
+ */
+const ZOOM_SLIDER_MAX = 25;
+/**
+ * The stored value that means "no ceiling". One past the last notch.
+ *
+ * A number rather than Infinity because it is written to storage and to a
+ * range input, and neither survives Infinity. `zoomCeiling` turns it back into
+ * one at the point of use.
+ */
+const NO_ZOOM_CEILING = ZOOM_SLIDER_MAX + 1;
+
+/** The setting as the quadtree should read it: a depth, or no limit at all. */
+function zoomCeiling(setting) {
+  return setting >= NO_ZOOM_CEILING ? Infinity : setting;
+}
+
+
+const ELEVATION_PROVIDERS = [
+  {
+    id: 'mapbox',
+    label: 'Mapbox Terrain-RGB',
+    kind: 'terrain-rgb',
+    needsKey: 'mapboxKey',
+    maxZoom: 15,
+    template: 'https://api.mapbox.com/v4/mapbox.terrain-rgb/{z}/{x}/{y}.pngraw?access_token={key}',
+    attribution: '© Mapbox',
+  },
+  {
+    id: 'bing-elevation',
+    label: 'Bing Maps elevation',
+    kind: 'bing-elevation',
+    needsKey: 'bingKey',
+    // Deliberately shallow. Every tile is one call against your own Bing
+    // account, so a tile has to be worth making a call for: at zoom 12 one
+    // covers about ten kilometres, and 32 by 32 samples across it is roughly
+    // three hundred metre spacing — coarser than Terrarium, and enough to
+    // shape a landscape.
+    maxZoom: 12,
+    attribution: 'Elevation © Microsoft',
+    note:
+      'Bing\u2019s Elevation service, on a Bing Maps key. It answers with a grid of '
+      + 'heights rather than a picture, one request per tile against your own quota, '
+      + 'and it is coarser than the raster sources \u2014 pick it because you have the '
+      + 'key, not because it is sharper.',
+  },
+  {
+    id: 'terrarium',
+    label: 'AWS Terrain Tiles (Terrarium)',
+    kind: 'terrarium',
+    needsKey: null,
+    recommended: true,
+    maxZoom: 14,
+    template: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+    attribution: 'Elevation: AWS Terrain Tiles, SRTM/GMTED',
+    note: 'Public dataset; availability is not guaranteed.',
+  },
+];
+
+const PANORAMA_PROVIDERS = [
+  { id: 'none', label: 'Off', needsKey: null, attribution: '' },
+  {
+    id: 'google',
+    label: 'Google Street View',
+    needsKey: 'googleKey',
+    recommended: true,
+    attribution: 'Street-level imagery © Google',
+    note: 'Uses the Street View Static API; six faces are stitched into a cube.',
+  },
+  {
+    id: 'mapillary',
+    label: 'Mapillary',
+    needsKey: 'mapillaryToken',
+    attribution: 'Street-level imagery © Mapillary contributors',
+    note: 'Community 360 photos. Coverage is patchy but the licence is friendly.',
+  },
+];
+
+function findProvider(list, id) {
+  return list.find((p) => p.id === id) ?? list[0];
+}
+
+/**
+ * The one to pick if you have not got a key for anything.
+ *
+ * Marked on the descriptor rather than worked out here, so the answer lives
+ * next to the reasons for it. Esri and Terrarium are the picks: both are open,
+ * both cover the whole planet, and neither asks you for an account before you
+ * can fly anywhere.
+ */
+function recommendedProvider(list) {
+  return list.find((p) => p.recommended && !p.needsKey) ?? null;
+}
+
+/**
+ * Label for a provider in a menu.
+ *
+ * Two things are worth knowing before you pick one and both belong on the line
+ * rather than three clicks away: whether it is the one to take if you have no
+ * opinion, and whether choosing it means going and getting a key. "Keyless" is
+ * the more useful of the two most of the time — this whole project is built so
+ * that you never have to sign up for anything, and a menu that does not say
+ * which entries honour that makes you find out the hard way.
+ */
+function providerLabel(descriptor) {
+  const notes = [];
+  if (descriptor.recommended) notes.push('recommended');
+  notes.push(descriptor.needsKey ? 'needs a key' : 'keyless');
+  return notes.length ? `${descriptor.label} (${notes.join(', ')})` : descriptor.label;
+}
+
+/**
+ * How far back to ask NASA for "today".
+ *
+ * The near-real-time products are published a few hours behind the pass, but
+ * not uniformly, and a date that has not finished processing answers with a
+ * transparent tile rather than an error — which looks exactly like a hole in
+ * the world. Three days back is always there.
+ */
+const GIBS_LAG_DAYS = 3;
+
+/**
+ * The human-readable half of a Google API refusal.
+ *
+ * Their errors are JSON with a `error.message` that names the actual problem —
+ * "Requests to this API tile.googleapis.com method … are blocked", "API key
+ * not valid", "Referer restrictions" — and it is far more use than the status
+ * code on its own.
+ */
+async function googleReason(res) {
+  try {
+    const body = await res.json();
+    const message = body?.error?.message ?? body?.error_message;
+    if (message) return String(message);
+  } catch {
+    /* not JSON; fall through */
+  }
+  if (res.status === 403) {
+    return 'check that the Map Tiles API is enabled on the project and that the key\u2019s '
+      + 'referrer restrictions allow this page';
+  }
+  return 'no explanation given';
+}
+
+function gibsDate(now = Date.now()) {
+  return new Date(now - GIBS_LAG_DAYS * 86400000).toISOString().slice(0, 10);
+}
+
+function fillTemplate(template, tile, key) {
+  return template
+    .replace('{z}', String(tile.z))
+    .replace('{x}', String(tile.x))
+    .replace('{y}', String(tile.y))
+    .replace('{date}', gibsDate())
+    .replace('{key}', encodeURIComponent(key ?? ''));
+}
+
+/**
+ * Resolves a provider descriptor plus the current keys into something that can
+ * hand out tile URLs. Providers needing a handshake (Google sessions, Bing
+ * metadata) do it once, lazily, and cache the result.
+ */
+class TileSource {
+  constructor(descriptor, keys) {
+    this.descriptor = descriptor;
+    this.keys = keys;
+    /** Set when this provider is standing in for one that had no key. */
+    this.substitutedFor = null;
+    this.bingTemplate = null;
+    this.vectorTemplate = null;
+    this.ionTemplate = null;
+    /** Whatever ion says has to be shown for this asset. */
+    this.ionAttribution = '';
+    this.state = 'idle'; // idle | preparing | ready | needs-key | error
+    this.error = '';
+    this.googleSession = null;
+    this.googleSessionExpiry = 0;
+    /** Google's own attribution line for wherever you are, once asked for. */
+    this.googleCopyright = '';
+    this.googleMaxZoomRects = null;
+    this.preparing = null;
+  }
+
+  get id() {
+    return this.descriptor.id;
+  }
+
+  get maxZoom() {
+    return this.descriptor.maxZoom;
+  }
+
+  get attribution() {
+    // Google's policy is that their own returned string is the attribution, so
+    // when it has arrived it replaces the descriptor's placeholder rather than
+    // sitting beside it.
+    if (this.googleCopyright) return this.googleCopyright;
+    return this.descriptor.attribution;
+  }
+
+  get key() {
+    const slot = this.descriptor.needsKey;
+    return slot ? (this.keys[slot] ?? '') : '';
+  }
+
+  /** True when tiles can be requested right now. */
+  get ready() {
+    return this.state === 'ready';
+  }
+
+  async prepare() {
+    if (this.state === 'ready') return;
+    if (this.preparing) return this.preparing;
+    // A handshake that failed is not retried until its backoff is up.
+    //
+    // The streamer calls this from `dispatch` for every queued tile whose
+    // source is not ready, which is every tile on screen, every frame. So a
+    // Google key that fails `createSession` — wrong key, API not enabled,
+    // quota gone — used to re-run the handshake continuously for as long as the
+    // game was open, against an endpoint that is metered and rate-limited. The
+    // wait doubles from two seconds to a minute and resets the moment one
+    // succeeds, so a network that comes back is picked up quickly and a key
+    // that is simply wrong is asked about once a minute instead of sixty times
+    // a second.
+    if (this.state === 'error' && Date.now() < (this.retryAt ?? 0)) return;
+
+    if (this.descriptor.needsKey && !this.key) {
+      this.state = 'needs-key';
+      this.error = 'No API key set for this provider.';
+      return;
+    }
+
+    this.state = 'preparing';
+    this.preparing = (async () => {
+      try {
+        if (this.descriptor.kind === 'bing') await this.prepareBing();
+        else if (this.descriptor.kind === 'google') await this.prepareGoogle();
+        else if (this.descriptor.kind === 'openmaptiles') await this.prepareOpenMapTiles();
+        else if (this.descriptor.kind === 'ion') await this.prepareIon();
+        this.state = 'ready';
+        this.error = '';
+        this.handshakeFailures = 0;
+      } catch (err) {
+        this.state = 'error';
+        this.error = err instanceof Error ? err.message : String(err);
+        this.handshakeFailures = (this.handshakeFailures ?? 0) + 1;
+        this.retryAt = Date.now()
+          + Math.min(60000, 2000 * Math.pow(2, this.handshakeFailures - 1));
+      } finally {
+        this.preparing = null;
+      }
+    })();
+    return this.preparing;
+  }
+
+
+  async prepareBing() {
+    const url =
+      'https://dev.virtualearth.net/REST/v1/Imagery/Metadata/Aerial' +
+      `?output=json&include=ImageryProviders&uriScheme=https&key=${encodeURIComponent(this.key)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Bing metadata failed (${res.status})`);
+    const data = await res.json();
+    const resource = data?.resourceSets?.[0]?.resources?.[0];
+    if (!resource?.imageUrl) throw new Error('Bing metadata had no imageUrl');
+    this.bingTemplate = resource.imageUrl;
+    this.bingSubdomains = resource.imageUrlSubdomains ?? [''];
+  }
+
+  /**
+   * OpenFreeMap republishes the planet every few weeks and puts the build date
+   * in the tile path, so there is no stable URL to hard-code — the TileJSON is
+   * the stable thing and it names the current one. Fetched once.
+   */
+  async prepareOpenMapTiles() {
+    const res = await fetch('https://tiles.openfreemap.org/planet');
+    if (!res.ok) throw new Error(`OpenFreeMap TileJSON failed (${res.status})`);
+    const data = await res.json();
+    const template = data?.tiles?.[0];
+    if (!template) throw new Error('OpenFreeMap TileJSON had no tile template');
+    this.vectorTemplate = template;
+  }
+
+  /**
+   * Cesium ion, for imagery rather than for the photogrammetry.
+   *
+   * Same door as the 3D route already knocks on: a token is exchanged for a
+   * short-lived one plus wherever the tiles actually live. ion serves two
+   * shapes through it and which you get depends on the asset — its own rasters
+   * come back as a template to fill in, and the ones it resells from Bing come
+   * back as Bing's own quadkey URL with a key attached. Both are handled;
+   * anything else is reported rather than guessed at.
+   */
+  async prepareIon() {
+    const asset = this.keys.cesiumImageryAsset || 2;
+    const res = await fetch(
+      `https://api.cesium.com/v1/assets/${encodeURIComponent(asset)}/endpoint` +
+        `?access_token=${encodeURIComponent(this.key)}`,
+    );
+    if (!res.ok) throw new Error(`Cesium ion asset ${asset} refused the token (${res.status})`);
+    const data = await res.json();
+
+    if (data.externalType === 'BING' || data.options?.mapStyle) {
+      const base = (data.options?.url ?? 'https://dev.virtualearth.net').replace(/\/$/, '');
+      const key = data.options?.key ?? '';
+      const meta = await fetch(
+        `${base}/REST/v1/Imagery/Metadata/Aerial?output=json&include=ImageryProviders` +
+          `&uriScheme=https&key=${encodeURIComponent(key)}`,
+      );
+      if (!meta.ok) throw new Error(`Bing metadata via ion failed (${meta.status})`);
+      const resource = (await meta.json())?.resourceSets?.[0]?.resources?.[0];
+      if (!resource?.imageUrl) throw new Error('Bing metadata via ion had no imageUrl');
+      this.bingTemplate = resource.imageUrl;
+      this.bingSubdomains = resource.imageUrlSubdomains ?? [''];
+      this.ionTemplate = null;
+    } else if (data.url) {
+      // An ion-hosted raster: a tile scheme under a base URL, with the
+      // short-lived token on every request.
+      const token = data.accessToken ? `?access_token=${encodeURIComponent(data.accessToken)}` : '';
+      this.ionTemplate = `${data.url.replace(/\/$/, '')}/{z}/{x}/{y}.png${token}`;
+    } else {
+      throw new Error(`Cesium ion asset ${asset} is not raster imagery`);
+    }
+    if (Array.isArray(data.attributions) && data.attributions.length > 0) {
+      this.ionAttribution = data.attributions
+        .map((a) => String(a.html ?? a.text ?? '').replace(/<[^>]*>/g, '').trim())
+        .filter(Boolean)
+        .join(' · ');
+    }
+  }
+
+  async prepareGoogle() {
+    // `region` is a required field, and this used to leave it out on the
+    // reasoning that a region identifier is a statement about whose borders and
+    // labels you want, and a satellite session draws neither. That reasoning is
+    // about what the field *does*; the API asks for it regardless, and a
+    // createSession call without it is a session you never get — which is what
+    // "Google Maps not working" was.
+    //
+    // The browser's own region is the answer, rather than pinning everyone to
+    // the United States. Where it cannot say, 'US' is the fallback Google's own
+    // examples use; with no roadmap layer requested there is nothing on the
+    // imagery for it to change.
+    const region = localeRegion() ?? 'US';
+    const language =
+      (typeof navigator !== 'undefined' && navigator.language) || 'en-US';
+    const res = await fetch(
+      `https://tile.googleapis.com/v1/createSession?key=${encodeURIComponent(this.key)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mapType: 'satellite', language, region }),
+      },
+    );
+    if (!res.ok) {
+      // Google says exactly what is wrong in the body and this used to throw
+      // it away, leaving "Google session failed (403)" — which reads as the
+      // option being broken when it is nearly always one of three specific
+      // and fixable things: the Map Tiles API is not enabled on the project,
+      // the key has an HTTP-referrer restriction that does not list this
+      // page's origin, or the key is restricted to other APIs. Passing their
+      // message through turns a dead end into an instruction.
+      throw new Error(`Google session failed (${res.status}) \u2014 ${await googleReason(res)}`);
+    }
+    const data = await res.json();
+    if (!data.session) throw new Error('Google session token missing');
+    this.googleSession = data.session;
+    this.googleSessionExpiry = Number(data.expiry) * 1000 || 0;
+  }
+
+  /**
+   * The attribution string Google requires for the ground you are looking at.
+   *
+   * Not optional and not a constant: their policy is that "data returned from
+   * the Map Tiles API requires the display of attribution and copyright
+   * information from the appropriate metadata or viewport information
+   * requests", and the string genuinely differs from place to place because the
+   * imagery under it comes from different people. A fixed "Imagery © Google"
+   * in the corner is not what they asked for and is not true either — over most
+   * of the world their satellite line names Airbus, Maxar or a national mapping
+   * agency alongside them.
+   *
+   * The same call returns `maxZoomRects`: how far in the imagery actually goes
+   * for each patch of the viewport. That is the difference between stopping at
+   * the last real zoom and asking for tiles that were never flown.
+   *
+   * @param {{ north: number, south: number, east: number, west: number }} view
+   * @param {number} zoom
+   */
+  async googleViewport(view, zoom) {
+    if (!this.googleSession) return null;
+    const q = new URLSearchParams({
+      session: this.googleSession,
+      key: this.key,
+      zoom: String(Math.round(zoom)),
+      north: view.north.toFixed(6),
+      south: view.south.toFixed(6),
+      east: view.east.toFixed(6),
+      west: view.west.toFixed(6),
+    });
+    const res = await fetch(`https://tile.googleapis.com/tile/v1/viewport?${q}`);
+    if (!res.ok) throw new Error(`Google viewport failed (${res.status})`);
+    const data = await res.json();
+    if (data.copyright) this.googleCopyright = String(data.copyright);
+    this.googleMaxZoomRects = Array.isArray(data.maxZoomRects) ? data.maxZoomRects : [];
+    return data;
+  }
+
+  /**
+   * The finest zoom Google flew over a point, from the last viewport reply.
+   *
+   * Null when nothing has been asked yet, or when the point is outside every
+   * rectangle that reply covered — both of which mean "no opinion", not "no
+   * imagery", so the caller carries on as before.
+   */
+  googleMaxZoomAt(lat, lon) {
+    const rects = this.googleMaxZoomRects;
+    if (!rects?.length) return null;
+    let best = null;
+    for (const r of rects) {
+      if (lat > r.north || lat < r.south) continue;
+      // East of west and west of east, the long way round included.
+      const inside = r.west <= r.east
+        ? lon >= r.west && lon <= r.east
+        : lon >= r.west || lon <= r.east;
+      if (!inside) continue;
+      if (best === null || r.maxZoom > best) best = r.maxZoom;
+    }
+    return best;
+  }
+
+  /** URL for a tile, or null when this source cannot serve that tile. */
+  urlFor(tile) {
+    const d = this.descriptor;
+    if (d.kind === 'bing') {
+      if (!this.bingTemplate) return null;
+      const subs = this.bingSubdomains ?? [''];
+      const sub = subs[(tile.x + tile.y) % subs.length];
+      return this.bingTemplate
+        .replace('{subdomain}', sub)
+        .replace('{quadkey}', quadKey(tile))
+        .replace('{culture}', 'en-US');
+    }
+    if (d.kind === 'google') {
+      if (!this.googleSession) return null;
+      return `https://tile.googleapis.com/v1/2dtiles/${tile.z}/${tile.x}/${tile.y}?session=${encodeURIComponent(this.googleSession)}&key=${encodeURIComponent(this.key)}`;
+    }
+    if (d.kind === 'bing-elevation') {
+      const b = tileBounds(tile);
+      // Bounds are south, west, north, east — Bing's order, not ours.
+      return (
+        'https://dev.virtualearth.net/REST/v1/Elevation/Bounds?bounds=' +
+        `${b.south.toFixed(6)},${b.west.toFixed(6)},${b.north.toFixed(6)},${b.east.toFixed(6)}` +
+        `&rows=${BING_SIDE}&cols=${BING_SIDE}&heights=ellipsoid&key=${encodeURIComponent(this.key)}`
+      );
+    }
+    if (d.kind === 'google-elevation') {
+      const encoded = encodePolyline(googleSamplePoints(tile, GOOGLE_SIDE));
+      return (
+        'https://maps.googleapis.com/maps/api/elevation/json?locations=enc:' +
+        `${encodeURIComponent(encoded)}&key=${encodeURIComponent(this.key)}`
+      );
+    }
+    if (d.kind === 'ion') {
+      // Bing-backed assets come out as Bing tiles; ion's own as a template.
+      if (this.bingTemplate) {
+        const subs = this.bingSubdomains ?? [''];
+        return this.bingTemplate
+          .replace('{subdomain}', subs[(tile.x + tile.y) % subs.length])
+          .replace('{quadkey}', quadKey(tile))
+          .replace('{culture}', 'en-US');
+      }
+      if (!this.ionTemplate) return null;
+      return fillTemplate(this.ionTemplate, tile, this.key);
+    }
+    if (d.kind === 'openmaptiles') {
+      if (!this.vectorTemplate) return null;
+      return fillTemplate(this.vectorTemplate, tile, this.key);
+    }
+    if (!d.template) return null;
+    return fillTemplate(d.template, tile, this.key);
+  }
+
+  /** How the worker should read the answer: a picture, or a grid of numbers. */
+  get decode() {
+    const kind = this.descriptor.kind;
+    if (
+      kind === 'terrain-rgb' ||
+      kind === 'terrarium' ||
+      kind === 'bing-elevation' ||
+      kind === 'google-elevation'
+    ) {
+      return kind;
+    }
+    // Geometry rather than a picture: the caller draws it. Only the flat maps
+    // know how, so this provider is not offered as flight imagery.
+    if (kind === 'openmaptiles') return 'vector';
+    return 'imagery';
+  }
+}
+
+/**
+ * The order to try providers in, best first.
+ *
+ * Two rules, and the first one is the one that was asked for: **a provider you
+ * hold a key for goes before a free one.** You paid for it (or signed up for
+ * it), it is usually sharper, and it is metered against your own account
+ * rather than against somebody's community server. Free ones follow, deepest
+ * first, because a provider that publishes zoom 19 is more use than one that
+ * stops at 9 when you are stood in a field.
+ *
+ * The chosen provider is always first whatever else is true — picking one is a
+ * statement — and everything else is a standby for when it will not answer.
+ */
+function providerChain(list, chosenId, values) {
+  const chosen = findProvider(list, chosenId);
+  const rest = list.filter((p) => p.id !== chosen?.id && !p.hidden);
+  const usable = rest.filter((p) => !p.needsKey || values[p.needsKey]);
+  usable.sort((a, b) => {
+    const keyed = (p) => (p.needsKey ? 0 : 1);
+    if (keyed(a) !== keyed(b)) return keyed(a) - keyed(b);
+    return (b.maxZoom ?? 0) - (a.maxZoom ?? 0);
+  });
+  return [chosen, ...usable].filter(Boolean);
+}
+
+/**
+ * Resolve a chosen provider to one that can actually serve tiles.
+ *
+ * Picking a provider and leaving its key blank used to mean no map at all: the
+ * source sat in `needs-key` and the world fell back to generated terrain. There
+ * is no generated terrain any more, so it substitutes for real — the best of
+ * what is left, by the order above — and says so, because nobody should be
+ * left thinking they are looking at Google's imagery when they are not.
+ */
+function withKeylessFallback(list, descriptor, values) {
+  if (!descriptor) return null;
+  if (!descriptor.needsKey || values[descriptor.needsKey]) return new TileSource(descriptor, values);
+  const chain = providerChain(list, descriptor.id, values);
+  const fallback = chain.find((p) => p.id !== descriptor.id);
+  if (!fallback) return new TileSource(descriptor, values);
+  const source = new TileSource(fallback, values);
+  source.substitutedFor = descriptor;
+  return source;
+}
+
+function createImagerySource(settingsValues) {
+  const descriptor = findProvider(IMAGERY_PROVIDERS, settingsValues.imageryProvider);
+  return withKeylessFallback(IMAGERY_PROVIDERS, descriptor, settingsValues);
+}
+
+function createElevationSource(settingsValues) {
+  const descriptor = findProvider(ELEVATION_PROVIDERS, settingsValues.elevationProvider);
+  return withKeylessFallback(ELEVATION_PROVIDERS, descriptor, settingsValues);
+}
+
+/**
+ * Which provider actually serves the sharpest ground *here*.
+ *
+ * Coverage is not uniform and no list ordering can capture that. USGS is
+ * superb over Kansas and a 404 over Kent. Esri is excellent nearly everywhere
+ * and hands you a "Map data not yet available" card over the Southern Ocean.
+ * Sentinel-2 is everywhere and stops at ten metres a pixel.
+ *
+ * So this asks. For each candidate it walks down from the deepest zoom it
+ * publishes until one answers with a real tile — not a 404, not a no-data card
+ * — and remembers how deep that was. The winner is whoever got deepest, ties
+ * broken by preferring one you hold a key for. Roughly a dozen requests, once,
+ * when you press the button.
+ *
+ * @param {Array} list  IMAGERY_PROVIDERS
+ * @param {object} values the settings store's values, for the keys
+ * @param {{lat:number,lon:number}} at where you are standing
+ * @param {(text:string)=>void} [onProgress]
+ */
+async function bestProviderFor(list, values, at, onProgress) {
+  const candidates = list.filter(
+    (p) => !p.hidden && (!p.needsKey || values[p.needsKey]),
+  );
+  let best = null;
+  for (const descriptor of candidates) {
+    onProgress?.(`Trying ${descriptor.label}\u2026`);
+    const source = new TileSource(descriptor, values);
+    try {
+      await source.prepare();
+      if (source.state === 'error') continue;
+    } catch {
+      continue;
+    }
+    // Down from the deepest it claims, until something real comes back. Six
+    // levels covers everything from "shallower than it says" to "only has the
+    // continental view of this place", which over an ocean is the true answer
+    // rather than a failure.
+    const top = descriptor.maxZoom ?? 16;
+    for (let z = top; z >= Math.max(3, top - 6); z--) {
+      const n = Math.pow(2, z);
+      const tile = {
+        z,
+        x: Math.floor(lonToNormX(at.lon) * n),
+        y: Math.floor(clampUnit(latToNormY(at.lat)) * n),
+      };
+      const url = source.urlFor(tile);
+      if (!url) continue;
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        if (blob.size < 100) continue;
+        const bitmap = await createImageBitmap(blob);
+        const blank = isNoDataCard(bitmap, blob.size);
+        bitmap.close();
+        if (blank) continue;
+        const keyed = descriptor.needsKey ? 1 : 0;
+        if (!best || z > best.zoom || (z === best.zoom && keyed > best.keyed)) {
+          best = { id: descriptor.id, label: descriptor.label, zoom: z, keyed };
+        }
+        break;
+      } catch {
+        /* next zoom */
+      }
+    }
+  }
+  onProgress?.(null);
+  return best;
+}
+
+function clampUnit(value) {
+  return Math.min(0.999999, Math.max(0, value));
+}
+
+/**
+ * Actually knock on every provider's door and report what answers.
+ *
+ * There is a real gap between "this provider is in the list" and "this
+ * provider is serving you tiles right now", and nothing in the interface used
+ * to close it: pick Google without a key and the ground simply stays as it
+ * was, which reads as the option being broken rather than as an account being
+ * required. So this fetches one real tile from each, at a place you choose,
+ * and says what came back — the status code, the size, how long it took.
+ *
+ * Keys are used exactly as the game uses them and never leave the browser.
+ * One tile each is a rounding error against anybody's quota.
+ *
+ * @param {Array} list  IMAGERY_PROVIDERS or ELEVATION_PROVIDERS
+ * @param {object} values the settings store's values, for the keys
+ * @param {{z:number,x:number,y:number}} tile where to ask about
+ * @param {(result:object)=>void} [onResult] called as each one finishes
+ */
+async function testProviders(list, values, tile, onResult) {
+  const results = [];
+  for (const descriptor of list) {
+    const result = { id: descriptor.id, label: descriptor.label, state: 'checking', detail: '' };
+    results.push(result);
+    if (descriptor.needsKey && !values[descriptor.needsKey]) {
+      result.state = 'no-key';
+      const name = KEY_LABELS[descriptor.needsKey] ?? descriptor.needsKey;
+      result.detail = `needs ${/^[AEIOU]/.test(name) ? 'an' : 'a'} ${name}, and none is saved`;
+      onResult?.(result);
+      continue;
+    }
+    const started = performance.now();
+    // Ask each one at a zoom it actually publishes. NASA's global product
+    // stops at nine and answers a request for fourteen with a bad-request
+    // error, which is a true fact about the request and a lie about the
+    // provider — it would have marked GIBS broken every single time.
+    const depth = Math.min(tile.z, descriptor.maxZoom ?? tile.z);
+    const shift = tile.z - depth;
+    const asked = { z: depth, x: tile.x >> shift, y: tile.y >> shift };
+    try {
+      const source = new TileSource(descriptor, values);
+      await source.prepare();
+      if (source.state === 'error') throw new Error(source.error);
+      const url = source.urlFor(asked);
+      if (url === null) throw new Error('no URL for this tile');
+      const response = await fetch(url, { cache: 'no-store' });
+      const bytes = (await response.arrayBuffer()).byteLength;
+      const ms = Math.round(performance.now() - started);
+      const where = depth === tile.z ? '' : `, at z${depth} which is its deepest`;
+      if (response.status === 404) {
+        // Not a fault. Several of these cover one country, and a miss outside
+        // it is the honest answer rather than a broken server.
+        result.state = 'no-cover';
+        result.detail = 'nothing here \u2014 this one does not cover where you are standing';
+      } else if (!response.ok) {
+        result.state = 'error';
+        result.detail = `HTTP ${response.status} in ${ms} ms`;
+      } else if (bytes < 100) {
+        // A 200 that is forty bytes long is a refusal wearing a success code.
+        result.state = 'error';
+        result.detail = `answered ${bytes} bytes \u2014 too small to be a tile`;
+      } else {
+        result.state = 'ok';
+        result.detail = `${(bytes / 1024).toFixed(0)} kB in ${ms} ms${where}`;
+      }
+    } catch (err) {
+      result.state = 'error';
+      result.detail = err instanceof Error ? err.message : String(err);
+    }
+    onResult?.(result);
+  }
+  return results;
+}
+
+/** Human names for the key slots, so an error can say what to go and get. */
+const KEY_LABELS = {
+  googleKey: 'Google Maps Platform key',
+  bingKey: 'Bing Maps key',
+  azureKey: 'Azure Maps subscription key',
+  mapboxKey: 'Mapbox access token',
+  cesiumToken: 'Cesium ion token',
+  mapillaryToken: 'Mapillary token',
+  maxarConnectId: 'Maxar SecureWatch connect ID',
+};
+
+__tg_exports["IMAGERY_PROVIDERS"] = IMAGERY_PROVIDERS;
+__tg_exports["DEEPEST_IMAGERY_ZOOM"] = DEEPEST_IMAGERY_ZOOM;
+__tg_exports["ZOOM_SLIDER_MAX"] = ZOOM_SLIDER_MAX;
+__tg_exports["NO_ZOOM_CEILING"] = NO_ZOOM_CEILING;
+__tg_exports["zoomCeiling"] = zoomCeiling;
+__tg_exports["ELEVATION_PROVIDERS"] = ELEVATION_PROVIDERS;
+__tg_exports["PANORAMA_PROVIDERS"] = PANORAMA_PROVIDERS;
+__tg_exports["findProvider"] = findProvider;
+__tg_exports["recommendedProvider"] = recommendedProvider;
+__tg_exports["providerLabel"] = providerLabel;
+__tg_exports["gibsDate"] = gibsDate;
+__tg_exports["TileSource"] = TileSource;
+__tg_exports["providerChain"] = providerChain;
+__tg_exports["createImagerySource"] = createImagerySource;
+__tg_exports["createElevationSource"] = createElevationSource;
+__tg_exports["bestProviderFor"] = bestProviderFor;
+__tg_exports["testProviders"] = testProviders;
 };
 __tg_modules["src/core/storage.js"] = function (__tg_exports) {
 /** localStorage wrapper that never throws (private mode, quota, disabled storage). */
@@ -82596,6 +84113,7 @@ __tg_exports["removeKey"] = removeKey;
 };
 __tg_modules["src/core/settings.js"] = function (__tg_exports) {
 const { Emitter } = __tg_require("src/core/events.js");
+const { NO_ZOOM_CEILING } = __tg_require("src/tiles/providers.js");
 const { defaultUnits } = __tg_require("src/core/units.js");
 const { readJSON, removeKey, writeJSON } = __tg_require("src/core/storage.js");
 
@@ -82651,6 +84169,13 @@ const DEFAULT_SETTINGS = {
   maxarConnectId: '',
   addressLookup: true,
   buildings: true,
+  /**
+   * Slight relief over woodland the survey knows about, so a forest reads as a
+   * canopy rather than as green paint. Shading only — nothing is built and the
+   * ground you walk on does not move — and off wherever OpenStreetMap has no
+   * wood mapped, because there is no wood there to shade.
+   */
+  woodlandRelief: true,
   streetLevel: true,
 
   /* graphics */
@@ -82676,7 +84201,7 @@ const DEFAULT_SETTINGS = {
   fpsTarget: 60,
   fog: true,
   weather: true,
-  maxTileZoom: 22,
+  maxTileZoom: NO_ZOOM_CEILING,
   /**
    * Detail ceiling, as a percentage of the preset's own budgets.
    *
@@ -82799,7 +84324,7 @@ const GRAPHICS_PRESETS = {
       distantMode: false,
       distantDistanceKm: 64,
       meshDetail: 1,
-      maxTileZoom: 22,
+      maxTileZoom: NO_ZOOM_CEILING,
       fog: true,
       weather: false,
       buildings: false,
@@ -82820,7 +84345,7 @@ const GRAPHICS_PRESETS = {
       distantMode: false,
       distantDistanceKm: 128,
       meshDetail: 1.2,
-      maxTileZoom: 22,
+      maxTileZoom: NO_ZOOM_CEILING,
       fog: true,
       weather: true,
       buildings: true,
@@ -82840,7 +84365,7 @@ const GRAPHICS_PRESETS = {
       distantMode: true,
       distantDistanceKm: 256,
       meshDetail: 1.4,
-      maxTileZoom: 22,
+      maxTileZoom: NO_ZOOM_CEILING,
       fog: true,
       weather: true,
       buildings: true,
@@ -82866,7 +84391,7 @@ const GRAPHICS_PRESETS = {
       distantMode: true,
       distantDistanceKm: 1024,
       meshDetail: 1.6,
-      maxTileZoom: 22,
+      maxTileZoom: NO_ZOOM_CEILING,
       fog: true,
       weather: true,
       buildings: true,
@@ -84035,174 +85560,6 @@ class CameraRig {
 
 __tg_exports["CameraRig"] = CameraRig;
 };
-__tg_modules["src/geo/mercator.js"] = function (__tg_exports) {
-const { DEG, RAD, clamp } = __tg_require("src/core/math.js");
-
-/** Spherical earth / Web Mercator constants. */
-const EARTH_RADIUS = 6378137;
-const EARTH_CIRCUMFERENCE = 2 * Math.PI * EARTH_RADIUS;
-/** Latitude where the Web Mercator square closes. */
-const MAX_LATITUDE = 85.05112878;
-
-/** Longitude (deg) to normalised mercator X in [0,1]. */
-function lonToNormX(lon) {
-  return (wrapLon(lon) + 180) / 360;
-}
-
-/** Latitude (deg) to normalised mercator Y in [0,1] (0 = north pole side). */
-function latToNormY(lat) {
-  const phi = clamp(lat, -MAX_LATITUDE, MAX_LATITUDE) * DEG;
-  return 0.5 - Math.log(Math.tan(Math.PI / 4 + phi / 2)) / (2 * Math.PI);
-}
-
-function normXToLon(x) {
-  return x * 360 - 180;
-}
-
-function normYToLat(y) {
-  return (2 * Math.atan(Math.exp((0.5 - y) * 2 * Math.PI)) - Math.PI / 2) * RAD;
-}
-
-function wrapLon(lon) {
-  let x = (lon + 180) % 360;
-  if (x < 0) x += 360;
-  return x - 180;
-}
-
-/** Mercator ordinate in radians: ln(tan(pi/4 + phi/2)). Used by the local frame. */
-function mercatorPhi(lat) {
-  const phi = clamp(lat, -MAX_LATITUDE, MAX_LATITUDE) * DEG;
-  return Math.log(Math.tan(Math.PI / 4 + phi / 2));
-}
-
-function inverseMercatorPhi(y) {
-  return (2 * Math.atan(Math.exp(y)) - Math.PI / 2) * RAD;
-}
-
-function tileCount(z) {
-  return Math.pow(2, z);
-}
-
-function wrapTileX(x, z) {
-  const n = tileCount(z);
-  return ((x % n) + n) % n;
-}
-
-function lonLatToTile(lat, lon, z) {
-  const n = tileCount(z);
-  const x = Math.floor(lonToNormX(lon) * n);
-  const y = Math.floor(latToNormY(lat) * n);
-  return { z, x: wrapTileX(x, z), y: clamp(y, 0, n - 1) };
-}
-
-/** North-west corner of a tile. */
-function tileNorthWest(tile) {
-  const n = tileCount(tile.z);
-  return { lat: normYToLat(tile.y / n), lon: normXToLon(tile.x / n) };
-}
-
-function tileCenter(tile) {
-  const n = tileCount(tile.z);
-  return { lat: normYToLat((tile.y + 0.5) / n), lon: normXToLon((tile.x + 0.5) / n) };
-}
-
-/** Ground resolution (metres per pixel) for a 256 px tile at a latitude. */
-function metresPerPixel(lat, z) {
-  return (EARTH_CIRCUMFERENCE * Math.cos(lat * DEG)) / (256 * tileCount(z));
-}
-
-/** Bing Maps quadkey for a tile. */
-function quadKey(tile) {
-  let key = '';
-  for (let i = tile.z; i > 0; i--) {
-    let digit = 0;
-    const mask = 1 << (i - 1);
-    if ((tile.x & mask) !== 0) digit += 1;
-    if ((tile.y & mask) !== 0) digit += 2;
-    key += digit;
-  }
-  return key;
-}
-
-/** Great-circle distance in metres. */
-function haversine(a, b) {
-  const dLat = (b.lat - a.lat) * DEG;
-  const dLon = (b.lon - a.lon) * DEG;
-  const lat1 = a.lat * DEG;
-  const lat2 = b.lat * DEG;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-  return 2 * EARTH_RADIUS * Math.asin(Math.min(1, Math.sqrt(h)));
-}
-
-/** Initial bearing in radians, clockwise from north. */
-function bearing(a, b) {
-  const lat1 = a.lat * DEG;
-  const lat2 = b.lat * DEG;
-  const dLon = (b.lon - a.lon) * DEG;
-  const y = Math.sin(dLon) * Math.cos(lat2);
-  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-  return Math.atan2(y, x);
-}
-
-/** Travel `distance` metres from `origin` along `bearingRad`. */
-function destination(origin, bearingRad, distance) {
-  const d = distance / EARTH_RADIUS;
-  const lat1 = origin.lat * DEG;
-  const lon1 = origin.lon * DEG;
-  const lat2 = Math.asin(
-    Math.sin(lat1) * Math.cos(d) + Math.cos(lat1) * Math.sin(d) * Math.cos(bearingRad),
-  );
-  const lon2 =
-    lon1 +
-    Math.atan2(
-      Math.sin(bearingRad) * Math.sin(d) * Math.cos(lat1),
-      Math.cos(d) - Math.sin(lat1) * Math.sin(lat2),
-    );
-  return { lat: lat2 * RAD, lon: wrapLon(lon2 * RAD) };
-}
-
-/**
- * Uniformly distributed point on the sphere, clipped to the mercator band so it
- * is always somewhere the tile pyramid can actually show.
- */
-function randomLatLon(rng = Math.random) {
-  const lat = clamp(Math.asin(rng() * 2 - 1) * RAD, -MAX_LATITUDE, MAX_LATITUDE);
-  return { lat, lon: rng() * 360 - 180 };
-}
-
-/** Uniform random point inside a radius (metres) of an origin. */
-function randomNear(origin, radiusM, rng = Math.random) {
-  return destination(origin, rng() * Math.PI * 2, radiusM * Math.sqrt(rng()));
-}
-
-function tileKey(z, x, y) {
-  return `${z}/${x}/${y}`;
-}
-
-__tg_exports["EARTH_RADIUS"] = EARTH_RADIUS;
-__tg_exports["EARTH_CIRCUMFERENCE"] = EARTH_CIRCUMFERENCE;
-__tg_exports["MAX_LATITUDE"] = MAX_LATITUDE;
-__tg_exports["lonToNormX"] = lonToNormX;
-__tg_exports["latToNormY"] = latToNormY;
-__tg_exports["normXToLon"] = normXToLon;
-__tg_exports["normYToLat"] = normYToLat;
-__tg_exports["wrapLon"] = wrapLon;
-__tg_exports["mercatorPhi"] = mercatorPhi;
-__tg_exports["inverseMercatorPhi"] = inverseMercatorPhi;
-__tg_exports["tileCount"] = tileCount;
-__tg_exports["wrapTileX"] = wrapTileX;
-__tg_exports["lonLatToTile"] = lonLatToTile;
-__tg_exports["tileNorthWest"] = tileNorthWest;
-__tg_exports["tileCenter"] = tileCenter;
-__tg_exports["metresPerPixel"] = metresPerPixel;
-__tg_exports["quadKey"] = quadKey;
-__tg_exports["haversine"] = haversine;
-__tg_exports["bearing"] = bearing;
-__tg_exports["destination"] = destination;
-__tg_exports["randomLatLon"] = randomLatLon;
-__tg_exports["randomNear"] = randomNear;
-__tg_exports["tileKey"] = tileKey;
-};
 __tg_modules["src/geo/frame.js"] = function (__tg_exports) {
 const { DEG, RAD } = __tg_require("src/core/math.js");
 const { EARTH_RADIUS, MAX_LATITUDE, inverseMercatorPhi, mercatorPhi, wrapLon } = __tg_require("src/geo/mercator.js");
@@ -84617,74 +85974,6 @@ const geocoder = new Geocoder();
 __tg_exports["Geocoder"] = Geocoder;
 __tg_exports["geocoder"] = geocoder;
 };
-__tg_modules["src/tiles/noData.js"] = function (__tg_exports) {
-/** OffscreenCanvas in a worker, a normal canvas on the main thread. */
-function makeCanvas(width, height) {
-  if (typeof OffscreenCanvas === 'function') return new OffscreenCanvas(width, height);
-  if (typeof document !== 'undefined') {
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    return canvas;
-  }
-  throw new Error('no canvas available');
-}
-
-/**
- * Is this tile a provider's "nothing here" card rather than a photograph?
- *
- * Esri answers a request for ground it has never imaged with HTTP 200 and a
- * picture of the words "Map data not yet available" on a flat grey field.
- * Every check we have says the tile arrived fine, so it gets drawn, and the
- * result is the pale rectangles with text across the world and the minimap.
- * The availability endpoint does not help — it reports the placeholder as
- * present, because it *is* present.
- *
- * So look at it, and weigh it. Measured against the real thing:
- *
- *   the card        1.8–2.6 kB   mean 205–232   spread 0–19   variance 0.6–34
- *   London          22 kB        mean 76        spread 26     variance 1225
- *   Sahara          13 kB        mean 174       spread 110    variance 176
- *   Greenland       2.6 kB       mean 53        spread 54     variance 2.8
- *
- * Bright, colourless, flat *and* tiny is a corner of that space nothing real
- * sits in. The size test carries most of the weight — a 256-pixel JPEG of
- * anything with texture in it does not compress to two kilobytes — and the
- * pixels stop a genuinely featureless snowfield being thrown away for it.
- */
-function isNoDataCard(bitmap, bytes) {
-  if (bytes > 6000) return false;
-  try {
-    const size = 8;
-    const canvas = makeCanvas(size, size);
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return false;
-    ctx.drawImage(bitmap, 0, 0, size, size);
-    const { data } = ctx.getImageData(0, 0, size, size);
-    let sum = 0;
-    let sumSq = 0;
-    let maxSpread = 0;
-    const n = size * size;
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const lum = (r + g + b) / 3;
-      sum += lum;
-      sumSq += lum * lum;
-      maxSpread = Math.max(maxSpread, Math.max(r, g, b) - Math.min(r, g, b));
-    }
-    const mean = sum / n;
-    const variance = sumSq / n - mean * mean;
-    return mean > 195 && maxSpread <= 24 && variance < 80;
-  } catch {
-    return false;
-  }
-}
-
-
-__tg_exports["isNoDataCard"] = isNoDataCard;
-};
 __tg_modules["src/geo/water.js"] = function (__tg_exports) {
 const { clamp } = __tg_require("src/core/math.js");
 const { isNoDataCard } = __tg_require("src/tiles/noData.js");
@@ -84697,8 +85986,8 @@ const { destination, latToNormY, lonToNormX, tileKey, wrapTileX } = __tg_require
  * There is no offline coastline dataset in this project, so instead of shipping
  * one we read the answer off a single low-zoom imagery tile per region and
  * cache a 32x32 water mask from it. One small tile covers a whole continent's
- * worth of teleport attempts. With no imagery provider the generated terrain's
- * own sea level is used instead.
+ * worth of teleport attempts. With no imagery there is nothing to read and no
+ * invented coastline to fall back on, so the answer is "land" — see isWater.
  */
 
 const PROBE_ZOOM = 6;
@@ -87107,7 +88396,15 @@ class PlayerController {
         // been spent yet, and toggling on the same press that launched you
         // would open the wings from standing.
         if (this.clock - this.lastJumpTap < WING_LOCKOUT_S) continue;
-        player.toggleElytra(!player.elytraDeployed);
+        // Opens the wings. Never closes them.
+        //
+        // This was a toggle, and a toggle is what "pressing jump breaks it"
+        // was: gliding along at 1.4 m/s down, one press of the key you jump
+        // with, and the wings shut and you are falling at 16. Minecraft does
+        // not do that — space deploys an elytra and pressing it again while
+        // you are gliding does nothing at all. You stow the wings by landing,
+        // or with the key that is for stowing them.
+        if (!player.elytraDeployed) player.toggleElytra(true);
         this.lastJumpTap = this.clock;
         continue;
       }
@@ -87384,10 +88681,10 @@ class ElevationField {
    * — and anything that treats sea level as *sea* will then quietly refuse to
    * do its job over ground that simply has not streamed in yet.
    */
-  hasDataAt(nx, ny) {
+  hasDataAt(nx, ny, topZoom = this.maxZoom) {
     const x = nx - Math.floor(nx);
     const y = clamp(ny, 0, 0.999999);
-    for (let z = this.maxZoom; z >= 3; z--) {
+    for (let z = Math.min(topZoom, this.maxZoom); z >= 3; z--) {
       const n = Math.pow(2, z);
       const entry = this.tiles.get(tileKey(z, Math.floor(x * n), Math.floor(y * n)));
       if (entry && entry.state === STATE_READY) return true;
@@ -87419,6 +88716,21 @@ class ElevationField {
   /** Height in metres at a normalised mercator point. */
   sampleNorm(nx, ny) {
     return this.sampleFrom(this.maxZoom, nx - Math.floor(nx), clamp(ny, 0, 0.999999));
+  }
+
+  /**
+   * The same height, but from data no finer than `topZoom`.
+   *
+   * For questions where a kilometre either way does not matter — "is this the
+   * sea?" over a hundred-kilometre disc, tens of thousands of times — and the
+   * walk down from zoom fifteen would be most of the cost.
+   */
+  sampleCoarse(nx, ny, topZoom) {
+    return this.sampleFrom(
+      Math.min(topZoom, this.maxZoom),
+      nx - Math.floor(nx),
+      clamp(ny, 0, 0.999999),
+    );
   }
 
   /**
@@ -87681,971 +88993,124 @@ class ElevationField {
 
 __tg_exports["ElevationField"] = ElevationField;
 };
-__tg_modules["src/tiles/elevationGrid.js"] = function (__tg_exports) {
-const { normXToLon, normYToLat } = __tg_require("src/geo/mercator.js");
-
+__tg_modules["src/tiles/sharpness.js"] = function (__tg_exports) {
 /**
- * Elevation from services that answer with a grid of numbers rather than a
- * picture.
+ * How much detail a photograph actually carries, so the depth to fetch it at
+ * can be measured rather than declared.
  *
- * Mapbox and Terrarium pack height into the channels of a PNG, so a tile is
- * one image request and decoding it is arithmetic on pixels. Bing and Google
- * publish elevation as JSON instead: you hand them a rectangle (or a list of
- * points) and they hand back a list of metres. That is a different shape of
- * answer, and this is where the two are made to look the same to everything
- * downstream.
+ * Every imagery provider publishes one maximum zoom, and one number cannot be
+ * right: Esri guarantee nineteen everywhere, serve twenty-one over Vienna and
+ * have not flown twenty over the Jungfrau. Taking the published number as the
+ * ceiling throws away real detail over cities; taking the deepest number any
+ * place supports fetches sixteen tiles of blur per square everywhere else, off
+ * a keyless endpoint run on donated hardware.
  *
- * Both are coarser than the raster sources and both cost a request per tile
- * against your own account, which is why their descriptors cap the zoom low:
- * a shallow tile covers a lot of ground for one call. Where you have the
- * choice, Terrarium is finer and free — these exist because a Bing or Google
- * key is a thing people have, and having one should be enough.
- */
-
-/** Bing's cap: rows * cols may not exceed 1024. */
-const BING_SIDE = 32;
-/** Google's cap is 512 locations a request; 22 x 22 leaves a little room. */
-const GOOGLE_SIDE = 22;
-
-/** Geographic edges of a slippy tile, in degrees. */
-function tileBounds(tile) {
-  const n = Math.pow(2, tile.z);
-  return {
-    west: normXToLon(tile.x / n),
-    east: normXToLon((tile.x + 1) / n),
-    north: normYToLat(tile.y / n),
-    south: normYToLat((tile.y + 1) / n),
-  };
-}
-
-/**
- * Google's encoded polyline, which is how a few hundred coordinates fit in a
- * URL. Each value is offset from the last, shifted left one bit with the sign
- * folded into bit 0, then emitted five bits at a time with a continuation flag
- * and an ASCII offset of 63. Straight from the published algorithm.
- */
-function encodePolyline(points) {
-  let out = '';
-  let lastLat = 0;
-  let lastLon = 0;
-  const chunk = (value) => {
-    let v = value < 0 ? ~(value << 1) : value << 1;
-    while (v >= 0x20) {
-      out += String.fromCharCode((0x20 | (v & 0x1f)) + 63);
-      v >>>= 5;
-    }
-    out += String.fromCharCode(v + 63);
-  };
-  for (const [lat, lon] of points) {
-    const y = Math.round(lat * 1e5);
-    const x = Math.round(lon * 1e5);
-    chunk(y - lastLat);
-    chunk(x - lastLon);
-    lastLat = y;
-    lastLon = x;
-  }
-  return out;
-}
-
-/**
- * The sample points Google is asked for, north row first — the same order the
- * raster decoders produce, so nothing downstream has to know the difference.
- */
-function googleSamplePoints(tile, side = GOOGLE_SIDE) {
-  const { west, east, north, south } = tileBounds(tile);
-  const points = [];
-  for (let row = 0; row < side; row++) {
-    const lat = north + ((south - north) * row) / (side - 1);
-    for (let col = 0; col < side; col++) {
-      points.push([lat, west + ((east - west) * col) / (side - 1)]);
-    }
-  }
-  return points;
-}
-
-function bilinear(values, side, fx, fy) {
-  const x0 = Math.max(0, Math.min(side - 1, Math.floor(fx)));
-  const y0 = Math.max(0, Math.min(side - 1, Math.floor(fy)));
-  const x1 = Math.min(side - 1, x0 + 1);
-  const y1 = Math.min(side - 1, y0 + 1);
-  const tx = Math.max(0, Math.min(1, fx - x0));
-  const ty = Math.max(0, Math.min(1, fy - y0));
-  const top = values[y0 * side + x0] * (1 - tx) + values[y0 * side + x1] * tx;
-  const bottom = values[y1 * side + x0] * (1 - tx) + values[y1 * side + x1] * tx;
-  return top * (1 - ty) + bottom * ty;
-}
-
-/** Stretch a small square grid up to the size the terrain mesh wants. */
-function resampleGrid(values, side, size) {
-  const out = new Float32Array(size * size);
-  const scale = (side - 1) / (size - 1);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) out[y * size + x] = bilinear(values, side, x * scale, y * scale);
-  }
-  return out;
-}
-
-/**
- * Bing's Elevation/Bounds answer.
+ * Neither guess is needed. A tile that is a genuine new level of resolution
+ * holds most of its parent's per-pixel contrast, because finer detail in a
+ * natural image has lower amplitude but is still there. A tile that is the
+ * parent resampled bigger has half of it or less, because the resampler put
+ * smooth ramps between the samples it had. Measured over three places, whole
+ * tile against whole tile:
  *
- * The documented order is "starting with the southwest corner, and then
- * proceed west to east and south to north" — so the first row is the *bottom*
- * of the tile and every raster decoder in this project starts at the top. The
- * rows are flipped here rather than anywhere further downstream, where the
- * mistake would show up as terrain mirrored about its own middle.
- */
-function decodeBingElevation(json, size, side = BING_SIDE) {
-  const values = json?.resourceSets?.[0]?.resources?.[0]?.elevations;
-  if (!Array.isArray(values) || values.length < side * side) {
-    throw new Error('Bing elevation returned no grid');
-  }
-  const north = new Float32Array(side * side);
-  for (let row = 0; row < side; row++) {
-    const from = (side - 1 - row) * side;
-    for (let col = 0; col < side; col++) north[row * side + col] = values[from + col];
-  }
-  return resampleGrid(north, side, size);
-}
-
-/** Google's Elevation answer: results in the order the points were sent. */
-function decodeGoogleElevation(json, size, side = GOOGLE_SIDE) {
-  if (json?.status && json.status !== 'OK') {
-    throw new Error(`Google elevation: ${json.error_message ?? json.status}`);
-  }
-  const results = json?.results;
-  if (!Array.isArray(results) || results.length < side * side) {
-    throw new Error('Google elevation returned no grid');
-  }
-  const values = new Float32Array(side * side);
-  for (let i = 0; i < side * side; i++) values[i] = Number(results[i].elevation) || 0;
-  return resampleGrid(values, side, size);
-}
-
-__tg_exports["BING_SIDE"] = BING_SIDE;
-__tg_exports["GOOGLE_SIDE"] = GOOGLE_SIDE;
-__tg_exports["tileBounds"] = tileBounds;
-__tg_exports["encodePolyline"] = encodePolyline;
-__tg_exports["googleSamplePoints"] = googleSamplePoints;
-__tg_exports["resampleGrid"] = resampleGrid;
-__tg_exports["decodeBingElevation"] = decodeBingElevation;
-__tg_exports["decodeGoogleElevation"] = decodeGoogleElevation;
-};
-__tg_modules["src/tiles/providers.js"] = function (__tg_exports) {
-const { latToNormY, lonToNormX, quadKey } = __tg_require("src/geo/mercator.js");
-const { isNoDataCard } = __tg_require("src/tiles/noData.js");
-const { BING_SIDE, GOOGLE_SIDE, encodePolyline, googleSamplePoints, tileBounds } = __tg_require("src/tiles/elevationGrid.js");
-
-/**
- * Provider registry. TerraGlide ships with every key slot empty; a provider is
- * only contacted once you pick it in Settings. Each descriptor knows how to
- * turn a tile id into a URL, how deep it can be zoomed, and what attribution
- * has to stay on screen.
- */
-
-const IMAGERY_PROVIDERS = [
-  {
-    id: 'esri',
-    label: 'Esri World Imagery',
-    kind: 'xyz',
-    needsKey: null,
-    recommended: true,
-    maxZoom: 19,
-    template: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
-    note: 'Keyless. Fair use only — do not bulk download.',
-  },
-  {
-    id: 'sentinel2',
-    label: 'Sentinel-2 cloudless',
-    kind: 'xyz',
-    needsKey: null,
-    maxZoom: 16,
-    template: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg',
-    attribution: 'Sentinel-2 cloudless by EOX IT Services, from modified Copernicus Sentinel data',
-    note:
-      'Keyless, whole planet, ten metres a pixel, and \u2014 the point of it \u2014 a '
-      + 'cloudless mosaic, so there is never a white smear where the weather was '
-      + 'on the day the satellite went over. Softer than Esri close up; better than '
-      + 'Esri anywhere Esri has only old low-resolution cover.',
-  },
-  {
-    id: 'usgs',
-    label: 'USGS imagery (United States)',
-    kind: 'xyz',
-    needsKey: null,
-    maxZoom: 16,
-    template:
-      'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
-    attribution: 'Imagery courtesy of the U.S. Geological Survey, The National Map',
-    note:
-      'Keyless and very good, over the United States and nowhere else. Outside it '
-      + 'every tile is a 404 and the ground goes bare, so this is one to pick when '
-      + 'you know where you are going.',
-  },
-  {
-    id: 'gibs',
-    label: 'NASA GIBS (this week\u2019s Earth)',
-    kind: 'xyz',
-    needsKey: null,
-    maxZoom: 9,
-    template:
-      'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor' +
-      '/default/{date}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg',
-    attribution: 'Imagery courtesy of NASA EOSDIS GIBS / VIIRS',
-    note:
-      'What the planet looked like a few days ago, cloud and snow and all, from '
-      + 'the VIIRS instrument. Keyless and global, but only nine zoom levels deep '
-      + '\u2014 about six hundred metres a pixel \u2014 so it is a view from orbit '
-      + 'rather than something to fly a valley in.',
-  },
-  {
-    id: 'google',
-    label: 'Google Maps (satellite)',
-    kind: 'google',
-    needsKey: 'googleKey',
-    maxZoom: 21,
-    attribution: 'Imagery © Google',
-    note: 'Needs a Map Tiles API key. A session token is created on first use.',
-  },
-  {
-    id: 'bing',
-    label: 'Bing Maps (aerial)',
-    kind: 'bing',
-    needsKey: 'bingKey',
-    maxZoom: 20,
-    attribution: 'Imagery © Microsoft, Maxar',
-    note:
-      'Bing still has coverage and zoom levels Azure has not inherited, so it is '
-      + 'worth keeping alongside. Tile URLs come from the imagery metadata service. '
-      + 'Microsoft is retiring it, so treat it as the older of the two.',
-  },
-  {
-    id: 'azure',
-    label: 'Azure Maps (satellite)',
-    kind: 'xyz',
-    needsKey: 'azureKey',
-    maxZoom: 19,
-    template:
-      'https://atlas.microsoft.com/map/tile?api-version=2024-04-01' +
-      '&tilesetId=microsoft.imagery&zoom={z}&x={x}&y={y}&subscription-key={key}',
-    attribution: 'Imagery © Microsoft, Airbus DS, Maxar',
-    note:
-      'Microsoft\u2019s current satellite imagery, on an Azure Maps subscription key. ' +
-      'This is where Bing Maps is being retired to. Imagery only \u2014 Azure serves no ' +
-      'photogrammetry, so it cannot drive the 3D option.',
-  },
-  {
-    id: 'maxar',
-    label: 'Maxar SecureWatch',
-    kind: 'xyz',
-    needsKey: 'maxarConnectId',
-    maxZoom: 20,
-    template:
-      'https://securewatch.digitalglobe.com/earthservice/wmtsaccess?connectid={key}' +
-      '&SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=DigitalGlobe:ImageryTileService' +
-      '&FORMAT=image/jpeg&TileMatrixSet=EPSG:3857&TileMatrix=EPSG:3857:{z}&TileRow={y}&TileCol={x}',
-    attribution: 'Imagery © Maxar Technologies',
-    note:
-      'Maxar\u2019s own service, on a SecureWatch connect ID. That is an enterprise '
-      + 'credential rather than something you sign up for in an afternoon \u2014 and if '
-      + 'you have not got one you are not missing the imagery, only the direct '
-      + 'route to it: Esri, Bing and Google all serve Maxar scenes and all three '
-      + 'credit them.',
-  },
-  {
-    id: 'cesium-ion',
-    label: 'Cesium ion imagery',
-    kind: 'ion',
-    needsKey: 'cesiumToken',
-    maxZoom: 19,
-    attribution: 'Imagery served by Cesium ion',
-    note:
-      'Anything raster in your Cesium ion account, on the same token the '
-      + 'photorealistic 3D option uses \u2014 Bing Aerial is asset 2 and is what '
-      + 'this asks for unless you change it in Settings. ion meters it per '
-      + 'account, which is why it needs the token: there is no keyless door to '
-      + 'it, and the API says so itself if you knock without one.',
-  },
-  {
-    id: 'mapbox',
-    label: 'Mapbox Satellite',
-    kind: 'xyz',
-    needsKey: 'mapboxKey',
-    maxZoom: 22,
-    template: 'https://api.mapbox.com/v4/mapbox.satellite/{z}/{x}/{y}@2x.jpg90?access_token={key}',
-    attribution: '© Mapbox © Maxar',
-  },
-  {
-    id: 'esri-street',
-    label: 'Esri World Street Map',
-    kind: 'xyz',
-    needsKey: null,
-    maxZoom: 19,
-    template:
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
-    attribution: 'Map \u00a9 Esri',
-    // The drawn map the flat maps show for ground you have not seen. It used
-    // to sit behind OpenStreetMap's own raster server, and that entry is gone:
-    // tile.openstreetmap.org is one community machine with a fair-use policy
-    // that this is not covered by, and asked from a browser on a third-party
-    // site it answers HTTP 200 with a picture that says "Access blocked"
-    // — which the game would have drawn as if it were a map.
-    hidden: true,
-    note: 'Drawn map rather than photography. What the flat maps show for ground you have not seen.',
-  },
-  {
-    id: 'openfreemap',
-    label: 'OpenFreeMap (vector street map)',
-    kind: 'openmaptiles',
-    needsKey: null,
-    // The vectors stop at 14 and are drawn at any zoom above it: one tile of
-    // geometry covers every level below itself, which is the whole point of
-    // serving geometry instead of pictures.
-    maxZoom: 14,
-    attribution:
-      '\u00a9 OpenFreeMap \u00a9 OpenMapTiles, map data \u00a9 OpenStreetMap contributors',
-    hidden: true,
-    note:
-      'The roads and coastlines themselves rather than a picture of them, drawn '
-      + 'here. Keyless and explicitly unmetered, which the community raster '
-      + 'servers are not \u2014 so it is the one to lean on when a map is being '
-      + 'panned around rather than looked at once.',
-  },
-];
-
-const ELEVATION_PROVIDERS = [
-  {
-    id: 'mapbox',
-    label: 'Mapbox Terrain-RGB',
-    kind: 'terrain-rgb',
-    needsKey: 'mapboxKey',
-    maxZoom: 15,
-    template: 'https://api.mapbox.com/v4/mapbox.terrain-rgb/{z}/{x}/{y}.pngraw?access_token={key}',
-    attribution: '© Mapbox',
-  },
-  {
-    id: 'bing-elevation',
-    label: 'Bing Maps elevation',
-    kind: 'bing-elevation',
-    needsKey: 'bingKey',
-    // Deliberately shallow. Every tile is one call against your own Bing
-    // account, so a tile has to be worth making a call for: at zoom 12 one
-    // covers about ten kilometres, and 32 by 32 samples across it is roughly
-    // three hundred metre spacing — coarser than Terrarium, and enough to
-    // shape a landscape.
-    maxZoom: 12,
-    attribution: 'Elevation © Microsoft',
-    note:
-      'Bing\u2019s Elevation service, on a Bing Maps key. It answers with a grid of '
-      + 'heights rather than a picture, one request per tile against your own quota, '
-      + 'and it is coarser than the raster sources \u2014 pick it because you have the '
-      + 'key, not because it is sharper.',
-  },
-  {
-    id: 'terrarium',
-    label: 'AWS Terrain Tiles (Terrarium)',
-    kind: 'terrarium',
-    needsKey: null,
-    recommended: true,
-    maxZoom: 14,
-    template: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
-    attribution: 'Elevation: AWS Terrain Tiles, SRTM/GMTED',
-    note: 'Public dataset; availability is not guaranteed.',
-  },
-];
-
-const PANORAMA_PROVIDERS = [
-  { id: 'none', label: 'Off', needsKey: null, attribution: '' },
-  {
-    id: 'google',
-    label: 'Google Street View',
-    needsKey: 'googleKey',
-    recommended: true,
-    attribution: 'Street-level imagery © Google',
-    note: 'Uses the Street View Static API; six faces are stitched into a cube.',
-  },
-  {
-    id: 'mapillary',
-    label: 'Mapillary',
-    needsKey: 'mapillaryToken',
-    attribution: 'Street-level imagery © Mapillary contributors',
-    note: 'Community 360 photos. Coverage is patchy but the licence is friendly.',
-  },
-];
-
-function findProvider(list, id) {
-  return list.find((p) => p.id === id) ?? list[0];
-}
-
-/**
- * The one to pick if you have not got a key for anything.
+ *                     z19    z20            z21
+ *   Vienna centre     6.96   4.89 (x0.70)   3.65 (x0.75)   real all the way
+ *   Jungfrau massif   9.74   5.77 (x0.59)   1.84 (x0.32)   21 is a resample
+ *   Meseta farmland   4.84   2.65 (x0.55)   0.56 (x0.21)   21 is a "no data" card
  *
- * Marked on the descriptor rather than worked out here, so the answer lives
- * next to the reasons for it. Esri and Terrarium are the picks: both are open,
- * both cover the whole planet, and neither asks you for an account before you
- * can fly anywhere.
+ * A ratio of about a half separates them, and it separates them the same way
+ * in all three. So the rule is: keep descending while a child brings back most
+ * of what its parent had, and stop when it does not.
  */
-function recommendedProvider(list) {
-  return list.find((p) => p.recommended && !p.needsKey) ?? null;
-}
 
 /**
- * Label for a provider in a menu.
+ * Mean absolute difference between horizontally adjacent pixels, 0–255.
  *
- * Two things are worth knowing before you pick one and both belong on the line
- * rather than three clicks away: whether it is the one to take if you have no
- * opinion, and whether choosing it means going and getting a key. "Keyless" is
- * the more useful of the two most of the time — this whole project is built so
- * that you never have to sign up for anything, and a menu that does not say
- * which entries honour that makes you find out the hard way.
- */
-function providerLabel(descriptor) {
-  const notes = [];
-  if (descriptor.recommended) notes.push('recommended');
-  notes.push(descriptor.needsKey ? 'needs a key' : 'keyless');
-  return notes.length ? `${descriptor.label} (${notes.join(', ')})` : descriptor.label;
-}
-
-/**
- * How far back to ask NASA for "today".
+ * Measured at the tile's own resolution — downsampling first would destroy the
+ * high-frequency detail this exists to detect — over a central window, every
+ * second pixel. One drawImage and one getImageData per tile, in the worker.
  *
- * The near-real-time products are published a few hours behind the pass, but
- * not uniformly, and a date that has not finished processing answers with a
- * transparent tile rather than an error — which looks exactly like a hole in
- * the world. Three days back is always there.
+ * @param {ImageBitmap} bitmap
+ * @param {(w: number, h: number) => any} makeCanvas
+ * @returns {number} 0 when it cannot be measured, which reads as "no opinion"
  */
-const GIBS_LAG_DAYS = 3;
-
-/**
- * The human-readable half of a Google API refusal.
- *
- * Their errors are JSON with a `error.message` that names the actual problem —
- * "Requests to this API tile.googleapis.com method … are blocked", "API key
- * not valid", "Referer restrictions" — and it is far more use than the status
- * code on its own.
- */
-async function googleReason(res) {
+function measureSharpness(bitmap, makeCanvas) {
   try {
-    const body = await res.json();
-    const message = body?.error?.message ?? body?.error_message;
-    if (message) return String(message);
+    const w = bitmap.width || 0;
+    const h = bitmap.height || 0;
+    if (w < 16 || h < 16) return 0;
+    // A centred window: tile edges carry seams and the neighbours' resampling.
+    const side = Math.min(128, w, h);
+    const sx = Math.floor((w - side) / 2);
+    const sy = Math.floor((h - side) / 2);
+    const canvas = makeCanvas(side, side);
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return 0;
+    ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, side, side);
+    const { data } = ctx.getImageData(0, 0, side, side);
+    let sum = 0;
+    let n = 0;
+    for (let y = 0; y < side; y += 2) {
+      const row = y * side * 4;
+      for (let x = 0; x < side - 1; x += 2) {
+        const i = row + x * 4;
+        const j = i + 4;
+        const a = (data[i] + data[i + 1] + data[i + 2]) / 3;
+        const b = (data[j] + data[j + 1] + data[j + 2]) / 3;
+        sum += Math.abs(a - b);
+        n++;
+      }
+    }
+    return n ? sum / n : 0;
   } catch {
-    /* not JSON; fall through */
-  }
-  if (res.status === 403) {
-    return 'check that the Map Tiles API is enabled on the project and that the key\u2019s '
-      + 'referrer restrictions allow this page';
-  }
-  return 'no explanation given';
-}
-
-function gibsDate(now = Date.now()) {
-  return new Date(now - GIBS_LAG_DAYS * 86400000).toISOString().slice(0, 10);
-}
-
-function fillTemplate(template, tile, key) {
-  return template
-    .replace('{z}', String(tile.z))
-    .replace('{x}', String(tile.x))
-    .replace('{y}', String(tile.y))
-    .replace('{date}', gibsDate())
-    .replace('{key}', encodeURIComponent(key ?? ''));
-}
-
-/**
- * Resolves a provider descriptor plus the current keys into something that can
- * hand out tile URLs. Providers needing a handshake (Google sessions, Bing
- * metadata) do it once, lazily, and cache the result.
- */
-class TileSource {
-  constructor(descriptor, keys) {
-    this.descriptor = descriptor;
-    this.keys = keys;
-    /** Set when this provider is standing in for one that had no key. */
-    this.substitutedFor = null;
-    this.bingTemplate = null;
-    this.vectorTemplate = null;
-    this.ionTemplate = null;
-    /** Whatever ion says has to be shown for this asset. */
-    this.ionAttribution = '';
-    this.state = 'idle'; // idle | preparing | ready | needs-key | error
-    this.error = '';
-    this.googleSession = null;
-    this.preparing = null;
-  }
-
-  get id() {
-    return this.descriptor.id;
-  }
-
-  get maxZoom() {
-    return this.descriptor.maxZoom;
-  }
-
-  get attribution() {
-    return this.descriptor.attribution;
-  }
-
-  get key() {
-    const slot = this.descriptor.needsKey;
-    return slot ? (this.keys[slot] ?? '') : '';
-  }
-
-  /** True when tiles can be requested right now. */
-  get ready() {
-    return this.state === 'ready';
-  }
-
-  async prepare() {
-    if (this.state === 'ready') return;
-    if (this.preparing) return this.preparing;
-    // A handshake that failed is not retried until its backoff is up.
-    //
-    // The streamer calls this from `dispatch` for every queued tile whose
-    // source is not ready, which is every tile on screen, every frame. So a
-    // Google key that fails `createSession` — wrong key, API not enabled,
-    // quota gone — used to re-run the handshake continuously for as long as the
-    // game was open, against an endpoint that is metered and rate-limited. The
-    // wait doubles from two seconds to a minute and resets the moment one
-    // succeeds, so a network that comes back is picked up quickly and a key
-    // that is simply wrong is asked about once a minute instead of sixty times
-    // a second.
-    if (this.state === 'error' && Date.now() < (this.retryAt ?? 0)) return;
-
-    if (this.descriptor.needsKey && !this.key) {
-      this.state = 'needs-key';
-      this.error = 'No API key set for this provider.';
-      return;
-    }
-
-    this.state = 'preparing';
-    this.preparing = (async () => {
-      try {
-        if (this.descriptor.kind === 'bing') await this.prepareBing();
-        else if (this.descriptor.kind === 'google') await this.prepareGoogle();
-        else if (this.descriptor.kind === 'openmaptiles') await this.prepareOpenMapTiles();
-        else if (this.descriptor.kind === 'ion') await this.prepareIon();
-        this.state = 'ready';
-        this.error = '';
-        this.handshakeFailures = 0;
-      } catch (err) {
-        this.state = 'error';
-        this.error = err instanceof Error ? err.message : String(err);
-        this.handshakeFailures = (this.handshakeFailures ?? 0) + 1;
-        this.retryAt = Date.now()
-          + Math.min(60000, 2000 * Math.pow(2, this.handshakeFailures - 1));
-      } finally {
-        this.preparing = null;
-      }
-    })();
-    return this.preparing;
-  }
-
-
-  async prepareBing() {
-    const url =
-      'https://dev.virtualearth.net/REST/v1/Imagery/Metadata/Aerial' +
-      `?output=json&include=ImageryProviders&uriScheme=https&key=${encodeURIComponent(this.key)}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Bing metadata failed (${res.status})`);
-    const data = await res.json();
-    const resource = data?.resourceSets?.[0]?.resources?.[0];
-    if (!resource?.imageUrl) throw new Error('Bing metadata had no imageUrl');
-    this.bingTemplate = resource.imageUrl;
-    this.bingSubdomains = resource.imageUrlSubdomains ?? [''];
-  }
-
-  /**
-   * OpenFreeMap republishes the planet every few weeks and puts the build date
-   * in the tile path, so there is no stable URL to hard-code — the TileJSON is
-   * the stable thing and it names the current one. Fetched once.
-   */
-  async prepareOpenMapTiles() {
-    const res = await fetch('https://tiles.openfreemap.org/planet');
-    if (!res.ok) throw new Error(`OpenFreeMap TileJSON failed (${res.status})`);
-    const data = await res.json();
-    const template = data?.tiles?.[0];
-    if (!template) throw new Error('OpenFreeMap TileJSON had no tile template');
-    this.vectorTemplate = template;
-  }
-
-  /**
-   * Cesium ion, for imagery rather than for the photogrammetry.
-   *
-   * Same door as the 3D route already knocks on: a token is exchanged for a
-   * short-lived one plus wherever the tiles actually live. ion serves two
-   * shapes through it and which you get depends on the asset — its own rasters
-   * come back as a template to fill in, and the ones it resells from Bing come
-   * back as Bing's own quadkey URL with a key attached. Both are handled;
-   * anything else is reported rather than guessed at.
-   */
-  async prepareIon() {
-    const asset = this.keys.cesiumImageryAsset || 2;
-    const res = await fetch(
-      `https://api.cesium.com/v1/assets/${encodeURIComponent(asset)}/endpoint` +
-        `?access_token=${encodeURIComponent(this.key)}`,
-    );
-    if (!res.ok) throw new Error(`Cesium ion asset ${asset} refused the token (${res.status})`);
-    const data = await res.json();
-
-    if (data.externalType === 'BING' || data.options?.mapStyle) {
-      const base = (data.options?.url ?? 'https://dev.virtualearth.net').replace(/\/$/, '');
-      const key = data.options?.key ?? '';
-      const meta = await fetch(
-        `${base}/REST/v1/Imagery/Metadata/Aerial?output=json&include=ImageryProviders` +
-          `&uriScheme=https&key=${encodeURIComponent(key)}`,
-      );
-      if (!meta.ok) throw new Error(`Bing metadata via ion failed (${meta.status})`);
-      const resource = (await meta.json())?.resourceSets?.[0]?.resources?.[0];
-      if (!resource?.imageUrl) throw new Error('Bing metadata via ion had no imageUrl');
-      this.bingTemplate = resource.imageUrl;
-      this.bingSubdomains = resource.imageUrlSubdomains ?? [''];
-      this.ionTemplate = null;
-    } else if (data.url) {
-      // An ion-hosted raster: a tile scheme under a base URL, with the
-      // short-lived token on every request.
-      const token = data.accessToken ? `?access_token=${encodeURIComponent(data.accessToken)}` : '';
-      this.ionTemplate = `${data.url.replace(/\/$/, '')}/{z}/{x}/{y}.png${token}`;
-    } else {
-      throw new Error(`Cesium ion asset ${asset} is not raster imagery`);
-    }
-    if (Array.isArray(data.attributions) && data.attributions.length > 0) {
-      this.ionAttribution = data.attributions
-        .map((a) => String(a.html ?? a.text ?? '').replace(/<[^>]*>/g, '').trim())
-        .filter(Boolean)
-        .join(' · ');
-    }
-  }
-
-  async prepareGoogle() {
-    const res = await fetch(
-      `https://tile.googleapis.com/v1/createSession?key=${encodeURIComponent(this.key)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // No region. Pinning it to the United States is a statement about
-        // which country's borders and labels you want, not about where you are
-        // flying, and it is not needed for satellite imagery at all.
-        body: JSON.stringify({ mapType: 'satellite', language: 'en-US' }),
-      },
-    );
-    if (!res.ok) {
-      // Google says exactly what is wrong in the body and this used to throw
-      // it away, leaving "Google session failed (403)" — which reads as the
-      // option being broken when it is nearly always one of three specific
-      // and fixable things: the Map Tiles API is not enabled on the project,
-      // the key has an HTTP-referrer restriction that does not list this
-      // page's origin, or the key is restricted to other APIs. Passing their
-      // message through turns a dead end into an instruction.
-      throw new Error(`Google session failed (${res.status}) \u2014 ${await googleReason(res)}`);
-    }
-    const data = await res.json();
-    if (!data.session) throw new Error('Google session token missing');
-    this.googleSession = data.session;
-  }
-
-  /** URL for a tile, or null when this source cannot serve that tile. */
-  urlFor(tile) {
-    const d = this.descriptor;
-    if (d.kind === 'bing') {
-      if (!this.bingTemplate) return null;
-      const subs = this.bingSubdomains ?? [''];
-      const sub = subs[(tile.x + tile.y) % subs.length];
-      return this.bingTemplate
-        .replace('{subdomain}', sub)
-        .replace('{quadkey}', quadKey(tile))
-        .replace('{culture}', 'en-US');
-    }
-    if (d.kind === 'google') {
-      if (!this.googleSession) return null;
-      return `https://tile.googleapis.com/v1/2dtiles/${tile.z}/${tile.x}/${tile.y}?session=${encodeURIComponent(this.googleSession)}&key=${encodeURIComponent(this.key)}`;
-    }
-    if (d.kind === 'bing-elevation') {
-      const b = tileBounds(tile);
-      // Bounds are south, west, north, east — Bing's order, not ours.
-      return (
-        'https://dev.virtualearth.net/REST/v1/Elevation/Bounds?bounds=' +
-        `${b.south.toFixed(6)},${b.west.toFixed(6)},${b.north.toFixed(6)},${b.east.toFixed(6)}` +
-        `&rows=${BING_SIDE}&cols=${BING_SIDE}&heights=ellipsoid&key=${encodeURIComponent(this.key)}`
-      );
-    }
-    if (d.kind === 'google-elevation') {
-      const encoded = encodePolyline(googleSamplePoints(tile, GOOGLE_SIDE));
-      return (
-        'https://maps.googleapis.com/maps/api/elevation/json?locations=enc:' +
-        `${encodeURIComponent(encoded)}&key=${encodeURIComponent(this.key)}`
-      );
-    }
-    if (d.kind === 'ion') {
-      // Bing-backed assets come out as Bing tiles; ion's own as a template.
-      if (this.bingTemplate) {
-        const subs = this.bingSubdomains ?? [''];
-        return this.bingTemplate
-          .replace('{subdomain}', subs[(tile.x + tile.y) % subs.length])
-          .replace('{quadkey}', quadKey(tile))
-          .replace('{culture}', 'en-US');
-      }
-      if (!this.ionTemplate) return null;
-      return fillTemplate(this.ionTemplate, tile, this.key);
-    }
-    if (d.kind === 'openmaptiles') {
-      if (!this.vectorTemplate) return null;
-      return fillTemplate(this.vectorTemplate, tile, this.key);
-    }
-    if (!d.template) return null;
-    return fillTemplate(d.template, tile, this.key);
-  }
-
-  /** How the worker should read the answer: a picture, or a grid of numbers. */
-  get decode() {
-    const kind = this.descriptor.kind;
-    if (
-      kind === 'terrain-rgb' ||
-      kind === 'terrarium' ||
-      kind === 'bing-elevation' ||
-      kind === 'google-elevation'
-    ) {
-      return kind;
-    }
-    // Geometry rather than a picture: the caller draws it. Only the flat maps
-    // know how, so this provider is not offered as flight imagery.
-    if (kind === 'openmaptiles') return 'vector';
-    return 'imagery';
+    return 0;
   }
 }
 
 /**
- * The order to try providers in, best first.
+ * The zoom below which none of this means anything.
  *
- * Two rules, and the first one is the one that was asked for: **a provider you
- * hold a key for goes before a free one.** You paid for it (or signed up for
- * it), it is usually sharper, and it is metered against your own account
- * rather than against somebody's community server. Free ones follow, deepest
- * first, because a provider that publishes zoom 19 is more use than one that
- * stops at 9 when you are stood in a field.
+ * A tile at zoom 5 covers a thousand kilometres. Whether it looks flat, or
+ * looks flatter than its parent, says nothing whatever about whether there is
+ * a photograph of a street inside it — and marking it as the finest there is
+ * stops the quadtree subdividing anywhere in it. That is not a hypothetical:
+ * without this gate a single verdict at zoom 1 blocked the entire planet, and
+ * the Meseta drew zoom 5 and loaded nothing.
  *
- * The chosen provider is always first whatever else is true — picking one is a
- * statement — and everything else is a standby for when it will not answer.
+ * Coverage only runs out near the bottom of the pyramid, so that is the only
+ * place the question is asked.
  */
-function providerChain(list, chosenId, values) {
-  const chosen = findProvider(list, chosenId);
-  const rest = list.filter((p) => p.id !== chosen?.id && !p.hidden);
-  const usable = rest.filter((p) => !p.needsKey || values[p.needsKey]);
-  usable.sort((a, b) => {
-    const keyed = (p) => (p.needsKey ? 0 : 1);
-    if (keyed(a) !== keyed(b)) return keyed(a) - keyed(b);
-    return (b.maxZoom ?? 0) - (a.maxZoom ?? 0);
-  });
-  return [chosen, ...usable].filter(Boolean);
-}
+const SHARPNESS_FROM_ZOOM = 16;
 
 /**
- * Resolve a chosen provider to one that can actually serve tiles.
+ * Below this, there is nothing left to resolve.
  *
- * Picking a provider and leaving its key blank used to mean no map at all: the
- * source sat in `needs-key` and the world fell back to generated terrain. There
- * is no generated terrain any more, so it substitutes for real — the best of
- * what is left, by the order above — and says so, because nobody should be
- * left thinking they are looking at Google's imagery when they are not.
+ * Open ocean, a snowfield and a "no data" card all sit here. Descending over
+ * them buys nothing anyone can see and costs four times the requests, so the
+ * floor stops it — and it stops it in the safe direction, because a featureless
+ * square looks identical however finely it is fetched.
  */
-function withKeylessFallback(list, descriptor, values) {
-  if (!descriptor) return null;
-  if (!descriptor.needsKey || values[descriptor.needsKey]) return new TileSource(descriptor, values);
-  const chain = providerChain(list, descriptor.id, values);
-  const fallback = chain.find((p) => p.id !== descriptor.id);
-  if (!fallback) return new TileSource(descriptor, values);
-  const source = new TileSource(fallback, values);
-  source.substitutedFor = descriptor;
-  return source;
-}
-
-function createImagerySource(settingsValues) {
-  const descriptor = findProvider(IMAGERY_PROVIDERS, settingsValues.imageryProvider);
-  return withKeylessFallback(IMAGERY_PROVIDERS, descriptor, settingsValues);
-}
-
-function createElevationSource(settingsValues) {
-  const descriptor = findProvider(ELEVATION_PROVIDERS, settingsValues.elevationProvider);
-  return withKeylessFallback(ELEVATION_PROVIDERS, descriptor, settingsValues);
-}
+const SHARPNESS_FLOOR = 1.5;
 
 /**
- * Which provider actually serves the sharpest ground *here*.
+ * A child holding less than this share of its parent's contrast is a resample.
  *
- * Coverage is not uniform and no list ordering can capture that. USGS is
- * superb over Kansas and a 404 over Kent. Esri is excellent nearly everywhere
- * and hands you a "Map data not yet available" card over the Southern Ocean.
- * Sentinel-2 is everywhere and stops at ten metres a pixel.
- *
- * So this asks. For each candidate it walks down from the deepest zoom it
- * publishes until one answers with a real tile — not a 404, not a no-data card
- * — and remembers how deep that was. The winner is whoever got deepest, ties
- * broken by preferring one you hold a key for. Roughly a dozen requests, once,
- * when you press the button.
- *
- * @param {Array} list  IMAGERY_PROVIDERS
- * @param {object} values the settings store's values, for the keys
- * @param {{lat:number,lon:number}} at where you are standing
- * @param {(text:string)=>void} [onProgress]
+ * Half, near enough. The three places above land at 0.70, 0.75, 0.59 and 0.55
+ * for a real level and 0.32 and 0.21 for a resampled one, so the gap either
+ * side of 0.45 is wide and the threshold is not balanced on an edge.
  */
-async function bestProviderFor(list, values, at, onProgress) {
-  const candidates = list.filter(
-    (p) => !p.hidden && (!p.needsKey || values[p.needsKey]),
-  );
-  let best = null;
-  for (const descriptor of candidates) {
-    onProgress?.(`Trying ${descriptor.label}\u2026`);
-    const source = new TileSource(descriptor, values);
-    try {
-      await source.prepare();
-      if (source.state === 'error') continue;
-    } catch {
-      continue;
-    }
-    // Down from the deepest it claims, until something real comes back. Six
-    // levels covers everything from "shallower than it says" to "only has the
-    // continental view of this place", which over an ocean is the true answer
-    // rather than a failure.
-    const top = descriptor.maxZoom ?? 16;
-    for (let z = top; z >= Math.max(3, top - 6); z--) {
-      const n = Math.pow(2, z);
-      const tile = {
-        z,
-        x: Math.floor(lonToNormX(at.lon) * n),
-        y: Math.floor(clampUnit(latToNormY(at.lat)) * n),
-      };
-      const url = source.urlFor(tile);
-      if (!url) continue;
-      try {
-        const res = await fetch(url, { cache: 'no-store' });
-        if (!res.ok) continue;
-        const blob = await res.blob();
-        if (blob.size < 100) continue;
-        const bitmap = await createImageBitmap(blob);
-        const blank = isNoDataCard(bitmap, blob.size);
-        bitmap.close();
-        if (blank) continue;
-        const keyed = descriptor.needsKey ? 1 : 0;
-        if (!best || z > best.zoom || (z === best.zoom && keyed > best.keyed)) {
-          best = { id: descriptor.id, label: descriptor.label, zoom: z, keyed };
-        }
-        break;
-      } catch {
-        /* next zoom */
-      }
-    }
-  }
-  onProgress?.(null);
-  return best;
-}
+const SHARPNESS_RATIO = 0.45;
 
-function clampUnit(value) {
-  return Math.min(0.999999, Math.max(0, value));
-}
-
-/**
- * Actually knock on every provider's door and report what answers.
- *
- * There is a real gap between "this provider is in the list" and "this
- * provider is serving you tiles right now", and nothing in the interface used
- * to close it: pick Google without a key and the ground simply stays as it
- * was, which reads as the option being broken rather than as an account being
- * required. So this fetches one real tile from each, at a place you choose,
- * and says what came back — the status code, the size, how long it took.
- *
- * Keys are used exactly as the game uses them and never leave the browser.
- * One tile each is a rounding error against anybody's quota.
- *
- * @param {Array} list  IMAGERY_PROVIDERS or ELEVATION_PROVIDERS
- * @param {object} values the settings store's values, for the keys
- * @param {{z:number,x:number,y:number}} tile where to ask about
- * @param {(result:object)=>void} [onResult] called as each one finishes
- */
-async function testProviders(list, values, tile, onResult) {
-  const results = [];
-  for (const descriptor of list) {
-    const result = { id: descriptor.id, label: descriptor.label, state: 'checking', detail: '' };
-    results.push(result);
-    if (descriptor.needsKey && !values[descriptor.needsKey]) {
-      result.state = 'no-key';
-      const name = KEY_LABELS[descriptor.needsKey] ?? descriptor.needsKey;
-      result.detail = `needs ${/^[AEIOU]/.test(name) ? 'an' : 'a'} ${name}, and none is saved`;
-      onResult?.(result);
-      continue;
-    }
-    const started = performance.now();
-    // Ask each one at a zoom it actually publishes. NASA's global product
-    // stops at nine and answers a request for fourteen with a bad-request
-    // error, which is a true fact about the request and a lie about the
-    // provider — it would have marked GIBS broken every single time.
-    const depth = Math.min(tile.z, descriptor.maxZoom ?? tile.z);
-    const shift = tile.z - depth;
-    const asked = { z: depth, x: tile.x >> shift, y: tile.y >> shift };
-    try {
-      const source = new TileSource(descriptor, values);
-      await source.prepare();
-      if (source.state === 'error') throw new Error(source.error);
-      const url = source.urlFor(asked);
-      if (url === null) throw new Error('no URL for this tile');
-      const response = await fetch(url, { cache: 'no-store' });
-      const bytes = (await response.arrayBuffer()).byteLength;
-      const ms = Math.round(performance.now() - started);
-      const where = depth === tile.z ? '' : `, at z${depth} which is its deepest`;
-      if (response.status === 404) {
-        // Not a fault. Several of these cover one country, and a miss outside
-        // it is the honest answer rather than a broken server.
-        result.state = 'no-cover';
-        result.detail = 'nothing here \u2014 this one does not cover where you are standing';
-      } else if (!response.ok) {
-        result.state = 'error';
-        result.detail = `HTTP ${response.status} in ${ms} ms`;
-      } else if (bytes < 100) {
-        // A 200 that is forty bytes long is a refusal wearing a success code.
-        result.state = 'error';
-        result.detail = `answered ${bytes} bytes \u2014 too small to be a tile`;
-      } else {
-        result.state = 'ok';
-        result.detail = `${(bytes / 1024).toFixed(0)} kB in ${ms} ms${where}`;
-      }
-    } catch (err) {
-      result.state = 'error';
-      result.detail = err instanceof Error ? err.message : String(err);
-    }
-    onResult?.(result);
-  }
-  return results;
-}
-
-/** Human names for the key slots, so an error can say what to go and get. */
-const KEY_LABELS = {
-  googleKey: 'Google Maps Platform key',
-  bingKey: 'Bing Maps key',
-  azureKey: 'Azure Maps subscription key',
-  mapboxKey: 'Mapbox access token',
-  cesiumToken: 'Cesium ion token',
-  mapillaryToken: 'Mapillary token',
-  maxarConnectId: 'Maxar SecureWatch connect ID',
-};
-
-__tg_exports["IMAGERY_PROVIDERS"] = IMAGERY_PROVIDERS;
-__tg_exports["ELEVATION_PROVIDERS"] = ELEVATION_PROVIDERS;
-__tg_exports["PANORAMA_PROVIDERS"] = PANORAMA_PROVIDERS;
-__tg_exports["findProvider"] = findProvider;
-__tg_exports["recommendedProvider"] = recommendedProvider;
-__tg_exports["providerLabel"] = providerLabel;
-__tg_exports["gibsDate"] = gibsDate;
-__tg_exports["TileSource"] = TileSource;
-__tg_exports["providerChain"] = providerChain;
-__tg_exports["createImagerySource"] = createImagerySource;
-__tg_exports["createElevationSource"] = createElevationSource;
-__tg_exports["bestProviderFor"] = bestProviderFor;
-__tg_exports["testProviders"] = testProviders;
+__tg_exports["measureSharpness"] = measureSharpness;
+__tg_exports["SHARPNESS_FROM_ZOOM"] = SHARPNESS_FROM_ZOOM;
+__tg_exports["SHARPNESS_FLOOR"] = SHARPNESS_FLOOR;
+__tg_exports["SHARPNESS_RATIO"] = SHARPNESS_RATIO;
 };
 __tg_modules["src/tiles/streamer.js"] = function (__tg_exports) {
 const THREE = __tg_require("vendor/three/three.module.js");
 const { Emitter } = __tg_require("src/core/events.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { tileKey, wrapTileX } = __tg_require("src/geo/mercator.js");
+const { SHARPNESS_FLOOR, SHARPNESS_FROM_ZOOM, SHARPNESS_RATIO } = __tg_require("src/tiles/sharpness.js");
 
 /**
  * How many frames a tile stays safe from eviction after it was last drawn.
@@ -88713,6 +89178,16 @@ class ImageryStreamer extends Emitter {
      * forever. Remembering the answer turns that into asking once.
      */
     this.barren = new Set();
+    /**
+     * Per-tile detail, and the squares where descending stops buying any.
+     *
+     * One published maximum zoom per provider cannot be right — Esri guarantee
+     * nineteen everywhere, serve twenty-one over Vienna and have not flown
+     * twenty over the Jungfrau — so the depth is measured instead of declared.
+     * See sharpness.js for the numbers behind it.
+     */
+    this.sharpness = new Map();
+    this.finest = new Set();
     this.worker.addEventListener('message', (event) => this.onWorkerMessage(event.data));
   }
 
@@ -88757,6 +89232,50 @@ class ImageryStreamer extends Emitter {
     return (source.descriptor?.maxZoom ?? 19) >= z;
   }
 
+  /**
+   * File a tile's detail, and work out whether its parent was the end of it.
+   *
+   * A genuine new level of resolution keeps most of its parent's per-pixel
+   * contrast; the parent resampled bigger keeps half or less. Either way the
+   * answer is about *this square*, not about the zoom level — coverage is
+   * patchy, and a level that is real over a city is a resample a valley away.
+   */
+  noteSharpness(tile, value) {
+    const key = tileKey(tile.z, tile.x, tile.y);
+    this.sharpness.set(key, value);
+    // Only where the question means anything. A verdict on a tile covering a
+    // thousand kilometres would stop the quadtree subdividing inside all of it.
+    if (tile.z <= SHARPNESS_FROM_ZOOM) return;
+    const parentKey = tileKey(tile.z - 1, tile.x >> 1, tile.y >> 1);
+    const parent = this.sharpness.get(parentKey);
+    if (parent === undefined) return;
+    // Nothing left to resolve down there: open ocean, a snowfield, a card.
+    // Stopping is safe in both directions — a featureless square looks the
+    // same however finely it is fetched, and the requests are not spent.
+    if (parent < SHARPNESS_FLOOR) {
+      this.finest.add(parentKey);
+      return;
+    }
+    if (value < parent * SHARPNESS_RATIO) this.finest.add(parentKey);
+  }
+
+  /**
+   * True when no finer photograph than this tile exists for this square, so
+   * the quadtree should stop here rather than fetch the same pixels again.
+   *
+   * Checked up the ancestry, because the answer is inherited: if zoom 20 over
+   * this valley was a resample of 19, so is everything under it.
+   */
+  atFinest(tile) {
+    if (!this.finest.size || tile.z < SHARPNESS_FROM_ZOOM) return false;
+    let { z, x, y } = tile;
+    while (z >= SHARPNESS_FROM_ZOOM) {
+      if (this.finest.has(tileKey(z, x, y))) return true;
+      z--; x >>= 1; y >>= 1;
+    }
+    return false;
+  }
+
   /** The next attempt number worth making after this one, or null. */
   nextAttempt(entry) {
     let attempt = (entry.attempt ?? 0) + 1;
@@ -88768,6 +89287,8 @@ class ImageryStreamer extends Emitter {
 
   clear() {
     this.barren.clear();
+    this.sharpness.clear();
+    this.finest.clear();
     for (const entry of this.entries.values()) {
       if (entry.texture) entry.texture.dispose();
     }
@@ -89064,6 +89585,7 @@ class ImageryStreamer extends Emitter {
 
     entry.texture = texture;
     entry.state = STATE_READY;
+    if (Number.isFinite(msg.sharpness)) this.noteSharpness(entry.tile, msg.sharpness);
     this.tileSizeHint = msg.bitmap.width || this.tileSizeHint;
     this.stats.loaded++;
     this.zoomRecord(entry.tile.z).loaded++;
@@ -89103,7 +89625,8 @@ __tg_exports["STATE_READY"] = STATE_READY;
 __tg_exports["STATE_FAILED"] = STATE_FAILED;
 };
 __tg_modules["src/tiles/tileJobs.js"] = function (__tg_exports) {
-const { isNoDataCard } = __tg_require("src/tiles/noData.js");
+const { isNoDataCard, makeCanvas } = __tg_require("src/tiles/noData.js");
+const { measureSharpness } = __tg_require("src/tiles/sharpness.js");
 const { decodeBingElevation, decodeGoogleElevation } = __tg_require("src/tiles/elevationGrid.js");
 
 /**
@@ -89118,18 +89641,6 @@ const { decodeBingElevation, decodeGoogleElevation } = __tg_require("src/tiles/e
  */
 
 const inflight = new Map();
-
-/** OffscreenCanvas in a worker, a normal canvas on the main thread. */
-function makeCanvas(width, height) {
-  if (typeof OffscreenCanvas === 'function') return new OffscreenCanvas(width, height);
-  if (typeof document !== 'undefined') {
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    return canvas;
-  }
-  throw new Error('no canvas available');
-}
 
 function cancelJob(jobKey) {
   const controller = inflight.get(jobKey);
@@ -89200,7 +89711,11 @@ async function handleImagery(msg, jobKey, post) {
     // Sentinel-2 behind it has cover everywhere.
     throw new Error('provider has no imagery here');
   }
-  post({ ok: true, channel: msg.channel, id: msg.id, bitmap }, [bitmap]);
+  // How much detail this one actually carries, so the streamer can tell a real
+  // level of resolution from the level above it resampled bigger — and stop
+  // asking for levels that are only the latter. See sharpness.js.
+  const sharpness = measureSharpness(bitmap, makeCanvas);
+  post({ ok: true, channel: msg.channel, id: msg.id, bitmap, sharpness }, [bitmap]);
 }
 
 async function handleElevation(msg, jobKey, post) {
@@ -91521,6 +92036,11 @@ const TERRAIN_FRAG = /* glsl */ `
   uniform float uCloudCover;
   uniform float uCloudHeight;
   uniform float uMeasured;
+  uniform sampler2D uWoodMask;
+  uniform vec2 uWoodOrigin;
+  uniform float uWoodSpan;
+  uniform float uHasWood;
+  uniform float uWoodStrength;
 
   varying vec2 vUv;
   varying vec3 vNormalW;
@@ -91549,6 +92069,18 @@ const TERRAIN_FRAG = /* glsl */ `
     vec2 u = f * f * (3.0 - 2.0 * f);
     return mix(mix(cloudHash(i), cloudHash(i + vec2(1.0, 0.0)), u.x),
                mix(cloudHash(i + vec2(0.0, 1.0)), cloudHash(i + vec2(1.0, 1.0)), u.x), u.y);
+  }
+
+  /**
+   * Crown-scale relief for a wood, and where its hollows are.
+   *
+   * Two octaves of the same value noise the clouds use, at nine metres and at
+   * three — one crown and one branch — read straight off the world position, so
+   * it is at the photograph's own resolution rather than at the mesh's. It
+   * returns the height field; the shader takes its slope by differencing.
+   */
+  float canopyField(vec2 world) {
+    return cloudNoise(world / 9.0) * 0.68 + cloudNoise(world / 3.0) * 0.32;
   }
 
   float cloudShadow(vec3 world) {
@@ -91645,13 +92177,50 @@ const TERRAIN_FRAG = /* glsl */ `
     // the densest patch of canopy on screen, local relief went from 16.42
     // without the sheet to 15.60 with it — 0.95 times, the wrong way.
     //
-    // The design that can work is the survey rasterised into a mask texture
-    // beside each terrain tile's photograph, so the shading is done by this
-    // shader at the photograph's own resolution and the mask only says where.
-    // That is a real piece of plumbing — a second sampler per tile, uploaded
-    // when the polygons for that square arrive — and it is not here yet. Two
-    // attempts, both measured, both rejected; the third one needs building
-    // properly rather than guessing again.
+    // The third way is the one that works, and it is the one written up above:
+    // the survey rasterised into a mask, and no geometry at all. The mask says
+    // only *where* — OpenStreetMap's own natural=wood and landuse=forest, drawn
+    // into a sheet that follows the camera, six metres a texel — and every bit
+    // of the shading happens here, at the photograph's resolution. Nothing
+    // coarse is laid over anything sharp, and the ground you walk on does not
+    // move, because none of this is geometry.
+    //
+    // The mask's value carries the leaf type as well as the fact of the wood:
+    // conifers are narrow and regular and get a shallower bump than the wide
+    // lumpy crowns of a broadleaf.
+    float wood = 0.0;
+    if (uHasWood > 0.5) {
+      vec2 wuv = (vWorld.xz - uWoodOrigin) / uWoodSpan;
+      if (wuv.x > 0.0 && wuv.x < 1.0 && wuv.y > 0.0 && wuv.y < 1.0) {
+        wood = texture2D(uWoodMask, wuv).r;
+        // Only where the ground is ground. A cliff face inside a forest
+        // polygon is rock, and rock does not have crowns on it.
+        wood *= flatness;
+      }
+    }
+    if (wood > 0.01) {
+      // Slope of the canopy by differencing, a metre and a half either way,
+      // which is about a quarter of a crown.
+      float e = 1.5;
+      float h = canopyField(vWorld.xz);
+      float dx = canopyField(vWorld.xz + vec2(e, 0.0)) - h;
+      float dz = canopyField(vWorld.xz + vec2(0.0, e)) - h;
+      float amount = wood * uWoodStrength;
+      // The tilt is the smaller half of this on purpose. Tilting normals is
+      // what the second attempt did, and on its own it fights the light and
+      // shade the photograph already carries rather than adding to it — swept
+      // here, the tilt alone took crown-scale contrast *down*.
+      n = normalize(n + vec3(-dx, 0.0, -dz) * amount * 16.0);
+      // The gaps between crowns being darker than the tops is what actually
+      // makes a canopy read as a canopy from the air, and it is the half that
+      // works: around one, so a crown top is the photograph exactly and a gap
+      // is under it. Swept over the Black Forest at seventy metres, contrast at
+      // crown scale went 11.34 / 11.45 / 11.53 / 11.64 / 11.88 as this rose —
+      // monotonically up, where both earlier attempts went down — while
+      // pixel-scale contrast held at 3.07 to 3.09, so the photograph's own
+      // detail is not being traded away for it.
+      albedo *= 1.0 + (h - 0.5) * amount * 1.8;
+    }
 
     float lambert = max(dot(n, uSunDir), 0.0);
     float wrapped = lambert * 0.62 + 0.38;
@@ -91801,6 +92370,13 @@ const WHITE_PIXEL = (() => {
   return tex;
 })();
 
+/** What the woodland mask reads before any survey has arrived: no woodland. */
+const BLACK_PIXEL = (() => {
+  const tex = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+  tex.needsUpdate = true;
+  return tex;
+})();
+
 function createTerrainMaterial(shared) {
   return new THREE.ShaderMaterial({
     uniforms: {
@@ -91827,6 +92403,11 @@ function createTerrainMaterial(shared) {
       // Set per node in Terrain.build; see the water block above.
       uMeasured: { value: 0 },
       uSink: { value: 0 },
+      uWoodMask: shared.uWoodMask,
+      uWoodOrigin: shared.uWoodOrigin,
+      uWoodSpan: shared.uWoodSpan,
+      uHasWood: shared.uHasWood,
+      uWoodStrength: shared.uWoodStrength,
     },
     vertexShader: TERRAIN_VERT,
     fragmentShader: TERRAIN_FRAG,
@@ -91848,6 +92429,17 @@ function createSharedUniforms() {
     uLatitude: { value: 0 },
     uHasRelief: { value: 0 },
     uNight: { value: 0 },
+    /**
+     * Where the woods are, written by Woodland from the OpenStreetMap survey.
+     * Zero everywhere it has not been told otherwise, which is the same as no
+     * woodland: nothing here ever invents one.
+     */
+    uWoodMask: { value: BLACK_PIXEL },
+    uWoodOrigin: { value: new THREE.Vector2() },
+    uWoodSpan: { value: 1 },
+    uHasWood: { value: 0 },
+    /** How pronounced the canopy is. The Ground detail setting scales it. */
+    uWoodStrength: { value: 1 },
     /**
      * The cloud deck, shared with the sky so the ground can be shadowed by the
      * clouds that are actually above it. Written by Weather each frame.
@@ -92775,10 +93367,55 @@ const THREE = __tg_require("vendor/three/three.module.js");
  *
  * It also quietly covers ground that has not streamed in yet: over open ocean a
  * tile that has not arrived was a hole to the sky, and is now sea.
+ *
+ * Which is the whole trouble, because at first it covered *land* that had not
+ * streamed in yet as well. Arriving nine hundred metres over the Meseta, the
+ * ground fills in from under your feet outwards and takes about a minute to
+ * reach the horizon; until it does there is nothing drawn out there, and this
+ * sheet — a disc a hundred kilometres across, twelve metres under sea level,
+ * far below the Spanish plateau and therefore perfectly entitled to be hidden
+ * by it — was what showed through instead. Measured: twelve point eight per
+ * cent of the frame slate blue at twenty-five seconds, two point three at
+ * seventy, which is the same as no sheet at all. A minute of blue-grey slab
+ * where Spain should be.
+ *
+ * So the sheet now paints only where the elevation field has actually measured
+ * sea. Land is left to the ground, and — this is the part that matters —
+ * ground that has not been measured yet is left alone too. `hasDataAt` says
+ * which is which, and its own comment says why: no data reads back as exactly
+ * sea level, so anything that treats sea level as sea will quietly claim
+ * everything that has not arrived. The mask is coarse, a kilometre or so a
+ * texel, which is plenty: this sheet is only ever seen through cracks a pixel
+ * or two wide, and a coastline is not where those cracks are.
  */
 
 /** How far below sea level the sheet sits. Deeper than any crack, by a lot. */
 const DEPTH_M = 12;
+
+/**
+ * The sea mask: how many texels across, how coarse an elevation to read it
+ * from, and how much of it to redo per frame.
+ *
+ * A hundred and twenty-eight texels over a disc two hundred kilometres wide is
+ * about a kilometre and a half a texel. Reading it from zoom nine rather than
+ * the finest tile loaded is worth roughly six levels of walking down the tile
+ * pyramid per sample, sixteen thousand times, and at a kilometre and a half a
+ * texel the finer answer would be thrown away anyway. Eight rows a frame keeps
+ * a whole sweep under a fifth of a second without ever costing a frame.
+ */
+const MASK = 128;
+const MASK_ZOOM = 9;
+const MASK_ROWS_PER_FRAME = 8;
+
+/**
+ * How high the ground may be and still count as sea.
+ *
+ * Not zero: the elevation is bilinear between posts up to ninety metres apart,
+ * so the last sample before a shoreline reads a metre or two above nothing.
+ * Half a metre of slack keeps the sheet under the water it belongs to without
+ * letting it up onto the beach.
+ */
+const SEA_MARGIN_M = 0.5;
 
 const VERT = /* glsl */ `
   precision highp float;
@@ -92813,10 +93450,21 @@ const FRAG = /* glsl */ `
   uniform vec3 uSunColor;
   uniform vec3 uSunDir;
   uniform float uNight;
+  uniform sampler2D uMask;
+  uniform vec2 uMaskOrigin;
+  uniform float uMaskSpan;
+  uniform float uHasMask;
   varying vec3 vWorld;
 
   void main() {
     #include <logdepthbuf_fragment>
+    // Only where the ground has been measured and measured as sea. Outside the
+    // mask, and before the first sweep has filled it, there is nothing to say
+    // so nothing is drawn.
+    vec2 muv = (vWorld.xz - uMaskOrigin) / uMaskSpan;
+    if (uHasMask < 0.5) discard;
+    if (muv.x < 0.0 || muv.x > 1.0 || muv.y < 0.0 || muv.y > 1.0) discard;
+    if (texture2D(uMask, muv).r < 0.5) discard;
     vec3 view = normalize(cameraPosition - vWorld);
     float facing = clamp(view.y, 0.0, 1.0);
     // The same Schlick term the water surface uses, so a crack in the surface
@@ -92850,6 +93498,10 @@ class SeaFloor {
         uSunDir: shared.uSunDir,
         uNight: shared.uNight,
         uReach: { value: 1 },
+        uMask: { value: null },
+        uMaskOrigin: { value: new THREE.Vector2() },
+        uMaskSpan: { value: 1 },
+        uHasMask: { value: 0 },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -92862,6 +93514,72 @@ class SeaFloor {
     this.mesh.renderOrder = -2;
     this.mesh.matrixAutoUpdate = false;
     scene.add(this.mesh);
+
+    // Two buffers: one the shader is reading, one the sweep is filling. The
+    // sweep takes several frames and moves with the camera, so publishing it a
+    // row at a time would mean a texture whose halves belong to two different
+    // patches of the world.
+    this.maskTexture = new THREE.DataTexture(
+      new Uint8Array(MASK * MASK),
+      MASK,
+      MASK,
+      THREE.RedFormat,
+    );
+    this.maskTexture.minFilter = THREE.LinearFilter;
+    this.maskTexture.magFilter = THREE.LinearFilter;
+    this.maskTexture.wrapS = THREE.ClampToEdgeWrapping;
+    this.maskTexture.wrapT = THREE.ClampToEdgeWrapping;
+    this.maskTexture.needsUpdate = true;
+    this.material.uniforms.uMask.value = this.maskTexture;
+
+    this.pending = new Uint8Array(MASK * MASK);
+    this.sweepRow = MASK; // nothing in flight
+    this.sweepOrigin = new THREE.Vector2();
+    this.sweepSpan = 1;
+    this.norm = { nx: 0, ny: 0 };
+  }
+
+  /**
+   * Fill a few rows of the mask, and publish it when the last row lands.
+   *
+   * @param {{ frame: any, elevation: any }} terrain
+   * @param {THREE.Camera} camera
+   * @param {number} reach
+   */
+  updateMask(terrain, camera, reach) {
+    const span = Math.max(2000, reach * 2.2);
+    if (this.sweepRow >= MASK) {
+      // Between sweeps: start another one, centred where the camera is now.
+      this.sweepSpan = span;
+      this.sweepOrigin.set(camera.position.x - span / 2, camera.position.z - span / 2);
+      this.sweepRow = 0;
+    }
+
+    const step = this.sweepSpan / MASK;
+    const end = Math.min(MASK, this.sweepRow + MASK_ROWS_PER_FRAME);
+    for (let row = this.sweepRow; row < end; row++) {
+      const z = this.sweepOrigin.y + (row + 0.5) * step;
+      for (let col = 0; col < MASK; col++) {
+        const x = this.sweepOrigin.x + (col + 0.5) * step;
+        terrain.frame.worldToNorm(x, z, this.norm);
+        const { nx, ny } = this.norm;
+        // Unmeasured ground is not sea. It is unmeasured, and the honest thing
+        // to do with a hole you cannot see the bottom of is not to paint it.
+        const known = terrain.elevation.hasDataAt(nx, ny, MASK_ZOOM);
+        const sea =
+          known && terrain.elevation.sampleCoarse(nx, ny, MASK_ZOOM) <= SEA_MARGIN_M;
+        this.pending[row * MASK + col] = sea ? 255 : 0;
+      }
+    }
+    this.sweepRow = end;
+
+    if (this.sweepRow >= MASK) {
+      this.maskTexture.image.data.set(this.pending);
+      this.maskTexture.needsUpdate = true;
+      this.material.uniforms.uMaskOrigin.value.copy(this.sweepOrigin);
+      this.material.uniforms.uMaskSpan.value = this.sweepSpan;
+      this.material.uniforms.uHasMask.value = 1;
+    }
   }
 
   /**
@@ -92875,6 +93593,7 @@ class SeaFloor {
   }
 
   dispose() {
+    this.maskTexture.dispose();
     this.mesh.geometry.dispose();
     this.material.dispose();
     this.mesh.parent?.remove(this.mesh);
@@ -92882,6 +93601,259 @@ class SeaFloor {
 }
 
 __tg_exports["SeaFloor"] = SeaFloor;
+};
+__tg_modules["src/world/woodland.js"] = function (__tg_exports) {
+const THREE = __tg_require("vendor/three/three.module.js");
+const { normXToLon, normYToLat, tileKey } = __tg_require("src/geo/mercator.js");
+const { overpass } = __tg_require("src/world/overpass.js");
+
+/**
+ * Where the woods are, as a mask the ground shader can read.
+ *
+ * Satellite photography draped over elevation is flat, and a forest suffers
+ * worst from it: several hundred trees become one green wash with no sense that
+ * anything is standing up. What was wanted is slight relief over woodland, so
+ * a wood reads as a canopy rather than as paint.
+ *
+ * Two attempts failed before this one and both are worth keeping in mind.
+ *
+ * The first keyed off the photograph itself — how green and how rough a patch
+ * is at crown scale. Measured over six Esri tiles at zoom 16:
+ *
+ *   Black Forest    green 0.85   roughness 0.63
+ *   Amazon          green 0.40   roughness 0.42
+ *   Cambridgeshire  green 0.67   roughness 0.82
+ *   Hyde Park       green 0.57   roughness 0.75
+ *   central Paris   green 0.09   roughness 2.57
+ *   Sahara          green 0.01   roughness 0.48
+ *
+ * Neither number separates a forest from a field of wheat — farmland scores
+ * higher on both than the Amazon does — so anything driven by them would have
+ * lit tramlines in Cambridgeshire as though they were spruce.
+ *
+ * The second laid a sheet of geometry over each surveyed polygon, following the
+ * terrain, with the vertex normals tilted. That sheet has to be painted to be
+ * drawn, and its colour comes from a vertex every fourteen metres while the
+ * ground under it wears a photograph with a texel every half metre. Covering
+ * sharp imagery with a coarse Gouraud sheet loses more than tilted normals add:
+ * over the Black Forest, in the densest canopy on screen, local relief went
+ * from 16.42 without the sheet to 15.60 with it. The wrong way.
+ *
+ * So: the survey rasterised into a mask, and no geometry at all. OpenStreetMap
+ * knows where woodland is — `natural=wood` and `landuse=forest` are among its
+ * best-surveyed areas — and that mask says only *where*. The shading is done by
+ * the ground shader at the photograph's own resolution, so nothing coarse is
+ * ever laid over anything sharp, and the ground you walk on does not move.
+ *
+ * Nothing here invents a wood. Where OpenStreetMap has nothing mapped the mask
+ * is zero and the ground is exactly what it was.
+ */
+
+/** Overpass tiles to ask on, matching the buildings so the two share a queue. */
+const DATA_ZOOM = 14;
+
+/**
+ * The mask: how many texels, and how much ground they cover.
+ *
+ * 2048 texels over twelve kilometres is about six metres a texel, which is
+ * roughly one crown. Finer would be pretending the survey is more precise than
+ * it is — a wood's edge in OSM is drawn by hand off aerial imagery and is good
+ * to a few metres, not to one.
+ */
+const MASK = 2048;
+const SPAN_M = 12000;
+
+/**
+ * How much canopy each kind of wood gets, as a multiplier on the shader's own
+ * bump. Conifers are narrow and regular; broadleaves are wide and lumpy, and
+ * read as coarser relief from the air.
+ */
+const LEAF_WEIGHT = { needleleaved: 0.82, broadleaved: 1, mixed: 0.92 };
+
+class Woodland {
+  /**
+   * @param {{ frame: any }} deps
+   */
+  constructor({ frame }) {
+    this.frame = frame;
+    this.tiles = new Map();
+    this.stats = { tiles: 0, polygons: 0, failed: 0 };
+
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = MASK;
+    this.canvas.height = MASK;
+    this.ctx = this.canvas.getContext('2d', { willReadFrequently: false });
+
+    this.texture = new THREE.CanvasTexture(this.canvas);
+    this.texture.minFilter = THREE.LinearFilter;
+    this.texture.magFilter = THREE.LinearFilter;
+    this.texture.wrapS = THREE.ClampToEdgeWrapping;
+    this.texture.wrapT = THREE.ClampToEdgeWrapping;
+    this.texture.generateMipmaps = false;
+
+    /** World x,z of the mask's corner, and how many metres it spans. */
+    this.origin = new THREE.Vector2();
+    this.span = SPAN_M;
+    this.painted = false;
+    this.dirty = true;
+    this.paintedAt = new THREE.Vector2(Infinity, Infinity);
+    this.enabled = true;
+    this._point = { x: 0, z: 0 };
+  }
+
+  /** @param {THREE.Camera} camera */
+  update(camera) {
+    if (!this.enabled) return;
+    this.requestAround(camera);
+    // Repaint when the camera has left the middle third of the mask, or when
+    // new polygons have landed. Repainting is one canvas pass and one upload.
+    const moved = Math.hypot(
+      camera.position.x - this.paintedAt.x,
+      camera.position.z - this.paintedAt.y,
+    );
+    if (this.dirty || moved > SPAN_M / 6) this.paint(camera);
+  }
+
+  requestAround(camera) {
+    const geo = this.frame.toGeo(camera.position.x, camera.position.z);
+    const n = Math.pow(2, DATA_ZOOM);
+    const nx = ((geo.lon + 180) / 360) * n;
+    const lat = (geo.lat * Math.PI) / 180;
+    const ny = ((1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2) * n;
+    const cx = Math.floor(nx);
+    const cy = Math.floor(ny);
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const x = ((cx + dx) % n + n) % n;
+        const y = cy + dy;
+        if (y < 0 || y >= n) continue;
+        const key = tileKey(DATA_ZOOM, x, y);
+        if (this.tiles.has(key)) continue;
+        // The tile you are in goes first; the ring waits, so walking about
+        // never fires a burst of queries at a donated service.
+        if ((dx !== 0 || dy !== 0) && overpass.inflight) continue;
+        this.fetchTile(key, { z: DATA_ZOOM, x, y });
+      }
+    }
+    this.prune(cx, cy);
+  }
+
+  prune(cx, cy) {
+    if (this.tiles.size <= 12) return;
+    for (const [key, tile] of this.tiles) {
+      if (Math.abs(tile.tile.x - cx) > 2 || Math.abs(tile.tile.y - cy) > 2) {
+        this.tiles.delete(key);
+      }
+    }
+  }
+
+  async fetchTile(key, tile) {
+    const record = { tile, state: 'loading', rings: [] };
+    this.tiles.set(key, record);
+    const n = Math.pow(2, DATA_ZOOM);
+    const west = normXToLon(tile.x / n);
+    const east = normXToLon((tile.x + 1) / n);
+    const north = normYToLat(tile.y / n);
+    const south = normYToLat((tile.y + 1) / n);
+    const bbox = `${south},${west},${north},${east}`;
+    // Woodland only. Scrub, heath and orchard are different shapes of thing and
+    // would want their own relief; a wood is the one that reads wrong as paint.
+    const query =
+      '[out:json][timeout:25];('
+      + `way["natural"="wood"](${bbox});`
+      + `way["landuse"="forest"](${bbox});`
+      + `relation["natural"="wood"](${bbox});`
+      + `relation["landuse"="forest"](${bbox});`
+      + ');out geom;';
+    try {
+      const data = await overpass.query(query);
+      record.rings = ringsFrom(data);
+      record.state = 'ready';
+      this.stats.polygons += record.rings.length;
+      this.dirty = true;
+    } catch {
+      record.state = 'failed';
+      this.stats.failed++;
+      // Let it be asked again later rather than caching a hole for ever.
+      setTimeout(() => {
+        if (this.tiles.get(key) === record && record.state === 'failed') this.tiles.delete(key);
+      }, 60000);
+    } finally {
+      this.stats.tiles = this.tiles.size;
+    }
+  }
+
+  /** Draw every ring we hold into the mask, in world space around the camera. */
+  paint(camera) {
+    const ctx = this.ctx;
+    this.origin.set(camera.position.x - SPAN_M / 2, camera.position.z - SPAN_M / 2);
+    this.paintedAt.set(camera.position.x, camera.position.z);
+    this.dirty = false;
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, MASK, MASK);
+    const perMetre = MASK / SPAN_M;
+    let drawn = 0;
+    for (const record of this.tiles.values()) {
+      if (record.state !== 'ready') continue;
+      for (const ring of record.rings) {
+        // The leaf type rides in the mask's own value, so one texture carries
+        // both "is this wood" and "what kind", and the shader reads one sample.
+        const weight = LEAF_WEIGHT[ring.leaf] ?? LEAF_WEIGHT.mixed;
+        ctx.fillStyle = `rgb(${Math.round(255 * weight)},0,0)`;
+        ctx.beginPath();
+        let started = false;
+        let inside = false;
+        for (const point of ring.points) {
+          this.frame.toWorld(point.lat, point.lon, this._point);
+          const px = (this._point.x - this.origin.x) * perMetre;
+          const py = (this._point.z - this.origin.y) * perMetre;
+          if (px > -64 && px < MASK + 64 && py > -64 && py < MASK + 64) inside = true;
+          if (started) ctx.lineTo(px, py);
+          else { ctx.moveTo(px, py); started = true; }
+        }
+        ctx.closePath();
+        if (inside) { ctx.fill(); drawn++; }
+      }
+    }
+    this.painted = drawn > 0;
+    this.texture.needsUpdate = true;
+    this.stats.polygons = drawn;
+  }
+
+  dispose() {
+    this.texture.dispose();
+    this.tiles.clear();
+  }
+}
+
+/**
+ * Closed outlines from an Overpass `out geom` reply.
+ *
+ * Ways carry their own geometry; relations carry it per member, and only the
+ * outer members bound the wood — an inner member is a clearing, and painting it
+ * would put canopy on a lake. Clearings are dropped rather than cut out: the
+ * mask is a where, not a survey, and a shader that reads it does not need holes
+ * in it to be a few metres right.
+ */
+function ringsFrom(data) {
+  const rings = [];
+  for (const el of data?.elements ?? []) {
+    const leaf = el.tags?.leaf_type;
+    if (el.type === 'way' && el.geometry?.length > 2) {
+      rings.push({ leaf, points: el.geometry });
+    } else if (el.type === 'relation') {
+      for (const member of el.members ?? []) {
+        if (member.role !== 'outer' || !(member.geometry?.length > 2)) continue;
+        rings.push({ leaf, points: member.geometry });
+      }
+    }
+  }
+  return rings;
+}
+
+__tg_exports["Woodland"] = Woodland;
+__tg_exports["ringsFrom"] = ringsFrom;
 };
 __tg_modules["src/geo/climate.js"] = function (__tg_exports) {
 const { DEG, clamp } = __tg_require("src/core/math.js");
@@ -92949,6 +93921,16 @@ function climateAt({ lat, elevationM = 0, date = new Date(), landFraction = 0.6 
     hemisphere: south ? 'S' : 'N',
     /** Average temperature for this season at this spot, Celsius. */
     avgC: seasonAvg,
+    /**
+     * The same average with the height taken back out — what this latitude and
+     * this time of year come to at sea level.
+     *
+     * Anything asking "how high does it have to be before it is cold" needs
+     * this one, not `avgC`: `avgC` already has the lapse rate applied for
+     * wherever you happen to be standing, and feeding it back into a lapse-rate
+     * calculation applies it twice. See snowLineM.
+     */
+    seaLevelAvgC: clamp(mean + amplitude * phase, -70, 56),
     /** Annual mean at this spot, for context. */
     annualC: clamp(mean + lapse, -70, 56),
     amplitudeC: amplitude,
@@ -92970,9 +93952,23 @@ function climateBand(lat, meanC) {
 /**
  * Snow line for the current conditions — used to tint high terrain white so
  * mountains read correctly even when imagery was captured in another season.
+ *
+ * This takes the **sea-level** seasonal average, and the 155 is why: it is
+ * 1000 / 6.5, the environmental lapse rate turned round. The sum is "how far up
+ * do you have to go before this place's air reaches freezing", plus a two
+ * degree allowance for snow lying a little below the freezing level.
+ *
+ * It was being handed `avgC` instead, which already has the lapse rate applied
+ * for the ground under your feet — so the rate went in twice and the answer
+ * depended on how high *you* were standing rather than on where you were. Up on
+ * the Jungfrau massif at 3,970 m that put the snow line at −400 m, the clamp,
+ * and the shader duly mixed 45% flat white over every piece of flat ground
+ * above 600 m in view: the valley floors, the forests, the villages. Measured
+ * from the same spot, sea-level August at 46.5°N gives 3,255 m instead, which
+ * is about where the Alpine snow line actually is in August.
  */
-function snowLineM(avgC) {
-  return clamp((avgC + 2) * 155, -400, 5200);
+function snowLineM(seaLevelAvgC) {
+  return clamp((seaLevelAvgC + 2) * 155, -400, 5200);
 }
 
 __tg_exports["dayOfYear"] = dayOfYear;
@@ -93202,7 +94198,7 @@ class Sky {
       date: this.date,
       landFraction: this.landFraction ?? 0.6,
     });
-    shared.uSnowLine.value = snowLineM(this.climate.avgC);
+    shared.uSnowLine.value = snowLineM(this.climate.seaLevelAvgC);
   }
 
   setLandFraction(value) {
@@ -93219,6 +94215,7 @@ const { EDGE_SECTORS } = __tg_require("src/world/edgeWall.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { tileKey, wrapTileX } = __tg_require("src/geo/mercator.js");
 const { createTerrainMaterial } = __tg_require("src/world/shaders.js");
+const { zoomCeiling } = __tg_require("src/tiles/providers.js");
 
 /**
  * Terrain: a mercator quadtree streamed around the camera.
@@ -93313,6 +94310,7 @@ class Terrain {
     this.frustum = new THREE.Frustum();
     this.projScreenMatrix = new THREE.Matrix4();
     this.stats = { drawn: 0, built: 0, nodes: 0, baseZoom: 0, maxZoom: 0 };
+    this.wantedElevationZoom = 6;
 
     this._box = new THREE.Box3();
     this._ray = new THREE.Raycaster();
@@ -93355,7 +94353,27 @@ class Terrain {
     return 4.6 / settings.preset().sseThreshold;
   }
 
-  /** Ground height (metres, sea clamped) at a normalised mercator point. */
+  /**
+   * Ground height (metres, sea clamped) at a normalised mercator point.
+   *
+   * The clamp is why the Dead Sea shore reads 0 m here and is −430 m in life,
+   * and it is a decision rather than an oversight. AWS Terrain Tiles carry
+   * bathymetry: without the clamp the ocean stops being a surface and becomes
+   * a canyon, kilometres deep, with the sea shading — which keys off ground at
+   * or under sea level — draped down the inside of it. Checked against known
+   * heights, everything above the waterline is right: Mont Blanc 4,778 against
+   * 4,808, Aranjuez 499 against 494, Amsterdam 5 against 2. Only ground below
+   * it is flattened.
+   *
+   * Undoing it properly needs to tell land below sea level from sea, at the
+   * resolution the ground is built at. There is no such source here. The water
+   * probe classifies imagery on a 32x32 mask per zoom-6 tile — kilometres to a
+   * cell, loaded only where something has asked — so a misread over open water
+   * would drop that square to its bathymetric depth and put a hole in the sea.
+   * A wrong hole in every ocean is a worse trade than a flat floor in the half
+   * dozen basins this affects: the Jordan Rift, Death Valley, Turfan, Qattara,
+   * the Caspian depression, the Salton Sea.
+   */
   heightAtNorm(nx, ny) {
     return Math.max(SEA_LEVEL, this.elevation.sampleNorm(nx, ny));
   }
@@ -93454,7 +94472,13 @@ class Terrain {
     // tick to forget to turn on any more — and the detail dial scales it down
     // with everything else when the frame rate is short.
     const detail = clamp(settings.get('detailLimit') / 100, 0.25, 1);
-    const ceiling = settings.get('maxTileZoom') - Math.round((1 - detail) * 4);
+    // The setting's last notch means no ceiling at all, which is where it sits
+    // by default: every fixed number here has been wrong in turn — nineteen,
+    // then twenty, then the deepest a provider declared — and the two things
+    // that can actually answer are the provider refusing and the photographs
+    // themselves stopping getting sharper. Both are measured; neither needs
+    // updating when somebody flies a city better.
+    const ceiling = zoomCeiling(settings.get('maxTileZoom')) - Math.round((1 - detail) * 4);
     const maxZoom = Math.min(ceiling, this.streamer.maxUsefulZoom);
     // Uses eyeAboveGround, which is set from the camera below; on the very
     // first frame it is undefined and the setting stands, which is right.
@@ -93562,6 +94586,16 @@ class Terrain {
     // Elevation follows the camera: coarse when high up, sharpest on foot.
     const altitude = Math.max(1, camera.position.y - this.heightAt(camX, camZ));
     const elevZoom = clamp(Math.round(19 - Math.log2(altitude + 1) * 1.35), 6, this.elevation.maxZoom);
+    /**
+     * The elevation zoom being asked for right now.
+     *
+     * Published because "is the ground under me real" cannot be answered
+     * against the finest zoom the field could ever hold — high up, nothing
+     * finer than this is ever fetched, so waiting for it waits for ever. What
+     * can be asked is whether the data here is as fine as what is currently
+     * being requested for this altitude. See Game.groundIsReal.
+     */
+    this.wantedElevationZoom = elevZoom;
     this.elevation.ensureAround(this._norm.nx, this._norm.ny, elevZoom, 1);
 
     this.streamer.pump();
@@ -93771,8 +94805,13 @@ class Terrain {
       (x0 + x1) / 2, (z0 + z1) / 2, camX, camZ, flatDist, size,
     );
     const wasSplit = this.split.has(key);
+    // And not past the point where the provider stops having anything finer
+    // for *this* square. That is measured from the photographs themselves
+    // rather than read off a published maximum zoom, because coverage is
+    // patchy: the level that is real over a city is the same level resampled
+    // a valley away. See streamer.atFinest.
     const shouldSplit =
-      tile.z < maxZoom && sharpEnough &&
+      tile.z < maxZoom && sharpEnough && !this.streamer.atFinest(tile) &&
       (wasSplit ? flatDist < line * LOD_HYSTERESIS_OUT : flatDist < line * LOD_HYSTERESIS_IN);
     if (shouldSplit) this.split.add(key);
     else this.split.delete(key);
@@ -96080,7 +97119,7 @@ const SEEN_KEY = 'seen-intro';
 const ROWS = [
   ['Move', ['forward', 'left', 'back', 'right']],
   ['Sprint / crouch', ['sprint', 'crouch']],
-  ['Jump \u2014 press again once airborne to open or stow the wings', ['jump']],
+  ['Jump \u2014 press again once airborne to open the wings', ['jump']],
   ['Fire a rocket — opens the wings for you (or use the mouse)', ['rocket']],
   ['Swim — jump to rise, crouch to dive', ['jump', 'crouch']],
   ['Speed mode — 2x for a while, then a cooldown', ['speedMode']],
@@ -96764,7 +97803,7 @@ __tg_modules["src/ui/settingsPanel.js"] = function (__tg_exports) {
 const { ACTIONS, keyLabel, keybinds } = __tg_require("src/core/keybinds.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { formatHeight } = __tg_require("src/core/units.js");
-const { ELEVATION_PROVIDERS, IMAGERY_PROVIDERS, PANORAMA_PROVIDERS, bestProviderFor, providerLabel, testProviders } = __tg_require("src/tiles/providers.js");
+const { NO_ZOOM_CEILING, ZOOM_SLIDER_MAX, ELEVATION_PROVIDERS, IMAGERY_PROVIDERS, PANORAMA_PROVIDERS, bestProviderFor, providerLabel, testProviders } = __tg_require("src/tiles/providers.js");
 const { escapeHtml } = __tg_require("src/ui/worldmap.js");
 
 /**
@@ -96858,6 +97897,7 @@ const SECTIONS = [
       { key: 'maxarConnectId', label: 'Maxar SecureWatch connect ID', type: 'secret', help: 'Maxar\u2019s own imagery service. An enterprise credential \u2014 Esri, Bing and Google all serve Maxar scenes without one.' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },
       { key: 'buildings', label: 'OpenStreetMap buildings', type: 'toggle', help: 'Extrudes real footprints near the ground to their surveyed height. Solid \u2014 there is no invented inside.' },
+      { key: 'woodlandRelief', label: 'Woodland canopy relief', type: 'toggle', help: 'Slight relief over woods OpenStreetMap has surveyed, so a forest reads as a canopy instead of green paint. Shading only — the ground you walk on does not move, and where nothing is mapped nothing changes.' },
       { key: 'streetLevel', label: 'Blend street-level photos', type: 'toggle', help: 'Fades ground photography in when you stand still. Needs a key.' },
     ],
   },
@@ -96881,7 +97921,7 @@ const SECTIONS = [
       { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 64, step: 1, unit: ' km', help: 'How far the ground is drawn anywhere. Far tiles stay coarse, so the cost grows more slowly than the number does \u2014 but every kilometre of it is country that has to be fetched.' },
       { key: 'distantDistanceKm', label: 'Distant view over ground you have seen', type: 'range', min: 64, max: 1024, step: 8, unit: ' km', showWhen: () => settings.get('distantMode'), help: 'Past the render distance the ground keeps going, but only where the explored map says you have already been \u2014 those tiles are cached, so this costs drawing rather than fetching. Somewhere new still stops at the render distance.' },
       { key: 'distantMode', label: 'Draw twice as far over country you have seen', type: 'toggle', help: 'Past the render distance the ground keeps going, but only where the explored map says you have already been. Somewhere new still stops at the edge, so this never doubles what an unflown world costs to stream.' },
-      { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 12, max: 22, step: 1, help: 'A ceiling, not a target. The ground always sharpens as far as the provider will actually serve here \u2014 the streamer works that out by watching which zoom levels answer and which only ever 404 \u2014 and this only stops it going deeper than you want. Twenty-two is the deepest any provider here publishes.' },
+      { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 1, max: NO_ZOOM_CEILING, step: 1, format: (v) => (v >= NO_ZOOM_CEILING ? 'No limit' : String(v)), help: `Past the last notch there is no ceiling at all, which is where it sits by default. A ceiling, not a target. The ground always sharpens as far as the provider will actually serve here \u2014 every tile is measured as it arrives, and a level that only hands back the one above it resampled bigger is not asked for again \u2014 and this only stops it going deeper than you want. Nothing stops it but the provider refusing and the photographs themselves stopping getting sharper \u2014 both measured, neither a number anyone has to keep up to date.` },
       { key: 'meshDetail', label: 'Terrain mesh detail', type: 'range', min: 0.5, max: 1.6, step: 0.1, format: (v) => `${v.toFixed(1)}x` },
       { key: 'fov', label: 'Field of view', type: 'range', min: 55, max: 118, step: 1, unit: '°' },
       { key: 'freecamFov', label: 'Freecam field of view', type: 'range', min: 55, max: 118, step: 1, unit: '°' },
@@ -97929,6 +98969,7 @@ const { pickRandomDestination } = __tg_require("src/world/rtp.js");
 const { createSharedUniforms } = __tg_require("src/world/shaders.js");
 const { EdgeWall } = __tg_require("src/world/edgeWall.js");
 const { SeaFloor } = __tg_require("src/world/seaFloor.js");
+const { Woodland } = __tg_require("src/world/woodland.js");
 const { Sky } = __tg_require("src/world/sky.js");
 const { Terrain } = __tg_require("src/world/terrain.js");
 const { Weather } = __tg_require("src/world/weather.js");
@@ -97954,6 +98995,50 @@ const { WorldMap } = __tg_require("src/ui/worldmap.js");
 const DEFAULT_SPAWN = { lat: 46.5606, lon: 7.9089 }; // Lauterbrunnen valley
 const POSITION_KEY = 'last-position';
 const SETTLE_MS = 2600;
+/**
+ * How much longer than the settle to wait for ground that has not arrived.
+ *
+ * Not a guess at how long elevation takes — a limit on how long a provider
+ * that has stopped answering may hold you in the sky before you are handed the
+ * controls anyway and told why.
+ */
+const GROUND_WAIT_MS = 20000;
+/**
+ * How many zoom levels short of the finest elevation still counts as ground
+ * you can be stood on. See `groundIsReal` for the measurement behind it.
+ */
+const GROUND_TRUST_LEVELS = 2;
+/**
+ * How far the ground has to move before the arrival hold follows it.
+ *
+ * Under this, a late tile refining the relief by a few metres is ignored, so
+ * the world does not slide past you. Over it, the ground was not merely soft
+ * but wrong, and staying put would leave you inside it.
+ */
+const GROUND_JUMP_M = 30;
+/**
+ * How long the ground has to have been trustworthy before the controls are
+ * handed back. Long enough that the correction the fine tile brings lands
+ * while the player is still being held, rather than on the frame they take
+ * over.
+ */
+const READY_DWELL_MS = 350;
+/**
+ * How long the ground under the player has to hold still before it counts as
+ * settled, and how much movement resets that clock.
+ *
+ * Sized from the thing it has to separate: over the Antarctic plateau the
+ * coarse answer of 944 m stood for about half a second before the real 3,656 m
+ * arrived, so anything under that would have accepted it.
+ */
+const GROUND_STILL_MS = 900;
+const GROUND_STILL_M = 5;
+/**
+ * How long booting waits for the first arrival before starting regardless.
+ * Long enough that an ordinary connection never sees it; short enough that one
+ * which is never going to answer cannot hold the game behind a boot screen.
+ */
+const START_PATIENCE_MS = 9000;
 /** Random teleports drop you here, high enough to open the wings. */
 const SPAWN_HEIGHT_M = 420;
 
@@ -97969,6 +99054,10 @@ class Game {
     /** Resolves on the next drawn frame, with its length in ms. */
     this.frameWaiters = [];
     this.settleUntil = 0;
+    this.arrivalHeld = false;
+    this._readySince = 0;
+    this._lastGroundSample = NaN;
+    this._groundMovedAt = 0;
     this._holdY = NaN;
     this.teleporting = false;
     this.debugVisible = false;
@@ -98031,6 +99120,10 @@ class Game {
     /** Real photogrammetry, loaded on demand — see loadWorld3D(). */
     this.tiles3d = null;
     this.buildings = new Buildings({ scene: this.scene, frame: this.frame, terrain: this.terrain });
+    // Where the woods are, from the same survey the buildings come from and
+    // through the same Overpass queue. It draws nothing; it hands the ground
+    // shader a mask so a forest reads as canopy instead of as green paint.
+    this.woodland = new Woodland({ frame: this.frame });
     this.panorama = new Panorama({ scene: this.scene, frame: this.frame, worker: this.worker });
 
     this.player = new Player(this.frame);
@@ -98421,12 +99514,12 @@ class Game {
     this.onStatus('Finding a place to stand');
     const saved = readJSON(POSITION_KEY, null);
     if (saved && Number.isFinite(saved.lat)) {
-      await this.teleportTo(saved.lat, saved.lon, { reason: 'spawn', quiet: true });
+      await this.patiently(this.teleportTo(saved.lat, saved.lon, { reason: 'spawn', quiet: true }));
     } else {
       // First run: somewhere new, not the same Swiss valley for everybody
       // forever. The same search a random teleport uses, so it lands on
       // land, near something, and not in the middle of an ocean.
-      await this.randomTeleport({ quiet: true });
+      await this.patiently(this.randomTeleport({ quiet: true }));
     }
 
     this.running = true;
@@ -98539,6 +99632,7 @@ class Game {
     }
     this.canvas.classList.toggle('pan', settings.get('mouseMode') === 'pan');
 
+    this.watchGround();
     let movement = this.input.movement();
     if (this.autopilot.active && !this.rig.isFreecam) {
       movement = this.autopilot.step(dt, movement);
@@ -98551,6 +99645,23 @@ class Game {
       player.snapRender();
     } else if (this.settling && !this.wantsControl(movement)) {
       this.settle(dt);
+      player.snapRender();
+    } else if (this.settling) {
+      // Asked to move before the ground was real. Give them the controls and
+      // keep the floor: the controller runs, so looking and walking work, and
+      // then the height is put back where the hold has it.
+      //
+      // It has to be recomputed here, not just read. Holding a key skips
+      // settle(), which is where the held height tracks the ground — so the
+      // held height froze at whatever it was when the key went down, and a
+      // coarse tile that later corrected by kilometres left the player buried
+      // in it. Measured over the Antarctic plateau with W held: held at 420 m
+      // while the ground went 0, 944, 3,656.
+      this.updateHoldHeight(dt);
+      this.controller.update(dt, movement);
+      player.position.y = this._holdY;
+      player.velocity.y = 0;
+      player.onGround = false;
       player.snapRender();
     } else {
       this.releaseSettle();
@@ -98585,6 +99696,9 @@ class Game {
     // guess that would either float in front of the last tiles or leave a gap.
     this.edgeWall.update(this.camera, this.terrain.edgeProfile);
     this.seaFloor.update(this.camera, this.terrain.farDistance);
+    // Which of that disc is actually sea. A few rows a frame, off the same
+    // elevation field the ground is built from.
+    this.seaFloor.updateMask(this.terrain, this.camera, this.terrain.farDistance);
 
     const groundHeight = player.groundHeight;
     this.sky.setLandFraction(this.landFraction);
@@ -98650,6 +99764,15 @@ class Game {
     // asking Overpass for footprints we are not going to draw is a request
     // against a shared community endpoint for nothing at all.
     if (!photoreal) this.buildings.update(player.lat, player.lon, player.altitudeAboveGround);
+    // Same reasoning: the scanned world already has its trees in the mesh, so
+    // there is nothing for a canopy mask to improve and nothing worth asking
+    // Overpass for.
+    this.woodland.enabled = !photoreal && settings.get('woodlandRelief');
+    this.woodland.update(this.camera);
+    this.shared.uHasWood.value = this.woodland.painted && this.woodland.enabled ? 1 : 0;
+    this.shared.uWoodMask.value = this.woodland.texture;
+    this.shared.uWoodOrigin.value.copy(this.woodland.origin);
+    this.shared.uWoodSpan.value = this.woodland.span;
 
     this.panorama.update(
       {
@@ -98688,6 +99811,7 @@ class Game {
     trail.tick(dt);
 
     this.address = geocoder.lookup(player.lat, player.lon)?.label ?? this.address;
+    this.refreshGoogleAttribution(player);
 
     this.hud.update({
       player,
@@ -98765,11 +99889,86 @@ class Game {
     return Math.max(240, Math.min(horizon, this.terrain.renderDistance));
   }
 
-  get settling() {
-    return performance.now() < this.settleUntil;
+  /**
+   * Is the ground under the player something the game has actually measured?
+   *
+   * Not "is heightAt finite" — heightAt answers 0 for ground nobody has sent
+   * yet, and 0 is a perfectly plausible height, which is the whole trap. The
+   * elevation field can tell the two apart and this asks it.
+   */
+  get groundIsReal() {
+    const p = this.player.position;
+    // "Has any data" is not enough on its own — a zoom-3 tile covers a
+    // continent, and on the Antarctic plateau the coarse tiles read 944 m for
+    // 3,656 m of ice:
+    //
+    //   zoom  6   944 m        zoom 12   3,656 m
+    //   zoom  8   944 m        zoom 14   3,656 m
+    //   zoom 10   945 m
+    //
+    // But demanding the finest data cannot work either: high up, the game
+    // deliberately asks for coarse elevation, so a fine tile is never fetched
+    // and the hold would run to its cap every time — measured at Vienna,
+    // still held after nine seconds, which is its own bug.
+    //
+    // So this asks for data as fine as the game is currently requesting for
+    // this altitude. Low down that is the fine tile and the ice sheet is
+    // resolved before you are set on it; high up it is the coarse one, which
+    // is all that is needed, because a number that is kilometres out cannot
+    // hurt someone four hundred metres in the air — see the hold, which keeps
+    // its distance from the ground rather than its height above the sea.
+    const zoom = this.terrain.elevationZoomAt(p.x, p.z);
+    if (zoom < this.terrain.wantedElevationZoom - GROUND_TRUST_LEVELS) return false;
+    // And the number has to have stopped moving. Zoom alone cannot tell you
+    // the answer is final — at four hundred metres up the game only asks for
+    // coarse elevation, so coarse *is* as fine as requested, and over the
+    // Antarctic plateau coarse says 944 m for 3,656 m of ice. What separates
+    // the two is that the wrong answer is still on its way to being replaced:
+    // 944 held for about half a second before the real tile landed, where a
+    // settled height sits still. So the last thing the hold waits for is the
+    // ground under the player being the same ground it was a moment ago.
+    return performance.now() - this._groundMovedAt > GROUND_STILL_MS;
   }
 
-  /** Has the player asked to do something? Then stop holding them still. */
+  /** Watch the ground under the player for the movement `groundIsReal` waits out. */
+  watchGround() {
+    const p = this.player.position;
+    const here = this.terrain.heightAt(p.x, p.z);
+    if (!Number.isFinite(this._lastGroundSample)
+      || Math.abs(here - this._lastGroundSample) > GROUND_STILL_M) {
+      this._lastGroundSample = here;
+      this._groundMovedAt = performance.now();
+    }
+  }
+
+  get settling() {
+    // A stopwatch was the bug. The hold ran for 2.6 seconds and then handed
+    // over whether or not the ground had arrived, so an arrival somewhere the
+    // elevation was slow left you standing on unmeasured ground — which reads
+    // as sea level — until the real relief landed and threw you up to meet it.
+    // Measured on a fresh launch into Antarctica: ground 0 m at 1.8 s, 945 m
+    // at 4.6 s, 3,656 m at 8.6 s, with the player carried up every time. Two
+    // and a half seconds of held camera, then six seconds of being launched up
+    // an ice sheet, and it looks exactly like the world restarting.
+    if (performance.now() < this.settleUntil) return true;
+    // So the hold now ends on the thing it was always waiting for. The cap is
+    // not a fallback that guesses — it is there so a provider that never
+    // answers cannot pin you in the sky for ever, and when it fires the status
+    // line says the ground never came.
+    return this.arrivalHeld && !this.groundIsReal
+      && performance.now() < this.settleUntil + GROUND_WAIT_MS;
+  }
+
+  /**
+   * Has the player asked to do something? Then stop holding them *still* —
+   * but not stop holding them *up*.
+   *
+   * These were the same thing, and that is the other half of the same bug:
+   * pressing a key skipped the hold entirely and put you on ground that did
+   * not exist yet, so the first thing moving did was launch you. Looking and
+   * walking are yours immediately; only the vertical waits, and only until
+   * there is something real to stand on.
+   */
   wantsControl(movement) {
     return !!(movement.forward || movement.back || movement.left || movement.right || movement.jump);
   }
@@ -98786,6 +99985,7 @@ class Game {
   releaseSettle() {
     if (!this.settling) return;
     this.settleUntil = 0;
+    this.arrivalHeld = false;
     // Hand over at exactly the height we were holding, so the release is not
     // a step either.
     if (Number.isFinite(this._holdY)) this.player.position.y = this._holdY;
@@ -98798,38 +99998,24 @@ class Game {
    * hold the player just above whatever the ground currently claims to be until
    * real data lands (or we give up waiting).
    */
-  settle(dt) {
+  /**
+   * Where the arrival hold wants the player, updated for the ground as it is
+   * now. Called from settle() and from the branch that hands over the controls
+   * early, so there is one definition of the held height rather than two.
+   */
+  updateHoldHeight(dt) {
     const player = this.player;
     const ground = this.terrain.heightAt(player.position.x, player.position.z);
-    player.groundHeight = ground;
-    player.velocity.set(0, 0, 0);
-    player.tickTimers(dt);
-
-    // Where we want to be held. Note this is measured against ground that is
-    // still arriving: every elevation tile that lands changes heightAt under
-    // us, sometimes by hundreds of metres as a coarse LOD is replaced by a
-    // finer one. Writing that straight into position.y snapped the camera on
-    // every one of those, which is the jitter you get on an airborne teleport.
     if (this.holdInAir) {
-      // An airborne arrival needs no tracking at all. You are four hundred
-      // metres up: whether the ground below turns out to be sea level or an
-      // alp does not move your eye by a pixel, so hold the height you were
-      // put at and leave it alone. Easing toward `ground + 420` instead meant
-      // every elevation tile that landed slid the whole world past you, which
-      // is exactly the jitter an arrival had.
+      // Held at a height above the ground, not at an absolute altitude. It was
+      // absolute, on the reasoning that four hundred metres up it makes no
+      // difference whether the ground is sea level or an alp — true right up
+      // until the ground turns out to be 3,656 m of Antarctic ice and you are
+      // inside it. Big corrections are followed, small ones ignored, so a
+      // refinement of a few metres cannot slide the world past you.
+      const above = ground + SPAWN_HEIGHT_M;
       if (!Number.isFinite(this._holdY)) this._holdY = player.position.y;
-      // The exception, and it is the whole reason arrivals went wrong: the
-      // height was chosen before the elevation for this place existed, so an
-      // arrival over a mountain put you *inside* it — four hundred metres up
-      // in a world whose ground turns out to be three thousand. Easing out of
-      // that took seconds the settle did not have, so you were released still
-      // buried and the collision threw you to the surface. That is the
-      // teleport that "drops you to the ground", and it is also why looking
-      // down before teleporting seemed to cause it.
-      //
-      // So the first time real relief arrives, jump rather than ease. You are
-      // held still and looking at ground that has not drawn yet; a jump there
-      // is invisible, and it is the only thing fast enough.
+      else if (Math.abs(this._holdY - above) > GROUND_JUMP_M) this._holdY = above;
       const norm = this.frame.worldToNorm(player.position.x, player.position.z);
       if (!this.reliefLanded && this.elevation.hasData(norm.nx, norm.ny)) {
         this.reliefLanded = true;
@@ -98837,14 +100023,33 @@ class Game {
       }
       const clearance = ground + SPAWN_HEIGHT_M * 0.1;
       if (this._holdY < clearance) this._holdY = damp(this._holdY, clearance, 6, dt);
+    } else if (!this.groundIsReal) {
+      // Waiting for ground worth standing on. Do not follow the ground that is
+      // there now: over the Antarctic plateau the coarse tiles read 944 m for
+      // 3,656 m of ice, and easing toward that only means arriving at the
+      // wrong height smoothly.
+      if (!Number.isFinite(this._holdY)) this._holdY = player.position.y;
     } else {
       const target = ground + 1.2;
+      // The one correct placement, taken whole rather than eased into: easing
+      // toward it from a number that was kilometres out is a long slow slide
+      // through the inside of a mountain.
       if (!Number.isFinite(this._holdY)) this._holdY = target;
-      // On the ground the height *is* the ground, so it has to be tracked —
-      // eased, so a late tile slides the world into place rather than jerking
-      // it.
-      this._holdY = damp(this._holdY, target, 6, dt);
+      else if (Math.abs(this._holdY - target) > GROUND_JUMP_M) this._holdY = target;
+      else this._holdY = damp(this._holdY, target, 6, dt);
     }
+    return ground;
+  }
+
+  settle(dt) {
+    const player = this.player;
+    const ground = this.terrain.heightAt(player.position.x, player.position.z);
+    player.groundHeight = ground;
+    player.velocity.set(0, 0, 0);
+    player.tickTimers(dt);
+    // The held height is worked out in one place, because holding a key runs
+    // the other branch and the two used to disagree.
+    this.updateHoldHeight(dt);
     player.position.y = this._holdY;
     player.onGround = !this.holdInAir;
 
@@ -98852,11 +100057,20 @@ class Game {
     // built, and it has had a moment to settle.
     const waited = performance.now() - (this.settleUntil - SETTLE_MS);
     const norm = this.frame.worldToNorm(player.position.x, player.position.z);
-    const ready = this.elevation.hasData(norm.nx, norm.ny) && this.terrain.stats.drawn > 6;
+    const ready = this.groundIsReal && this.terrain.stats.drawn > 6;
+    if (ready) this.arrivalHeld = false;
+    // Ready has to have been true for a moment, not just this instant. The
+    // frame the fine tile lands is the frame the ground jumps — releasing on
+    // it hands the player over mid-correction, which is the jerk seen from
+    // one frame later. A short dwell puts the correction inside the hold,
+    // where it is a placement rather than something that happens to you.
+    if (!ready) this._readySince = 0;
+    else if (!this._readySince) this._readySince = performance.now();
+    const held = ready && performance.now() - this._readySince > READY_DWELL_MS;
     // And never hand control back while the ground is still above your head.
     // Releasing into a hillside is the same bug seen from the other end.
     const clear = !this.holdInAir || player.position.y > ground + 2;
-    if (waited > 650 && ready && clear) this.releaseSettle();
+    if (waited > 650 && held && clear) this.releaseSettle();
   }
 
   /**
@@ -98939,7 +100153,13 @@ class Game {
     // dropped into a hole while the tiles stream in is what made an arrival
     // feel like a stutter, and what left the ground invisible underfoot.
     this.holdInAir = airborne;
+    // The arrival is holding until the ground under this spot is real; see
+    // the `settling` getter.
+    this.arrivalHeld = true;
     this._holdY = NaN; // re-seeded on the first settle frame
+    this._readySince = 0;
+    this._lastGroundSample = NaN;
+    this._groundMovedAt = performance.now();
     this.reliefLanded = false; // see settle(): the first real relief jumps you clear
     this.settleUntil = performance.now() + SETTLE_MS;
     this.arrivalPending = !airborne;
@@ -98953,6 +100173,33 @@ class Game {
     this.savePosition();
     this.refreshLandFraction(lat, lon);
     this.teleporting = false;
+  }
+
+  /**
+   * Wait for the first arrival, but not for ever.
+   *
+   * Booting used to be a bare await on it, and picking somewhere to stand
+   * reads imagery to check the spot is dry land. On a connection where that
+   * never comes back — a school Chromebook behind a filter, a captive portal,
+   * a provider having a bad minute — `start` never resolved, the frame loop
+   * never began, and the boot screen sat on its message for ever with nothing
+   * said. A hang with no diagnosis is the worst failure there is, because from
+   * the outside it is identical to being broken.
+   *
+   * So it is raced. If the arrival is slow the game starts anyway and the
+   * teleport lands when it lands — a world you can look at while it makes up
+   * its mind beats a screen that never changes.
+   */
+  async patiently(arrival) {
+    let slow = false;
+    arrival.catch(() => {
+      /* the loop runs regardless; the status line carries the bad news */
+    });
+    await Promise.race([
+      arrival,
+      new Promise((resolve) => { setTimeout(() => { slow = true; resolve(); }, START_PATIENCE_MS); }),
+    ]);
+    if (slow) this.onStatus('Still looking for the map — starting anyway');
   }
 
   async randomTeleport({ quiet = false } = {}) {
@@ -99235,6 +100482,43 @@ class Game {
     }
     if (settings.get('showFps')) parts.push(`${Math.round(this.perf.fps)} fps`);
     return parts.join(' · ');
+  }
+
+  /**
+   * Ask Google what has to be shown for the ground you are over.
+   *
+   * Their policy is that the attribution comes from the viewport reply, not
+   * from a constant in our source, and the string really does change — over
+   * most of the world their satellite line names Airbus or Maxar or a national
+   * mapping agency alongside Google. Once a minute, or whenever you have moved
+   * far enough that the answer could differ, which a teleport always has.
+   */
+  refreshGoogleAttribution(player) {
+    const source = this.imagerySource;
+    if (source?.descriptor?.kind !== 'google' || !source.ready) return;
+    const now = performance.now();
+    const moved =
+      Math.abs(player.lat - (this.googleViewAt?.lat ?? 999)) > 0.25 ||
+      Math.abs(player.lon - (this.googleViewAt?.lon ?? 999)) > 0.25;
+    if (!moved && now - (this.googleViewedAt ?? -Infinity) < 60000) return;
+    this.googleViewedAt = now;
+    this.googleViewAt = { lat: player.lat, lon: player.lon };
+    // A degree either way: wide enough that one reply covers a good long
+    // flight, narrow enough that the answer is about where you actually are.
+    const half = 0.5;
+    source
+      .googleViewport(
+        {
+          north: Math.min(85, player.lat + half),
+          south: Math.max(-85, player.lat - half),
+          east: player.lon + half,
+          west: player.lon - half,
+        },
+        this.terrain.stats.maxZoom ?? 16,
+      )
+      .catch(() => {
+        /* The tiles still draw; the corner keeps the line it had. */
+      });
   }
 
   attributionLine() {

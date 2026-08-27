@@ -20,6 +20,46 @@
         </div>
       </div>
     </div>
+    <script>
+      /*
+        A watchdog for the one failure that says nothing.
+
+        The page loads sixty-odd separate ES modules. If any single one of them
+        does not arrive — a filtered school network, a captive portal, a proxy
+        that mangles one response — the module graph never finishes, main.js
+        never runs, and the boot screen sits on "Starting engine…" for ever
+        with no error anywhere a player can see. It is indistinguishable from
+        the game simply being broken, and it is the report that came back.
+
+        This cannot fix the network. What it can do is stop the silence: if
+        nothing has started after a while, say what that means and point at the
+        single-file build, which is one request instead of sixty and works when
+        this does not.
+      */
+      window.addEventListener('error', (event) => {
+        if (!/\.m?js/.test(String(event.filename ?? ''))) return;
+        window.__terraglideLoadError = String(event.message ?? 'script error');
+      }, true);
+      setTimeout(() => {
+        if (window.terraglide) return;
+        const status = document.getElementById('boot-status');
+        if (!status) return;
+        const detail = window.__terraglideLoadError
+          ? 'A script failed to load: ' + window.__terraglideLoadError
+          : 'The game\u2019s code did not finish downloading. That is usually a network '
+            + 'blocking or rewriting one of the files rather than a fault in the game.';
+        status.textContent = 'Could not start';
+        const p = document.createElement('p');
+        p.style.cssText = 'max-width:46ch;margin:10px auto 0;color:#767d87;font-size:12px;line-height:1.5';
+        p.textContent = detail;
+        const link = document.createElement('p');
+        link.style.cssText = 'margin:10px auto 0;font-size:12px';
+        link.innerHTML = 'Try <a href="./terraglide.html" style="color:#9fb8d8">terraglide.html</a>'
+          + ' \u2014 the whole game in one file, one request instead of sixty.';
+        status.parentNode.appendChild(p);
+        status.parentNode.appendChild(link);
+      }, 20000);
+    </script>
     <script type="module" src="./src/main.js"></script>
   </body>
 </html>

@@ -975,16 +975,31 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
   // line calling that "the deepest any provider here publishes" for a while
   // after Esri's entry had been raised past it — so a level that did exist
   // could not have been reached. Both now read the providers.
-  const { DEEPEST_IMAGERY_ZOOM } = await import('../src/tiles/providers.js');
+  // Every fixed ceiling here has been wrong in turn: nineteen, then twenty,
+  // then the deepest a provider declared. So there is no fixed ceiling — the
+  // slider runs to a last notch and then to none at all, and what actually
+  // stops the quadtree is the provider refusing and the photographs
+  // themselves stopping getting sharper. Both measured.
+  const { NO_ZOOM_CEILING, ZOOM_SLIDER_MAX, zoomCeiling } =
+    await import('../src/tiles/providers.js');
   const { DEFAULT_SETTINGS, GRAPHICS_PRESETS } = await import('../src/core/settings.js');
-  ok('the deepest zoom is derived from the providers, not written down',
-    DEEPEST_IMAGERY_ZOOM === Math.max(...IMAGERY_PROVIDERS.map((p) => p.maxZoom ?? 0)));
-  ok('and nothing caps the quadtree below what a provider offers',
-    DEFAULT_SETTINGS.maxTileZoom >= DEEPEST_IMAGERY_ZOOM
-    && Object.values(GRAPHICS_PRESETS).every((g) => (g.maxTileZoom ?? 99) >= DEEPEST_IMAGERY_ZOOM));
+  ok('past the last notch there is no ceiling at all',
+    zoomCeiling(NO_ZOOM_CEILING) === Infinity && zoomCeiling(20) === 20);
+  ok('and that is where it sits by default',
+    DEFAULT_SETTINGS.maxTileZoom >= NO_ZOOM_CEILING
+    // Presets declare their overrides under `applies`; one that does not set a
+    // ceiling is not capping anything, which is the point.
+    && Object.values(GRAPHICS_PRESETS)
+      .every((g) => (g.applies?.maxTileZoom ?? NO_ZOOM_CEILING) >= NO_ZOOM_CEILING));
+  ok('the slider still offers real numbers up to the last notch',
+    ZOOM_SLIDER_MAX >= 25 && NO_ZOOM_CEILING === ZOOM_SLIDER_MAX + 1);
   const panel = readFileSync(new URL('../src/ui/settingsPanel.js', import.meta.url), 'utf8');
   ok('including the slider a player sees',
-    /key: 'maxTileZoom'[\s\S]{0,120}max: DEEPEST_IMAGERY_ZOOM/.test(panel));
+    /key: 'maxTileZoom'[\s\S]{0,160}max: NO_ZOOM_CEILING/.test(panel)
+    && /No limit/.test(panel));
+  const terrainSrc = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  ok('and the quadtree reads it through that, not raw',
+    /zoomCeiling\(settings\.get\('maxTileZoom'\)\)/.test(terrainSrc));
 
   // Because the depth is measured per square instead.
   ok('a resample is told from a real level by how much contrast it keeps',
@@ -1780,10 +1795,9 @@ console.log('\nA provider only gets asked as deep as it answers');
     // and a stale ceiling silently caps the quadtree below a level that does
     // exist. So the relationship is asserted instead of the value.
     const { DEFAULT_SETTINGS: D } = await import('../src/core/settings.js');
-    const { DEEPEST_IMAGERY_ZOOM: deepest } = await import('../src/tiles/providers.js');
+    const { NO_ZOOM_CEILING: none } = await import('../src/tiles/providers.js');
     ok('there is no tick to forget to turn on', !('maxTileZoomAuto' in D));
-    ok('and the ceiling starts at the deepest zoom anyone serves',
-      D.maxTileZoom === deepest, `${D.maxTileZoom} vs ${deepest}`);
+    ok('and it starts with no ceiling at all', D.maxTileZoom >= none);
     ok('which the detail dial scales down with everything else',
       /detailLimit'\) \/ 100/.test(terrainSource));
   }

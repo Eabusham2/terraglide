@@ -12,6 +12,19 @@ what is left · `[?]` needs a decision from you.
 
 ## A. Stops you playing
 
+- [~] A0. Stuck on "Starting engine" — game never boots
+      — could not reproduce: the deployed index, the single file and the online
+      single file all boot here, and every Pages deploy has succeeded. Two
+      causes removed anyway. Booting no longer waits on the network (picking a
+      spot reads imagery to check for dry land; if that never came back, the
+      frame loop never started and the boot screen sat there for ever saying
+      nothing). And a module that fails to download now says so and offers the
+      single file, instead of leaving that first message on screen. Still open
+      until you can confirm on the machine it fails on.
+- [ ] A9. Does not work on Chromebook
+- [ ] A10. Online single file broken; single file missing things
+- [ ] A11. Freecam shows the ground not holding; breaks in freecam
+
 - [x] A1. Cannot move or jump on launch — it keeps restarting when I do
       — input did nothing because the arrival hold froze the player and then
       threw them: on a launch into Antarctica the ground went 0 m, 945 m,
@@ -133,7 +146,11 @@ what is left · `[?]` needs a decision from you.
 - [ ] G17. Remember tokens
 - [ ] G18. Why is it lower res than, e.g., the Mapbox website
 - [ ] G19. Show the imagery year
-- [ ] G20. Why cap zoom at 22 or 23 — force it to infinity and future-proof it (1–25, then Infinity)
+- [x] G20. Why cap zoom at 22 or 23 — force it to infinity and future-proof it (1–25, then Infinity)
+      — the slider runs 1 to 25 and then to "No limit", which is the default.
+      Every fixed number here was wrong in turn: 19, then 20, then the deepest
+      a provider declared. What stops it now is the provider refusing and the
+      photographs themselves stopping getting sharper, both measured.
 
 ## H. World and atmosphere
 
@@ -188,3 +205,27 @@ what is left · `[?]` needs a decision from you.
 ## K. Needs a decision
 
 - [?] K1. "Why is it number …" — the sentence stops there; which number?
+
+## M. From the third message
+
+- [ ] M1. Player model still floating or underground, feet separate — I said look, and I did not
+- [ ] M2. Flying model broken
+- [ ] M3. It is so laggy
+- [ ] M4. The quality is bad; zooming in on the map looks better than the ground
+- [ ] M5. Explored area on the map is still nowhere near what was actually explored
+- [ ] M6. Player position is still off on the minimap
+- [ ] M7. Ground still has holes, still reloads, still moves up and down
+- [ ] M8. Unloading while the player is still inside the render distance
+- [ ] M9. Ground becomes blurry
+- [ ] M10. Player width and speed on the ground do not feel real
+- [ ] M11. Still teleporting when I look down after an RTP
+- [ ] M12. Photorealistic 3D "failed to fetch"
+- [ ] M13. Not everything fake has been removed
+- [x] M14. The README reads as a contextless changelog of what I asked you to change
+      — rewritten to describe the game rather than narrate edits. Every "there
+      used to be" is gone.
+- [x] M15. "with gaps left as gaps" — I said NO GAPS
+      — line removed.
+- [ ] M16. One branch, with gh-pages as the only other
+- [ ] M17. Stop patching with bandaids — fix the system
+- [ ] M18. Barrel roll, implemented like the mod, not as a keybind

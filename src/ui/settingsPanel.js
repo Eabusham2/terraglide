@@ -2,7 +2,8 @@ import { ACTIONS, keyLabel, keybinds } from '../core/keybinds.js';
 import { settings } from '../core/settings.js';
 import { formatHeight } from '../core/units.js';
 import {
-  DEEPEST_IMAGERY_ZOOM,
+  NO_ZOOM_CEILING,
+  ZOOM_SLIDER_MAX,
   ELEVATION_PROVIDERS,
   IMAGERY_PROVIDERS,
   PANORAMA_PROVIDERS,
@@ -127,7 +128,7 @@ const SECTIONS = [
       { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 64, step: 1, unit: ' km', help: 'How far the ground is drawn anywhere. Far tiles stay coarse, so the cost grows more slowly than the number does \u2014 but every kilometre of it is country that has to be fetched.' },
       { key: 'distantDistanceKm', label: 'Distant view over ground you have seen', type: 'range', min: 64, max: 1024, step: 8, unit: ' km', showWhen: () => settings.get('distantMode'), help: 'Past the render distance the ground keeps going, but only where the explored map says you have already been \u2014 those tiles are cached, so this costs drawing rather than fetching. Somewhere new still stops at the render distance.' },
       { key: 'distantMode', label: 'Draw twice as far over country you have seen', type: 'toggle', help: 'Past the render distance the ground keeps going, but only where the explored map says you have already been. Somewhere new still stops at the edge, so this never doubles what an unflown world costs to stream.' },
-      { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 12, max: DEEPEST_IMAGERY_ZOOM, step: 1, help: `A ceiling, not a target. The ground always sharpens as far as the provider will actually serve here \u2014 every tile is measured as it arrives, and a level that only hands back the one above it resampled bigger is not asked for again \u2014 and this only stops it going deeper than you want. ${DEEPEST_IMAGERY_ZOOM} is the deepest any provider here publishes; almost nowhere on Earth has been flown that finely.` },
+      { key: 'maxTileZoom', label: 'Maximum imagery zoom', type: 'range', min: 1, max: NO_ZOOM_CEILING, step: 1, format: (v) => (v >= NO_ZOOM_CEILING ? 'No limit' : String(v)), help: `Past the last notch there is no ceiling at all, which is where it sits by default. A ceiling, not a target. The ground always sharpens as far as the provider will actually serve here \u2014 every tile is measured as it arrives, and a level that only hands back the one above it resampled bigger is not asked for again \u2014 and this only stops it going deeper than you want. Nothing stops it but the provider refusing and the photographs themselves stopping getting sharper \u2014 both measured, neither a number anyone has to keep up to date.` },
       { key: 'meshDetail', label: 'Terrain mesh detail', type: 'range', min: 0.5, max: 1.6, step: 0.1, format: (v) => `${v.toFixed(1)}x` },
       { key: 'fov', label: 'Field of view', type: 'range', min: 55, max: 118, step: 1, unit: '°' },
       { key: 'freecamFov', label: 'Freecam field of view', type: 'range', min: 55, max: 118, step: 1, unit: '°' },

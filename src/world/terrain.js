@@ -4,6 +4,7 @@ import { EDGE_SECTORS } from './edgeWall.js';
 import { settings } from '../core/settings.js';
 import { tileKey, wrapTileX } from '../geo/mercator.js';
 import { createTerrainMaterial } from './shaders.js';
+import { zoomCeiling } from '../tiles/providers.js';
 
 /**
  * Terrain: a mercator quadtree streamed around the camera.
@@ -260,7 +261,13 @@ export class Terrain {
     // tick to forget to turn on any more — and the detail dial scales it down
     // with everything else when the frame rate is short.
     const detail = clamp(settings.get('detailLimit') / 100, 0.25, 1);
-    const ceiling = settings.get('maxTileZoom') - Math.round((1 - detail) * 4);
+    // The setting's last notch means no ceiling at all, which is where it sits
+    // by default: every fixed number here has been wrong in turn — nineteen,
+    // then twenty, then the deepest a provider declared — and the two things
+    // that can actually answer are the provider refusing and the photographs
+    // themselves stopping getting sharper. Both are measured; neither needs
+    // updating when somebody flies a city better.
+    const ceiling = zoomCeiling(settings.get('maxTileZoom')) - Math.round((1 - detail) * 4);
     const maxZoom = Math.min(ceiling, this.streamer.maxUsefulZoom);
     // Uses eyeAboveGround, which is set from the camera below; on the very
     // first frame it is undefined and the setting stands, which is right.

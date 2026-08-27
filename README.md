@@ -198,11 +198,9 @@ at run time, keyless by default: Esri World Imagery for photography, AWS Terrain
 Tiles for relief, OpenStreetMap for what is standing on the ground. No account
 needed to fly.
 
-There is no generated world behind it and no fallback planet. That was removed
-on purpose: a fractal continent is a convincing-looking lie about somewhere that
-exists, and it painted invented coastlines across measured ground. What happens
-when data is missing is described below, and the short version is that nothing
-is invented to cover the gap.
+Everything you fly over is measured. There is no generated world behind it and
+no fallback planet, because a fractal continent is a convincing-looking lie
+about somewhere that exists.
 
 Open **Settings → Providers** to change any of it:
 
@@ -361,8 +359,8 @@ One rule, applied in one order, everywhere:
    that roof stretched over that roof — half slate and half moss comes out
    half slate and half moss, and a terrace is not one flat swatch. Walls take
    the roof's hue desaturated, because nothing photographs a wall from above.
-   There is no per-building random tint; there used to be, and it was the one
-   piece of pure invention left on real geometry.
+   No random tint: every colour on a building comes off the photograph of that
+   building.
 
    Roads at ground level are deliberately **not** drawn. They are already in
    the satellite image draped over the terrain, so a ribbon on top would only
@@ -396,13 +394,10 @@ across measured ground.
 There are AI-generated textures in `assets/`, and exactly one rule governs
 them: **nothing generated may stand in for real map data.**
 
-There used to be two groups. The foliage and rock textures dressed *scenery* on
-the generated world; that world is gone, so they had nothing left to dress and
-were deleted rather than left sitting in the download. Trees take their colour
-from the satellite image over the ground they stand on. What is left is the
-jacket, trousers, wings and rocket, which dress *you* — no provider on Earth
-publishes a photograph of your character, so there is nothing for them to
-displace, and they are drawn in every mode. The
+Trees take their colour from the satellite image over the ground they stand on.
+What is there is the jacket, trousers, wings and rocket, which dress *you* — no
+provider on Earth publishes a photograph of your character, so there is nothing
+for them to displace, and they are drawn in every mode. The
 manifest keeps the two groups in separate blocks and `selftest.mjs` checks that
 the gate on one and the absence of a gate on the other both survive.
 
@@ -430,10 +425,8 @@ and Antarctica is overcast and bone dry.
   faces are re-projected into an equirectangular strip in the worker first.
 - **Buildings** are real OpenStreetMap footprints, extruded to their tagged
   height and capped with a roof the colour the aerial photograph says it is.
-  They are solid. There used to be an inside — a door cut into the longest
-  wall, a floor slab per storey, a climbable stair shaft — and it is gone,
-  because nobody publishes interior geometry for the whole planet, so every bit
-  of it was made up to match the footprint.
+  They are solid: nobody publishes interior geometry for the whole planet, so
+  there is nothing real to put inside them.
 
 ### Keeping it smooth
 
@@ -552,5 +545,4 @@ provider keeps theirs (`THIRD-PARTY.md`).
 ## Not for navigation
 
 The world here is an approximation stitched from third-party imagery and a
-simplified earth model, with gaps left as gaps. Do not use it to navigate
-anything.
+simplified earth model. Do not use it to navigate anything.

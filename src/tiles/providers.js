@@ -247,6 +247,32 @@ export const DEEPEST_IMAGERY_ZOOM = IMAGERY_PROVIDERS.reduce(
   1,
 );
 
+/**
+ * The end of the slider: as deep as it goes, with no number at all.
+ *
+ * Every ceiling in this file has been wrong in the same way. Nineteen was
+ * wrong, then twenty, then the derived maximum — each one a guess about what
+ * providers will serve, made once and then outlived. So the slider runs to
+ * twenty-five and then to no ceiling: past the last notch there is nothing
+ * stopping the quadtree except the two things that can actually answer, which
+ * are the provider refusing and the photographs themselves stopping getting
+ * sharper. Neither of those needs updating when somebody flies a city better.
+ */
+export const ZOOM_SLIDER_MAX = 25;
+/**
+ * The stored value that means "no ceiling". One past the last notch.
+ *
+ * A number rather than Infinity because it is written to storage and to a
+ * range input, and neither survives Infinity. `zoomCeiling` turns it back into
+ * one at the point of use.
+ */
+export const NO_ZOOM_CEILING = ZOOM_SLIDER_MAX + 1;
+
+/** The setting as the quadtree should read it: a depth, or no limit at all. */
+export function zoomCeiling(setting) {
+  return setting >= NO_ZOOM_CEILING ? Infinity : setting;
+}
+
 
 export const ELEVATION_PROVIDERS = [
   {

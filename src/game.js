@@ -97,6 +97,12 @@ const READY_DWELL_MS = 350;
  */
 const GROUND_STILL_MS = 900;
 const GROUND_STILL_M = 5;
+/**
+ * How long booting waits for the first arrival before starting regardless.
+ * Long enough that an ordinary connection never sees it; short enough that one
+ * which is never going to answer cannot hold the game behind a boot screen.
+ */
+const START_PATIENCE_MS = 9000;
 /** Random teleports drop you here, high enough to open the wings. */
 const SPAWN_HEIGHT_M = 420;
 
@@ -572,12 +578,12 @@ export class Game {
     this.onStatus('Finding a place to stand');
     const saved = readJSON(POSITION_KEY, null);
     if (saved && Number.isFinite(saved.lat)) {
-      await this.teleportTo(saved.lat, saved.lon, { reason: 'spawn', quiet: true });
+      await this.patiently(this.teleportTo(saved.lat, saved.lon, { reason: 'spawn', quiet: true }));
     } else {
       // First run: somewhere new, not the same Swiss valley for everybody
       // forever. The same search a random teleport uses, so it lands on
       // land, near something, and not in the middle of an ocean.
-      await this.randomTeleport({ quiet: true });
+      await this.patiently(this.randomTeleport({ quiet: true }));
     }
 
     this.running = true;
@@ -1231,6 +1237,33 @@ export class Game {
     this.savePosition();
     this.refreshLandFraction(lat, lon);
     this.teleporting = false;
+  }
+
+  /**
+   * Wait for the first arrival, but not for ever.
+   *
+   * Booting used to be a bare await on it, and picking somewhere to stand
+   * reads imagery to check the spot is dry land. On a connection where that
+   * never comes back — a school Chromebook behind a filter, a captive portal,
+   * a provider having a bad minute — `start` never resolved, the frame loop
+   * never began, and the boot screen sat on its message for ever with nothing
+   * said. A hang with no diagnosis is the worst failure there is, because from
+   * the outside it is identical to being broken.
+   *
+   * So it is raced. If the arrival is slow the game starts anyway and the
+   * teleport lands when it lands — a world you can look at while it makes up
+   * its mind beats a screen that never changes.
+   */
+  async patiently(arrival) {
+    let slow = false;
+    arrival.catch(() => {
+      /* the loop runs regardless; the status line carries the bad news */
+    });
+    await Promise.race([
+      arrival,
+      new Promise((resolve) => { setTimeout(() => { slow = true; resolve(); }, START_PATIENCE_MS); }),
+    ]);
+    if (slow) this.onStatus('Still looking for the map — starting anyway');
   }
 
   async randomTeleport({ quiet = false } = {}) {
