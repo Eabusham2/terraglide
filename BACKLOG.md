@@ -176,6 +176,11 @@ what is left · `[?]` needs a decision from you.
 - [ ] J4. Changing any setting applies instantly (graphics presets, 3D type)
 - [ ] J5. Ensure graphics presets update
 
+## L. Standing instructions
+
+- [ ] L1. Improve it all
+- [ ] L2. Bug-test properly before saying something is fixed
+
 ## K. Needs a decision
 
 - [?] K1. "Why is it number …" — the sentence stops there; which number?
