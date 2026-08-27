@@ -1032,6 +1032,73 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nAuto graphics is a dial, not a label');
+{
+  const { AutoQuality } = await import('../src/core/autoQuality.js');
+  const { settings } = await import('../src/core/settings.js');
+  // There was a setting called autoQuality, defaulting to true, with a comment
+  // pointing at a file that did not exist. Nothing read it, so every machine
+  // sat on whatever tier it started at — High for everybody.
+  ok('auto is what a fresh install gets', settings.get('graphics') === 'auto');
+
+  const before = { graphics: settings.get('graphics'), tier: settings.get('autoTier') };
+  // Each scenario gets its own dial and its own starting tier: sharing one
+  // leaves a cooldown half spent and a tier already moved, and then the test
+  // is measuring the previous scenario.
+  const run = (fromTier, fps, seconds) => {
+    settings.set('graphics', 'auto');
+    settings.set('fpsTarget', 60);
+    settings.set('autoTier', fromTier);
+    const auto = new AutoQuality();
+    const dt = 1 / fps;
+    for (let t = 0; t < seconds; t += dt) auto.update(dt);
+    return settings.get('autoTier');
+  };
+
+  ok('a machine missing the target walks down', run('ultra', 20, 60) === 'low');
+  ok('and one with headroom walks back up', run('low', 200, 60) === 'ultra');
+  // Only with real headroom, or a machine on the boundary flips for ever.
+  ok('a machine just over the target is left where it is', run('high', 64, 40) === 'high');
+  // One step then wait: a dial that drops two tiers on one bad second does it
+  // during the arrival stutter that was always going to end by itself.
+  ok('it moves one tier and then waits', run('ultra', 20, 5) === 'high');
+
+  settings.set('graphics', 'ultra');
+  ok('choosing a tier disengages it', !new AutoQuality().engaged);
+  settings.set('autoTier', 'low');
+  const pinned = new AutoQuality();
+  for (let t = 0; t < 40; t += 1 / 200) pinned.update(1 / 200);
+  ok('and it does not touch the tier while disengaged',
+    settings.get('autoTier') === 'low' && settings.tier === 'ultra');
+
+  settings.set('graphics', before.graphics);
+  settings.set('autoTier', before.tier);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nCoarse cover is not thrown away like detail');
+{
+  const streamer = readFileSync(new URL('../src/tiles/streamer.js', import.meta.url), 'utf8');
+  ok('cover is separated from detail before anything is dropped',
+    /entry\.tile\.z <= COVER_ZOOM \? cover : rest/.test(streamer));
+  ok('the detail cap applies to detail alone', /let excess = rest\.length - limit;/.test(streamer));
+  ok('and cover has its own bound', /let spare = cover\.length - COVER_BUDGET;/.test(streamer));
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nA ground arrival waits above the ground, not inside it');
+{
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  // Placed at "ground + 1.2" before any elevation exists is 1.2 m above sea
+  // level. Held there over country whose surface is 172 m, the whole wait is
+  // spent buried, then snapped out when the truth lands.
+  ok('the hold rises with the ground', /const floor = ground \+ 1\.2;/.test(game)
+    && /else if \(this\._holdY < floor\) this\._holdY = floor;/.test(game));
+  ok('and you are standing if you arrived standing',
+    /player\.onGround = !this\.holdInAir;/.test(game));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nA modest machine is not asked to run like a desktop');
 {
   const { tierFrom } = await import('../src/core/deviceTier.js');
@@ -1056,7 +1123,7 @@ console.log('\nA modest machine is not asked to run like a desktop');
   const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
   const settingsSrc = readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8');
   ok('and it only ever applies when nothing has been chosen',
-    /if \(settings\.wasChosen\('graphics'\)\) return;/.test(game)
+    /if \(settings\.wasChosen\('autoTier'\) \|\| settings\.wasChosen\('graphics'\)\) return;/.test(game)
     && /wasChosen\(key\)/.test(settingsSrc));
 }
 

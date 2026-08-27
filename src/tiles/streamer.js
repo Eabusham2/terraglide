@@ -8,6 +8,14 @@ import { SHARPNESS_FLOOR, SHARPNESS_FROM_ZOOM, SHARPNESS_RATIO } from './sharpne
  * How many frames a tile stays safe from eviction after it was last drawn.
  * About four seconds at 60 fps — long enough to cover turning round.
  */
+/**
+ * At and below this zoom a tile is cover rather than detail: it is what
+ * everything beneath it stretches when its own photograph has not arrived.
+ */
+const COVER_ZOOM = 9;
+/** How many cover tiles to keep. One at zoom nine is about 100 km across. */
+const COVER_BUDGET = 160;
+
 const KEEP_FRAMES = 240;
 
 /**
@@ -497,15 +505,48 @@ export class ImageryStreamer extends Emitter {
    */
   evict() {
     const limit = settings.preset().textureCacheSize;
-    if (this.entries.size <= limit) return;
-    const sorted = [...this.entries.values()].sort((a, b) => a.used - b.used);
-    let excess = this.entries.size - limit;
-    for (const entry of sorted) {
-      if (excess <= 0) break;
-      if (entry.used >= this.frame - KEEP_FRAMES || entry.state === STATE_PENDING) continue;
+    // Coarse tiles are cover for everything under them, and they were being
+    // thrown away like any other.
+    //
+    // `resolve` stamps the one entry it hands back. A tile drawing its own
+    // sharp photograph therefore never touches the coarse tiles above it, so
+    // while you are looking at good ground the whole safety net goes unused
+    // and becomes the least-recently-used thing in the cache. Turn quickly and
+    // the tiles coming into view have no photograph of their own, walk up
+    // looking for one to stretch, and find it was evicted. Nothing to stretch
+    // means `uHasTexture` is zero, which is drawn as flat grey.
+    const cover = [];
+    const rest = [];
+    for (const entry of this.entries.values()) {
+      (entry.tile.z <= COVER_ZOOM ? cover : rest).push(entry);
+    }
+    const drop = (entry) => {
       if (entry.texture) entry.texture.dispose();
       this.entries.delete(entry.key);
-      excess--;
+    };
+
+    let excess = rest.length - limit;
+    if (excess > 0) {
+      rest.sort((a, b) => a.used - b.used);
+      for (const entry of rest) {
+        if (excess <= 0) break;
+        if (entry.used >= this.frame - KEEP_FRAMES || entry.state === STATE_PENDING) continue;
+        drop(entry);
+        excess--;
+      }
+    }
+
+    // Bounded, so an hour of flying cannot fill memory with cover for places
+    // you will never see again. Only the oldest, and only over the cap.
+    let spare = cover.length - COVER_BUDGET;
+    if (spare > 0) {
+      cover.sort((a, b) => a.used - b.used);
+      for (const entry of cover) {
+        if (spare <= 0) break;
+        if (entry.state === STATE_PENDING) continue;
+        drop(entry);
+        spare--;
+      }
     }
   }
 }

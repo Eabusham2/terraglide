@@ -84179,7 +84179,14 @@ const DEFAULT_SETTINGS = {
   streetLevel: true,
 
   /* graphics */
-  graphics: 'high',
+  /**
+   * 'auto' means "you decide, and keep deciding" — see AutoQuality. It is the
+   * default because a fixed tier is a guess that has to be right first time,
+   * and for every machine that is not a desktop it was not.
+   */
+  graphics: 'auto',
+  /** The tier auto sits on. Seeded from the device, then measured. */
+  autoTier: 'high',
   renderDistanceKm: 24,
   /**
    * How far to keep drawing ground you have already flown over, in km.
@@ -84436,7 +84443,10 @@ class SettingsStore extends Emitter {
     // horizon wondering why the machine is on its knees. Applied after the
     // change is announced so listeners see the preset first and the details
     // after, in the order they happened.
-    if (key === 'graphics') this.applyPreset(value);
+    // Choosing 'auto' hands the choice over rather than naming a tier, so the
+    // preset to apply is whichever one auto is currently sitting on.
+    if (key === 'graphics') this.applyPreset(this.tier);
+    else if (key === 'autoTier' && this.values.graphics === 'auto') this.applyPreset(value);
   }
 
   /**
@@ -84480,8 +84490,13 @@ class SettingsStore extends Emitter {
   }
 
   /** Tuning block for the current graphics level. */
+  /** The tier in force: your choice, or the one auto has settled on. */
+  get tier() {
+    return this.values.graphics === 'auto' ? this.values.autoTier : this.values.graphics;
+  }
+
   preset() {
-    return GRAPHICS_PRESETS[this.values.graphics] ?? GRAPHICS_PRESETS.high;
+    return GRAPHICS_PRESETS[this.tier] ?? GRAPHICS_PRESETS.high;
   }
 
   persist() {
@@ -84784,6 +84799,96 @@ function detectTier(gl) {
 __tg_exports["gpuName"] = gpuName;
 __tg_exports["tierFrom"] = tierFrom;
 __tg_exports["detectTier"] = detectTier;
+};
+__tg_modules["src/core/autoQuality.js"] = function (__tg_exports) {
+const { settings } = __tg_require("src/core/settings.js");
+
+/**
+ * Keep the graphics preset at the heaviest tier this machine actually holds.
+ *
+ * There was a setting called `autoQuality`, defaulting to true, with a comment
+ * pointing at this file. The file did not exist and nothing read the setting,
+ * so "auto" has never done anything at all: every machine sat on whatever tier
+ * it started at, which was High for everybody. That is most of "it's so
+ * laggy", and it is why the first-run guess had to be right first time —
+ * nothing was ever going to correct it.
+ *
+ * This corrects it, by watching the frame clock, which is the only thing that
+ * knows. Two rules keep it from being worse than doing nothing:
+ *
+ *  - It moves one tier at a time and then waits. A dial that drops two tiers on
+ *    one bad second, in a game that streams its scenery, will drop them during
+ *    the arrival stutter that was always going to end by itself.
+ *  - It needs far more headroom to climb than to fall. Equal thresholds give a
+ *    machine that sits exactly on the boundary flipping between two tiers for
+ *    ever, which looks worse than either of them.
+ */
+
+const TIERS = ['low', 'medium', 'high', 'ultra'];
+/** Seconds of frames to judge on. Long enough to outlast a tile arriving. */
+const WINDOW_S = 4;
+/** Wait after a change before judging again, so a step can take effect. */
+const COOLDOWN_S = 6;
+/** Below this share of the target, drop a tier. */
+const DROP_BELOW = 0.85;
+/** Above this share, and only then, try the next one up. */
+const RAISE_ABOVE = 1.35;
+
+class AutoQuality {
+  constructor() {
+    this.window = 0;
+    this.frames = 0;
+    this.cooldown = 0;
+    this.lastChange = null;
+  }
+
+  /** True when the player has left this to the game rather than picking. */
+  get engaged() {
+    return settings.get('graphics') === 'auto';
+  }
+
+  /**
+   * @param {number} dt seconds of wall clock this frame took
+   * @returns {null | { from: string, to: string, fps: number }}
+   */
+  update(dt) {
+    if (!this.engaged || !Number.isFinite(dt) || dt <= 0) return null;
+    if (this.cooldown > 0) {
+      this.cooldown -= dt;
+      // Frames during the cooldown are not evidence about the new tier yet.
+      this.window = 0;
+      this.frames = 0;
+      return null;
+    }
+    this.window += dt;
+    this.frames++;
+    if (this.window < WINDOW_S) return null;
+
+    const fps = this.frames / this.window;
+    this.window = 0;
+    this.frames = 0;
+
+    const target = Math.max(20, Number(settings.get('fpsTarget')) || 60);
+    const current = settings.get('autoTier');
+    const index = TIERS.indexOf(current);
+    if (index < 0) return null;
+
+    let next = index;
+    if (fps < target * DROP_BELOW) next = Math.max(0, index - 1);
+    else if (fps > target * RAISE_ABOVE) next = Math.min(TIERS.length - 1, index + 1);
+    if (next === index) return null;
+
+    settings.set('autoTier', TIERS[next]);
+    this.cooldown = COOLDOWN_S;
+    this.lastChange = { from: current, to: TIERS[next], fps: Math.round(fps) };
+    return this.lastChange;
+  }
+}
+
+const TIER_ORDER = TIERS;
+
+__tg_exports["AutoQuality"] = AutoQuality;
+__tg_exports["TIER_ORDER"] = TIER_ORDER;
 };
 __tg_modules["src/ui/wheel.js"] = function (__tg_exports) {
 /**
@@ -89203,6 +89308,14 @@ const { SHARPNESS_FLOOR, SHARPNESS_FROM_ZOOM, SHARPNESS_RATIO } = __tg_require("
  * How many frames a tile stays safe from eviction after it was last drawn.
  * About four seconds at 60 fps — long enough to cover turning round.
  */
+/**
+ * At and below this zoom a tile is cover rather than detail: it is what
+ * everything beneath it stretches when its own photograph has not arrived.
+ */
+const COVER_ZOOM = 9;
+/** How many cover tiles to keep. One at zoom nine is about 100 km across. */
+const COVER_BUDGET = 160;
+
 const KEEP_FRAMES = 240;
 
 /**
@@ -89692,15 +89805,48 @@ class ImageryStreamer extends Emitter {
    */
   evict() {
     const limit = settings.preset().textureCacheSize;
-    if (this.entries.size <= limit) return;
-    const sorted = [...this.entries.values()].sort((a, b) => a.used - b.used);
-    let excess = this.entries.size - limit;
-    for (const entry of sorted) {
-      if (excess <= 0) break;
-      if (entry.used >= this.frame - KEEP_FRAMES || entry.state === STATE_PENDING) continue;
+    // Coarse tiles are cover for everything under them, and they were being
+    // thrown away like any other.
+    //
+    // `resolve` stamps the one entry it hands back. A tile drawing its own
+    // sharp photograph therefore never touches the coarse tiles above it, so
+    // while you are looking at good ground the whole safety net goes unused
+    // and becomes the least-recently-used thing in the cache. Turn quickly and
+    // the tiles coming into view have no photograph of their own, walk up
+    // looking for one to stretch, and find it was evicted. Nothing to stretch
+    // means `uHasTexture` is zero, which is drawn as flat grey.
+    const cover = [];
+    const rest = [];
+    for (const entry of this.entries.values()) {
+      (entry.tile.z <= COVER_ZOOM ? cover : rest).push(entry);
+    }
+    const drop = (entry) => {
       if (entry.texture) entry.texture.dispose();
       this.entries.delete(entry.key);
-      excess--;
+    };
+
+    let excess = rest.length - limit;
+    if (excess > 0) {
+      rest.sort((a, b) => a.used - b.used);
+      for (const entry of rest) {
+        if (excess <= 0) break;
+        if (entry.used >= this.frame - KEEP_FRAMES || entry.state === STATE_PENDING) continue;
+        drop(entry);
+        excess--;
+      }
+    }
+
+    // Bounded, so an hour of flying cannot fill memory with cover for places
+    // you will never see again. Only the oldest, and only over the cap.
+    let spare = cover.length - COVER_BUDGET;
+    if (spare > 0) {
+      cover.sort((a, b) => a.used - b.used);
+      for (const entry of cover) {
+        if (spare <= 0) break;
+        if (entry.state === STATE_PENDING) continue;
+        drop(entry);
+        spare--;
+      }
     }
   }
 }
@@ -97997,12 +98143,15 @@ const SECTIONS = [
         label: 'Graphics level',
         type: 'select',
         options: () => [
+          { value: 'auto', label: 'Auto \u2014 match this machine' },
           { value: 'low', label: 'Low' },
           { value: 'medium', label: 'Medium' },
           { value: 'high', label: 'High' },
           { value: 'ultra', label: 'Ultra' },
         ],
-        help: 'Sets terrain detail, texture cache and how many tiles load at once.',
+        help: (value) => (value === 'auto'
+          ? `Watches the frame clock and keeps the preset at the heaviest tier this machine actually holds, one step at a time. Currently on ${settings.tier}.`
+          : 'Sets terrain detail, texture cache and how many tiles load at once. Auto will not touch it while a tier is chosen here.'),
       },
 
       { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 64, step: 1, unit: ' km', help: 'How far the ground is drawn anywhere. Far tiles stay coarse, so the cost grows more slowly than the number does \u2014 but every kilometre of it is country that has to be fetched.' },
@@ -99033,6 +99182,7 @@ const { PerfGovernor } = __tg_require("src/core/perf.js");
 const { Benchmark } = __tg_require("src/core/benchmark.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { detectTier } = __tg_require("src/core/deviceTier.js");
+const { AutoQuality } = __tg_require("src/core/autoQuality.js");
 const { readJSON, writeJSON } = __tg_require("src/core/storage.js");
 const { formatDistance, formatLatLon } = __tg_require("src/core/units.js");
 const { InputManager } = __tg_require("src/camera/input.js");
@@ -99138,6 +99288,8 @@ class Game {
     this.running = false;
     this.lastTime = 0;
     this.perf = new PerfGovernor();
+    // The dial that was promised in a comment and never built.
+    this.autoQuality = new AutoQuality();
     this.benchmark = new Benchmark();
     /** Resolves on the next drawn frame, with its length in ms. */
     this.frameWaiters = [];
@@ -99392,10 +99544,11 @@ class Game {
    * or auto-quality picks one — that is the answer and this never runs again.
    */
   pickFirstRunQuality() {
-    if (settings.wasChosen('graphics')) return;
+    // Seeds where auto *starts*; it measures from there.
+    if (settings.wasChosen('autoTier') || settings.wasChosen('graphics')) return;
     const tier = detectTier(this.renderer.getContext());
-    if (tier === settings.get('graphics')) return;
-    settings.set('graphics', tier);
+    if (tier === settings.get('autoTier')) return;
+    settings.set('autoTier', tier);
     // Announced from `start`, not here: this runs in the constructor, before
     // there is a HUD to say it to.
     this.firstRunTier = tier;
@@ -99739,6 +99892,8 @@ class Game {
     // The frame-rate governor wants real seconds; everything else runs on the
     // game clock, which the game-speed cheat is allowed to stretch.
     this.perf.update(elapsed);
+    const tierChange = this.autoQuality.update(elapsed / 1000);
+    if (tierChange) this.toast(`Graphics: ${tierChange.to} (${tierChange.fps} fps)`);
     // Anything waiting on a real drawn frame — the benchmark, and nothing else
     // — is told how long this one took. Measuring the game is the only honest
     // way to measure the game.
@@ -99822,7 +99977,10 @@ class Game {
       this.controller.update(dt, movement);
       player.position.y = this._holdY;
       player.velocity.y = 0;
-      player.onGround = false;
+      // Standing if you arrived standing. Forcing this false put a ground
+      // arrival into air control for the whole wait — which is not walking,
+      // and is the other half of "I can't move when it starts".
+      player.onGround = !this.holdInAir;
       player.snapRender();
     } else {
       this.releaseSettle();
@@ -100185,11 +100343,22 @@ class Game {
       const clearance = ground + SPAWN_HEIGHT_M * 0.1;
       if (this._holdY < clearance) this._holdY = damp(this._holdY, clearance, 6, dt);
     } else if (!this.groundIsReal) {
-      // Waiting for ground worth standing on. Do not follow the ground that is
-      // there now: over the Antarctic plateau the coarse tiles read 944 m for
-      // 3,656 m of ice, and easing toward that only means arriving at the
-      // wrong height smoothly.
-      if (!Number.isFinite(this._holdY)) this._holdY = player.position.y;
+      // Waiting for ground worth standing on — but never *under* it.
+      //
+      // This held the height it was given and refused to track at all, on the
+      // reasoning that the coarse ground is a lie not worth following. It is
+      // worth following in one direction. A ground arrival is placed at
+      // "ground + 1.2" before any elevation exists, which is 1.2 m above sea
+      // level; hold that over country whose real surface is 172 m and the
+      // whole wait is spent buried in a hillside seeing nothing, then snapped
+      // to the surface when the truth lands. That is the rubber-band, and it
+      // is why it reads as not being able to move: you can move perfectly
+      // well, inside a hill.
+      //
+      // Rise with the ground, never sink with it.
+      const floor = ground + 1.2;
+      if (!Number.isFinite(this._holdY)) this._holdY = floor;
+      else if (this._holdY < floor) this._holdY = floor;
     } else {
       const target = ground + 1.2;
       // The one correct placement, taken whole rather than eased into: easing

@@ -65,7 +65,14 @@ export const DEFAULT_SETTINGS = {
   streetLevel: true,
 
   /* graphics */
-  graphics: 'high',
+  /**
+   * 'auto' means "you decide, and keep deciding" — see AutoQuality. It is the
+   * default because a fixed tier is a guess that has to be right first time,
+   * and for every machine that is not a desktop it was not.
+   */
+  graphics: 'auto',
+  /** The tier auto sits on. Seeded from the device, then measured. */
+  autoTier: 'high',
   renderDistanceKm: 24,
   /**
    * How far to keep drawing ground you have already flown over, in km.
@@ -322,7 +329,10 @@ class SettingsStore extends Emitter {
     // horizon wondering why the machine is on its knees. Applied after the
     // change is announced so listeners see the preset first and the details
     // after, in the order they happened.
-    if (key === 'graphics') this.applyPreset(value);
+    // Choosing 'auto' hands the choice over rather than naming a tier, so the
+    // preset to apply is whichever one auto is currently sitting on.
+    if (key === 'graphics') this.applyPreset(this.tier);
+    else if (key === 'autoTier' && this.values.graphics === 'auto') this.applyPreset(value);
   }
 
   /**
@@ -366,8 +376,13 @@ class SettingsStore extends Emitter {
   }
 
   /** Tuning block for the current graphics level. */
+  /** The tier in force: your choice, or the one auto has settled on. */
+  get tier() {
+    return this.values.graphics === 'auto' ? this.values.autoTier : this.values.graphics;
+  }
+
   preset() {
-    return GRAPHICS_PRESETS[this.values.graphics] ?? GRAPHICS_PRESETS.high;
+    return GRAPHICS_PRESETS[this.tier] ?? GRAPHICS_PRESETS.high;
   }
 
   persist() {

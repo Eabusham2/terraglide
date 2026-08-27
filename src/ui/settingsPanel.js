@@ -117,12 +117,15 @@ const SECTIONS = [
         label: 'Graphics level',
         type: 'select',
         options: () => [
+          { value: 'auto', label: 'Auto \u2014 match this machine' },
           { value: 'low', label: 'Low' },
           { value: 'medium', label: 'Medium' },
           { value: 'high', label: 'High' },
           { value: 'ultra', label: 'Ultra' },
         ],
-        help: 'Sets terrain detail, texture cache and how many tiles load at once.',
+        help: (value) => (value === 'auto'
+          ? `Watches the frame clock and keeps the preset at the heaviest tier this machine actually holds, one step at a time. Currently on ${settings.tier}.`
+          : 'Sets terrain detail, texture cache and how many tiles load at once. Auto will not touch it while a tier is chosen here.'),
       },
 
       { key: 'renderDistanceKm', label: 'Render distance', type: 'range', min: 4, max: 64, step: 1, unit: ' km', help: 'How far the ground is drawn anywhere. Far tiles stay coarse, so the cost grows more slowly than the number does \u2014 but every kilometre of it is country that has to be fetched.' },

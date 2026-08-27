@@ -5,6 +5,7 @@ import { PerfGovernor } from './core/perf.js';
 import { Benchmark } from './core/benchmark.js';
 import { settings } from './core/settings.js';
 import { detectTier } from './core/deviceTier.js';
+import { AutoQuality } from './core/autoQuality.js';
 import { readJSON, writeJSON } from './core/storage.js';
 import { formatDistance, formatLatLon } from './core/units.js';
 import { InputManager } from './camera/input.js';
@@ -115,6 +116,8 @@ export class Game {
     this.running = false;
     this.lastTime = 0;
     this.perf = new PerfGovernor();
+    // The dial that was promised in a comment and never built.
+    this.autoQuality = new AutoQuality();
     this.benchmark = new Benchmark();
     /** Resolves on the next drawn frame, with its length in ms. */
     this.frameWaiters = [];
@@ -369,10 +372,11 @@ export class Game {
    * or auto-quality picks one — that is the answer and this never runs again.
    */
   pickFirstRunQuality() {
-    if (settings.wasChosen('graphics')) return;
+    // Seeds where auto *starts*; it measures from there.
+    if (settings.wasChosen('autoTier') || settings.wasChosen('graphics')) return;
     const tier = detectTier(this.renderer.getContext());
-    if (tier === settings.get('graphics')) return;
-    settings.set('graphics', tier);
+    if (tier === settings.get('autoTier')) return;
+    settings.set('autoTier', tier);
     // Announced from `start`, not here: this runs in the constructor, before
     // there is a HUD to say it to.
     this.firstRunTier = tier;
@@ -716,6 +720,8 @@ export class Game {
     // The frame-rate governor wants real seconds; everything else runs on the
     // game clock, which the game-speed cheat is allowed to stretch.
     this.perf.update(elapsed);
+    const tierChange = this.autoQuality.update(elapsed / 1000);
+    if (tierChange) this.toast(`Graphics: ${tierChange.to} (${tierChange.fps} fps)`);
     // Anything waiting on a real drawn frame — the benchmark, and nothing else
     // — is told how long this one took. Measuring the game is the only honest
     // way to measure the game.
@@ -799,7 +805,10 @@ export class Game {
       this.controller.update(dt, movement);
       player.position.y = this._holdY;
       player.velocity.y = 0;
-      player.onGround = false;
+      // Standing if you arrived standing. Forcing this false put a ground
+      // arrival into air control for the whole wait — which is not walking,
+      // and is the other half of "I can't move when it starts".
+      player.onGround = !this.holdInAir;
       player.snapRender();
     } else {
       this.releaseSettle();
@@ -1162,11 +1171,22 @@ export class Game {
       const clearance = ground + SPAWN_HEIGHT_M * 0.1;
       if (this._holdY < clearance) this._holdY = damp(this._holdY, clearance, 6, dt);
     } else if (!this.groundIsReal) {
-      // Waiting for ground worth standing on. Do not follow the ground that is
-      // there now: over the Antarctic plateau the coarse tiles read 944 m for
-      // 3,656 m of ice, and easing toward that only means arriving at the
-      // wrong height smoothly.
-      if (!Number.isFinite(this._holdY)) this._holdY = player.position.y;
+      // Waiting for ground worth standing on — but never *under* it.
+      //
+      // This held the height it was given and refused to track at all, on the
+      // reasoning that the coarse ground is a lie not worth following. It is
+      // worth following in one direction. A ground arrival is placed at
+      // "ground + 1.2" before any elevation exists, which is 1.2 m above sea
+      // level; hold that over country whose real surface is 172 m and the
+      // whole wait is spent buried in a hillside seeing nothing, then snapped
+      // to the surface when the truth lands. That is the rubber-band, and it
+      // is why it reads as not being able to move: you can move perfectly
+      // well, inside a hill.
+      //
+      // Rise with the ground, never sink with it.
+      const floor = ground + 1.2;
+      if (!Number.isFinite(this._holdY)) this._holdY = floor;
+      else if (this._holdY < floor) this._holdY = floor;
     } else {
       const target = ground + 1.2;
       // The one correct placement, taken whole rather than eased into: easing
