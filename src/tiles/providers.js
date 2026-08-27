@@ -18,40 +18,37 @@ export const IMAGERY_PROVIDERS = [
     needsKey: null,
     recommended: true,
     /**
-     * Twenty, not nineteen.
+     * Not a coverage number any more: a hard stop, with the real depth
+     * measured per square.
      *
      * Nineteen is what Esri guarantee everywhere, and taking it as the ceiling
-     * everywhere threw away real detail over every city they have flown better
-     * than that. Standing twelve metres over Singerstraße in Vienna the ground
-     * is a smear, and the reason is that the best tile the game will ask for is
-     * a zoom-19 one being magnified about ten times.
-     *
-     * Measured, per-pixel contrast down each level — a genuine new level of
-     * resolution holds most of its contrast, a plain upsample halves it:
+     * threw away real detail over every city they have flown better than that
+     * — twelve metres over Singerstraße the ground was a smear because the
+     * best tile the game would ask for was a zoom-19 one magnified ten times.
+     * Twenty fixed that and was still a guess: measured per-pixel contrast down
+     * each level, where a genuine new level of resolution keeps most of its
+     * contrast and a resample halves it,
      *
      *   Vienna centre     z19 6.96   z20 4.89 (x0.70)   z21 3.65 (x0.75)
      *   Jungfrau massif   z19 9.74   z20 5.77 (x0.59)   z21 1.84 (x0.32)
      *   Meseta farmland   z19 4.84   z20 2.65 (x0.55)   z21 0.56 (x0.21)
      *
-     * Twenty is real in all three. Twenty-one is real in the city and is an
-     * upsample on the mountain and a "no data" card over the farmland, so it is
-     * not taken: a level that is only sometimes there would be sixteen requests
-     * per square against a keyless community endpoint for a blur.
+     * — twenty-one is real over the city and a resample on the mountain. One
+     * number could not be right for both, and the same is true of whatever
+     * they fly next: pick the city's number and every valley pays sixteen
+     * requests a square for a blur; pick the valley's and the city stays a
+     * smear.
      *
-     * This costs nothing at altitude. The depth the quadtree walks to is set by
-     * screen-space error, so a higher ceiling only draws more tiles when you
-     * are close enough to the ground to see them — which is exactly where the
-     * smear was. Where twenty is not flown, the no-data card is recognised and
-     * that square is marked barren, and `reviewDepth` pulls the whole level
-     * back if a region has none of it.
-     *
-     * The cost is real and worth stating. Flown at twelve metres for
-     * forty-five seconds, this level is 99 extra tiles over Vienna and 24 over
-     * the Meseta, both with nothing refused; over the Jungfrau, where Esri has
-     * not flown it, it is 161 refusals and 56 squares written off — paid once
-     * per area and then remembered, never asked again.
+     * So the number here stops being the answer. Every tile that lands is
+     * measured, and a square whose finer tile brings back less than half of
+     * what the one above it had is marked as the finest there is — the
+     * quadtree stops descending there and nothing below it is ever requested.
+     * See sharpness.js and `Streamer.atFinest`. This is the ceiling on that
+     * search, not a claim about coverage: twenty-three is the deepest Esri
+     * publish anywhere, so nothing real is cut off, and the measurement stops
+     * long before it everywhere else.
      */
-    maxZoom: 20,
+    maxZoom: 23,
     template: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
     note: 'Keyless. Fair use only — do not bulk download.',

@@ -957,21 +957,44 @@ console.log('\nProviders and detail budgets');
 }
 
 // ---------------------------------------------------------------------------
-console.log('\nThe keyless imagery goes as deep as it is actually flown');
+console.log('\nThe imagery goes as deep as it is actually flown, per square');
 {
   const { IMAGERY_PROVIDERS } = await import('../src/tiles/providers.js');
   const esri = IMAGERY_PROVIDERS.find((p) => p.id === 'esri');
-  // Nineteen is Esri's global guarantee, not their ceiling. Taking it as the
-  // ceiling threw away a real level over every city flown better than that,
-  // and twelve metres over Vienna the ground was a smear because the best tile
-  // asked for was a zoom-19 one magnified ten times.
-  ok('Esri imagery is not capped at its global floor', esri.maxZoom >= 20);
-  // And not past what is really there: 21 is an upsample on a mountain and a
-  // "no data" card over farmland, which would be sixteen requests a square
-  // against a keyless community endpoint for a blur.
-  ok('and not past the level that is only sometimes flown', esri.maxZoom <= 20);
+  const { SHARPNESS_FLOOR, SHARPNESS_RATIO, SHARPNESS_FROM_ZOOM, measureSharpness } =
+    await import('../src/tiles/sharpness.js');
+
+  // Nineteen is Esri's global guarantee, not their ceiling, and twenty was the
+  // next guess. No single number works: measured per-pixel contrast down the
+  // levels, twenty-one is real over Vienna (x0.75) and a resample on the
+  // Jungfrau (x0.32). Pick the city's number and every valley pays sixteen
+  // requests a square for a blur; pick the valley's and the city stays a smear.
+  ok('the published maximum is a stop, not a coverage claim', esri.maxZoom >= 22);
+
+  // Because the depth is measured per square instead.
+  ok('a resample is told from a real level by how much contrast it keeps',
+    SHARPNESS_RATIO > 0.35 && SHARPNESS_RATIO < 0.55);
+  ok('and featureless ground is not descended into at all', SHARPNESS_FLOOR > 0);
+  // A verdict on a tile covering a thousand kilometres would stop the quadtree
+  // subdividing anywhere inside it — one at zoom 1 blocked the whole planet
+  // and the Meseta drew zoom 5 and loaded nothing.
+  ok('and the question is only asked where it means anything',
+    SHARPNESS_FROM_ZOOM >= 14);
+
+  // The measurement itself has to survive being handed nothing.
+  ok('an unmeasurable tile has no opinion rather than a wrong one',
+    measureSharpness(null, () => null) === 0
+    && measureSharpness({ width: 4, height: 4 }, () => null) === 0);
 
   const streamer = readFileSync(new URL('../src/tiles/streamer.js', import.meta.url), 'utf8');
+  ok('the streamer records what each tile carried',
+    /noteSharpness\(entry\.tile, msg\.sharpness\)/.test(streamer));
+  ok('and the quadtree stops where there is nothing finer for that square',
+    /atFinest\(tile\)/.test(streamer)
+    && /!this\.streamer\.atFinest\(tile\)/.test(
+      readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8')));
+  ok('the verdict is inherited by everything under it',
+    /while \(z >= SHARPNESS_FROM_ZOOM\)/.test(streamer));
   ok('a square nobody has flown is written off rather than re-asked',
     /this\.barren\.add\(entry\.key\)/.test(streamer));
   ok('and a level a whole region lacks pulls the depth back',

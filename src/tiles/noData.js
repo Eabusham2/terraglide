@@ -1,5 +1,5 @@
 /** OffscreenCanvas in a worker, a normal canvas on the main thread. */
-function makeCanvas(width, height) {
+export function makeCanvas(width, height) {
   if (typeof OffscreenCanvas === 'function') return new OffscreenCanvas(width, height);
   if (typeof document !== 'undefined') {
     const canvas = document.createElement('canvas');

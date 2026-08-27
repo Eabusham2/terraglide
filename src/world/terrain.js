@@ -556,8 +556,13 @@ export class Terrain {
       (x0 + x1) / 2, (z0 + z1) / 2, camX, camZ, flatDist, size,
     );
     const wasSplit = this.split.has(key);
+    // And not past the point where the provider stops having anything finer
+    // for *this* square. That is measured from the photographs themselves
+    // rather than read off a published maximum zoom, because coverage is
+    // patchy: the level that is real over a city is the same level resampled
+    // a valley away. See streamer.atFinest.
     const shouldSplit =
-      tile.z < maxZoom && sharpEnough &&
+      tile.z < maxZoom && sharpEnough && !this.streamer.atFinest(tile) &&
       (wasSplit ? flatDist < line * LOD_HYSTERESIS_OUT : flatDist < line * LOD_HYSTERESIS_IN);
     if (shouldSplit) this.split.add(key);
     else this.split.delete(key);

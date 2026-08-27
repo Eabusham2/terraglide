@@ -2,6 +2,7 @@ import * as THREE from '../../vendor/three/three.module.js';
 import { Emitter } from '../core/events.js';
 import { settings } from '../core/settings.js';
 import { tileKey, wrapTileX } from '../geo/mercator.js';
+import { SHARPNESS_FLOOR, SHARPNESS_FROM_ZOOM, SHARPNESS_RATIO } from './sharpness.js';
 
 /**
  * How many frames a tile stays safe from eviction after it was last drawn.
@@ -69,6 +70,16 @@ export class ImageryStreamer extends Emitter {
      * forever. Remembering the answer turns that into asking once.
      */
     this.barren = new Set();
+    /**
+     * Per-tile detail, and the squares where descending stops buying any.
+     *
+     * One published maximum zoom per provider cannot be right — Esri guarantee
+     * nineteen everywhere, serve twenty-one over Vienna and have not flown
+     * twenty over the Jungfrau — so the depth is measured instead of declared.
+     * See sharpness.js for the numbers behind it.
+     */
+    this.sharpness = new Map();
+    this.finest = new Set();
     this.worker.addEventListener('message', (event) => this.onWorkerMessage(event.data));
   }
 
@@ -113,6 +124,50 @@ export class ImageryStreamer extends Emitter {
     return (source.descriptor?.maxZoom ?? 19) >= z;
   }
 
+  /**
+   * File a tile's detail, and work out whether its parent was the end of it.
+   *
+   * A genuine new level of resolution keeps most of its parent's per-pixel
+   * contrast; the parent resampled bigger keeps half or less. Either way the
+   * answer is about *this square*, not about the zoom level — coverage is
+   * patchy, and a level that is real over a city is a resample a valley away.
+   */
+  noteSharpness(tile, value) {
+    const key = tileKey(tile.z, tile.x, tile.y);
+    this.sharpness.set(key, value);
+    // Only where the question means anything. A verdict on a tile covering a
+    // thousand kilometres would stop the quadtree subdividing inside all of it.
+    if (tile.z <= SHARPNESS_FROM_ZOOM) return;
+    const parentKey = tileKey(tile.z - 1, tile.x >> 1, tile.y >> 1);
+    const parent = this.sharpness.get(parentKey);
+    if (parent === undefined) return;
+    // Nothing left to resolve down there: open ocean, a snowfield, a card.
+    // Stopping is safe in both directions — a featureless square looks the
+    // same however finely it is fetched, and the requests are not spent.
+    if (parent < SHARPNESS_FLOOR) {
+      this.finest.add(parentKey);
+      return;
+    }
+    if (value < parent * SHARPNESS_RATIO) this.finest.add(parentKey);
+  }
+
+  /**
+   * True when no finer photograph than this tile exists for this square, so
+   * the quadtree should stop here rather than fetch the same pixels again.
+   *
+   * Checked up the ancestry, because the answer is inherited: if zoom 20 over
+   * this valley was a resample of 19, so is everything under it.
+   */
+  atFinest(tile) {
+    if (!this.finest.size || tile.z < SHARPNESS_FROM_ZOOM) return false;
+    let { z, x, y } = tile;
+    while (z >= SHARPNESS_FROM_ZOOM) {
+      if (this.finest.has(tileKey(z, x, y))) return true;
+      z--; x >>= 1; y >>= 1;
+    }
+    return false;
+  }
+
   /** The next attempt number worth making after this one, or null. */
   nextAttempt(entry) {
     let attempt = (entry.attempt ?? 0) + 1;
@@ -124,6 +179,8 @@ export class ImageryStreamer extends Emitter {
 
   clear() {
     this.barren.clear();
+    this.sharpness.clear();
+    this.finest.clear();
     for (const entry of this.entries.values()) {
       if (entry.texture) entry.texture.dispose();
     }
@@ -420,6 +477,7 @@ export class ImageryStreamer extends Emitter {
 
     entry.texture = texture;
     entry.state = STATE_READY;
+    if (Number.isFinite(msg.sharpness)) this.noteSharpness(entry.tile, msg.sharpness);
     this.tileSizeHint = msg.bitmap.width || this.tileSizeHint;
     this.stats.loaded++;
     this.zoomRecord(entry.tile.z).loaded++;

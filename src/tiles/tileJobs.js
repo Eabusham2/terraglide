@@ -1,4 +1,5 @@
-import { isNoDataCard } from './noData.js';
+import { isNoDataCard, makeCanvas } from './noData.js';
+import { measureSharpness } from './sharpness.js';
 import { decodeBingElevation, decodeGoogleElevation } from './elevationGrid.js';
 
 /**
@@ -13,18 +14,6 @@ import { decodeBingElevation, decodeGoogleElevation } from './elevationGrid.js';
  */
 
 const inflight = new Map();
-
-/** OffscreenCanvas in a worker, a normal canvas on the main thread. */
-function makeCanvas(width, height) {
-  if (typeof OffscreenCanvas === 'function') return new OffscreenCanvas(width, height);
-  if (typeof document !== 'undefined') {
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    return canvas;
-  }
-  throw new Error('no canvas available');
-}
 
 export function cancelJob(jobKey) {
   const controller = inflight.get(jobKey);
@@ -95,7 +84,11 @@ async function handleImagery(msg, jobKey, post) {
     // Sentinel-2 behind it has cover everywhere.
     throw new Error('provider has no imagery here');
   }
-  post({ ok: true, channel: msg.channel, id: msg.id, bitmap }, [bitmap]);
+  // How much detail this one actually carries, so the streamer can tell a real
+  // level of resolution from the level above it resampled bigger — and stop
+  // asking for levels that are only the latter. See sharpness.js.
+  const sharpness = measureSharpness(bitmap, makeCanvas);
+  post({ ok: true, channel: msg.channel, id: msg.id, bitmap, sharpness }, [bitmap]);
 }
 
 async function handleElevation(msg, jobKey, post) {
