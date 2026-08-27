@@ -98,6 +98,7 @@ export class Terrain {
     this.frustum = new THREE.Frustum();
     this.projScreenMatrix = new THREE.Matrix4();
     this.stats = { drawn: 0, built: 0, nodes: 0, baseZoom: 0, maxZoom: 0 };
+    this.wantedElevationZoom = 6;
 
     this._box = new THREE.Box3();
     this._ray = new THREE.Raycaster();
@@ -367,6 +368,16 @@ export class Terrain {
     // Elevation follows the camera: coarse when high up, sharpest on foot.
     const altitude = Math.max(1, camera.position.y - this.heightAt(camX, camZ));
     const elevZoom = clamp(Math.round(19 - Math.log2(altitude + 1) * 1.35), 6, this.elevation.maxZoom);
+    /**
+     * The elevation zoom being asked for right now.
+     *
+     * Published because "is the ground under me real" cannot be answered
+     * against the finest zoom the field could ever hold — high up, nothing
+     * finer than this is ever fetched, so waiting for it waits for ever. What
+     * can be asked is whether the data here is as fine as what is currently
+     * being requested for this altitude. See Game.groundIsReal.
+     */
+    this.wantedElevationZoom = elevZoom;
     this.elevation.ensureAround(this._norm.nx, this._norm.ny, elevZoom, 1);
 
     this.streamer.pump();

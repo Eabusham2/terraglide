@@ -59,6 +59,44 @@ import { WorldMap } from './ui/worldmap.js';
 const DEFAULT_SPAWN = { lat: 46.5606, lon: 7.9089 }; // Lauterbrunnen valley
 const POSITION_KEY = 'last-position';
 const SETTLE_MS = 2600;
+/**
+ * How much longer than the settle to wait for ground that has not arrived.
+ *
+ * Not a guess at how long elevation takes — a limit on how long a provider
+ * that has stopped answering may hold you in the sky before you are handed the
+ * controls anyway and told why.
+ */
+const GROUND_WAIT_MS = 20000;
+/**
+ * How many zoom levels short of the finest elevation still counts as ground
+ * you can be stood on. See `groundIsReal` for the measurement behind it.
+ */
+const GROUND_TRUST_LEVELS = 2;
+/**
+ * How far the ground has to move before the arrival hold follows it.
+ *
+ * Under this, a late tile refining the relief by a few metres is ignored, so
+ * the world does not slide past you. Over it, the ground was not merely soft
+ * but wrong, and staying put would leave you inside it.
+ */
+const GROUND_JUMP_M = 30;
+/**
+ * How long the ground has to have been trustworthy before the controls are
+ * handed back. Long enough that the correction the fine tile brings lands
+ * while the player is still being held, rather than on the frame they take
+ * over.
+ */
+const READY_DWELL_MS = 350;
+/**
+ * How long the ground under the player has to hold still before it counts as
+ * settled, and how much movement resets that clock.
+ *
+ * Sized from the thing it has to separate: over the Antarctic plateau the
+ * coarse answer of 944 m stood for about half a second before the real 3,656 m
+ * arrived, so anything under that would have accepted it.
+ */
+const GROUND_STILL_MS = 900;
+const GROUND_STILL_M = 5;
 /** Random teleports drop you here, high enough to open the wings. */
 const SPAWN_HEIGHT_M = 420;
 
@@ -74,6 +112,10 @@ export class Game {
     /** Resolves on the next drawn frame, with its length in ms. */
     this.frameWaiters = [];
     this.settleUntil = 0;
+    this.arrivalHeld = false;
+    this._readySince = 0;
+    this._lastGroundSample = NaN;
+    this._groundMovedAt = 0;
     this._holdY = NaN;
     this.teleporting = false;
     this.debugVisible = false;
@@ -648,6 +690,7 @@ export class Game {
     }
     this.canvas.classList.toggle('pan', settings.get('mouseMode') === 'pan');
 
+    this.watchGround();
     let movement = this.input.movement();
     if (this.autopilot.active && !this.rig.isFreecam) {
       movement = this.autopilot.step(dt, movement);
@@ -660,6 +703,23 @@ export class Game {
       player.snapRender();
     } else if (this.settling && !this.wantsControl(movement)) {
       this.settle(dt);
+      player.snapRender();
+    } else if (this.settling) {
+      // Asked to move before the ground was real. Give them the controls and
+      // keep the floor: the controller runs, so looking and walking work, and
+      // then the height is put back where the hold has it.
+      //
+      // It has to be recomputed here, not just read. Holding a key skips
+      // settle(), which is where the held height tracks the ground — so the
+      // held height froze at whatever it was when the key went down, and a
+      // coarse tile that later corrected by kilometres left the player buried
+      // in it. Measured over the Antarctic plateau with W held: held at 420 m
+      // while the ground went 0, 944, 3,656.
+      this.updateHoldHeight(dt);
+      this.controller.update(dt, movement);
+      player.position.y = this._holdY;
+      player.velocity.y = 0;
+      player.onGround = false;
       player.snapRender();
     } else {
       this.releaseSettle();
@@ -887,11 +947,86 @@ export class Game {
     return Math.max(240, Math.min(horizon, this.terrain.renderDistance));
   }
 
-  get settling() {
-    return performance.now() < this.settleUntil;
+  /**
+   * Is the ground under the player something the game has actually measured?
+   *
+   * Not "is heightAt finite" — heightAt answers 0 for ground nobody has sent
+   * yet, and 0 is a perfectly plausible height, which is the whole trap. The
+   * elevation field can tell the two apart and this asks it.
+   */
+  get groundIsReal() {
+    const p = this.player.position;
+    // "Has any data" is not enough on its own — a zoom-3 tile covers a
+    // continent, and on the Antarctic plateau the coarse tiles read 944 m for
+    // 3,656 m of ice:
+    //
+    //   zoom  6   944 m        zoom 12   3,656 m
+    //   zoom  8   944 m        zoom 14   3,656 m
+    //   zoom 10   945 m
+    //
+    // But demanding the finest data cannot work either: high up, the game
+    // deliberately asks for coarse elevation, so a fine tile is never fetched
+    // and the hold would run to its cap every time — measured at Vienna,
+    // still held after nine seconds, which is its own bug.
+    //
+    // So this asks for data as fine as the game is currently requesting for
+    // this altitude. Low down that is the fine tile and the ice sheet is
+    // resolved before you are set on it; high up it is the coarse one, which
+    // is all that is needed, because a number that is kilometres out cannot
+    // hurt someone four hundred metres in the air — see the hold, which keeps
+    // its distance from the ground rather than its height above the sea.
+    const zoom = this.terrain.elevationZoomAt(p.x, p.z);
+    if (zoom < this.terrain.wantedElevationZoom - GROUND_TRUST_LEVELS) return false;
+    // And the number has to have stopped moving. Zoom alone cannot tell you
+    // the answer is final — at four hundred metres up the game only asks for
+    // coarse elevation, so coarse *is* as fine as requested, and over the
+    // Antarctic plateau coarse says 944 m for 3,656 m of ice. What separates
+    // the two is that the wrong answer is still on its way to being replaced:
+    // 944 held for about half a second before the real tile landed, where a
+    // settled height sits still. So the last thing the hold waits for is the
+    // ground under the player being the same ground it was a moment ago.
+    return performance.now() - this._groundMovedAt > GROUND_STILL_MS;
   }
 
-  /** Has the player asked to do something? Then stop holding them still. */
+  /** Watch the ground under the player for the movement `groundIsReal` waits out. */
+  watchGround() {
+    const p = this.player.position;
+    const here = this.terrain.heightAt(p.x, p.z);
+    if (!Number.isFinite(this._lastGroundSample)
+      || Math.abs(here - this._lastGroundSample) > GROUND_STILL_M) {
+      this._lastGroundSample = here;
+      this._groundMovedAt = performance.now();
+    }
+  }
+
+  get settling() {
+    // A stopwatch was the bug. The hold ran for 2.6 seconds and then handed
+    // over whether or not the ground had arrived, so an arrival somewhere the
+    // elevation was slow left you standing on unmeasured ground — which reads
+    // as sea level — until the real relief landed and threw you up to meet it.
+    // Measured on a fresh launch into Antarctica: ground 0 m at 1.8 s, 945 m
+    // at 4.6 s, 3,656 m at 8.6 s, with the player carried up every time. Two
+    // and a half seconds of held camera, then six seconds of being launched up
+    // an ice sheet, and it looks exactly like the world restarting.
+    if (performance.now() < this.settleUntil) return true;
+    // So the hold now ends on the thing it was always waiting for. The cap is
+    // not a fallback that guesses — it is there so a provider that never
+    // answers cannot pin you in the sky for ever, and when it fires the status
+    // line says the ground never came.
+    return this.arrivalHeld && !this.groundIsReal
+      && performance.now() < this.settleUntil + GROUND_WAIT_MS;
+  }
+
+  /**
+   * Has the player asked to do something? Then stop holding them *still* —
+   * but not stop holding them *up*.
+   *
+   * These were the same thing, and that is the other half of the same bug:
+   * pressing a key skipped the hold entirely and put you on ground that did
+   * not exist yet, so the first thing moving did was launch you. Looking and
+   * walking are yours immediately; only the vertical waits, and only until
+   * there is something real to stand on.
+   */
   wantsControl(movement) {
     return !!(movement.forward || movement.back || movement.left || movement.right || movement.jump);
   }
@@ -908,6 +1043,7 @@ export class Game {
   releaseSettle() {
     if (!this.settling) return;
     this.settleUntil = 0;
+    this.arrivalHeld = false;
     // Hand over at exactly the height we were holding, so the release is not
     // a step either.
     if (Number.isFinite(this._holdY)) this.player.position.y = this._holdY;
@@ -920,38 +1056,24 @@ export class Game {
    * hold the player just above whatever the ground currently claims to be until
    * real data lands (or we give up waiting).
    */
-  settle(dt) {
+  /**
+   * Where the arrival hold wants the player, updated for the ground as it is
+   * now. Called from settle() and from the branch that hands over the controls
+   * early, so there is one definition of the held height rather than two.
+   */
+  updateHoldHeight(dt) {
     const player = this.player;
     const ground = this.terrain.heightAt(player.position.x, player.position.z);
-    player.groundHeight = ground;
-    player.velocity.set(0, 0, 0);
-    player.tickTimers(dt);
-
-    // Where we want to be held. Note this is measured against ground that is
-    // still arriving: every elevation tile that lands changes heightAt under
-    // us, sometimes by hundreds of metres as a coarse LOD is replaced by a
-    // finer one. Writing that straight into position.y snapped the camera on
-    // every one of those, which is the jitter you get on an airborne teleport.
     if (this.holdInAir) {
-      // An airborne arrival needs no tracking at all. You are four hundred
-      // metres up: whether the ground below turns out to be sea level or an
-      // alp does not move your eye by a pixel, so hold the height you were
-      // put at and leave it alone. Easing toward `ground + 420` instead meant
-      // every elevation tile that landed slid the whole world past you, which
-      // is exactly the jitter an arrival had.
+      // Held at a height above the ground, not at an absolute altitude. It was
+      // absolute, on the reasoning that four hundred metres up it makes no
+      // difference whether the ground is sea level or an alp — true right up
+      // until the ground turns out to be 3,656 m of Antarctic ice and you are
+      // inside it. Big corrections are followed, small ones ignored, so a
+      // refinement of a few metres cannot slide the world past you.
+      const above = ground + SPAWN_HEIGHT_M;
       if (!Number.isFinite(this._holdY)) this._holdY = player.position.y;
-      // The exception, and it is the whole reason arrivals went wrong: the
-      // height was chosen before the elevation for this place existed, so an
-      // arrival over a mountain put you *inside* it — four hundred metres up
-      // in a world whose ground turns out to be three thousand. Easing out of
-      // that took seconds the settle did not have, so you were released still
-      // buried and the collision threw you to the surface. That is the
-      // teleport that "drops you to the ground", and it is also why looking
-      // down before teleporting seemed to cause it.
-      //
-      // So the first time real relief arrives, jump rather than ease. You are
-      // held still and looking at ground that has not drawn yet; a jump there
-      // is invisible, and it is the only thing fast enough.
+      else if (Math.abs(this._holdY - above) > GROUND_JUMP_M) this._holdY = above;
       const norm = this.frame.worldToNorm(player.position.x, player.position.z);
       if (!this.reliefLanded && this.elevation.hasData(norm.nx, norm.ny)) {
         this.reliefLanded = true;
@@ -959,14 +1081,33 @@ export class Game {
       }
       const clearance = ground + SPAWN_HEIGHT_M * 0.1;
       if (this._holdY < clearance) this._holdY = damp(this._holdY, clearance, 6, dt);
+    } else if (!this.groundIsReal) {
+      // Waiting for ground worth standing on. Do not follow the ground that is
+      // there now: over the Antarctic plateau the coarse tiles read 944 m for
+      // 3,656 m of ice, and easing toward that only means arriving at the
+      // wrong height smoothly.
+      if (!Number.isFinite(this._holdY)) this._holdY = player.position.y;
     } else {
       const target = ground + 1.2;
+      // The one correct placement, taken whole rather than eased into: easing
+      // toward it from a number that was kilometres out is a long slow slide
+      // through the inside of a mountain.
       if (!Number.isFinite(this._holdY)) this._holdY = target;
-      // On the ground the height *is* the ground, so it has to be tracked —
-      // eased, so a late tile slides the world into place rather than jerking
-      // it.
-      this._holdY = damp(this._holdY, target, 6, dt);
+      else if (Math.abs(this._holdY - target) > GROUND_JUMP_M) this._holdY = target;
+      else this._holdY = damp(this._holdY, target, 6, dt);
     }
+    return ground;
+  }
+
+  settle(dt) {
+    const player = this.player;
+    const ground = this.terrain.heightAt(player.position.x, player.position.z);
+    player.groundHeight = ground;
+    player.velocity.set(0, 0, 0);
+    player.tickTimers(dt);
+    // The held height is worked out in one place, because holding a key runs
+    // the other branch and the two used to disagree.
+    this.updateHoldHeight(dt);
     player.position.y = this._holdY;
     player.onGround = !this.holdInAir;
 
@@ -974,11 +1115,20 @@ export class Game {
     // built, and it has had a moment to settle.
     const waited = performance.now() - (this.settleUntil - SETTLE_MS);
     const norm = this.frame.worldToNorm(player.position.x, player.position.z);
-    const ready = this.elevation.hasData(norm.nx, norm.ny) && this.terrain.stats.drawn > 6;
+    const ready = this.groundIsReal && this.terrain.stats.drawn > 6;
+    if (ready) this.arrivalHeld = false;
+    // Ready has to have been true for a moment, not just this instant. The
+    // frame the fine tile lands is the frame the ground jumps — releasing on
+    // it hands the player over mid-correction, which is the jerk seen from
+    // one frame later. A short dwell puts the correction inside the hold,
+    // where it is a placement rather than something that happens to you.
+    if (!ready) this._readySince = 0;
+    else if (!this._readySince) this._readySince = performance.now();
+    const held = ready && performance.now() - this._readySince > READY_DWELL_MS;
     // And never hand control back while the ground is still above your head.
     // Releasing into a hillside is the same bug seen from the other end.
     const clear = !this.holdInAir || player.position.y > ground + 2;
-    if (waited > 650 && ready && clear) this.releaseSettle();
+    if (waited > 650 && held && clear) this.releaseSettle();
   }
 
   /**
@@ -1061,7 +1211,13 @@ export class Game {
     // dropped into a hole while the tiles stream in is what made an arrival
     // feel like a stutter, and what left the ground invisible underfoot.
     this.holdInAir = airborne;
+    // The arrival is holding until the ground under this spot is real; see
+    // the `settling` getter.
+    this.arrivalHeld = true;
     this._holdY = NaN; // re-seeded on the first settle frame
+    this._readySince = 0;
+    this._lastGroundSample = NaN;
+    this._groundMovedAt = performance.now();
     this.reliefLanded = false; // see settle(): the first real relief jumps you clear
     this.settleUntil = performance.now() + SETTLE_MS;
     this.arrivalPending = !airborne;

@@ -12,21 +12,34 @@ what is left · `[?]` needs a decision from you.
 
 ## A. Stops you playing
 
-- [ ] A1. Cannot move or jump on launch — it keeps restarting when I do
+- [x] A1. Cannot move or jump on launch — it keeps restarting when I do
+      — input did nothing because the arrival hold froze the player and then
+      threw them: on a launch into Antarctica the ground went 0 m, 945 m,
+      3,656 m and carried them up each time. Hold now waits for the ground to
+      stop moving, and pressing a key gives you the controls without giving up
+      the floor. Measured after: walking and jumping respond, 0 upward throws
+      once you have control.
 - [ ] A2. Clicking out and back in, or Esc then jumping, breaks it
 - [ ] A3. Teleporting again when I look down after a teleport
 - [ ] A4. Hang when changing providers on terrain
 - [ ] A5. Seizure/flashing when changing provider
-- [ ] A6. Pressing a button within 3 s of RTP reverts to old spots and removes the new discovery
+- [~] A6. Pressing a button within 3 s of RTP reverts to old spots and removes the new discovery
+      — the half of this I could reproduce is fixed: a keypress no longer
+      abandons the hold onto unmeasured ground. The "reverts to old spots"
+      part I have not reproduced yet and it stays open.
 - [ ] A7. It randomly refreshes
 - [ ] A8. Why is it forcing to fly — why can't it remember position on relog
 
 ## B. The ground falls apart
 
 - [ ] B1. When flying, the ground glitches / blurs briefly / gets holes / moves up and down in sections — it needs to lock
-- [ ] B2. Random times a patch below appears, then the player glitches down
+- [~] B2. Random times a patch below appears, then the player glitches down
+      — same cause as A1 and improved by the same change, but only measured on
+      arrival. A correction arriving mid-flight is still unhandled.
 - [ ] B3. Sometimes most of the ground below me is missing and I stand on an invisible platform with patches
-- [ ] B4. Floating on invisible ground above the imagery
+- [~] B4. Floating on invisible ground above the imagery
+      — you are no longer *set down* on ground the game has not measured.
+      Whether it still happens after a mid-flight correction is untested.
 - [ ] B5. Ground becomes griddy and comes back — moves up or down and shows a grid
 - [ ] B6. Randomly starts disappearing, getting patchy, falling apart, coming back in chunks
 - [ ] B7. Random refresh of textures
@@ -122,7 +135,11 @@ what is left · `[?]` needs a decision from you.
 
 - [ ] H1. There are no bumps on trees
 - [ ] H2. When bumping green parts, skip it where the green runs bigger than a size throughout, so grass is not marked — but still count areas with holes of a different colour
-- [ ] H3. Improve Antarctica
+- [~] H3. Improve Antarctica
+      — the launch-into-Antarctica throw is fixed. The coarse elevation there
+      is genuinely 2.7 km wrong (zoom 6/8/10 all read ~944 m for 3,656 m of
+      ice), which is the provider's data, not ours. Nothing done yet about how
+      it *looks*.
 - [ ] H4. Improve above the clouds
 - [ ] H5. Weather should follow the imagery's own weather state
 - [ ] H6. Match the sun angle to the imagery's time, maybe

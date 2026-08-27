@@ -1017,6 +1017,50 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nArrival waits for ground, not for a stopwatch');
+{
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+
+  // The hold ran for 2.6 s and then handed over whether or not the elevation
+  // had arrived. Measured on a launch into Antarctica: ground 0 m at 1.8 s,
+  // 945 m at 4.6 s, 3,656 m at 8.6 s, the player carried up every time — six
+  // seconds of being launched up an ice sheet, which reads as the world
+  // restarting.
+  ok('the hold does not end on a clock alone',
+    /return this\.arrivalHeld && !this\.groundIsReal/.test(game));
+  ok('and waits for the ground under the player to stop moving',
+    /performance\.now\(\) - this\._groundMovedAt > GROUND_STILL_MS/.test(game));
+  ok('which is watched every frame, whichever branch runs',
+    /this\.watchGround\(\);\n    let movement/.test(game));
+
+  // Pressing a key skipped the hold entirely and put the player on ground that
+  // did not exist, so the first thing moving did was launch them.
+  ok('asking to move gives the controls without giving up the floor',
+    /\} else if \(this\.settling\) \{[\s\S]{0,900}this\.updateHoldHeight\(dt\)/.test(game));
+  ok('and the held height has one definition, not two',
+    /updateHoldHeight\(dt\) \{/.test(game)
+    && (game.match(/this\.updateHoldHeight\(dt\)/g) ?? []).length >= 2);
+
+  // Held above the ground rather than at an absolute altitude: four hundred
+  // metres up it makes no difference whether the ground is sea level or an
+  // alp, right up until the ground is 3,656 m of ice and you are inside it.
+  ok('the airborne hold keeps its distance from the ground',
+    /const above = ground \+ SPAWN_HEIGHT_M;/.test(game)
+    && /Math\.abs\(this\._holdY - above\) > GROUND_JUMP_M/.test(game));
+  ok('and a small refinement does not slide the world past you',
+    /const GROUND_JUMP_M = 30;/.test(game));
+
+  // The frame a fine tile lands is the frame the ground jumps; releasing on it
+  // hands the player over mid-correction.
+  ok('the correction lands inside the hold, not on the frame you take over',
+    /performance\.now\(\) - this\._readySince > READY_DWELL_MS/.test(game));
+
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  ok('and the terrain publishes what it is currently asking for',
+    /this\.wantedElevationZoom = elevZoom;/.test(terrain));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nGround below sea level is flattened, deliberately');
 {
   // A known, bounded inaccuracy, pinned so it stays a decision. The elevation
