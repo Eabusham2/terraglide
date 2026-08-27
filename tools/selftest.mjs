@@ -1017,6 +1017,24 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nJump opens the wings and never shuts them');
+{
+  const controller = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');
+  // A press in the air used to toggle. Measured while gliding at 1.4 m/s down:
+  // one press of the jump key and the wings shut and the fall went to 16 m/s.
+  // Minecraft deploys on space and does nothing at all on the next press; you
+  // stow by landing, or with the key that is for stowing.
+  ok('a press in the air only ever opens them',
+    /if \(!player\.elytraDeployed\) player\.toggleElytra\(true\);/.test(controller));
+  ok('and there is no toggle left on that path',
+    !/player\.toggleElytra\(!player\.elytraDeployed\)/.test(controller));
+  const help = readFileSync(new URL('../src/ui/help.js', import.meta.url), 'utf8');
+  ok('and the card no longer promises a toggle',
+    /press again once airborne to open the wings/.test(help)
+    && /Open or stow the wings/.test(help));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nArrival waits for ground, not for a stopwatch');
 {
   const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
@@ -2004,7 +2022,11 @@ console.log('\nWalking, jumping and falling like Minecraft');
     tap();
     ok('a second tap in the air opens the wings', r.player.elytraDeployed);
     tap();
-    ok('and a third stows them again', !r.player.elytraDeployed);
+    // And a third leaves them open. This asserted the opposite, because the
+    // key was a toggle — which is what "pressing jump breaks it" was: gliding
+    // down at 1.4 m/s, one press, wings shut, falling at 16. Minecraft does
+    // nothing on that press, and so does this now; the wings key stows.
+    ok('and a third leaves them open', r.player.elytraDeployed);
 
     const held = rig();
     held.player.onGround = true;

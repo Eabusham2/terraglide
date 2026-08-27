@@ -19,7 +19,11 @@ what is left · `[?]` needs a decision from you.
       stop moving, and pressing a key gives you the controls without giving up
       the floor. Measured after: walking and jumping respond, 0 upward throws
       once you have control.
-- [ ] A2. Clicking out and back in, or Esc then jumping, breaks it
+- [x] A2. Clicking out and back in, or Esc then jumping, breaks it
+      — jump was a toggle for the wings. Measured gliding at 1.4 m/s down: one
+      press and the wings shut and the fall went to 16 m/s. Space opens them
+      now and never shuts them, as in Minecraft; the wings key stows. Verified
+      through Esc, blur and focus — glide holds at ~3 m/s throughout.
 - [ ] A3. Teleporting again when I look down after a teleport
 - [ ] A4. Hang when changing providers on terrain
 - [ ] A5. Seizure/flashing when changing provider
