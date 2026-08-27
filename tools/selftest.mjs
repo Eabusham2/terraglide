@@ -1002,6 +1002,22 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nGround below sea level is flattened, deliberately');
+{
+  // A known, bounded inaccuracy, pinned so it stays a decision. The elevation
+  // source carries bathymetry, so without the clamp the ocean becomes a canyon
+  // and the sea shading — which keys off ground at or under sea level — is
+  // draped down the inside of it. Telling land below sea level from sea needs
+  // a source at the resolution the ground is built at, and there is not one:
+  // the water probe reads a 32x32 mask per zoom-6 tile, so a misread over open
+  // water would put a hole in the sea.
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  ok('the clamp is still there', /Math\.max\(SEA_LEVEL, this\.elevation\.sampleNorm/.test(terrain));
+  ok('and says why, with what it costs',
+    /Dead Sea shore reads 0 m here/.test(terrain) && /bathymetric depth/.test(terrain));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe snow line is a property of the place, not of your altitude');
 {
   const { snowLineM, climateAt } = await import('../src/geo/climate.js');

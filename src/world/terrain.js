@@ -140,7 +140,27 @@ export class Terrain {
     return 4.6 / settings.preset().sseThreshold;
   }
 
-  /** Ground height (metres, sea clamped) at a normalised mercator point. */
+  /**
+   * Ground height (metres, sea clamped) at a normalised mercator point.
+   *
+   * The clamp is why the Dead Sea shore reads 0 m here and is −430 m in life,
+   * and it is a decision rather than an oversight. AWS Terrain Tiles carry
+   * bathymetry: without the clamp the ocean stops being a surface and becomes
+   * a canyon, kilometres deep, with the sea shading — which keys off ground at
+   * or under sea level — draped down the inside of it. Checked against known
+   * heights, everything above the waterline is right: Mont Blanc 4,778 against
+   * 4,808, Aranjuez 499 against 494, Amsterdam 5 against 2. Only ground below
+   * it is flattened.
+   *
+   * Undoing it properly needs to tell land below sea level from sea, at the
+   * resolution the ground is built at. There is no such source here. The water
+   * probe classifies imagery on a 32x32 mask per zoom-6 tile — kilometres to a
+   * cell, loaded only where something has asked — so a misread over open water
+   * would drop that square to its bathymetric depth and put a hole in the sea.
+   * A wrong hole in every ocean is a worse trade than a flat floor in the half
+   * dozen basins this affects: the Jordan Rift, Death Valley, Turfan, Qattara,
+   * the Caspian depression, the Salton Sea.
+   */
   heightAtNorm(nx, ny) {
     return Math.max(SEA_LEVEL, this.elevation.sampleNorm(nx, ny));
   }
