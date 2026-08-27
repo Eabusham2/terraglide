@@ -935,6 +935,44 @@ console.log('\nProviders and detail budgets');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nA wood reads as a canopy');
+{
+  const wood = readFileSync(new URL('../src/world/woodland.js', import.meta.url), 'utf8');
+  const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
+  const wiring = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+
+  // Where, from the survey and only from the survey. The photograph cannot
+  // say: scored over six Esri tiles, Cambridgeshire farmland is greener and
+  // rougher at crown scale than the Amazon is.
+  ok('the mask comes from the OpenStreetMap survey',
+    /way\["natural"="wood"\]/.test(wood) && /way\["landuse"="forest"\]/.test(wood));
+  ok('and relations are read, outer rings only',
+    /member\.role !== 'outer'/.test(wood));
+  ok('through the same queue the buildings use, so Overpass is asked once',
+    /import \{ overpass \}/.test(wood) && /overpass\.inflight/.test(wood));
+  ok('a refusal leaves nothing drawn and is retried, not cached as a hole',
+    /state = 'failed'/.test(wood) && /this\.tiles\.delete\(key\)/.test(wood));
+
+  // No geometry. Both earlier attempts built some and both measured worse.
+  ok('nothing is built and no mesh is added',
+    !/new THREE\.Mesh/.test(wood) && !/scene\.add/.test(wood));
+  ok('the leaf type rides in the mask so one sample answers both',
+    /LEAF_WEIGHT/.test(wood) && /needleleaved: 0\.82/.test(wood));
+
+  ok('the ground shader reads it at the photograph\u2019s own resolution',
+    /uniform sampler2D uWoodMask/.test(shaders) && /float canopyField\(vec2 world\)/.test(shaders));
+  ok('and does nothing at all where nothing is mapped',
+    /float wood = 0\.0;/.test(shaders) && /if \(uHasWood > 0\.5\)/.test(shaders)
+    && /uWoodMask: \{ value: BLACK_PIXEL \}/.test(shaders));
+  ok('crowns are shaded, not stood up \u2014 the ground does not move',
+    !/uWood[\s\S]{0,400}position\.y/.test(shaders));
+  ok('the scanned world is left alone, and so is Overpass',
+    /this\.woodland\.enabled = !photoreal && settings\.get\('woodlandRelief'\)/.test(wiring));
+  ok('and it can be turned off', /woodlandRelief: true/.test(
+    readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8')));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nGoogle imagery asks for what Google asks for');
 {
   const providers = readFileSync(new URL('../src/tiles/providers.js', import.meta.url), 'utf8');

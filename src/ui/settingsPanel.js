@@ -102,6 +102,7 @@ const SECTIONS = [
       { key: 'maxarConnectId', label: 'Maxar SecureWatch connect ID', type: 'secret', help: 'Maxar\u2019s own imagery service. An enterprise credential \u2014 Esri, Bing and Google all serve Maxar scenes without one.' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },
       { key: 'buildings', label: 'OpenStreetMap buildings', type: 'toggle', help: 'Extrudes real footprints near the ground to their surveyed height. Solid \u2014 there is no invented inside.' },
+      { key: 'woodlandRelief', label: 'Woodland canopy relief', type: 'toggle', help: 'Slight relief over woods OpenStreetMap has surveyed, so a forest reads as a canopy instead of green paint. Shading only — the ground you walk on does not move, and where nothing is mapped nothing changes.' },
       { key: 'streetLevel', label: 'Blend street-level photos', type: 'toggle', help: 'Fades ground photography in when you stand still. Needs a key.' },
     ],
   },

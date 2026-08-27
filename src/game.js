@@ -33,6 +33,7 @@ import { pickRandomDestination } from './world/rtp.js';
 import { createSharedUniforms } from './world/shaders.js';
 import { EdgeWall } from './world/edgeWall.js';
 import { SeaFloor } from './world/seaFloor.js';
+import { Woodland } from './world/woodland.js';
 import { Sky } from './world/sky.js';
 import { Terrain } from './world/terrain.js';
 import { Weather } from './world/weather.js';
@@ -135,6 +136,10 @@ export class Game {
     /** Real photogrammetry, loaded on demand — see loadWorld3D(). */
     this.tiles3d = null;
     this.buildings = new Buildings({ scene: this.scene, frame: this.frame, terrain: this.terrain });
+    // Where the woods are, from the same survey the buildings come from and
+    // through the same Overpass queue. It draws nothing; it hands the ground
+    // shader a mask so a forest reads as canopy instead of as green paint.
+    this.woodland = new Woodland({ frame: this.frame });
     this.panorama = new Panorama({ scene: this.scene, frame: this.frame, worker: this.worker });
 
     this.player = new Player(this.frame);
@@ -757,6 +762,15 @@ export class Game {
     // asking Overpass for footprints we are not going to draw is a request
     // against a shared community endpoint for nothing at all.
     if (!photoreal) this.buildings.update(player.lat, player.lon, player.altitudeAboveGround);
+    // Same reasoning: the scanned world already has its trees in the mesh, so
+    // there is nothing for a canopy mask to improve and nothing worth asking
+    // Overpass for.
+    this.woodland.enabled = !photoreal && settings.get('woodlandRelief');
+    this.woodland.update(this.camera);
+    this.shared.uHasWood.value = this.woodland.painted && this.woodland.enabled ? 1 : 0;
+    this.shared.uWoodMask.value = this.woodland.texture;
+    this.shared.uWoodOrigin.value.copy(this.woodland.origin);
+    this.shared.uWoodSpan.value = this.woodland.span;
 
     this.panorama.update(
       {

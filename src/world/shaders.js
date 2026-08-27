@@ -94,6 +94,11 @@ const TERRAIN_FRAG = /* glsl */ `
   uniform float uCloudCover;
   uniform float uCloudHeight;
   uniform float uMeasured;
+  uniform sampler2D uWoodMask;
+  uniform vec2 uWoodOrigin;
+  uniform float uWoodSpan;
+  uniform float uHasWood;
+  uniform float uWoodStrength;
 
   varying vec2 vUv;
   varying vec3 vNormalW;
@@ -122,6 +127,18 @@ const TERRAIN_FRAG = /* glsl */ `
     vec2 u = f * f * (3.0 - 2.0 * f);
     return mix(mix(cloudHash(i), cloudHash(i + vec2(1.0, 0.0)), u.x),
                mix(cloudHash(i + vec2(0.0, 1.0)), cloudHash(i + vec2(1.0, 1.0)), u.x), u.y);
+  }
+
+  /**
+   * Crown-scale relief for a wood, and where its hollows are.
+   *
+   * Two octaves of the same value noise the clouds use, at nine metres and at
+   * three — one crown and one branch — read straight off the world position, so
+   * it is at the photograph's own resolution rather than at the mesh's. It
+   * returns the height field; the shader takes its slope by differencing.
+   */
+  float canopyField(vec2 world) {
+    return cloudNoise(world / 9.0) * 0.68 + cloudNoise(world / 3.0) * 0.32;
   }
 
   float cloudShadow(vec3 world) {
@@ -218,13 +235,50 @@ const TERRAIN_FRAG = /* glsl */ `
     // the densest patch of canopy on screen, local relief went from 16.42
     // without the sheet to 15.60 with it — 0.95 times, the wrong way.
     //
-    // The design that can work is the survey rasterised into a mask texture
-    // beside each terrain tile's photograph, so the shading is done by this
-    // shader at the photograph's own resolution and the mask only says where.
-    // That is a real piece of plumbing — a second sampler per tile, uploaded
-    // when the polygons for that square arrive — and it is not here yet. Two
-    // attempts, both measured, both rejected; the third one needs building
-    // properly rather than guessing again.
+    // The third way is the one that works, and it is the one written up above:
+    // the survey rasterised into a mask, and no geometry at all. The mask says
+    // only *where* — OpenStreetMap's own natural=wood and landuse=forest, drawn
+    // into a sheet that follows the camera, six metres a texel — and every bit
+    // of the shading happens here, at the photograph's resolution. Nothing
+    // coarse is laid over anything sharp, and the ground you walk on does not
+    // move, because none of this is geometry.
+    //
+    // The mask's value carries the leaf type as well as the fact of the wood:
+    // conifers are narrow and regular and get a shallower bump than the wide
+    // lumpy crowns of a broadleaf.
+    float wood = 0.0;
+    if (uHasWood > 0.5) {
+      vec2 wuv = (vWorld.xz - uWoodOrigin) / uWoodSpan;
+      if (wuv.x > 0.0 && wuv.x < 1.0 && wuv.y > 0.0 && wuv.y < 1.0) {
+        wood = texture2D(uWoodMask, wuv).r;
+        // Only where the ground is ground. A cliff face inside a forest
+        // polygon is rock, and rock does not have crowns on it.
+        wood *= flatness;
+      }
+    }
+    if (wood > 0.01) {
+      // Slope of the canopy by differencing, a metre and a half either way,
+      // which is about a quarter of a crown.
+      float e = 1.5;
+      float h = canopyField(vWorld.xz);
+      float dx = canopyField(vWorld.xz + vec2(e, 0.0)) - h;
+      float dz = canopyField(vWorld.xz + vec2(0.0, e)) - h;
+      float amount = wood * uWoodStrength;
+      // The tilt is the smaller half of this on purpose. Tilting normals is
+      // what the second attempt did, and on its own it fights the light and
+      // shade the photograph already carries rather than adding to it — swept
+      // here, the tilt alone took crown-scale contrast *down*.
+      n = normalize(n + vec3(-dx, 0.0, -dz) * amount * 16.0);
+      // The gaps between crowns being darker than the tops is what actually
+      // makes a canopy read as a canopy from the air, and it is the half that
+      // works: around one, so a crown top is the photograph exactly and a gap
+      // is under it. Swept over the Black Forest at seventy metres, contrast at
+      // crown scale went 11.34 / 11.45 / 11.53 / 11.64 / 11.88 as this rose —
+      // monotonically up, where both earlier attempts went down — while
+      // pixel-scale contrast held at 3.07 to 3.09, so the photograph's own
+      // detail is not being traded away for it.
+      albedo *= 1.0 + (h - 0.5) * amount * 1.8;
+    }
 
     float lambert = max(dot(n, uSunDir), 0.0);
     float wrapped = lambert * 0.62 + 0.38;
@@ -374,6 +428,13 @@ const WHITE_PIXEL = (() => {
   return tex;
 })();
 
+/** What the woodland mask reads before any survey has arrived: no woodland. */
+const BLACK_PIXEL = (() => {
+  const tex = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
+  tex.needsUpdate = true;
+  return tex;
+})();
+
 export function createTerrainMaterial(shared) {
   return new THREE.ShaderMaterial({
     uniforms: {
@@ -400,6 +461,11 @@ export function createTerrainMaterial(shared) {
       // Set per node in Terrain.build; see the water block above.
       uMeasured: { value: 0 },
       uSink: { value: 0 },
+      uWoodMask: shared.uWoodMask,
+      uWoodOrigin: shared.uWoodOrigin,
+      uWoodSpan: shared.uWoodSpan,
+      uHasWood: shared.uHasWood,
+      uWoodStrength: shared.uWoodStrength,
     },
     vertexShader: TERRAIN_VERT,
     fragmentShader: TERRAIN_FRAG,
@@ -421,6 +487,17 @@ export function createSharedUniforms() {
     uLatitude: { value: 0 },
     uHasRelief: { value: 0 },
     uNight: { value: 0 },
+    /**
+     * Where the woods are, written by Woodland from the OpenStreetMap survey.
+     * Zero everywhere it has not been told otherwise, which is the same as no
+     * woodland: nothing here ever invents one.
+     */
+    uWoodMask: { value: BLACK_PIXEL },
+    uWoodOrigin: { value: new THREE.Vector2() },
+    uWoodSpan: { value: 1 },
+    uHasWood: { value: 0 },
+    /** How pronounced the canopy is. The Ground detail setting scales it. */
+    uWoodStrength: { value: 1 },
     /**
      * The cloud deck, shared with the sky so the ground can be shadowed by the
      * clouds that are actually above it. Written by Weather each frame.

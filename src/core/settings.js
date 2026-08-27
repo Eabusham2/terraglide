@@ -54,6 +54,13 @@ export const DEFAULT_SETTINGS = {
   maxarConnectId: '',
   addressLookup: true,
   buildings: true,
+  /**
+   * Slight relief over woodland the survey knows about, so a forest reads as a
+   * canopy rather than as green paint. Shading only — nothing is built and the
+   * ground you walk on does not move — and off wherever OpenStreetMap has no
+   * wood mapped, because there is no wood there to shade.
+   */
+  woodlandRelief: true,
   streetLevel: true,
 
   /* graphics */

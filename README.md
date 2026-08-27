@@ -286,19 +286,31 @@ one-file copy flies the scanned world too, given a key and a network.
 ### What is standing on the ground
 
 Satellite imagery draped over elevation is flat, so the world also grows real
-geometry — and every bit of it traces back to OpenStreetMap. Woods, scrub,
-heath, bare rock and scree are mapped as areas; individual notable trees are
-mapped as points; and OSM records whether a wood is needleleaved or
-broadleaved, so a fir is a fir because the survey says so. **Where OSM has
-nothing mapped, nothing is drawn.** No invented forests.
+geometry — and every bit of it traces back to OpenStreetMap. Buildings are
+extruded from surveyed footprints to surveyed heights, with the roof shape the
+survey recorded; masts, chimneys, gasometers, water towers and wind turbines
+stand up where they are mapped; bridge decks are lifted to their `layer` so a
+viaduct is not painted onto the valley floor. **Where OSM has nothing mapped,
+nothing is drawn.**
 
-What is *not* surveyed is the position of every trunk inside a wood — no public
-dataset has that, anywhere. So the outline of the wood is real data and the
-filling-in is generated: hashed from the ground coordinate, deterministic,
-spaced by species, thinned by a few percent for clearings. That is the same
-division of labour a flight simulator uses outside its photogrammetry cities.
-The line is worth stating plainly: **the edge of the wood is real, the
-particular tree you are standing next to is not.**
+Woods are the one thing on the ground that is *not* geometry, and that is a
+deliberate choice made twice over. No public dataset anywhere records where
+each trunk stands, so a forest of individual trees would be a forest of
+invented trees — and both attempts at standing a wood up as geometry measured
+*worse* than leaving it alone, because a sheet coarse enough to be affordable
+loses more of the photograph than its shading adds.
+
+What a wood gets instead is relief in the shading. OpenStreetMap's
+`natural=wood` and `landuse=forest` are rasterised into a mask that says only
+*where*, and the ground shader does the rest at the photograph's own
+resolution: crown-scale light and shade, shallower for the narrow regular
+crowns of a conifer than for the wide lumpy ones of a broadleaf, so a forest
+reads as a canopy rather than as a green wash. Nothing is built, nothing is
+placed, and the ground you walk on does not move. Measured over the Black
+Forest at seventy metres, contrast at crown scale went from 11.34 to 11.95
+while the photograph's own pixel-scale detail held — up on both counts, where
+the two geometry attempts went down. Where no wood is mapped the mask is zero
+and the ground is exactly what it was, to the pixel.
 
 Individually mapped trees are the exception — those stand exactly where the
 survey put them.
@@ -366,11 +378,13 @@ One rule, applied in one order, everywhere:
    of that exact roof, so terracotta in Tuscany is terracotta. A photograph of
    a forest is evidence of a forest; this is a coarser source than a survey and
    it is used only where there is no survey.
-4. **Generated**, and only then, and only in one place left: the individual
-   trunk positions inside a wood that is really there. Building interiors used
-   to be on this list and were removed — an invented staircase inside a real
-   address is exactly the thing this list exists to prevent — and so was the
-   whole-world generator.
+4. **Generated**, and only then. This list is nearly empty now, and that is
+   the point of keeping it: building interiors were on it and were removed —
+   an invented staircase inside a real address is exactly what this list exists
+   to prevent — and so was the whole-world generator. What is left is the
+   crown-scale noise inside a wood the survey really put there, which decides
+   how the light falls across a canopy and nothing else. It moves no ground and
+   places no object.
 
 What never happens is something invented standing in for something real: no
 tree where the picture says bare rock, no relief invented under real imagery,
