@@ -823,6 +823,28 @@ console.log('\nThe HUD fits the window');
   ok('and a touch-sized slot drops them too',
     /body\.touch-active \.hud-hotbar \.slot \.slot-label[\s\S]{0,120}display: none/.test(css));
 
+  // The touch hotbar used to run across the top, where the minimap is. On a
+  // 390x844 phone the two overlapped by 133x44px, which hid rockets four and
+  // five completely — they could not be selected at all — and at 360 wide the
+  // bar ran eleven pixels off the left edge as well.
+  ok('the touch hotbar sits above the controls, not across the minimap',
+    /body\.touch-active \.hud-hotbar \{[\s\S]{0,160}bottom: 182px/.test(css));
+  ok('and five slots are sized to the window rather than to a fixed width',
+    /body\.touch-active \.hud-hotbar \.slot \{[\s\S]{0,120}width: min\(74px, calc\(\(100vw - 28px\) \/ 5\)\)/.test(css));
+
+  // A phone on its side is 390px tall and the four things wanting the left
+  // edge came to 431px of content, so they overlapped instead of overflowing:
+  // the location panel sat on the toolbar, 282x91px of collision.
+  ok('a short window shrinks what wants the left edge',
+    /@media \(max-height: 460px\)[\s\S]{0,1400}\.location-figures[\s\S]{0,60}display: none/.test(css));
+  ok('and brings the controls down with it',
+    /@media \(max-height: 460px\)[\s\S]{0,1400}\.touch-stick \{[\s\S]{0,120}height: 92px/.test(css));
+
+  // The licence requires the provider credits to stay on screen, and pale grey
+  // text with nothing behind it is not on screen over pale ground.
+  ok('the provider credits stay legible over any ground',
+    /\.hud-bottomright \{[\s\S]{0,700}text-shadow:/.test(css));
+
   // The slot label has to fit the slot and has to be true. It read
   // "dur 5 - pwr 5", which was neither, then "5s", which was not the burn,
   // then the burn alone — which was true but only half of what a rocket is now

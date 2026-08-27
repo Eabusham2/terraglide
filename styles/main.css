@@ -576,7 +576,16 @@ input[type='checkbox'] {
   bottom: 4px;
   text-align: right;
   max-width: 260px;
-  opacity: 0.75;
+  opacity: 0.85;
+  /* Small and faint is fine; illegible is not. Pale grey text with nothing
+     behind it disappears completely over pale ground — over the tan hills
+     north-east of Santo Antônio do Itambé the provider credits could not be
+     read at all, and a credit you cannot read is not a credit. A shadow keeps
+     the corner uncluttered and keeps the line separate from whatever is
+     underneath it, which a panel background would not do as quietly. */
+  text-shadow:
+    0 1px 2px rgba(18, 17, 14, 0.9),
+    0 0 5px rgba(18, 17, 14, 0.7);
 }
 
 .status-line {
@@ -1349,16 +1358,36 @@ body.touch-active .hud-hotbar {
   top: 40px;
 }
 
-/* On a narrow touch screen the hotbar sits across the top, so the temperature
-   and the toolbar move down out from under it. */
+/* A narrow touch screen puts the hotbar above the thumbs, not under them.
+
+   It used to go across the top for that, and on a phone the top is where the
+   minimap is. Measured at 390x844 the two overlapped by 133x44 px — which hid
+   rockets four and five completely, so on a phone you could not select them at
+   all — and at 360 wide the bar also ran eleven pixels off the left edge.
+   
+   So it goes back along the bottom, in the band above the one the stick and
+   the buttons reserve for themselves: clear of both thumbs and of the minimap.
+   The slots are sized to the window rather than to a fixed 74px, because five
+   of anything fixed will eventually not fit. */
 @media (max-width: 900px) {
   body.touch-active .hud-topleft {
-    top: 104px;
+    top: 40px;
+  }
+
+  body.touch-active .hud-hotbar {
+    top: auto;
+    /* The stick is 132px tall and sits 22px up, so its top is at 154. */
+    bottom: 182px;
   }
 
   body.touch-active .hud-hotbar .slot {
-    width: 74px;
+    width: min(74px, calc((100vw - 28px) / 5));
     height: 44px;
+  }
+
+  /* Above the hotbar, which is above the controls. */
+  body.touch-active .hud-bottomleft {
+    bottom: 234px;
   }
 
   /* 74px is an icon and a keycap wide. The name and the burn-and-speed line
@@ -1370,14 +1399,89 @@ body.touch-active .hud-hotbar {
   }
 }
 
+/* Wide touch screens keep the hotbar along the bottom too, so the location
+   panel clears both it and the controls. Narrow ones override this above. */
 body.touch-active .hud-bottomleft {
-  bottom: 168px;
+  bottom: 234px;
 }
 
 body.touch-active .hud-crosshair {
   display: none;
 }
 
+
+/* ---------------------------------------------------------------- short windows
+
+   A phone on its side is 390px tall, and at their ordinary sizes the four
+   things that want the left edge do not fit in that: the climate and toolbar
+   block is 122px, the location panel 111, the hotbar 44 and the stick 154.
+   That is 431px of content in 390px of screen, and what it did instead of
+   overflowing was overlap — the location panel sat on top of the toolbar,
+   measured at 282x91px of collision.
+
+   So on a short screen everything on that edge gets smaller: the climate loses
+   its second line, the toolbar its padding, the location panel its figures
+   row, and the stick and buttons come down to a size that still suits a thumb
+   on a screen this short. Nothing is hidden that you cannot get at another way
+   — the figures are on the HUD readout and the climate detail is in the
+   forecast.
+*/
+@media (max-height: 460px) {
+  .climate-sub {
+    display: none;
+  }
+
+  .toolbar button {
+    padding: 4px 6px;
+    font-size: 10.5px;
+  }
+
+  .location-figures {
+    display: none;
+  }
+
+  .location-address {
+    font-size: 12px;
+  }
+
+  .touch-stick {
+    width: 92px;
+    height: 92px;
+    left: 14px;
+    bottom: 12px;
+  }
+
+  .touch-stick i {
+    width: 38px;
+    height: 38px;
+    margin: -19px 0 0 -19px;
+  }
+
+  .touch-buttons {
+    grid-template-columns: repeat(2, 74px);
+    gap: 6px;
+    right: 12px;
+    bottom: 12px;
+  }
+
+  .touch-buttons button {
+    height: 40px;
+    font-size: 12px;
+  }
+
+  /* Stick tops out at 104; hotbar above it; location panel above that. */
+  body.touch-active .hud-hotbar {
+    bottom: 112px;
+  }
+
+  body.touch-active .hud-bottomleft {
+    bottom: 164px;
+  }
+
+  body.touch-active .hud {
+    padding-bottom: 164px;
+  }
+}
 
 /* ---------------------------------------------------------------- narrow windows
 
@@ -1457,8 +1561,10 @@ body.touch-active .hud-crosshair {
     order: 2;
   }
 
+  /* The controls' own band, plus the hotbar's row above it, so the two blocks
+     that join the flow on a phone stack clear of both. */
   body.touch-active .hud {
-    padding-bottom: 174px;
+    padding-bottom: 234px;
   }
 }
 
