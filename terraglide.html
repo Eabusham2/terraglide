@@ -90709,6 +90709,29 @@ const MAX_ACTIVE = 14;
  */
 const BACKLOG_LIMIT = 96;
 
+/**
+ * How long a run of refusals has to happen in to count as a run.
+ *
+ * The old rule counted them for ever, so four spread across an hour of flying
+ * read the same as four in a second. Ten seconds is short enough that only a
+ * server actually falling over fills it.
+ */
+const REFUSAL_WINDOW_MS = 10000;
+/** Refusals inside that window before the first choice is rested. */
+const REFUSAL_TRIP = 6;
+/** How long it is rested for before being tried again. */
+const REFUSAL_REST_MS = 30000;
+
+/**
+ * An error meaning "this provider has nothing here", as opposed to "this
+ * provider would not answer". Only the second is evidence about the server.
+ */
+function noCoverage(message) {
+  const err = new Error(message);
+  err.noCoverage = true;
+  return err;
+}
+
 class MapTileCache {
   constructor() {
     this.source = null;
@@ -90734,8 +90757,22 @@ class MapTileCache {
      * no fallback, and everything else in this project has one.
      */
     this.fallbacks = [];
-    this.fallbackRescues = 0;
-    this.usingFallback = false;
+    /**
+     * When the first-choice provider last refused, newest last.
+     *
+     * Timestamps rather than a tally. It was a tally — four rescues by a
+     * standby, ever, latched the map onto the standby for the rest of the
+     * session with no way back. Four is nothing across an hour of flying, and
+     * two of the ways to earn one are not the server's fault at all, so the
+     * minimap reliably ended up on the drawn street map and stayed there. That
+     * is "the minimap stops being satellite when I fly fast", and "it often
+     * does not load satellite when I am high up": high up asks for coarse
+     * squares, coarse squares reach the coast, and the coast is where Esri
+     * answers with its "map data not yet available" card.
+     */
+    this.refusals = [];
+    /** Wall clock until which the first choice is rested. See noteRefusal. */
+    this.restingUntil = 0;
     /** Deepest zoom the current provider serves; see `resolve`. */
     this.maxZoom = Infinity;
     /**
@@ -90759,8 +90796,7 @@ class MapTileCache {
    */
   setFallback(sources) {
     this.fallbacks = (Array.isArray(sources) ? sources : [sources]).filter(Boolean);
-    this.fallbackRescues = 0;
-    this.usingFallback = false;
+    this.rest(0);
   }
 
   /** Called whenever a tile finishes loading. Returns an unsubscribe function. */
@@ -90771,6 +90807,39 @@ class MapTileCache {
 
   notify() {
     for (const fn of this.listeners) fn();
+  }
+
+  /** True while the first choice is being rested and the standbys serve. */
+  get resting() {
+    return Date.now() < this.restingUntil;
+  }
+
+  /** Rest the first choice for this many milliseconds, and forget the past. */
+  rest(ms) {
+    this.restingUntil = ms > 0 ? Date.now() + ms : 0;
+    this.refusals.length = 0;
+  }
+
+  /**
+   * The first-choice provider refused a tile.
+   *
+   * Enough refusals close together and it is rested, because a server that is
+   * refusing is not helped by being asked for every tile on screen. Then it is
+   * tried again, because servers come back and the old rule had no way back:
+   * once tripped it stayed tripped until the provider was changed by hand.
+   *
+   * A refusal is a transport failure — a timeout, a 429, a 500. It is not a
+   * square the provider has never imaged, and it is not a zoom deeper than it
+   * serves; those say nothing about whether the server is well, and counting
+   * them meant flying over any coastline disqualified the imagery everywhere.
+   */
+  noteRefusal() {
+    const now = Date.now();
+    this.refusals.push(now);
+    while (this.refusals.length > 0 && now - this.refusals[0] > REFUSAL_WINDOW_MS) {
+      this.refusals.shift();
+    }
+    if (this.refusals.length >= REFUSAL_TRIP) this.rest(REFUSAL_REST_MS);
   }
 
   setDegraded(degraded) {
@@ -90792,8 +90861,7 @@ class MapTileCache {
     // stretches the last real tile instead, which is what every map does when
     // you zoom past its data.
     this.maxZoom = source?.descriptor?.maxZoom ?? Infinity;
-    this.fallbackRescues = 0;
-    this.usingFallback = false;
+    this.rest(0);
     for (const entry of this.tiles.values()) {
       if (entry.bitmap) entry.bitmap.close();
     }
@@ -90959,7 +91027,7 @@ class MapTileCache {
       // tiles, stop asking the first one at all: a server that is refusing is
       // not helped by being asked for every tile on screen.
       const chain =
-        this.usingFallback && this.fallbacks.length > 0
+        this.resting && this.fallbacks.length > 0
           ? this.fallbacks
           : [this.source, ...this.fallbacks];
       const bitmap = await this.fetchTile(job.tile, chain);
@@ -90997,7 +91065,7 @@ class MapTileCache {
       if (!url) {
         // A provider with no URL has failed its handshake — no key, or a
         // metadata call that did not answer. Fall through to the next one.
-        error = error ?? new Error(`${source.descriptor?.id ?? 'provider'} not ready`);
+        error = error ?? noCoverage(`${source.descriptor?.id ?? 'provider'} not ready`);
         continue;
       }
       try {
@@ -91018,12 +91086,15 @@ class MapTileCache {
           // the tile arrived perfectly.
           if (isNoDataCard(bitmap, blob.size)) {
             bitmap.close();
-            throw new Error('no imagery here');
+            throw noCoverage('no imagery here');
           }
         }
-        if (i > 0 && ++this.fallbackRescues >= 4) this.usingFallback = true;
+        if (i === 0) this.rest(0);
         return bitmap;
       } catch (err) {
+        // Only the first choice is on trial, and only for refusing. A square
+        // it has never imaged is not a server having a moment.
+        if (i === 0 && !err?.noCoverage) this.noteRefusal();
         error = err;
       }
     }

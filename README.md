@@ -31,7 +31,7 @@ published site, so it never goes stale and never needs rebuilding. The two are
 opposites — one carries the game and needs no network, the other needs a
 network and is always the current version. The online one also gets the
 photorealistic 3D route, which the offline bundle cannot carry because that
-needs a module loader. Its own branch, `online-singlefile`, has the details.
+needs a module loader. `node tools/online.mjs` builds it.
 
 To run the source copy: browsers refuse to load ES modules from `file://`, so
 the folder has to be served over HTTP. Any static server works; one is

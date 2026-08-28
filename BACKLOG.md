@@ -88,7 +88,11 @@ what is left · `[?]` needs a decision from you.
 - [ ] C6. Takes too long for max res to arrive — maybe fewer modes
 - [ ] C7. Preload/load everything when close, so approaching does not trigger a high-res render unless it is a LOD
 - [ ] C8. Flying up should not decrease quality
-- [ ] C9. Minimap often does not load satellite when high up
+- [x] C9. Minimap often does not load satellite when high up — four rescues by a
+      standby latched the map onto it for the session with no way back, and two
+      of the ways to earn one (no imagery here, provider not ready) are not the
+      server's fault. Now a rate, over ten seconds, transport failures only,
+      and it expires.
 - [ ] C10. Distant view should be fixed low-res LODs, getting less detailed further out
 - [ ] C11. LODs for distance render only
 - [ ] C12. Why is the distance horizon forced

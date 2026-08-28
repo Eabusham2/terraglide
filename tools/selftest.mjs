@@ -1076,6 +1076,52 @@ console.log('\nAuto graphics is a dial, not a label');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe map does not give up on satellite for good');
+{
+  const { MapTileCache } = await import('../src/ui/mapTiles.js');
+  const cache = new MapTileCache();
+  cache.setFallback([{ descriptor: { id: 'street' } }]);
+
+  // Four rescues, ever, used to latch the map onto the standby for the rest of
+  // the session with no way back — which is why the minimap stopped being
+  // satellite after a while of flying and never came back.
+  for (let i = 0; i < 5; i++) cache.noteRefusal();
+  ok('a handful of refusals is not a verdict', !cache.resting);
+
+  cache.noteRefusal();
+  ok('a run of them rests the first choice', cache.resting);
+
+  // And it comes back. The old flag had no path back at all.
+  cache.restingUntil = Date.now() - 1;
+  ok('and the rest ends by itself', !cache.resting);
+
+  // Spread out, the same number of refusals means nothing: a server is not
+  // failing because it hiccuped six times across an hour of flying.
+  const spread = new MapTileCache();
+  const now = Date.now();
+  spread.refusals = [now - 60000, now - 50000, now - 40000, now - 30000, now - 20000];
+  spread.noteRefusal();
+  ok('refusals spread over a minute do not', !spread.resting);
+
+  // One good tile clears the slate.
+  const recovered = new MapTileCache();
+  for (let i = 0; i < 5; i++) recovered.noteRefusal();
+  recovered.rest(0);
+  recovered.noteRefusal();
+  ok('and a tile that arrives forgets the ones that did not', !recovered.resting);
+
+  const src = readFileSync(new URL('../src/ui/mapTiles.js', import.meta.url), 'utf8');
+  // Ground a provider has never imaged is not the provider refusing. Counting
+  // it meant flying over any coastline disqualified the imagery everywhere,
+  // because that is exactly where Esri serves its 'no map data' card.
+  ok('a square with no imagery is not held against the server',
+    /err\?\.noCoverage/.test(src) && /throw noCoverage\('no imagery here'\)/.test(src));
+  ok('nor is a provider that never handshook', /error \?\? noCoverage\(/.test(src));
+  ok('only the first choice is on trial', /if \(i === 0 && !err\?\.noCoverage\)/.test(src));
+  ok('and the lifetime tally is gone', !/fallbackRescues|usingFallback/.test(src));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe game clock keeps up with the wall clock');
 {
   const { FixedStep, catchUpSteps, MAX_FRAME_S } = await import('../src/core/perf.js');
