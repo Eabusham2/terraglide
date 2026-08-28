@@ -324,7 +324,12 @@ what is left · `[?]` needs a decision from you.
       A pair of folded wings with the spine between them, five paths, inline SVG.
       Rendered at 16, 32 and 128 px and looked at, not just written.
 - [ ] I18. Barrel roll as in the MC mod, not a keybind
-- [ ] I19. FOV increase should depend on speed
+- [x] I19. FOV increase should depend on speed
+      Already there — clamp(horizontalSpeed/90) * 16 degrees, behind the
+      speedFovKick setting. But it also added a flat 6 degrees while speed mode
+      ran, and since horizontalSpeed now includes the multiplier that counted the
+      same boost twice: 22 degrees where 16 was meant. One input now.
+      0 standing, 0.8 walking, 5.3 gliding, 16 at a rocket, and it stops there.
 - [ ] I20. Seed hacks, custom rockets, custom size and more in the cheat panel
 - [ ] I21. Remember the trail
 

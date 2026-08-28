@@ -1460,6 +1460,31 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe view widens with how fast you are actually going');
+{
+  const rig = readFileSync(new URL('../src/camera/cameraRig.js', import.meta.url), 'utf8');
+  const kick = /const speedKick = [\s\S]*?;\n/.exec(rig)?.[0] ?? '';
+
+  ok('the field of view follows speed', /horizontalSpeed/.test(kick));
+  ok('and it can be turned off', /speedFovKick/.test(kick));
+  // `horizontalSpeed` now includes the speed multiplier, so a flat bonus for
+  // speed mode counts the same boost twice and the view lurches wider than the
+  // speed justifies.
+  ok('speed mode is not counted twice', !/speedActive/.test(kick));
+
+  // Reproduce the curve on the speeds it will see.
+  const clampTo = (v, a, b) => Math.min(b, Math.max(a, v));
+  const scale = Number(/horizontalSpeed \/ (\d+)/.exec(kick)?.[1]);
+  const span = Number(/\* (\d+)\n/.exec(kick)?.[1] ?? /0, 1\) \* (\d+)/.exec(kick)?.[1]);
+  const at = (mps) => clampTo(mps / scale, 0, 1) * span;
+  ok(`standing still does nothing  (${at(0).toFixed(1)}\u00b0)`, at(0) === 0);
+  ok(`a walk is imperceptible  (${at(4.3).toFixed(1)}\u00b0)`, at(4.3) < 1.5);
+  ok(`a glide opens it up  (${at(30).toFixed(1)}\u00b0)`, at(30) > 3 && at(30) < 8);
+  ok(`and a rocket further  (${at(90).toFixed(1)}\u00b0)`, at(90) > at(30));
+  ok(`but it stops widening  (${at(400).toFixed(1)}\u00b0)`, at(400) === at(90));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe tab icon is the thing you fly with');
 {
   const index = readFileSync(new URL('../index.html', import.meta.url), 'utf8');

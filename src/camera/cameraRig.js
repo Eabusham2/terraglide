@@ -132,8 +132,15 @@ export class CameraRig {
 
   update(player, dt, terrain) {
     const camera = this.camera;
+    // How fast you are actually going, and nothing else.
+    //
+    // There used to be a flat six degrees on top while speed mode was running,
+    // because `horizontalSpeed` was the bare velocity and did not know about
+    // it. It does now — it is the speed you travel at, multiplier included — so
+    // the bonus counted the same boost twice and the view lurched wider than
+    // the speed justified.
     const speedKick = settings.get('speedFovKick')
-      ? clamp(player.horizontalSpeed / 90, 0, 1) * 16 + (player.speedActive ? 6 : 0)
+      ? clamp(player.horizontalSpeed / 90, 0, 1) * 16
       : 0;
     const targetFov = (this.freecam.active ? settings.get('freecamFov') : settings.get('fov')) + speedKick;
     this.fov = damp(this.fov, targetFov, 5, dt);
