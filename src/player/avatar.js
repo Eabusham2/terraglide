@@ -45,7 +45,11 @@ const BOOTS = 0x23262b;
 const WING = 0x67725e;
 /** What a wing gets, against SELF_FILL. See the material factory. */
 const WING_FILL = 0.12;
-const WING_EDGE = 0x5f6a5b;
+// Dark enough to be seen. It was 0x5f6a5b against a membrane of 0x67725e —
+// luma 100 against 108, a difference of eight, which is no difference at all
+// at the size a gliding figure occupies. The leading edge is the one mark on
+// the wing that says which way it is pointing, so it has to read.
+const WING_EDGE = 0x3f4739;
 const ROCKET = 0xc9a97c;
 
 /**
@@ -251,6 +255,36 @@ function wingFraction(x) {
 /** One outline point, bent — for the pieces built from the outline directly. */
 function bentPoint(x, y) {
   return new THREE.Vector3(x, y, WING_CAMBER * wingFraction(x) ** 2);
+}
+
+/**
+ * How much darker the wing gets by the tip, as a fraction of its own colour.
+ *
+ * A flat panel of one colour has nothing in it to read. Lambert shading gives
+ * it almost nothing either: the surface barely curves, so every point on it
+ * faces about the same way and takes about the same light. Elytra are shells
+ * with a darkening toward the margin, so the wing carries that in its vertices
+ * — which costs nothing per frame and gives the surface somewhere to go.
+ */
+const WING_TIP_SHADE = 0.78;
+
+/**
+ * Paint the span gradient into the geometry, in place.
+ *
+ * Vertex colours rather than a second material or a texture: one attribute,
+ * no extra draw call, and it survives the kit weave being multiplied over the
+ * top of it.
+ */
+function shadeWing(geometry) {
+  const position = geometry.getAttribute('position');
+  const colours = new Float32Array(position.count * 3);
+  for (let i = 0; i < position.count; i += 1) {
+    const shade = 1 - (1 - WING_TIP_SHADE) * wingFraction(position.getX(i));
+    colours[i * 3] = shade;
+    colours[i * 3 + 1] = shade;
+    colours[i * 3 + 2] = shade;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3));
 }
 
 /**
@@ -498,6 +532,8 @@ export class Avatar {
     this.wings.position.set(0, 0.76, 0.092);
     body.add(this.wings);
     const wingMat = mat(WING, WING_FILL);
+    // The membrane carries a gradient of its own — see shadeWing.
+    wingMat.vertexColors = true;
     const wingEdge = mat(WING_EDGE, WING_FILL);
     this.wingL = this.makeWing(wingMat, wingEdge, -1);
     this.wingR = this.makeWing(wingMat, wingEdge, 1);
@@ -744,6 +780,7 @@ export class Avatar {
       material,
     );
     membrane.position.z = -0.006;
+    shadeWing(membrane.geometry);
     // Extrusion runs along +Z and the outline is drawn in XY, which is already
     // the plane a wing lies in: outboard along X, along the back on Y. Then it
     // is bent out of that plane — see bendWing, and the comment on the method.
@@ -759,7 +796,7 @@ export class Avatar {
       const a = front[i];
       const b = front[i + 1];
       const segment = new THREE.Mesh(
-        new THREE.BoxGeometry(a.distanceTo(b), 0.02, 0.024),
+        new THREE.BoxGeometry(a.distanceTo(b), 0.024, 0.034),
         edgeMaterial,
       );
       segment.position.copy(a).lerp(b, 0.5);
