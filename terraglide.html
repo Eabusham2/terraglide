@@ -85806,6 +85806,8 @@ class CameraRig {
     this.fov = settings.get('fov');
     this.roll = 0;
     this.thirdPersonDistance = 1;
+    /** How far into a prone glide you are, for the eye lean. */
+    this.prone = 0;
     this.shake = 0;
     this.shakeTime = 0;
     /** Damped ground clamp for the chase camera. */
@@ -85972,8 +85974,17 @@ class CameraRig {
     // below and behind. Horizontal only, and along the compass heading rather
     // than the look vector, so pitching down does not walk the camera through
     // your own ribs.
+    //
+    // And only while you are standing in it. The lean exists because your
+    // chest sits directly under your eye when you are upright; face down in a
+    // glide your chest is behind you instead, so it buys nothing there — and
+    // it costs eighteen centimetres of the thirty-six an arm can reach in
+    // front of the camera at all, which is what left a first-person glide with
+    // no hands, no arms and no firework anywhere on the screen. Damped rather
+    // than switched, so opening the wings does not jog the view.
+    this.prone = damp(this.prone, player.elytraDeployed && !player.onGround ? 1 : 0, 6, dt);
     if (settings.get('perspective') === 'first') {
-      const lean = player.height * EYE_FORWARD;
+      const lean = player.height * EYE_FORWARD * (1 - this.prone);
       this._target.x += Math.sin(player.yaw) * lean;
       this._target.z += -Math.cos(player.yaw) * lean;
     }
@@ -88116,11 +88127,16 @@ const CLOTH_TINT = 0xffffff;
 /** The firework mesh runs along its own +Y; these are what it gets aimed at. */
 /**
  * Closer than this to the eye and a part of your own body is not visible, it
- * is something you are inside. A third of a metre on a person of average
- * height, scaled with you — about the distance from your eye to the tip of
- * your nose plus a hand.
+ * is something you are inside.
+ *
+ * It was 0.34 of height, which on a 1.83 m player is a bubble 62 cm across —
+ * and a thing held in your hand sits 30 to 45 cm from your eye, so the
+ * backstop was deleting the firework at every distance a hand actually holds
+ * one at. It is meant to catch the case where an attitude nobody predicted
+ * puts a limb through the lens, so it belongs just past the near plane and not
+ * out at arm's length: 0.12 of height is 22 cm, against a near plane of 15.
  */
-const TOO_CLOSE_M = 0.34;
+const TOO_CLOSE_M = 0.12;
 const ROCKET_AXIS = new THREE.Vector3(0, 1, 0);
 /**
  * Where the held one points, in view space.
@@ -88424,6 +88440,26 @@ class Avatar {
     this.handSway = { yaw: 0, pitch: 0, lastYaw: 0, lastPitch: 0 };
     this.handPunch = 0;
     this.lastRockets = 0;
+
+    /**
+     * How the arms sit in a first-person glide: how far the shoulder swings
+     * and how wide the pair is set.
+     *
+     * Fields rather than constants because they cannot be reasoned out on
+     * paper. Where a hand lands on screen depends on the camera's pitch and
+     * the FOV of the moment as much as on the arm, so both were swept in the
+     * running game with the camera the rig actually places — see
+     * tools/probe.mjs. Guessing them from the model's own axis is what put the
+     * hands eleven centimetres in front of a fifteen-centimetre near plane and
+     * off both edges of the screen.
+     */
+    // Swept in the running game against four look angles. The screen position
+    // came back identical at every one of them, which is the pose pivot doing
+    // its job: it turns about the eye, so your hands stay where they are in the
+    // frame however you pitch. At -3.05 and 0.26 the fist lands at (0.87, 0.41)
+    // and the firework at (0.87, 0.35) — out at the edges, above the horizon
+    // you are flying at rather than across it.
+    this.glidePose = { reach: -3.05, spread: 0.26 };
 
     this.walkPhase = 0;
     this.glideBlend = 0;
@@ -88872,7 +88908,7 @@ class Avatar {
     // behind your eye when you are lying face down, so however far the arm
     // swings the hand can only get about 0.36 m in front of the camera, and it
     // peaks around -2.7. Past that it starts coming back.
-    const reach = this.firstPerson ? -2.7 : -2.5;
+    const reach = this.firstPerson ? this.glidePose.reach : -2.5;
     this.armL.pivot.rotation.x = this.armL.pivot.rotation.x * (1 - tuck) + reach * tuck;
     this.armR.pivot.rotation.x = this.armR.pivot.rotation.x * (1 - tuck) + reach * tuck;
     // In first person the arms are swept wider so they frame the view instead
@@ -88896,7 +88932,7 @@ class Avatar {
     // 50 degrees against a half-frame of 55 at the default 78 FOV: the hands
     // sit near the edges and the forearms sweep in from the corners, which is
     // the shape that was wanted.
-    const spread = this.firstPerson ? 0.32 : 0.85;
+    const spread = this.firstPerson ? this.glidePose.spread : 0.85;
     this.armL.pivot.rotation.z = -spread * tuck;
     this.armR.pivot.rotation.z = spread * tuck;
 
@@ -88971,16 +89007,41 @@ class Avatar {
     // into something you can see rather than something you are inside.
     const inside = this.firstPerson;
     const prone = inside && this.glideBlend > 0.5;
-    this.armL.pivot.visible = true;
-    this.armR.pivot.visible = true;
     this.torso.visible = true;
     this.legL.pivot.visible = !prone;
     this.legR.pivot.visible = !prone;
 
-    // No separate view model: the rocket is already in the hand of the arm you
-    // can see, which is the whole idea.
-    this.viewModel.visible = false;
+    // Which arms you get depends on where your shoulders have ended up.
+    //
+    // Standing, the shoulder is a quarter of a metre below your eye and the
+    // arm hangs down from it. Look down and there it is, at half a metre,
+    // seen from the side — which is the whole reason the body is drawn at all,
+    // and a view model would be a worse version of it.
+    //
+    // Prone in a glide the pose turns about your eye, so the shoulder arrives
+    // *at* the camera and the arm reaches away from it. You are then looking
+    // down the length of a 0.7 m box from its own root, and what that draws is
+    // a flat slab across a fifth of the screen whatever it is coloured or lit
+    // like — not an arm. No arm pose fixes it, because the problem is that the
+    // camera is inside the shoulder.
+    //
+    // That is the case a view model exists for, and there has been one here
+    // all along: hands drawn in view space at a distance chosen for the frame
+    // rather than inherited from a skeleton. So the glide gets those, the
+    // world arms come off with them so there is never a second pair, and the
+    // world firework comes off too because the view model carries its own.
+    this.armL.pivot.visible = !prone;
+    this.armR.pivot.visible = !prone;
+    this.viewModel.visible = prone;
 
+    // The view model is placed in the frame rather than in the world, so it is
+    // posed here rather than by the body pose above — and before aimRocket,
+    // which turns the firework in a hand whose rotation this sets.
+    //
+    // It had stopped being called at all when the world arms took over. The
+    // group sat at the camera's own origin, so switching back to it drew
+    // nothing: every part of it was at (0, 0, 0), inside the near plane.
+    if (this.viewModel.visible) this.updateHand(player, dt, camera);
     this.aimRocket(player);
     // Last, because it measures against where the camera actually is.
     this.hideWhatIsInYourEye(camera);
@@ -89000,6 +89061,12 @@ class Avatar {
   hideWhatIsInYourEye(camera) {
     if (!camera || !this.firstPerson) {
       if (this.rocket) this.rocket.visible = true;
+      return;
+    }
+    // The view model carries its own firework. Drawing the world one as well
+    // is two fireworks, one of them inside your head.
+    if (this.viewModel.visible) {
+      if (this.rocket) this.rocket.visible = false;
       return;
     }
     this.root.updateMatrixWorld(true);

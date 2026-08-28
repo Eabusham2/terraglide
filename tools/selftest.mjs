@@ -804,10 +804,17 @@ console.log('\nThe body you can see');
       rig.root.updateMatrixWorld(true);
       const eye = new THREE.Vector3(0, 0.94 * 1.83, 0);
       const at = new THREE.Vector3();
+      // A glide swaps the world arms for the view model, so what is drawn is
+      // what gets measured. Naming one of them outright would have this check
+      // reporting on a hidden object, which is the same class of mistake as
+      // measuring against a camera that is not where the camera is.
+      rig.hideWhatIsInYourEye(null);
+      ok('gliding, the view model is what is drawn, not the world arms',
+        rig.viewModel.visible && !rig.armR.pivot.visible);
       for (const [what, part] of [['your hand', rig.fistR], ['the firework', rig.rocket]]) {
         part.getWorldPosition(at);
-        ok(`gliding, ${what} clears the near plane  (${at.distanceTo(eye).toFixed(2)} m of ${NEAR})`,
-          at.distanceTo(eye) > NEAR + 0.1);
+        ok(`gliding, ${what} would clear the near plane if drawn`
+          + `  (${at.distanceTo(eye).toFixed(2)} m of ${NEAR})`, at.distanceTo(eye) > NEAR + 0.1);
       }
       // And the backstop that deletes anything inside your eye must not be set
       // so wide that it deletes a thing held at arm's length — which it was, at

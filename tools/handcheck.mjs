@@ -290,20 +290,27 @@ for (const pitch of [-0.9, -0.55, -0.2, 0.15]) {
       for (let n = o; n; n = n.parent) if (!n.visible) { chain = false; break; }
       return { ahead: -local.z, sx: ndc.x * 0.5 + 0.5, sy: -ndc.y * 0.5 + 0.5, chain };
     };
-    return { pitch: pi, fist: look(a.fistR), rocket: look(a.rocket),
+    // Whichever pair is actually drawn. A glide swaps the world arms for the
+    // view model, so naming one of them here would measure a hidden object and
+    // report a screen position nothing occupies.
+    const worldArms = a.armR.pivot.visible;
+    return { pitch: pi, drawn: worldArms ? 'world arms' : 'view model',
+      fist: look(worldArms ? a.fistR : a.handR),
+      rocket: look(worldArms ? a.rocket : a.handRocket),
       near: cam.near, fov: cam.fov };
   }, pitch);
   rows.push(row);
 }
-console.log(`${'pitch'.padStart(6)} ${'ahead'.padStart(7)}  ${'fist x/y'.padEnd(13)}`
-  + ` ${'rocket x/y'.padEnd(13)} on screen?`);
+console.log(`${'pitch'.padStart(6)} ${'drawn'.padEnd(11)} ${'ahead'.padStart(6)}  `
+  + `${'fist x/y'.padEnd(13)} ${'rocket x/y'.padEnd(13)} on screen?`);
 let bad = 0;
 for (const row of rows) {
   const inFrame = (q) => q.chain && q.ahead > row.near + 0.06
     && q.sx > 0 && q.sx < 1 && q.sy > 0 && q.sy < 1;
   const good = inFrame(row.fist) && inFrame(row.rocket);
   if (!good) bad += 1;
-  console.log(`${String(row.pitch).padStart(6)} ${row.fist.ahead.toFixed(2).padStart(7)}  `
+  console.log(`${String(row.pitch).padStart(6)} ${row.drawn.padEnd(11)} `
+    + `${row.fist.ahead.toFixed(2).padStart(6)}  `
     + `${`${row.fist.sx.toFixed(2)}/${row.fist.sy.toFixed(2)}`.padEnd(13)} `
     + `${`${row.rocket.sx.toFixed(2)}/${row.rocket.sy.toFixed(2)}`.padEnd(13)} `
     + `${good ? 'yes' : 'NO — you can see nothing of yourself'}`);

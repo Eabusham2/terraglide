@@ -1037,16 +1037,41 @@ export class Avatar {
     // into something you can see rather than something you are inside.
     const inside = this.firstPerson;
     const prone = inside && this.glideBlend > 0.5;
-    this.armL.pivot.visible = true;
-    this.armR.pivot.visible = true;
     this.torso.visible = true;
     this.legL.pivot.visible = !prone;
     this.legR.pivot.visible = !prone;
 
-    // No separate view model: the rocket is already in the hand of the arm you
-    // can see, which is the whole idea.
-    this.viewModel.visible = false;
+    // Which arms you get depends on where your shoulders have ended up.
+    //
+    // Standing, the shoulder is a quarter of a metre below your eye and the
+    // arm hangs down from it. Look down and there it is, at half a metre,
+    // seen from the side — which is the whole reason the body is drawn at all,
+    // and a view model would be a worse version of it.
+    //
+    // Prone in a glide the pose turns about your eye, so the shoulder arrives
+    // *at* the camera and the arm reaches away from it. You are then looking
+    // down the length of a 0.7 m box from its own root, and what that draws is
+    // a flat slab across a fifth of the screen whatever it is coloured or lit
+    // like — not an arm. No arm pose fixes it, because the problem is that the
+    // camera is inside the shoulder.
+    //
+    // That is the case a view model exists for, and there has been one here
+    // all along: hands drawn in view space at a distance chosen for the frame
+    // rather than inherited from a skeleton. So the glide gets those, the
+    // world arms come off with them so there is never a second pair, and the
+    // world firework comes off too because the view model carries its own.
+    this.armL.pivot.visible = !prone;
+    this.armR.pivot.visible = !prone;
+    this.viewModel.visible = prone;
 
+    // The view model is placed in the frame rather than in the world, so it is
+    // posed here rather than by the body pose above — and before aimRocket,
+    // which turns the firework in a hand whose rotation this sets.
+    //
+    // It had stopped being called at all when the world arms took over. The
+    // group sat at the camera's own origin, so switching back to it drew
+    // nothing: every part of it was at (0, 0, 0), inside the near plane.
+    if (this.viewModel.visible) this.updateHand(player, dt, camera);
     this.aimRocket(player);
     // Last, because it measures against where the camera actually is.
     this.hideWhatIsInYourEye(camera);
@@ -1066,6 +1091,12 @@ export class Avatar {
   hideWhatIsInYourEye(camera) {
     if (!camera || !this.firstPerson) {
       if (this.rocket) this.rocket.visible = true;
+      return;
+    }
+    // The view model carries its own firework. Drawing the world one as well
+    // is two fireworks, one of them inside your head.
+    if (this.viewModel.visible) {
+      if (this.rocket) this.rocket.visible = false;
       return;
     }
     this.root.updateMatrixWorld(true);
