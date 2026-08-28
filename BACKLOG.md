@@ -160,8 +160,16 @@ what is left · `[?]` needs a decision from you.
       toward its target, never past it, never back from beyond it. The brake is
       60.7 m/s -> 0, and each rocket still settles at its own cruise.
 - [ ] D8. More speed/movement initially when going from slow to rocket speed
-- [ ] D9. Speed accuracy breaks over time — the player slows down
-- [ ] D10. Speed readout says faster than reality
+- [x] D9. Speed accuracy breaks over time — the player slows down
+      Same frame-clock cause: as the world loaded and the frame rate fell, the
+      catch-up ceiling threw the difference away and you really did slow down
+      while the readout did not. See MAX_FRAME_S.
+- [x] D10. Speed readout says faster than reality
+      Two causes, both fixed. The big one was the frame clock: below 4 fps the
+      world ran in slow motion, so the model said 30 m/s while you covered 15 —
+      the readout was right and the world was slow. The second: `speed` returned
+      the bare velocity while the controller moves you by velocity x multiplier,
+      so with speed mode on it read half, not double. Both now agree.
 - [ ] D11. Improve walking speed and being flat on the ground
 
 ## E. Speed mode

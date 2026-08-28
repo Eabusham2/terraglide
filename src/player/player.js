@@ -150,12 +150,29 @@ export class Player extends Emitter {
     return Math.max(0.3, this.height * 0.21);
   }
 
+  /**
+   * How fast you are actually travelling, metres a second.
+   *
+   * The velocity times the speed multiplier, because that is what the
+   * controller moves you by: `position += velocity * step * multiplier`. This
+   * returned the bare velocity, so with speed mode running — the whole point
+   * of which is to cover twice the ground — the readout showed half of what
+   * you were doing, and `distanceTravelled` a few lines away in the controller
+   * already used the multiplied figure. Two answers to one question, in one
+   * file.
+   */
   get speed() {
-    return this.velocity.length();
+    return this.velocity.length() * this.speedMultiplier;
   }
 
+  /** The same, flattened. */
   get horizontalSpeed() {
-    return Math.hypot(this.velocity.x, this.velocity.z);
+    return Math.hypot(this.velocity.x, this.velocity.z) * this.speedMultiplier;
+  }
+
+  /** Velocity as the flight model sees it, before speed mode stretches it. */
+  get modelSpeed() {
+    return this.velocity.length();
   }
 
   get altitudeAboveGround() {

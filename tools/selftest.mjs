@@ -1097,6 +1097,30 @@ console.log('\nAuto graphics is a dial, not a label');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe speed on screen is the speed you are doing');
+{
+  const player = readFileSync(new URL('../src/player/player.js', import.meta.url), 'utf8');
+  const controller = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');
+
+  // The controller moves you by `velocity * step * multiplier`, and counts
+  // distance the same way — but `speed` returned the bare velocity. With speed
+  // mode running, whose entire point is covering twice the ground, the readout
+  // showed half of what you were doing. Two answers to one question, one file
+  // apart.
+  ok('the controller moves you by the multiplied velocity',
+    /player\.position\.x \+= player\.velocity\.x \* step \* multiplier/.test(controller));
+  ok('and counts distance the same way',
+    /distanceTravelled \+= player\.velocity\.length\(\) \* step \* multiplier/.test(controller));
+  ok('so the readout does too',
+    /get speed\(\) \{[\s\S]{0,80}?velocity\.length\(\) \* this\.speedMultiplier/.test(player));
+  ok('flattened as well',
+    /get horizontalSpeed\(\)[\s\S]{0,140}?\* this\.speedMultiplier/.test(player));
+  // The flight model still has its own untouched figure, since the elytra
+  // constants are tuned in it.
+  ok('and the flight model keeps its own', /get modelSpeed\(\)/.test(player));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nSpeed and look angle read in the units you asked for');
 {
   const { formatSpeed, formatPitch } = await import('../src/core/units.js');
