@@ -272,12 +272,25 @@ export class Avatar {
     this.head.position.y = 0.9;
     body.add(this.head);
 
+    // The crown lands on exactly 1.0, because the model is built one unit tall
+    // and scaled by the player's height — a hair that stopped at 0.9775 made
+    // everyone 2 cm shorter than the number they had set, and put the eye
+    // fractionally higher up the skull than it belongs.
     this.hair = new THREE.Mesh(new THREE.BoxGeometry(0.132, 0.045, 0.142), mat(0x2f2a26));
-    this.hair.position.y = 0.955;
+    this.hair.position.y = 1 - 0.045 / 2;
     body.add(this.hair);
 
-    this.armL = this.makeLimb(0.055, 0.3, mat(JACKET), -0.088, 0.79);
-    this.armR = this.makeLimb(0.055, 0.3, mat(JACKET), 0.088, 0.79);
+    // Arms hang beside the chest, not inside it.
+    //
+    // At x = 0.088 with a chest 0.17 wide, the shoulder joint sat three
+    // thousandths outside the jacket and 45 per cent of each arm was buried in
+    // it — so the standing figure had no arms in silhouette at all, just a
+    // slab with a head, and the firework appeared to float beside a shoulder
+    // with nothing holding it. Biacromial breadth is 0.23 of stature, which
+    // puts the joints at 0.115 and the inner face of the arm flush with the
+    // side of the chest: the whole arm shows, and the shoulder still joins.
+    this.armL = this.makeLimb(0.055, 0.3, mat(JACKET), -0.115, 0.79);
+    this.armR = this.makeLimb(0.055, 0.3, mat(JACKET), 0.115, 0.79);
     // The legs reach the ground.
     //
     // They were 0.36 long from a hip at 0.51, so they stopped at 0.15 — a
@@ -291,8 +304,22 @@ export class Avatar {
     // meets the leg bottom at 0.05 and the sole lands on exactly 0. See the
     // boots below, which are positioned from these numbers rather than beside
     // them.
-    this.legL = this.makeLimb(0.062, LEG_LENGTH, mat(TROUSERS), -0.030, HIP_Y);
-    this.legR = this.makeLimb(0.062, LEG_LENGTH, mat(TROUSERS), 0.030, HIP_Y);
+    //
+    // Set apart far enough to be two of them. At x = 0.030 with a leg 0.062
+    // wide the pair overlapped by two thousandths, so they drew as one column
+    // of trouser from hip to floor — a figure standing on a plinth. Thigh
+    // centres are about 0.045 of stature apart, which leaves 0.028 between
+    // them: five centimetres of daylight on a person, and enough that the
+    // glide tuck can bring the feet together without them passing through each
+    // other.
+    // 0.078 thick and set at 0.051, so the pair measures 0.180 across the
+    // thighs against a bitrochanteric breadth of 0.191, with 44 mm of daylight
+    // between them on a 1.83 m player. They were 0.062 at 0.030, which is both
+    // too thin for a thigh and two thousandths short of the gap needed to be
+    // two of anything: they intersected, and drew as one column of trouser
+    // from hip to floor.
+    this.legL = this.makeLimb(0.078, LEG_LENGTH, mat(TROUSERS), -0.051, HIP_Y);
+    this.legR = this.makeLimb(0.078, LEG_LENGTH, mat(TROUSERS), 0.051, HIP_Y);
     body.add(this.armL.pivot, this.armR.pivot, this.legL.pivot, this.legR.pivot);
     this.cloth.jacket.push(this.armL.limb.material, this.armR.limb.material);
     this.cloth.trousers.push(this.legL.limb.material, this.legR.limb.material);
@@ -303,7 +330,7 @@ export class Avatar {
     // the offset that puts the boot's top against the leg's bottom is half the
     // leg plus half the boot. Derived rather than typed, because typing it is
     // how the boots ended up hanging a quarter of a metre clear of the legs.
-    const bootGeo = new THREE.BoxGeometry(0.075, BOOT_HEIGHT, 0.135);
+    const bootGeo = new THREE.BoxGeometry(0.088, BOOT_HEIGHT, 0.135);
     const bootY = -(LEG_LENGTH + BOOT_HEIGHT) / 2;
     this.bootL = new THREE.Mesh(bootGeo, mat(BOOTS));
     this.bootL.position.set(0, bootY, -0.02);

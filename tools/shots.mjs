@@ -33,7 +33,10 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const PORT = 8080;
+// Port 0 lets the OS pick a free one. A fixed port meant a second run while
+// the first was still shutting down died on EADDRINUSE before it drew
+// anything, which looks exactly like the game failing to boot.
+let PORT = 0;
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -154,7 +157,8 @@ function measure(png) {
 }
 
 const server = serve();
-await new Promise((done) => server.listen(PORT, '127.0.0.1', done));
+await new Promise((done) => server.listen(0, '127.0.0.1', done));
+PORT = server.address().port;
 await mkdir(OUT, { recursive: true });
 
 const { chromium } = await import('playwright');
@@ -215,6 +219,28 @@ const views = [
     p.velocity.set(0, 0, -45);
     p.onGround = false;
     p.pitch = -0.25;
+    p.toggleElytra(true);
+  }],
+  // The chase camera on a gliding player, looking down at him — the frame the
+  // wings and the body actually get judged in, and the one the model has been
+  // wrong in. Nose-down as well as level, because a wing that reads from
+  // straight behind can still be a plank from above.
+  ['glide-third', () => {
+    window.terraglide.settings.set('perspective', 'third');
+    const p = window.terraglide.player;
+    p.position.y = p.groundHeight + 700;
+    p.velocity.set(0, -6, -48);
+    p.onGround = false;
+    p.pitch = -0.5;
+    p.toggleElytra(true);
+  }],
+  ['glide-first', () => {
+    window.terraglide.settings.set('perspective', 'first');
+    const p = window.terraglide.player;
+    p.position.y = p.groundHeight + 700;
+    p.velocity.set(0, -6, -48);
+    p.onGround = false;
+    p.pitch = -0.55;
     p.toggleElytra(true);
   }],
 ];

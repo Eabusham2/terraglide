@@ -686,6 +686,75 @@ console.log('\nThe body you can see');
       Math.abs(avatar.body.position.z) < 0.01, avatar.body.position.z.toFixed(3));
   }
 
+  // The silhouette. This is what the chase camera actually shows, and it is
+  // what was wrong: a 2.9 metre wingspan on a 1.83 metre player, with a body
+  // under it lit by nothing. It is checked in numbers here because it went
+  // wrong twice and both times it took a screenshot to notice.
+  {
+    const rig = new Avatar(new THREE.Scene());
+    rig.wings.visible = true;
+    rig.wingL.rotation.set(0.15, -0.35, 0.2);
+    rig.wingR.rotation.set(0.15, 0.35, -0.2);
+    rig.root.updateMatrixWorld(true);
+
+    const own = (mesh) => {
+      mesh.geometry.computeBoundingBox();
+      return mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld);
+    };
+    const spanOf = (b) => b.max.x - b.min.x;
+
+    const spread = spanOf(new THREE.Box3().setFromObject(rig.wings));
+    ok('the wings span about as wide as you are tall, like an elytron',
+      spread > 0.9 && spread < 1.15, `${spread.toFixed(3)} of height`);
+    ok('and not the 1.6 of a hang glider', spread < 1.3, `${spread.toFixed(3)}`);
+
+    // Measured off the geometry rather than the posed box, because the pose
+    // tilts the wing and a tilted bounding box is not a chord.
+    const membrane = rig.wingR.children[0];
+    membrane.geometry.computeBoundingBox();
+    const g = membrane.geometry.boundingBox;
+    const aspect = (g.max.x - g.min.x) / (g.max.y - g.min.y);
+    ok('with an elytron aspect rather than a paper aeroplane one',
+      aspect > 1.2 && aspect < 1.8, `${aspect.toFixed(2)}:1`);
+
+    // A flat prism is 0.012 thick and has a handful of normals. A shell is
+    // neither, and it is the difference between a wing and a pale board.
+    const depth = g.max.z - g.min.z;
+    ok('the wing is a curved shell, not a flat plank', depth > 0.03,
+      `${depth.toFixed(3)} deep against 0.012 for the extrusion alone`);
+    const normals = membrane.geometry.getAttribute('normal');
+    const dirs = new Set();
+    for (let i = 0; i < normals.count; i += 1) {
+      dirs.add(`${normals.getX(i).toFixed(1)},${normals.getY(i).toFixed(1)},${normals.getZ(i).toFixed(1)}`);
+    }
+    ok('so it shades across its span instead of as one flat colour',
+      dirs.size > 12, `${dirs.size} distinct normals`);
+
+    // The model is built one unit tall and scaled by your height. If it is not
+    // one unit tall, you are not the height you asked for.
+    rig.wings.visible = false;
+    rig.root.updateMatrixWorld(true);
+    const body = new THREE.Box3().setFromObject(rig.body);
+    ok('the sole stands on the ground', Math.abs(body.min.y) < 0.002, body.min.y.toFixed(4));
+    ok('and the crown is exactly one unit up', Math.abs(body.max.y - 1) < 0.002,
+      body.max.y.toFixed(4));
+
+    // A chest is 32 cm across and 19 cm deep on a 1.83 m person, not 48 and 27.
+    const torso = own(rig.torso);
+    ok('the chest is a chest rather than a wardrobe',
+      torso.max.x - torso.min.x < 0.2, `${(torso.max.x - torso.min.x).toFixed(3)} of height`);
+
+    // Every garment carries its own fill, so nothing on the character can go
+    // to a black slab when the sun is behind it.
+    let darkest = 1;
+    for (const mesh of [rig.torso, rig.head, rig.legR.limb, rig.bootR, rig.armR.limb]) {
+      const e = mesh.material.emissive;
+      darkest = Math.min(darkest, e.r * 0.299 + e.g * 0.587 + e.b * 0.114);
+    }
+    ok('and nothing on the body is left with no fill at all', darkest > 0.05,
+      `darkest fill ${darkest.toFixed(3)}`);
+  }
+
   // Upright on the ground, along the flight path in the air, never inverted.
   {
     let worstUp = 1;
@@ -2395,18 +2464,55 @@ console.log('\nThe player stands on the ground and the feet are attached');
   // metre from your eye, and at half a metre wide it is a wall.
   {
     const box = (o) => new THREE.Box3().setFromObject(o);
+    // A limb's own geometry, without its children: setFromObject walks down,
+    // so measuring a leg measured the boot welded to the bottom of it — which
+    // is wider than the trouser and is not a hip.
+    const thigh = (mesh) => {
+      mesh.geometry.computeBoundingBox();
+      return mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld);
+    };
     const t = box(avatar.torso);
     const measures = {
       'chest width': [t.max.x - t.min.x, 0.155],
       'chest depth': [t.max.z - t.min.z, 0.1],
       'head height': [box(avatar.head).max.y - box(avatar.head).min.y, 0.13],
-      'shoulder span': [box(avatar.armR.limb).max.x - box(avatar.armL.limb).min.x, 0.23],
-      'hip span': [box(avatar.legR.limb).max.x - box(avatar.legL.limb).min.x, 0.115],
+      // Outer face to outer face is deltoid breadth, not biacromial. 0.23 is
+      // the distance between the shoulder *joints*, which is where the arm
+      // pivots are put — the arms themselves hang outside it, and measuring
+      // their outsides against it counted half an arm twice.
+      'shoulder span': [box(avatar.armR.limb).max.x - box(avatar.armL.limb).min.x, 0.255],
+      'shoulder joints': [avatar.armR.pivot.position.x - avatar.armL.pivot.position.x, 0.23],
+      // Measured at the thighs, against bitrochanteric breadth — the widest
+      // across the hips, which is what the outer faces of two thighs are.
+      //
+      // It used to be checked against 0.115, which is bi-iliac breadth: the
+      // pelvis, measured at the crests, above and inside where the legs hang.
+      // A leg is 0.062 thick, so an outer-to-outer span of 0.115 needs the
+      // centres nine thousandths closer together than the legs are wide — the
+      // only way to pass it was for the two legs to overlap, which is exactly
+      // what they did, and the figure had one column of trouser from hip to
+      // floor instead of a pair of legs. The measurement was wrong, not the
+      // model.
+      'hip span': [thigh(avatar.legR.limb).max.x - thigh(avatar.legL.limb).min.x, 0.19],
     };
     for (const [name, [mine, actual]] of Object.entries(measures)) {
       const ratio = mine / actual;
       ok(`${name} is a person's  (${ratio.toFixed(2)}x)`, ratio > 0.8 && ratio < 1.25);
     }
+
+    // And there are two of them. This is the check the old target made
+    // impossible, and the one that would have caught it.
+    const gap = thigh(avatar.legR.limb).min.x - thigh(avatar.legL.limb).max.x;
+    ok(`there is daylight between the legs  (${(gap * 1830).toFixed(0)} mm on a 1.83 m player)`,
+      gap > 0.01);
+
+    // Likewise the arms: at x = 0.088 against a chest 0.17 wide, 45 per cent
+    // of each arm was inside the jacket and the standing figure had no arms in
+    // silhouette at all.
+    const chest = t.max.x;
+    const armOut = thigh(avatar.armR.limb).max.x - chest;
+    ok(`the arms hang beside the chest rather than inside it  (${(armOut * 1830).toFixed(0)} mm clear)`,
+      armOut > 0.02);
   }
 
   // The capsule you collide with is a person too. 0.21 of height is an 0.83 m
