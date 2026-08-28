@@ -28,6 +28,31 @@ const WING_EDGE = 0x5f6a5b;
 const ROCKET = 0xc9a97c;
 
 /**
+ * The character carries its own fill light.
+ *
+ * The scene has a sun and a hemisphere, which is the right lighting for a
+ * landscape and the wrong lighting for the one object that has to stay
+ * readable in it. Glide with the sun ahead of you and every surface pointing
+ * at the chase camera is a back face: it gets the hemisphere's ground colour,
+ * 0x4a4a44, and nothing else. A jacket at 0x53627a lit by that alone is a
+ * black slab with a silhouette — which is exactly what the body looked like
+ * from behind, a grey wardrobe hanging under the wings.
+ *
+ * A film crew fixes it with a fill light off the key. Doing that literally
+ * would mean a light following the camera, and a light is a light: every
+ * shader in the world pays for it, for the sake of one object a couple of
+ * hundred triangles big. Self-emissive is the same fill with none of that
+ * cost, and it lands on the character and on nothing else in the world.
+ *
+ * A fraction of each garment's own colour, so the fill is the colour the
+ * garment is rather than a grey wash over it — and a floor under it, because
+ * a quarter of nearly nothing is still nothing and the trousers and the boots
+ * are dark enough that the fraction alone left them black.
+ */
+const SELF_FILL = 0.28;
+const FILL_FLOOR = 0.085;
+
+/**
  * How far the head may twist before the body gives up and turns to follow.
  * Minecraft uses fifty degrees and it is the single detail that makes a
  * first-person body read as a body rather than a pair of floating arms: you
@@ -154,6 +179,53 @@ const HIP_Y = 0.51;
 const LEG_LENGTH = 0.46;
 const BOOT_HEIGHT = 0.05;
 
+/**
+ * How far the wing tip falls below, and trails behind, the shoulder it grows
+ * from, as fractions of standing height.
+ *
+ * Applied by the square of how far out a point is, so the root stays flat
+ * against the back and the curve gathers toward the tip — which is the shape a
+ * shell has and a board does not.
+ */
+const WING_DROOP = 0.072;
+const WING_SWEEP = 0.03;
+/** Where the wing meets the back. Everything outboard of this bends. */
+const WING_ROOT_X = 0.045;
+/** The tip, and so half the spread. */
+const WING_TIP_X = 0.505;
+
+/** How far out a point is: 0 at the root, 1 at the tip. */
+function wingFraction(x) {
+  return clamp((Math.abs(x) - WING_ROOT_X) / (WING_TIP_X - WING_ROOT_X), 0, 1);
+}
+
+/** One outline point, bent — for the pieces built from the outline directly. */
+function bentPoint(x, y) {
+  const t = wingFraction(x) ** 2;
+  return new THREE.Vector3(x, y - WING_DROOP * t, WING_SWEEP * t);
+}
+
+/**
+ * Bend an extruded wing into a shell, in place.
+ *
+ * The displacement is a function of x alone, so the top surface, the bottom
+ * surface and the rim all move together and the solid stays solid. The normals
+ * are then thrown away and recomputed, which is the entire point of doing it:
+ * the flat prism's normals were what made it shade like a sheet of paper.
+ */
+function bendWing(geometry) {
+  const position = geometry.getAttribute('position');
+  for (let i = 0; i < position.count; i += 1) {
+    const t = wingFraction(position.getX(i)) ** 2;
+    position.setY(i, position.getY(i) - WING_DROOP * t);
+    position.setZ(i, position.getZ(i) + WING_SWEEP * t);
+  }
+  position.needsUpdate = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+}
+
 export class Avatar {
   constructor(scene) {
     this.root = new THREE.Group();
@@ -164,7 +236,12 @@ export class Avatar {
     this.body = body;
     this.root.add(body);
 
-    const mat = (colour) => new THREE.MeshLambertMaterial({ color: colour });
+    const mat = (colour) => {
+      const emissive = new THREE.Color(colour).multiplyScalar(SELF_FILL);
+      const level = emissive.r * 0.299 + emissive.g * 0.587 + emissive.b * 0.114;
+      if (level > 0 && level < FILL_FLOOR) emissive.multiplyScalar(FILL_FLOOR / level);
+      return new THREE.MeshLambertMaterial({ color: colour, emissive });
+    };
     // Kept so a texture can be dropped onto the right pieces once it arrives.
     this.cloth = { jacket: [], trousers: [], wing: [], rocket: [] };
 
@@ -379,15 +456,41 @@ export class Avatar {
    * to a point — extruded from a profile, which costs a few dozen triangles
    * and is the difference between a wing and a plank.
    *
+   * The extrusion alone was still a prism, though: one polygon pushed 14 mm
+   * along Z, so every point on the top surface shared a normal and the whole
+   * wing shaded as one flat colour whatever the light was doing. A pale board.
+   * Real elytra are shells — they curve down and back from the shoulder — and
+   * that curve is what puts a gradient across the surface and makes it read as
+   * a wing rather than as a cut-out. So the extrusion is bent after the fact
+   * and its normals recomputed from the geometry that results: one pass over a
+   * few hundred floats at build time, and nothing at all per frame.
+   *
    * The profile is drawn for the right wing and mirrored by negating x, so one
    * set of numbers describes both and they cannot drift apart.
    */
   makeWing(material, edgeMaterial, side) {
     const group = new THREE.Group();
 
+    // Outline in fractions of standing height: x outboard from the spine, y
+    // along the back with +y toward the shoulders.
+    //
+    //   span 0.460   chord 0.306   aspect 1.50:1
+    //   spread 2 x 0.505 = 1.01 of standing height
+    //
+    // It ran to x = 0.8 before, so the pair spanned 1.60 of height — 2.9 metres
+    // on a 1.83 metre player, nine times his own width. That is a hang glider,
+    // and from the chase camera it was the entire frame with a person hanging
+    // under it as a detail. An elytron spans about as wide as its wearer is
+    // tall, and has an aspect around 1.5:1; a paper aeroplane is nearer 2:1 and
+    // a hang glider wider still. Both numbers are checked in the self-test,
+    // because the silhouette is the character.
+    //
+    // Ten points rather than eight, so the trailing edge can carry the
+    // elytron's long taper back to the hip instead of cutting straight across.
     const outline = [
-      [0, 0.17], [0.3, 0.15], [0.58, 0.06], [0.76, -0.1],
-      [0.8, -0.19], [0.6, -0.23], [0.24, -0.25], [0, -0.21],
+      [0.045, 0.111], [0.170, 0.119], [0.310, 0.085], [0.430, 0.009],
+      [0.505, -0.077], [0.470, -0.145], [0.360, -0.179], [0.220, -0.187],
+      [0.105, -0.162], [0.045, -0.119],
     ];
     const shape = new THREE.Shape();
     shape.moveTo(side * outline[0][0], outline[0][1]);
@@ -396,27 +499,38 @@ export class Avatar {
 
     const membrane = new THREE.Mesh(
       new THREE.ExtrudeGeometry(shape, {
-        depth: 0.014,
+        depth: 0.012,
         bevelEnabled: true,
-        bevelThickness: 0.004,
-        bevelSize: 0.004,
+        bevelThickness: 0.003,
+        bevelSize: 0.003,
         bevelSegments: 1,
         curveSegments: 1,
       }),
       material,
     );
-    membrane.position.z = -0.007;
+    membrane.position.z = -0.006;
     // Extrusion runs along +Z and the outline is drawn in XY, which is already
-    // the plane a wing lies in: outboard along X, along the back on Y.
+    // the plane a wing lies in: outboard along X, along the back on Y. Then it
+    // is bent out of that plane — see bendWing, and the comment on the method.
+    bendWing(membrane.geometry);
     group.add(membrane);
 
-    // The leading edge, thicker and darker, running from the shoulder to the
-    // tip. It is what catches the light and tells you which way the wing is
-    // pointing when the membrane is edge-on.
-    const spar = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.034, 0.034), edgeMaterial);
-    spar.position.set(side * 0.4, 0.12, 0);
-    spar.rotation.z = side * -0.31;
-    group.add(spar);
+    // The leading edge, darker and standing a little proud, built from the
+    // outline's own front points so it follows the bend instead of cutting
+    // across it. One straight bar over a curved wing is the join that gives a
+    // flat plank away, and it is what the old single 0.8-long spar was.
+    const front = outline.slice(0, 5).map(([x, y]) => bentPoint(side * x, y));
+    for (let i = 0; i < front.length - 1; i += 1) {
+      const a = front[i];
+      const b = front[i + 1];
+      const segment = new THREE.Mesh(
+        new THREE.BoxGeometry(a.distanceTo(b), 0.02, 0.024),
+        edgeMaterial,
+      );
+      segment.position.copy(a).lerp(b, 0.5);
+      segment.rotation.z = Math.atan2(b.y - a.y, b.x - a.x);
+      group.add(segment);
+    }
 
     group.userData.side = side;
     return group;
