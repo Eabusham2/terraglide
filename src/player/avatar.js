@@ -157,11 +157,16 @@ const CLOTH_TINT = 0xffffff;
 /** The firework mesh runs along its own +Y; these are what it gets aimed at. */
 /**
  * Closer than this to the eye and a part of your own body is not visible, it
- * is something you are inside. A third of a metre on a person of average
- * height, scaled with you — about the distance from your eye to the tip of
- * your nose plus a hand.
+ * is something you are inside.
+ *
+ * It was 0.34 of height, which on a 1.83 m player is a bubble 62 cm across —
+ * and a thing held in your hand sits 30 to 45 cm from your eye, so the
+ * backstop was deleting the firework at every distance a hand actually holds
+ * one at. It is meant to catch the case where an attitude nobody predicted
+ * puts a limb through the lens, so it belongs just past the near plane and not
+ * out at arm's length: 0.12 of height is 22 cm, against a near plane of 15.
  */
-const TOO_CLOSE_M = 0.34;
+const TOO_CLOSE_M = 0.12;
 const ROCKET_AXIS = new THREE.Vector3(0, 1, 0);
 /**
  * Where the held one points, in view space.

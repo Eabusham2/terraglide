@@ -71,6 +71,12 @@ const POSES = {
       velocity: new THREE.Vector3(0, -10, -44), mode: 'glide' },
     camera: [4.6, 2.0, 0], look: [0, 1.3, 0],
   },
+  // Mid-stride. The limbs moved, so the walk wants looking at as well as the
+  // standing pose — legs that are wider apart can swing into each other.
+  'walk': {
+    player: { horizontalSpeed: 4.2, velocity: new THREE.Vector3(0, 0, -4.2) },
+    frames: 53, camera: [2.9, 1.1, -2.2], look: [0, 0.95, 0],
+  },
   'stand-front': { player: {}, camera: [0, 1.1, -3.6], look: [0, 1.0, 0] },
   'stand-side': { player: {}, camera: [3.6, 1.1, 0], look: [0, 1.0, 0] },
   'stand-back': { player: {}, camera: [0, 1.4, 3.6], look: [0, 1.0, 0] },
@@ -81,7 +87,7 @@ window.__pose = (name) => {
   const player = makePlayer(spec.player);
   // Settle, so the damped shoulders, glide blend and head are where they end up
   // rather than one frame into getting there.
-  for (let i = 0; i < 240; i += 1) avatar.update(player, 1 / 60);
+  for (let i = 0; i < (spec.frames ?? 240); i += 1) avatar.update(player, 1 / 60);
   camera.position.set(...spec.camera);
   camera.lookAt(...spec.look);
   renderer.render(scene, camera);

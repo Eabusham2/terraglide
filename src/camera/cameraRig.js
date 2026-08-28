@@ -58,6 +58,8 @@ export class CameraRig {
     this.fov = settings.get('fov');
     this.roll = 0;
     this.thirdPersonDistance = 1;
+    /** How far into a prone glide you are, for the eye lean. */
+    this.prone = 0;
     this.shake = 0;
     this.shakeTime = 0;
     /** Damped ground clamp for the chase camera. */
@@ -224,8 +226,17 @@ export class CameraRig {
     // below and behind. Horizontal only, and along the compass heading rather
     // than the look vector, so pitching down does not walk the camera through
     // your own ribs.
+    //
+    // And only while you are standing in it. The lean exists because your
+    // chest sits directly under your eye when you are upright; face down in a
+    // glide your chest is behind you instead, so it buys nothing there — and
+    // it costs eighteen centimetres of the thirty-six an arm can reach in
+    // front of the camera at all, which is what left a first-person glide with
+    // no hands, no arms and no firework anywhere on the screen. Damped rather
+    // than switched, so opening the wings does not jog the view.
+    this.prone = damp(this.prone, player.elytraDeployed && !player.onGround ? 1 : 0, 6, dt);
     if (settings.get('perspective') === 'first') {
-      const lean = player.height * EYE_FORWARD;
+      const lean = player.height * EYE_FORWARD * (1 - this.prone);
       this._target.x += Math.sin(player.yaw) * lean;
       this._target.z += -Math.cos(player.yaw) * lean;
     }
