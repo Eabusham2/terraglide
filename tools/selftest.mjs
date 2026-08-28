@@ -1076,6 +1076,59 @@ console.log('\nAuto graphics is a dial, not a label');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nTurning your head does not lose the ground');
+{
+  const THREE = await import('../vendor/three/three.module.js');
+  const { Terrain } = await import('../src/world/terrain.js');
+  const { LocalFrame } = await import('../src/geo/frame.js');
+
+  let resolved = 0;
+  const frame = new LocalFrame();
+  frame.setAnchor(46.56, 7.91);
+  const terrain = new Terrain({
+    scene: new THREE.Scene(), frame, shared: { uSnowLine: { value: 0 } },
+    elevation: {
+      version: 1, maxZoom: 15, hasDataAt: () => true, zoomAt: () => 15,
+      sampleNorm: () => 800, beginFrame() {}, request() {}, ensureAround() {},
+    },
+    streamer: {
+      textureFor: () => null, request() {}, atFinest: () => true, noteSharpness() {},
+      resolve: () => { resolved++; return null; }, beginFrame() {}, evict() {},
+      frame: 0, maxUsefulZoom: () => 15, pump() {}, requestAncestors() {},
+    },
+  });
+  // A frustum that rejects everything: stands in for facing the other way.
+  terrain.frustum = { intersectsBox: () => false };
+  terrain.maxDrawn = 500;
+
+  const camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.1, 1e7);
+  const z = 14;
+  const n = 2 ** z;
+  const here = { z, x: Math.floor(0.5219 * n), y: Math.floor(0.3489 * n) };
+  const corner = frame.normToWorld(here.x / n, here.y / n, { x: 0, z: 0 });
+  const size = frame.worldTileSize(z);
+  const camX = corner.x + size / 2;
+  const camZ = corner.z + size / 2;
+  const away = { z, x: here.x + 400, y: here.y };
+
+  // The walk *returns* on a frustum miss, so a tile the camera is not looking
+  // at is never split, never built, and never in `drawn` — and meshHeightAt
+  // reads `drawn`. Looking at the horizon therefore lost the floor directly
+  // beneath you, and looking back down brought the real relief in all at once:
+  // "teleporting again when I look down after a teleport".
+  const visits = (tile) => {
+    resolved = 0;
+    terrain.budget = { ms: 1e6, start: performance.now(), built: 0, refreshed: 0 };
+    terrain.visit(tile, camera, camX, camZ, 200000, 20);
+    return resolved > 0;
+  };
+  ok('the ground under you is built even facing away', visits(here));
+  // And the frustum still does its job everywhere else, which is most of what
+  // makes the quadtree affordable.
+  ok('ground you cannot see and are not on is still skipped', !visits(away));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe player stands on the ground and the feet are attached');
 {
   const THREE = await import('../vendor/three/three.module.js');

@@ -47,7 +47,12 @@ what is left · `[?]` needs a decision from you.
       press and the wings shut and the fall went to 16 m/s. Space opens them
       now and never shuts them, as in Minecraft; the wings key stows. Verified
       through Esc, blur and focus — glide holds at ~3 m/s throughout.
-- [ ] A3. Teleporting again when I look down after a teleport
+- [x] A3. Teleporting again when I look down after a teleport
+      The walk returns outright on a frustum miss, so the square under you was
+      never visited while you looked at the horizon: never split, never built,
+      never in `drawn` — and meshHeightAt reads `drawn`, so the game did not
+      know where the floor was. Looking down brought the real relief in all at
+      once. Ground within 250 m is now built whichever way you face.
 - [ ] A4. Hang when changing providers on terrain
 - [ ] A5. Seizure/flashing when changing provider
 - [~] A6. Pressing a button within 3 s of RTP reverts to old spots and removes the new discovery
@@ -249,7 +254,12 @@ what is left · `[?]` needs a decision from you.
 - [ ] M8. Unloading while the player is still inside the render distance
 - [ ] M9. Ground becomes blurry
 - [ ] M10. Player width and speed on the ground do not feel real
-- [ ] M11. Still teleporting when I look down after an RTP
+- [x] M11. Still teleporting when I look down after an RTP
+      The walk returns outright on a frustum miss, so the square under you was
+      never visited while you looked at the horizon: never split, never built,
+      never in `drawn` — and meshHeightAt reads `drawn`, so the game did not
+      know where the floor was. Looking down brought the real relief in all at
+      once. Ground within 250 m is now built whichever way you face.
 - [ ] M12. Photorealistic 3D "failed to fetch"
 - [ ] M13. Not everything fake has been removed
 - [x] M14. The README reads as a contextless changelog of what I asked you to change

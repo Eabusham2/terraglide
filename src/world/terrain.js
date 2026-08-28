@@ -76,6 +76,15 @@ const STANDIN_REFRESHES = 2;
  * a flat window still measures zero.
  */
 const SKIRT_REACH = 4;
+/**
+ * How far around you the ground is built regardless of where you are looking.
+ *
+ * Terminal velocity is 78 m/s and a mesh takes a moment to arrive, so a couple
+ * of hundred metres covers anywhere you can reach before it does. It costs one
+ * chain of tiles down to the leaf plus its neighbours — a handful — because
+ * every level of the quadtree has only a few tiles this close.
+ */
+const FLOOR_REACH = 250;
 const LOD_HYSTERESIS_IN = 0.88;
 const LOD_HYSTERESIS_OUT = 1.12;
 
@@ -558,7 +567,25 @@ export class Terrain {
 
     this._box.min.set(Math.min(x0, x1), minY, Math.min(z0, z1));
     this._box.max.set(Math.max(x0, x1), maxY, Math.max(z0, z1));
-    if (!this.frustum.intersectsBox(this._box)) return;
+    // The ground you are standing on is not a view. It is the floor, and it
+    // has to be right whichever way you happen to be facing.
+    //
+    // This walk returns outright for anything outside the view cone — never
+    // visited, never split, never asked for. Looking at the horizon puts the
+    // ground directly beneath you outside that cone, so it stayed coarse; then
+    // looking down brought it in, the real relief arrived, and the height under
+    // your feet moved by however much the mountain was worth. That is
+    // "teleporting again when I look down after a teleport", and it is the
+    // same bug as "teleporting when I look down after an RTP".
+    //
+    // Worse than the jump: a culled tile is never in `drawn`, and meshHeightAt
+    // walks `drawn`. So while you were not looking at it, the game did not know
+    // where the floor was at all and fell back to carrying the last one it did
+    // know. Turning your head lost the ground.
+    //
+    // The frustum stays for everything else — it is most of what makes this
+    // affordable. It just does not get a say about the square you are on.
+    if (flatDist > FLOOR_REACH && !this.frustum.intersectsBox(this._box)) return;
 
     // Splitting, with hysteresis.
     //
