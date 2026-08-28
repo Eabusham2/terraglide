@@ -12,6 +12,7 @@ import {
   formatPitch,
   formatSpeed,
   formatTemperature,
+  formatWind,
 } from '../core/units.js';
 import { HOTBAR } from '../player/player.js';
 import { escapeHtml } from './worldmap.js';
@@ -208,7 +209,7 @@ export class HUD {
       this.setText(
         'climate-sub',
         observed
-          ? `${weather}now · feels ${formatTemperature(observed.feelsC, units)} · wind ${Math.round(observed.windKph)} km/h`
+          ? `${weather}now · feels ${formatTemperature(observed.feelsC, units)} · wind ${formatWind(observed.windKph, units)}`
           : `${weather}${state.climate.band} · seasonal average · annual ${formatTemperature(state.climate.annualC, units)}`,
       );
     }

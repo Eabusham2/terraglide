@@ -61,6 +61,35 @@ export function formatDistance(metres, units, digits = 1) {
   return `${(metres / 1000).toFixed(digits)} km`;
 }
 
+/**
+ * An area, in whichever units you asked for.
+ *
+ * The explored-area readout on the world map was square kilometres whatever the
+ * setting said — one of the places "imperial and metric everywhere, not only in
+ * some places" was pointing at.
+ */
+export function formatArea(squareKm, units) {
+  if (!Number.isFinite(squareKm)) return '—';
+  if (units === 'imperial') {
+    const squareMiles = squareKm / 2.589988;
+    return `${squareMiles < 10 ? squareMiles.toFixed(1) : Math.round(squareMiles).toLocaleString()} sq mi`;
+  }
+  return `${squareKm < 10 ? squareKm.toFixed(1) : Math.round(squareKm).toLocaleString()} km\u00b2`;
+}
+
+/**
+ * Wind, which arrives from the observation in kilometres an hour.
+ *
+ * It was printed straight through as km/h next to a temperature that did
+ * respect the setting, so half the weather line was in the wrong system.
+ */
+export function formatWind(kph, units) {
+  if (!Number.isFinite(kph)) return '—';
+  return units === 'imperial'
+    ? `${Math.round(kph * 0.621371)} mph`
+    : `${Math.round(kph)} km/h`;
+}
+
 export function formatAltitude(metres, units) {
   if (!Number.isFinite(metres)) return '—';
   return units === 'imperial'

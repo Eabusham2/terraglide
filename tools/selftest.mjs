@@ -1460,6 +1460,38 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nBoth systems of units, everywhere and not only in places');
+{
+  const { formatArea, formatWind } = await import('../src/core/units.js');
+
+  // Two readouts printed one system whatever the setting said: the explored
+  // area on the world map was always km2, and the wind on the weather line was
+  // always km/h — next to a temperature on the same line that did convert.
+  ok(`area, metric  (${formatArea(1247, 'metric')})`, /km²$/.test(formatArea(1247, 'metric')));
+  ok(`area, imperial  (${formatArea(1247, 'imperial')})`, /sq mi$/.test(formatArea(1247, 'imperial')));
+  ok(`wind, metric  (${formatWind(11, 'metric')})`, formatWind(11, 'metric') === '11 km/h');
+  ok(`wind, imperial  (${formatWind(11, 'imperial')})`, formatWind(11, 'imperial') === '7 mph');
+
+  // The conversions are right, not just differently spelled.
+  const sqMi = parseFloat(formatArea(1000, 'imperial').replace(/,/g, ''));
+  ok(`a thousand square km is 386 square miles  (${sqMi})`, Math.abs(sqMi - 386) < 2);
+  const mph = parseFloat(formatWind(100, 'imperial'));
+  ok(`a hundred km/h is 62 mph  (${mph})`, Math.abs(mph - 62) < 1);
+
+  // Small areas keep a decimal so a short walk is not rounded to nothing.
+  ok(`a small area keeps a figure  (${formatArea(3.4, 'metric')})`, /3\.4/.test(formatArea(3.4, 'metric')));
+  ok('and nothing measured reads as nothing',
+    formatArea(NaN, 'metric') === '\u2014' && formatWind(undefined, 'metric') === '\u2014');
+
+  // Nowhere left printing a unit straight through.
+  for (const file of ['../src/ui/hud.js', '../src/ui/worldmap.js']) {
+    const text = readFileSync(new URL(file, import.meta.url), 'utf8');
+    const literal = /\$\{[^}]*\}\s*(km\/h|km²)/.test(text);
+    ok(`${file.split('/').pop()} does not hard-code a unit`, !literal);
+  }
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe compass says a number');
 {
   const hud = readFileSync(new URL('../src/ui/hud.js', import.meta.url), 'utf8');

@@ -2,7 +2,7 @@ import { WheelSteps } from './wheel.js';
 import { cheats } from '../core/cheats.js';
 import { clamp } from '../core/math.js';
 import { settings } from '../core/settings.js';
-import { formatDistance, formatLatLon } from '../core/units.js';
+import { formatArea, formatDistance, formatLatLon } from '../core/units.js';
 import { geocoder } from '../geo/geocode.js';
 import { haversine } from '../geo/mercator.js';
 import { drawMap, metresPerPixel, project, unproject, worldPixelSize } from './mapRenderer.js';
@@ -403,7 +403,7 @@ export class WorldMap {
 
     const area = this.exploration.areaKm2(player.lat);
     this.statsBox.innerHTML = `
-      <div><span>Explored</span><strong>${area < 10 ? area.toFixed(1) : Math.round(area).toLocaleString()} km²</strong></div>
+      <div><span>Explored</span><strong>${formatArea(area, units)}</strong></div>
       <div><span>Waypoints</span><strong>${this.waypointStore.waypoints.length}</strong></div>
       <div><span>Trail</span><strong>${formatDistance(this.trail.length, units)}</strong></div>
     `;

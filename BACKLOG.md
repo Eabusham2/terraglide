@@ -322,7 +322,12 @@ what is left · `[?]` needs a decision from you.
 - [x] I9. Per second and per minute, not only per hour
       Added as a setting: per hour (km/h, mph), per minute (km/min, mi/min),
       per second (m/s, ft/s). Per hour stays the default.
-- [ ] I10. Imperial/metric everywhere, not only in some places
+- [x] I10. Imperial/metric everywhere, not only in some places
+      Two readouts printed one system whatever the setting said: the explored area
+      on the world map (always km²) and the wind on the weather line (always
+      km/h — beside a temperature on the same line that did convert). Both go
+      through formatters now, and a check refuses a hard-coded unit in either
+      file.
 - [~] I11. Seeing hand, rocket and body while gliding
       Partly: looked at first person in the running game. The body was there but
       unreadable — the chest was Minecraft-wide and the cloth texture had its
