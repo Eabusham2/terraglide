@@ -198,10 +198,17 @@ await page.evaluate(() => window.terraglide.help.close());
 await page.evaluate(([lat, lon]) => window.terraglide.teleportTo(lat, lon, { reason: 'shots' }), [LAT, LON]);
 await page.waitForTimeout(SETTLE_S * 1000);
 
+// Each view poses the game, waits, then is both saved and measured.
 const views = [
   ['ground-level', () => { const p = window.terraglide.player; p.pitch = 0; }],
   ['ground-down', () => { const p = window.terraglide.player; p.pitch = -1.4; }],
-  ['third-person', () => { window.terraglide.player.pitch = -0.2; window.terraglide.rig.cycle?.(); }],
+  // Through the setting, not through whatever method the rig happens to have:
+  // an optional-call that lands on nothing fails silently and the shot is of
+  // first person again, which is exactly what it did.
+  ['third-person', () => {
+    window.terraglide.settings.set('perspective', 'third');
+    window.terraglide.player.pitch = -0.15;
+  }],
   ['glide', () => {
     const p = window.terraglide.player;
     p.position.y = p.groundHeight + 700;

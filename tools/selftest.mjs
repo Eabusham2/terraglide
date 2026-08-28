@@ -1460,6 +1460,43 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nCloth is woven at the size of cloth');
+{
+  const THREE = await import('../vendor/three/three.module.js');
+  const { Avatar } = await import('../src/player/avatar.js');
+  const rig = new Avatar(new THREE.Scene());
+
+  // The wrapping was set to repeat and the repeat itself never was, so it
+  // stayed at one — and a box's UVs run 0..1 across each face, which spread the
+  // whole photograph of the weave over the whole chest. Magnified about fifty
+  // times, cloth reads as tarpaulin, which is what looking down at yourself
+  // showed.
+  const source = readFileSync(new URL('../src/player/avatar.js', import.meta.url), 'utf8');
+  ok('the repeat is set, not just the wrapping', /own\.repeat\.set\(/.test(source));
+  ok('and each garment gets its own copy of the texture', /texture\.clone\(\)/.test(source));
+
+  // Sized from the body rather than from a table beside it, so reshaping a limb
+  // reshapes its weave.
+  const tiles = Number(/const CLOTH_TILES_PER_HEIGHT = ([\d.]+)/.exec(source)?.[1]);
+  const repeatFor = (material) => {
+    const size = rig.clothSizeOf(material);
+    return [
+      Math.max(1, Math.round(size.x * tiles)),
+      Math.max(1, Math.round(size.y * tiles)),
+    ];
+  };
+  const [tw, th] = repeatFor(rig.torso.material);
+  const [aw, ah] = repeatFor(rig.armL.limb.material);
+  ok(`the chest repeats several times over  (${tw} x ${th})`, tw >= 2 && th >= 3);
+  ok(`a sleeve is narrower than a chest  (${aw} x ${ah})`, aw < tw);
+  ok(`and about as long  (${ah})`, Math.abs(ah - th) <= 2);
+  // One tile should stand for something like a hand's width of real fabric.
+  const metres = (1 / tiles) * 1.98;
+  ok(`one tile is about a hand of fabric  (${(metres * 100).toFixed(0)} cm)`,
+    metres > 0.06 && metres < 0.2);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe map is something you read, not somewhere you go');
 {
   const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');

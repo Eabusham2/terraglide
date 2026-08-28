@@ -228,6 +228,11 @@ export class Game {
     };
     this.minimap = new Minimap(ui, mapLayers);
     this.worldmap = new WorldMap(ui, mapLayers);
+    // The store itself, reachable from the console and from tools/shots.mjs.
+    // `window.terraglide` is the handle everything debugging goes through, and
+    // not being able to change a setting from it made the game harder to poke
+    // at than it needed to be.
+    this.settings = settings;
     this.settingsPanel = new SettingsPanel(ui);
     this.help = new HelpCard(ui);
     this.cheatPanel = new CheatPanel(ui);

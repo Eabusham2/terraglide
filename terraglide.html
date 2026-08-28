@@ -87740,6 +87740,14 @@ const VIEW_AIM = new THREE.Vector3(-0.3, 0.55, -0.78).normalize();
  * offset that missed in the other direction, so the legs floated and the boots
  * sank.
  */
+/**
+ * How many tiles of a cloth photograph fit across one body height.
+ *
+ * A weave photograph stands for about twelve centimetres of real fabric, and a
+ * body is a shade under two metres, so about sixteen of them head to foot.
+ */
+const CLOTH_TILES_PER_HEIGHT = 16.5;
+
 const HIP_Y = 0.51;
 const LEG_LENGTH = 0.46;
 const BOOT_HEIGHT = 0.05;
@@ -88117,7 +88125,25 @@ class Avatar {
           texture.wrapS = THREE.RepeatWrapping;
           texture.wrapT = THREE.RepeatWrapping;
           for (const material of this.cloth[part]) {
-            material.map = texture;
+            // A repeat sized to the garment, not one image stretched over it.
+            //
+            // The wrapping was set to repeat and the repeat itself never was,
+            // so it stayed at one — and a box's UVs run nought to one across
+            // each face, which means the whole photograph of the weave was
+            // spread over the whole chest. Magnified about fifty times, cloth
+            // stops looking like cloth and starts looking like tarpaulin, which
+            // is what you saw when you looked down at yourself.
+            //
+            // Each mesh gets its own copy so a sleeve and a chest, which are
+            // very different sizes, both come out at the size of real fabric.
+            const own = texture.clone();
+            own.needsUpdate = true;
+            const size = this.clothSizeOf(material);
+            own.repeat.set(
+              Math.max(1, Math.round(size.x * CLOTH_TILES_PER_HEIGHT)),
+              Math.max(1, Math.round(size.y * CLOTH_TILES_PER_HEIGHT)),
+            );
+            material.map = own;
             // The tint has done the colouring so far; let the weave through.
             material.color.setHex(CLOTH_TINT);
             material.needsUpdate = true;
@@ -88127,6 +88153,26 @@ class Avatar {
         () => {},
       );
     }
+  }
+
+  /**
+   * How big the garment on this material actually is, in body heights.
+   *
+   * Found by asking the body rather than by a table beside it, so reshaping a
+   * limb reshapes its weave too.
+   */
+  clothSizeOf(material) {
+    let found = { x: 0.2, y: 0.3 };
+    this.root.traverse((object) => {
+      if (object.material !== material || !object.geometry) return;
+      object.geometry.computeBoundingBox();
+      const box = object.geometry.boundingBox;
+      found = {
+        x: Math.max(box.max.x - box.min.x, box.max.z - box.min.z),
+        y: box.max.y - box.min.y,
+      };
+    });
+    return found;
   }
 
   /**
@@ -99941,6 +99987,11 @@ class Game {
     };
     this.minimap = new Minimap(ui, mapLayers);
     this.worldmap = new WorldMap(ui, mapLayers);
+    // The store itself, reachable from the console and from tools/shots.mjs.
+    // `window.terraglide` is the handle everything debugging goes through, and
+    // not being able to change a setting from it made the game harder to poke
+    // at than it needed to be.
+    this.settings = settings;
     this.settingsPanel = new SettingsPanel(ui);
     this.help = new HelpCard(ui);
     this.cheatPanel = new CheatPanel(ui);
