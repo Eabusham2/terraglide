@@ -504,13 +504,23 @@ export class Avatar {
      * solved against the flight path instead — see tools/wingpose.mjs, which
      * reports the sweep and the dihedral a set of angles actually produces.
      */
-    // Solved, not typed: 28 degrees of sweep along the mid-chord line, 6 of
-    // dihedral, and a face 0.99 flat to the airflow. It was 40 degrees of
-    // sweep and *minus* 22 of dihedral — the tips hung 30 cm below the
-    // shoulders, which is a wing hanging off a body rather than one holding it
-    // up, and is most of what made the whole thing read as on backwards or
-    // inside out.
-    this.wingPose = { x: -0.15, y: 0.05, z: 0.4 };
+    // Solved against the camera you actually watch from, which is the part
+    // that was missing. 28 degrees of sweep along the mid-chord line, 5 of
+    // dihedral so the tips sit above the shoulders rather than hanging below
+    // them, and — the number that matters — a face 0.85 square to the chase
+    // camera at every pitch from a climb to a steep dive.
+    //
+    // It was 40 degrees of sweep and *minus* 22 of dihedral, so the tips hung
+    // 30 cm below the shoulders: a wing hanging off a body rather than one
+    // holding it up. Fixing that alone gave a wing flat to the airflow and
+    // 0.06 square to the camera — correct, and useless. The chase camera sits
+    // 16 degrees above the flight line in level flight, so a horizontal wing
+    // seen from there is a blade, and a blade has no shape to read: it looks
+    // like it is on backwards or inside out because there is nothing in the
+    // silhouette to say it is not. The wing is set at a real angle to the
+    // airflow now, which is what a beetle's shell is and what Minecraft's
+    // elytra are, and it is the surface you see rather than the edge.
+    this.wingPose = { x: 0.9, y: -0.3, z: 0.2 };
 
     this.walkPhase = 0;
     this.glideBlend = 0;

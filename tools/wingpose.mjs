@@ -27,18 +27,21 @@ const scene = new THREE.Scene();
 const avatar = new Avatar(scene);
 avatar.setVisible(true);
 
-const player = () => ({
+const player = (pitch = 0) => ({
+  pitchOverride: pitch,
   position: new THREE.Vector3(), renderPosition: new THREE.Vector3(),
   velocity: new THREE.Vector3(0, 0, -45), height: 1.83, scale: 1,
-  pitch: 0, yaw: 0, mode: 'glide', onGround: false, swimming: false,
+  pitch, yaw: 0, mode: 'glide', onGround: false, swimming: false,
   groundSlope: 0, elytraDeployed: true, horizontalSpeed: 45,
   selectedSlot: 0, rocketsFired: 0,
 });
 
 /** Sweep and dihedral, in degrees, for the pose currently set. */
-function attitude() {
-  const p = player();
-  for (let i = 0; i < 400; i += 1) avatar.update(p, 1 / 60);
+let settleFrames = 400;
+function attitude(pitch = 0) {
+  const p = player(pitch);
+  p.velocity.set(0, -45 * Math.sin(-pitch), -45 * Math.cos(pitch));
+  for (let i = 0; i < settleFrames; i += 1) avatar.update(p, 1 / 60);
   scene.updateMatrixWorld(true);
   const mesh = avatar.wingR.children[0];
   const position = mesh.geometry.getAttribute('position');
@@ -72,40 +75,74 @@ function attitude() {
   const back = tip.z - root.z;
   const up = tip.y - root.y;
   const normal = new THREE.Vector3(0, 0, 1).transformDirection(mesh.matrixWorld);
+  // How square the wing is to the chase camera. A wing can be perfectly flat
+  // to the air and still be a blade on screen if the body's pitch has turned
+  // its face away from where you are watching from — so this uses the rig's
+  // own offset rather than a fixed direction, because the chase camera climbs
+  // as you dive. See CameraRig.update.
+  const toCamera = new THREE.Vector3(0, -Math.sin(pitch) + 0.28, Math.cos(pitch)).normalize();
   return {
     sweep: (Math.atan2(back, out) * 180) / Math.PI,
     dihedral: (Math.atan2(up, out) * 180) / Math.PI,
     flat: Math.abs(normal.y),
+    seen: Math.abs(normal.dot(toCamera)),
   };
 }
 
 const line = (label, a) => console.log(
   `${label.padEnd(22)} sweep ${a.sweep.toFixed(1).padStart(6)}°`
   + `  dihedral ${a.dihedral.toFixed(1).padStart(6)}°`
-  + `  face-up ${a.flat.toFixed(2)}`);
+  + `  face-up ${a.flat.toFixed(2)}`
+  + `  seen-from-chase ${a.seen.toFixed(2)}`);
 
 if (!process.argv.includes('--sweep')) {
-  line('as shipped', attitude());
+  for (const pitch of [0.2, 0, -0.25, -0.5, -0.8]) {
+    line(`pitch ${pitch.toFixed(2)}`, attitude(pitch));
+  }
   console.log('\n  a gliding bird sweeps 25-35° back and holds 3-8° of dihedral;');
   console.log('  negative dihedral is a wing hanging off a body, not holding it up.');
 } else {
-  // Sweep the three angles and keep the ones nearest a bird.
-  const want = { sweep: 29, dihedral: 6 };
+  // Solve for a wing you can actually see.
+  //
+  // The first pass here aimed at a gliding bird — 25-35 degrees of sweep and a
+  // few degrees of dihedral — and produced a wing that is edge-on to the chase
+  // camera at every pitch you fly at. Which is correct, and useless: a flat
+  // horizontal wing seen from behind is a blade, and a blade has no shape to
+  // read, so it looks like it is on backwards or inside out because there is
+  // nothing there to say it is not.
+  //
+  // The chase camera sits 16 degrees above the flight line in level flight and
+  // climbs to 55 in a dive, so the surface has to be canted well up to face it.
+  // That is what Minecraft's elytra do and why they read as a pair of shells:
+  // they make a steep V, not a wing plane.
+  const PITCHES = [0.1, -0.3, -0.7];
   const results = [];
-  for (let x = -0.35; x <= 0.45; x += 0.1) {
-    for (let y = 0.05; y <= 0.65; y += 0.1) {
-      for (let z = -0.5; z <= 0.5; z += 0.1) {
+  const floor = Number(process.argv.find((a) => a.startsWith('--dihedral='))?.slice(11) ?? -90);
+  settleFrames = 90;
+  for (let x = -0.8; x <= 0.9; x += 0.1) {
+    for (let y = -0.8; y <= 0.6; y += 0.1) {
+      for (let z = -0.2; z <= 0.9; z += 0.1) {
         avatar.wingPose = { x, y, z };
-        const a = attitude();
-        if (a.flat < 0.75) continue;
-        const miss = Math.abs(a.sweep - want.sweep) + Math.abs(a.dihedral - want.dihedral) * 1.5;
-        results.push({ x, y, z, a, miss });
+        const all = PITCHES.map((p) => attitude(p));
+        const sweep = all.reduce((t, a) => t + a.sweep, 0) / all.length;
+        if (sweep < 20 || sweep > 36) continue;
+        if (all[1].dihedral < floor) continue;
+        // The worst angle matters more than the average: a wing that vanishes
+        // in a dive is a wing that vanishes exactly when you are looking at it.
+        const worst = Math.min(...all.map((a) => a.seen));
+        const mean = all.reduce((t, a) => t + a.seen, 0) / all.length;
+        results.push({ x, y, z, sweep, worst, mean,
+          dihedral: all[1].dihedral, score: worst * 2 + mean });
       }
     }
   }
-  results.sort((p, q) => p.miss - q.miss);
-  console.log(`closest to ${want.sweep}° sweep and ${want.dihedral}° dihedral, keeping the wing flat:\n`);
-  for (const r of results.slice(0, 8)) {
-    line(`x ${r.x.toFixed(2)} y ${r.y.toFixed(2)} z ${r.z.toFixed(2)}`, r.a);
+  results.sort((p, q) => q.score - p.score);
+  console.log('most visible from the chase camera, holding 20-36 degrees of sweep:\n');
+  console.log(`${'x'.padStart(5)} ${'y'.padStart(5)} ${'z'.padStart(5)}`
+    + `   sweep  dihedral   seen worst   seen mean`);
+  for (const r of results.slice(0, 10)) {
+    console.log(`${r.x.toFixed(2).padStart(5)} ${r.y.toFixed(2).padStart(5)} ${r.z.toFixed(2).padStart(5)}`
+      + `  ${r.sweep.toFixed(1).padStart(5)}°  ${r.dihedral.toFixed(1).padStart(7)}°`
+      + `  ${r.worst.toFixed(2).padStart(10)}  ${r.mean.toFixed(2).padStart(10)}`);
   }
 }

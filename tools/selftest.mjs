@@ -713,9 +713,16 @@ console.log('\nThe body you can see');
     const membrane = rig.wingR.children[0];
     membrane.geometry.computeBoundingBox();
     const g = membrane.geometry.boundingBox;
+    // Slender enough to be a wing.
+    //
+    // This band used to be 1.2 to 1.8, reasoned from what an elytron is. At
+    // 1.5 the chord is two thirds of the span and the pair render as two fat
+    // leaves stuck on a back — a moth — however carefully the edges are drawn.
+    // Depth is what does it, so the band moved and the wing got slimmer. The
+    // old number was a guess about the object; this one is from looking at it.
     const aspect = (g.max.x - g.min.x) / (g.max.y - g.min.y);
-    ok('with an elytron aspect rather than a paper aeroplane one',
-      aspect > 1.2 && aspect < 1.8, `${aspect.toFixed(2)}:1`);
+    ok('the wing is slender enough to read as a wing, not a leaf',
+      aspect > 1.8 && aspect < 2.7, `${aspect.toFixed(2)}:1`);
 
     // A flat prism is 0.012 thick and has a handful of normals. A shell is
     // neither, and it is the difference between a wing and a pale board.
@@ -743,6 +750,72 @@ console.log('\nThe body you can see');
     const torso = own(rig.torso);
     ok('the chest is a chest rather than a wardrobe',
       torso.max.x - torso.min.x < 0.2, `${(torso.max.x - torso.min.x).toFixed(3)} of height`);
+
+    // And you can see the wings from the camera you watch yourself from.
+    //
+    // This is the check that was missing, and it is the same shape of mistake
+    // as the first-person one: everything here measured the wing, and the wing
+    // was the right shape. What was wrong was its angle to the chase camera.
+    // A flat wing held level is correct and invisible — the camera sits only
+    // 16 degrees above the flight line in level flight, so a horizontal
+    // surface seen from there is a blade, with no shape in it to say which way
+    // up it is. The face has to be canted to meet the camera, which is what a
+    // beetle's shell does and what makes elytra read as elytra.
+    {
+      const wing = new Avatar(new THREE.Scene());
+      wing.setVisible(true);
+      const membrane = wing.wingR.children[0];
+      let worstSeen = 1;
+      let levelDihedral = 0;
+      for (const pitch of [0.2, 0, -0.25, -0.5, -0.8]) {
+        const flyer = makePlayer({
+          elytraDeployed: true, onGround: false, mode: 'glide', pitch,
+          horizontalSpeed: 45,
+          velocity: new THREE.Vector3(0, -45 * Math.sin(-pitch), -45 * Math.cos(pitch)),
+        });
+        for (let i = 0; i < 240; i += 1) wing.update(flyer, 1 / 60);
+        wing.root.updateMatrixWorld(true);
+        // Where the chase camera sits, from the rig's own offset — it climbs
+        // as you dive, so a fixed direction would be right at one pitch only.
+        const toCamera = new THREE.Vector3(0, -Math.sin(pitch) + 0.28, Math.cos(pitch))
+          .normalize();
+        const normal = new THREE.Vector3(0, 0, 1).transformDirection(membrane.matrixWorld);
+        worstSeen = Math.min(worstSeen, Math.abs(normal.dot(toCamera)));
+
+        if (pitch !== 0) continue;
+        // Tips above the shoulders in level flight, not hanging below them.
+        const position = membrane.geometry.getAttribute('position');
+        let lo = Infinity;
+        let hi = -Infinity;
+        for (let i = 0; i < position.count; i += 1) {
+          lo = Math.min(lo, position.getX(i));
+          hi = Math.max(hi, position.getX(i));
+        }
+        const band = (from, to) => {
+          const mid = new THREE.Vector3();
+          let n = 0;
+          for (let i = 0; i < position.count; i += 1) {
+            const x = position.getX(i);
+            if (x < from || x > to) continue;
+            mid.add(new THREE.Vector3(x, position.getY(i), position.getZ(i))
+              .applyMatrix4(membrane.matrixWorld));
+            n += 1;
+          }
+          return mid.divideScalar(n);
+        };
+        const width = hi - lo;
+        const root = band(lo, lo + width * 0.15);
+        const tip = band(hi - width * 0.15, hi);
+        levelDihedral = (Math.atan2(tip.y - root.y, tip.x - root.x) * 180) / Math.PI;
+      }
+      ok(`the wings face the chase camera at every pitch  (worst ${worstSeen.toFixed(2)})`,
+        worstSeen > 0.6);
+      // -22 degrees is where this started: the tips hung 30 cm below the
+      // shoulders, which is a wing hanging off a body rather than one holding
+      // it up, and is what read as on backwards or inside out.
+      ok(`and the tips do not hang below the shoulders  (${levelDihedral.toFixed(1)}° in level flight)`,
+        levelDihedral > -8);
+    }
 
     // Hands on their own sides, standing and gliding alike.
     //
