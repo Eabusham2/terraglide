@@ -434,11 +434,32 @@ what is left · `[?]` needs a decision from you.
       put the hands 66 degrees off the view axis: even clear of the near plane
       they were outside a frame that is 55 degrees to the side at the default
       FOV, so widening the arms to "frame the view" pushed them out of it.
-      Swept both rather than guessed — your shoulder is a quarter of a metre
-      behind your eye when you are face down, so the hand can only get about
-      0.36 m in front of the camera whatever the arm does, and it peaks around
-      -2.7. At -2.7 and 0.32 the hands are 0.31 m ahead at 50 degrees, and the
-      forearms sweep in from the corners.
+      And a third: the too-close backstop was 0.34 of height, a 62 cm bubble on
+      a 1.83 m player, so the rule meant to catch a limb through the lens was
+      deleting the firework at every distance a hand actually holds one at.
+
+      Swept the arm rather than guessed it — your shoulder is a quarter of a
+      metre behind your eye when you are face down, so the hand can only get
+      about 0.36 m in front of the camera whatever the arm does. Which turned
+      out to be the answer to a question that should not have been asked: at
+      that range the world arm is a 0.7 m box starting at the lens, and it
+      draws as a flat slab across a fifth of the screen however it is posed.
+      The cause is the shoulder being at the camera, not the arm being wrong.
+
+      So the glide draws the view model instead, which is what a view model is
+      for, and the world arms come off with it. That machinery had been here
+      all along — hands in view space at fractions of the frustum, blended
+      between the carried pose and the flying one, with sway, bob and the kick
+      a firework gives — and had lost its call: updateHand was defined and
+      invoked from nowhere, so the group sat at the camera's own origin and
+      drew nothing. Standing keeps the world arms, where the shoulder is a
+      quarter of a metre *below* the eye and looking down finds the arm side-on.
+
+      Measured in the running game at four look angles: the hand lands 0.85 m
+      ahead at (0.81, 0.81) and the firework at (0.76, 0.74), the same every
+      time — the pose turns about your eye, so your hands stay where they are
+      in the frame however you pitch. tools/handcheck.mjs is that measurement
+      kept as a check, and it exits non-zero if any angle shows you nothing.
 
       There are hands on the ends of the arms now as well — the sleeve used to
       stop in mid-air, so the firework was held by nothing — and the rocket was
