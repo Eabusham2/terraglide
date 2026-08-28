@@ -50,6 +50,7 @@ export class HUD {
       <div class="hud-compass" data-id="compass">
         <div class="compass-strip" data-id="compass-strip"></div>
         <div class="compass-needle"></div>
+        <div class="compass-heading" data-id="compass-heading">000°</div>
       </div>
 
       <div class="hud-crosshair" data-id="crosshair"><i></i></div>
@@ -306,9 +307,18 @@ export class HUD {
     const strip = this.refs['compass-strip'];
     const degrees = ((yaw * 180) / Math.PI + 360) % 360;
     if (!this._compassBuilt) {
+      // Letters at the four cardinals, and the bearing in degrees at the four
+      // between them. It was letters and blank ticks, which tells you roughly
+      // which way you are pointed and never says a number anywhere.
       const marks = [];
       for (let d = -180; d <= 540; d += 15) {
-        const label = d % 90 === 0 ? compassPoint((((d % 360) + 360) % 360) * (Math.PI / 180)) : '';
+        const wrapped = (((d % 360) + 360) % 360);
+        const label =
+          d % 90 === 0
+            ? compassPoint(wrapped * (Math.PI / 180))
+            : d % 45 === 0
+              ? String(wrapped)
+              : '';
         marks.push(
           `<span class="tick${d % 45 === 0 ? ' major' : ''}" style="left:${(d + 180) * 2}px">${label}</span>`,
         );
@@ -317,6 +327,9 @@ export class HUD {
       this._compassBuilt = true;
     }
     strip.style.transform = `translateX(${-((degrees + 180) * 2) + 150}px)`;
+    // The exact bearing, under the needle, padded so it does not jitter in
+    // width as it counts through 9 to 10 to 100.
+    this.setText('compass-heading', `${String(Math.round(degrees) % 360).padStart(3, '0')}\u00b0`);
   }
 
   updateHotbar(player) {

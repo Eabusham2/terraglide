@@ -1460,6 +1460,42 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe compass says a number');
+{
+  const hud = readFileSync(new URL('../src/ui/hud.js', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../styles/main.css', import.meta.url), 'utf8');
+  const { compassPoint } = await import('../src/core/units.js');
+
+  // It was letters at the cardinals and blank ticks between them: roughly which
+  // way you are pointed, and no number anywhere.
+  ok('there is a live bearing readout', /data-id="compass-heading"/.test(hud));
+  ok('and it is drawn', /\.compass-heading \{/.test(css));
+  ok('kept under the needle', /\.compass-heading[\s\S]{0,200}left: 150px/.test(css));
+  // Digits that do not change width as they count, or the readout jitters.
+  ok('in figures that do not jitter', /font-variant-numeric: tabular-nums/.test(css));
+  ok('padded to three', /padStart\(3, '0'\)/.test(hud));
+
+  // Reproduce the label rule the strip uses.
+  const labelAt = (d) => {
+    const wrapped = ((d % 360) + 360) % 360;
+    if (d % 90 === 0) return compassPoint((wrapped * Math.PI) / 180);
+    if (d % 45 === 0) return String(wrapped);
+    return '';
+  };
+  ok(`the cardinals are letters  (${[0, 90, 180, 270].map(labelAt).join(' ')})`,
+    [0, 90, 180, 270].every((d) => /^[NESW]+$/.test(labelAt(d))));
+  ok(`and between them, degrees  (${[45, 135, 225, 315].map(labelAt).join(' ')})`,
+    [45, 135, 225, 315].every((d) => /^\d+$/.test(labelAt(d))));
+  ok('the small ticks stay bare', labelAt(15) === '' && labelAt(75) === '');
+
+  // Wrapping: 359.6 reads as 000, not 360.
+  const readout = (deg) => String(Math.round(deg) % 360).padStart(3, '0');
+  ok(`north reads 000  (${readout(0)})`, readout(0) === '000');
+  ok(`and just short of it too  (${readout(359.6)})`, readout(359.6) === '000');
+  ok(`single figures are padded  (${readout(7)})`, readout(7) === '007');
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe minimap is whatever shape you want it');
 {
   const { DEFAULT_SETTINGS } = await import('../src/core/settings.js');

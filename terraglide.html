@@ -377,6 +377,21 @@ input[type='checkbox'] {
   padding-top: 7px;
 }
 
+/* The exact bearing, sitting under the needle where an instrument puts it. */
+.compass-heading {
+  position: absolute;
+  top: 100%;
+  left: 150px;
+  transform: translateX(-50%);
+  margin-top: 2px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+
 .compass-needle {
   position: absolute;
   top: 0;
@@ -98193,6 +98208,7 @@ class HUD {
       <div class="hud-compass" data-id="compass">
         <div class="compass-strip" data-id="compass-strip"></div>
         <div class="compass-needle"></div>
+        <div class="compass-heading" data-id="compass-heading">000°</div>
       </div>
 
       <div class="hud-crosshair" data-id="crosshair"><i></i></div>
@@ -98449,9 +98465,18 @@ class HUD {
     const strip = this.refs['compass-strip'];
     const degrees = ((yaw * 180) / Math.PI + 360) % 360;
     if (!this._compassBuilt) {
+      // Letters at the four cardinals, and the bearing in degrees at the four
+      // between them. It was letters and blank ticks, which tells you roughly
+      // which way you are pointed and never says a number anywhere.
       const marks = [];
       for (let d = -180; d <= 540; d += 15) {
-        const label = d % 90 === 0 ? compassPoint((((d % 360) + 360) % 360) * (Math.PI / 180)) : '';
+        const wrapped = (((d % 360) + 360) % 360);
+        const label =
+          d % 90 === 0
+            ? compassPoint(wrapped * (Math.PI / 180))
+            : d % 45 === 0
+              ? String(wrapped)
+              : '';
         marks.push(
           `<span class="tick${d % 45 === 0 ? ' major' : ''}" style="left:${(d + 180) * 2}px">${label}</span>`,
         );
@@ -98460,6 +98485,9 @@ class HUD {
       this._compassBuilt = true;
     }
     strip.style.transform = `translateX(${-((degrees + 180) * 2) + 150}px)`;
+    // The exact bearing, under the needle, padded so it does not jitter in
+    // width as it counts through 9 to 10 to 100.
+    this.setText('compass-heading', `${String(Math.round(degrees) % 360).padStart(3, '0')}\u00b0`);
   }
 
   updateHotbar(player) {

@@ -309,7 +309,11 @@ what is left · `[?]` needs a decision from you.
       a quarter of a metre from your eye.
 - [ ] I4. Make altitude accurate
 - [ ] I5. Make speed accurate, and size
-- [ ] I6. Number on the compass
+- [x] I6. Number on the compass
+      The strip had letters at the four cardinals and blank ticks everywhere else,
+      so it never said a number at all. Degrees on the intercardinals now, and a
+      live three-figure bearing under the needle in tabular figures so it does
+      not jitter as it counts.
 - [x] I7. Vertical look angle in degrees, maybe either side of the compass
       Added next to the compass in the location card: 'level', '+45°', '−20°'.
 - [x] I8. Centre dot / plus
@@ -326,7 +330,10 @@ what is left · `[?]` needs a decision from you.
       weave was stretched over the whole chest at about fifty times life size.
       Both fixed. Still to check: the rocket in hand while gliding.
 - [ ] I12. Improve the freecam model
-- [ ] I13. Freecam that does not pause the game
+- [x] I13. Freecam that does not pause the game
+      Already so: the freecam is deliberately not in the pause list, and there is a
+      comment saying why. Confirmed by a check that the word does not appear in the
+      expression `paused` returns.
 - [ ] I14. Keybinds — "wtf is f"
 - [x] I15. Touchscreen controls do not go away when returning to keyboard
       watchForTouch only ever called setEnabled(true) — nothing turned them off.
