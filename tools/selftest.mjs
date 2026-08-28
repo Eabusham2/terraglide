@@ -1460,6 +1460,24 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe tab icon is the thing you fly with');
+{
+  const index = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const href = /<link rel="icon" href="data:image\/svg\+xml,([^"]*)"/.exec(index)?.[1] ?? '';
+  const svg = decodeURIComponent(href);
+  ok('there is an inline icon', svg.startsWith('<svg'));
+  ok('it is square and closes', /viewBox="0 0 32 32"/.test(svg) && svg.endsWith('</svg>'));
+  // A pair of wings and the spine between them, rather than the hill and sun
+  // that were there before.
+  ok(`it is drawn from a few shapes  (${(svg.match(/<path/g) ?? []).length} paths)`,
+    (svg.match(/<path/g) ?? []).length >= 3);
+  ok('and it is small enough to sit in a URL', svg.length < 900);
+  // The online edition is built from index.html, so it must carry the same one.
+  const online = readFileSync(new URL('../terraglide-online.html', import.meta.url), 'utf8');
+  ok('the online edition has the same icon', online.includes(href));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nTouch controls follow how you are actually playing');
 {
   const source = readFileSync(new URL('../src/ui/touch.js', import.meta.url), 'utf8');

@@ -320,7 +320,9 @@ what is left · `[?]` needs a decision from you.
       over the game for the session. A game key or a real mouse press now puts
       them away; a coarse pointer still starts them on, for a phone.
 - [ ] I16. Broken letters on certain devices
-- [ ] I17. Favicon as an elytra
+- [x] I17. Favicon as an elytra
+      A pair of folded wings with the spine between them, five paths, inline SVG.
+      Rendered at 16, 32 and 128 px and looked at, not just written.
 - [ ] I18. Barrel roll as in the MC mod, not a keybind
 - [ ] I19. FOV increase should depend on speed
 - [ ] I20. Seed hacks, custom rockets, custom size and more in the cheat panel
