@@ -67,8 +67,24 @@ export const HOTBAR = [1, 2, 3, 4, 5].map((duration) => ({
 export const AIR_SECONDS = 15;
 export const DROWNING_SECONDS = 10;
 
-export const SPEED_MODE_SECONDS = 10;
-export const SPEED_MODE_COOLDOWN_S = 45;
+/**
+ * Surge: what it is worth, how long it runs, and how long it takes back.
+ *
+ * It was called "speed mode", which is a label for a checkbox rather than a
+ * name for a thing you spend. Surge is what it does — you get it, it runs out,
+ * you wait.
+ *
+ * All three numbers moved together, because they only make sense together: a
+ * fifth again on the boost and a fifth again on the burn, and a third off the
+ * wait so it is something you use rather than something you hoard.
+ *
+ *   worth      2.0x  ->  2.4x
+ *   runs for   10 s  ->  12 s
+ *   recharges  45 s  ->  30 s
+ */
+export const SURGE_FACTOR = 2.4;
+export const SPEED_MODE_SECONDS = 12;
+export const SPEED_MODE_COOLDOWN_S = 30;
 
 export class Player extends Emitter {
   constructor(frame) {
@@ -329,7 +345,7 @@ export class Player extends Emitter {
     // is not what running out of anything feels like; now it bleeds away over
     // a few seconds, and a firework still burning holds it up while it does —
     // so a well-timed rocket carries some of the boost past the end of it.
-    const target = this.speedActive ? 2 : 1;
+    const target = this.speedActive ? SURGE_FACTOR : 1;
     const rate = target > this.speedBlend ? 8 : this.rocketTicksLeft > 0 ? 0.25 : 0.8;
     this.speedBlend = damp(this.speedBlend, target, rate, dt);
     // An exponential never quite arrives; a per cent is under the noise floor.

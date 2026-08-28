@@ -174,9 +174,14 @@ what is left · `[?]` needs a decision from you.
 
 ## E. Speed mode
 
-- [ ] E1. Charges faster
-- [ ] E2. 1.2x speed and duration, and rename it — "rapid mode" or something better
-- [ ] E3. Should affect everything, not just rockets — base, walk, glide
+- [x] E1. Charges faster
+      Cooldown 45 s -> 30 s. You are in it 29% of the time now, was 18%.
+- [x] E2. 1.2x speed and duration, and rename it — "rapid mode" or something better
+      A fifth again on both: 2.0x -> 2.4x, 10 s -> 12 s. Renamed Surge, everywhere
+      it is shown — gauge, help card, key list, cheat panel, toasts.
+- [x] E3. Should affect everything, not just rockets — base, walk, glide
+      Already does: speedMultiplier scales the displacement the controller applies,
+      so walking, gliding and falling all carry it. Rockets get it on top.
 - [ ] E4. Countdown should not run down while in settings or paused
 - [ ] E5. Streamline the speed mode panel
 - [ ] E6. Where is speed mode on touchscreen

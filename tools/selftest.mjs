@@ -1460,6 +1460,35 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nSurge is worth using and worth waiting for');
+{
+  const { SURGE_FACTOR, SPEED_MODE_SECONDS, SPEED_MODE_COOLDOWN_S } =
+    await import('../src/player/player.js');
+
+  // Stronger, longer, and back sooner — the three only mean anything together.
+  ok(`it is worth more than it was  (${SURGE_FACTOR}x)`, SURGE_FACTOR > 2);
+  ok(`and lasts longer  (${SPEED_MODE_SECONDS} s)`, SPEED_MODE_SECONDS > 10);
+  ok(`and comes back sooner  (${SPEED_MODE_COOLDOWN_S} s)`, SPEED_MODE_COOLDOWN_S < 45);
+  // Something you use rather than something you hoard.
+  const duty = SPEED_MODE_SECONDS / (SPEED_MODE_SECONDS + SPEED_MODE_COOLDOWN_S);
+  ok(`you are in it about a third of the time  (${(duty * 100).toFixed(0)}%)`,
+    duty > 0.2 && duty < 0.45);
+  // Still a cost, not a permanent state.
+  ok('but it still runs out', SPEED_MODE_COOLDOWN_S > SPEED_MODE_SECONDS);
+
+  // Renamed everywhere it is shown, not just where it is defined.
+  for (const [what, file] of [
+    ['the gauge', '../src/ui/hud.js'],
+    ['the help card', '../src/ui/help.js'],
+    ['the key list', '../src/core/keybinds.js'],
+    ['the cheat panel', '../src/ui/cheatPanel.js'],
+  ]) {
+    const text = readFileSync(new URL(file, import.meta.url), 'utf8');
+    ok(`${what} says surge`, /[Ss]urge/.test(text) && !/Speed mode</.test(text));
+  }
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nRolling is something you fly, not a button you press');
 {
   const { CameraRig } = await import('../src/camera/cameraRig.js');
@@ -2400,7 +2429,7 @@ console.log('\nPicking the preset by measuring, once, when asked');
 
 console.log('\nSpeed mode, fireworks and the pause key');
 {
-  const { Player } = await import('../src/player/player.js');
+  const { Player, SURGE_FACTOR } = await import('../src/player/player.js');
   const { settings: S } = await import('../src/core/settings.js');
   const frame = { setAnchor() {}, toGeo: () => ({ lat: 0, lon: 0 }) };
   const player = new Player(frame);
@@ -2412,10 +2441,13 @@ console.log('\nSpeed mode, fireworks and the pause key');
   // step the clock rather than expecting it instantly.
   player.startSpeedMode();
   for (let i = 0; i < 200; i++) player.tickTimers(1 / 60);
-  ok('speed mode doubles the running', near(player.speedMultiplier, 2, 1e-6),
-    `${player.speedMultiplier}`);
-  ok('and doubles the firework on top of it',
-    near(player.rocketPower, restingRocket * 2, 1e-6),
+  // Against the constant, not against the number it used to be: surge is worth
+  // 2.4x now, and a check that spells "2" into the assertion has to be edited
+  // every time the balance moves, which is how it comes to be testing history.
+  ok('surge multiplies the running', near(player.speedMultiplier, SURGE_FACTOR, 1e-6),
+    `${player.speedMultiplier}x`);
+  ok('and lifts the firework by the same factor',
+    near(player.rocketPower, restingRocket * SURGE_FACTOR, 1e-6),
     `${player.rocketPower} vs ${restingRocket}`);
 
   // A stronger slot multiplies with it rather than replacing it: that is the
@@ -2423,7 +2455,7 @@ console.log('\nSpeed mode, fireworks and the pause key');
   player.selectSlot(4);
   const strong = player.rocketPower;
   player.speedBlend = 1;
-  ok('a stronger slot and the burst multiply', near(strong, player.rocketPower * 2, 1e-6),
+  ok('a stronger slot and the burst multiply', near(strong, player.rocketPower * SURGE_FACTOR, 1e-6),
     `${strong} vs ${player.rocketPower}`);
 
   // Dropping the burst bleeds away rather than halving between two frames,
@@ -3005,7 +3037,9 @@ console.log('\nWalking, jumping and falling like Minecraft');
     r.player.onGround = true;
     r.player.startSpeedMode();
     run(r, 60);
-    ok('speed mode is worth exactly two', near(r.player.speedMultiplier, 2, 0.01));
+    const { SURGE_FACTOR: factor } = await import('../src/player/player.js');
+    ok(`surge is worth exactly its factor  (${factor}x)`,
+      near(r.player.speedMultiplier, factor, 0.01));
     r.player.stopSpeedMode();
     run(r, 30);
     const half = r.player.speedMultiplier;

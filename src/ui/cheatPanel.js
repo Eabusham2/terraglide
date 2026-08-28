@@ -41,7 +41,7 @@ const SWITCHES = [
   { key: 'fly', label: 'Fly', help: 'Creative flight: no gravity, and you go wherever you look.' },
   { key: 'noclip', label: 'Noclip', help: 'Through walls, through the ground, through mountains.' },
   { key: 'mapUnlocked', label: 'Unlock the whole map', help: 'Shows every tile without having been there. Your real explored ground is untouched underneath.' },
-  { key: 'speedFree', label: 'Unlimited speed mode', help: '2x never runs out and never needs to recharge.' },
+  { key: 'speedFree', label: 'Unlimited surge', help: 'The boost never runs out and never needs to recharge.' },
 ];
 
 export class CheatPanel {

@@ -19,7 +19,7 @@ import { weatherAt } from './geo/weather.js';
 import { Autopilot } from './player/autopilot.js';
 import { Avatar } from './player/avatar.js';
 import { PlayerController } from './player/controller.js';
-import { Player } from './player/player.js';
+import { Player, SURGE_FACTOR } from './player/player.js';
 import { ElevationField } from './tiles/elevation.js';
 import {
   IMAGERY_PROVIDERS,
@@ -1496,10 +1496,10 @@ export class Game {
         // key has to be able to switch it back off again.
         if (cheats.speedFree && player.speedActive) {
           player.stopSpeedMode();
-          this.toast('Speed mode off');
-        } else if (player.startSpeedMode()) this.toast('Speed mode — 2x');
+          this.toast('Surge off');
+        } else if (player.startSpeedMode()) this.toast(`Surge \u2014 ${SURGE_FACTOR}x`);
         else if (player.speedCooldown > 0) {
-          this.toast(`Speed mode recharging (${Math.ceil(player.speedCooldown)}s)`, 'warn');
+          this.toast(`Surge recharging (${Math.ceil(player.speedCooldown)}s)`, 'warn');
         }
         break;
       case 'freecam': {

@@ -61,7 +61,7 @@ export class HUD {
           <em data-id="autopilot"></em>
         </div>
         <div class="gauge" data-id="speed-gauge">
-          <label>Speed mode<kbd data-key="speedMode"></kbd></label>
+          <label>Surge<kbd data-key="speedMode"></kbd></label>
           <div class="bar"><i data-id="speed-bar"></i></div>
           <span data-id="speed-text">Ready</span>
         </div>

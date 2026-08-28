@@ -85092,7 +85092,7 @@ const ACTIONS = [
   { id: 'sprint', label: 'Sprint / descend', group: 'Movement' },
   { id: 'crouch', label: 'Crouch / dive / descend', group: 'Movement' },
   { id: 'rocket', label: 'Fire rocket (keyboard)', group: 'Flight' },
-  { id: 'speedMode', label: 'Speed mode (2x)', group: 'Flight' },
+  { id: 'speedMode', label: 'Surge', group: 'Flight' },
   { id: 'rtp', label: 'Random teleport', group: 'Map' },
   { id: 'freecam', label: 'Freecam', group: 'View' },
   { id: 'perspective', label: 'Change perspective', group: 'View' },
@@ -87321,8 +87321,24 @@ const HOTBAR = [1, 2, 3, 4, 5].map((duration) => ({
 const AIR_SECONDS = 15;
 const DROWNING_SECONDS = 10;
 
-const SPEED_MODE_SECONDS = 10;
-const SPEED_MODE_COOLDOWN_S = 45;
+/**
+ * Surge: what it is worth, how long it runs, and how long it takes back.
+ *
+ * It was called "speed mode", which is a label for a checkbox rather than a
+ * name for a thing you spend. Surge is what it does — you get it, it runs out,
+ * you wait.
+ *
+ * All three numbers moved together, because they only make sense together: a
+ * fifth again on the boost and a fifth again on the burn, and a third off the
+ * wait so it is something you use rather than something you hoard.
+ *
+ *   worth      2.0x  ->  2.4x
+ *   runs for   10 s  ->  12 s
+ *   recharges  45 s  ->  30 s
+ */
+const SURGE_FACTOR = 2.4;
+const SPEED_MODE_SECONDS = 12;
+const SPEED_MODE_COOLDOWN_S = 30;
 
 class Player extends Emitter {
   constructor(frame) {
@@ -87583,7 +87599,7 @@ class Player extends Emitter {
     // is not what running out of anything feels like; now it bleeds away over
     // a few seconds, and a firework still burning holds it up while it does —
     // so a well-timed rocket carries some of the boost past the end of it.
-    const target = this.speedActive ? 2 : 1;
+    const target = this.speedActive ? SURGE_FACTOR : 1;
     const rate = target > this.speedBlend ? 8 : this.rocketTicksLeft > 0 ? 0.25 : 0.8;
     this.speedBlend = damp(this.speedBlend, target, rate, dt);
     // An exponential never quite arrives; a per cent is under the noise floor.
@@ -87645,6 +87661,7 @@ __tg_exports["ROCKET_COLOURS"] = ROCKET_COLOURS;
 __tg_exports["HOTBAR"] = HOTBAR;
 __tg_exports["AIR_SECONDS"] = AIR_SECONDS;
 __tg_exports["DROWNING_SECONDS"] = DROWNING_SECONDS;
+__tg_exports["SURGE_FACTOR"] = SURGE_FACTOR;
 __tg_exports["SPEED_MODE_SECONDS"] = SPEED_MODE_SECONDS;
 __tg_exports["SPEED_MODE_COOLDOWN_S"] = SPEED_MODE_COOLDOWN_S;
 __tg_exports["Player"] = Player;
@@ -96523,7 +96540,7 @@ const SWITCHES = [
   { key: 'fly', label: 'Fly', help: 'Creative flight: no gravity, and you go wherever you look.' },
   { key: 'noclip', label: 'Noclip', help: 'Through walls, through the ground, through mountains.' },
   { key: 'mapUnlocked', label: 'Unlock the whole map', help: 'Shows every tile without having been there. Your real explored ground is untouched underneath.' },
-  { key: 'speedFree', label: 'Unlimited speed mode', help: '2x never runs out and never needs to recharge.' },
+  { key: 'speedFree', label: 'Unlimited surge', help: 'The boost never runs out and never needs to recharge.' },
 ];
 
 class CheatPanel {
@@ -97993,7 +98010,7 @@ const ROWS = [
   ['Jump \u2014 press again once airborne to open the wings', ['jump']],
   ['Fire a rocket — opens the wings for you (or use the mouse)', ['rocket']],
   ['Swim — jump to rise, crouch to dive', ['jump', 'crouch']],
-  ['Speed mode — 2x for a while, then a cooldown', ['speedMode']],
+  ['Surge — 2.4x for twelve seconds, then it recharges', ['speedMode']],
   ['Roll — hold while gliding to bank, and a bank turns you', ['left', 'right']],
   ['Open or stow the wings \u2014 works any time you are off the ground', ['wings']],
   ['Random teleport', ['rtp']],
@@ -98160,7 +98177,7 @@ class HUD {
           <em data-id="autopilot"></em>
         </div>
         <div class="gauge" data-id="speed-gauge">
-          <label>Speed mode<kbd data-key="speedMode"></kbd></label>
+          <label>Surge<kbd data-key="speedMode"></kbd></label>
           <div class="bar"><i data-id="speed-bar"></i></div>
           <span data-id="speed-text">Ready</span>
         </div>
@@ -99890,7 +99907,7 @@ const { weatherAt } = __tg_require("src/geo/weather.js");
 const { Autopilot } = __tg_require("src/player/autopilot.js");
 const { Avatar } = __tg_require("src/player/avatar.js");
 const { PlayerController } = __tg_require("src/player/controller.js");
-const { Player } = __tg_require("src/player/player.js");
+const { Player, SURGE_FACTOR } = __tg_require("src/player/player.js");
 const { ElevationField } = __tg_require("src/tiles/elevation.js");
 const { IMAGERY_PROVIDERS, createElevationSource, createImagerySource, providerChain } = __tg_require("src/tiles/providers.js");
 const { ImageryStreamer } = __tg_require("src/tiles/streamer.js");
@@ -101362,10 +101379,10 @@ class Game {
         // key has to be able to switch it back off again.
         if (cheats.speedFree && player.speedActive) {
           player.stopSpeedMode();
-          this.toast('Speed mode off');
-        } else if (player.startSpeedMode()) this.toast('Speed mode — 2x');
+          this.toast('Surge off');
+        } else if (player.startSpeedMode()) this.toast(`Surge \u2014 ${SURGE_FACTOR}x`);
         else if (player.speedCooldown > 0) {
-          this.toast(`Speed mode recharging (${Math.ceil(player.speedCooldown)}s)`, 'warn');
+          this.toast(`Surge recharging (${Math.ceil(player.speedCooldown)}s)`, 'warn');
         }
         break;
       case 'freecam': {

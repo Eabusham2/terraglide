@@ -14,7 +14,7 @@ export const ACTIONS = [
   { id: 'sprint', label: 'Sprint / descend', group: 'Movement' },
   { id: 'crouch', label: 'Crouch / dive / descend', group: 'Movement' },
   { id: 'rocket', label: 'Fire rocket (keyboard)', group: 'Flight' },
-  { id: 'speedMode', label: 'Speed mode (2x)', group: 'Flight' },
+  { id: 'speedMode', label: 'Surge', group: 'Flight' },
   { id: 'rtp', label: 'Random teleport', group: 'Map' },
   { id: 'freecam', label: 'Freecam', group: 'View' },
   { id: 'perspective', label: 'Change perspective', group: 'View' },

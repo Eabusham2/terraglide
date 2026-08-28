@@ -13,7 +13,7 @@ const ROWS = [
   ['Jump \u2014 press again once airborne to open the wings', ['jump']],
   ['Fire a rocket — opens the wings for you (or use the mouse)', ['rocket']],
   ['Swim — jump to rise, crouch to dive', ['jump', 'crouch']],
-  ['Speed mode — 2x for a while, then a cooldown', ['speedMode']],
+  ['Surge — 2.4x for twelve seconds, then it recharges', ['speedMode']],
   ['Roll — hold while gliding to bank, and a bank turns you', ['left', 'right']],
   ['Open or stow the wings \u2014 works any time you are off the ground', ['wings']],
   ['Random teleport', ['rtp']],
