@@ -1463,6 +1463,47 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe view reacts while the rocket is still pushing');
+{
+  const rig = readFileSync(new URL('../src/camera/cameraRig.js', import.meta.url), 'utf8');
+  const { stepRocket, stepGlide, rocketTicks, rocketPowerFor } =
+    await import('../src/player/elytra.js');
+
+  // How fast a rocket actually does its work, so the camera can be judged
+  // against it rather than against a guess.
+  const look = { x: 0, y: 0, z: -1 };
+  const v = { x: 0, y: 0, z: -8 };
+  const ticks = rocketTicks(1);
+  const power = rocketPowerFor(1);
+  const speeds = [];
+  for (let t = 0; t < ticks; t++) {
+    stepRocket(v, look, power, t / ticks);
+    stepGlide(v, look, 0);
+    speeds.push(Math.hypot(v.x, v.y, v.z));
+  }
+  ok(`a rocket has done most of its work in three ticks  (${speeds[2].toFixed(0)} m/s of ${Math.max(...speeds).toFixed(0)})`,
+    speeds[2] > Math.max(...speeds) * 0.9);
+
+  ok('the view opens on a different rate from the one it closes on',
+    /opening \? 14 : 4/.test(rig));
+
+  // The damp curve, on the two rates, against that three-tick window.
+  const damp = (from, to, lambda, dt) => to + (from - to) * Math.exp(-lambda * dt);
+  const reached = (rate, seconds) => {
+    let fov = 78;
+    for (let t = 0; t < seconds; t += 1 / 60) fov = damp(fov, 94, rate, 1 / 60);
+    return (fov - 78) / 16;
+  };
+  ok(`the old rate was a third of the way there  (${(reached(5, 0.15) * 100).toFixed(0)}%)`,
+    reached(5, 0.15) < 0.6);
+  ok(`the new one is nearly all of it  (${(reached(14, 0.15) * 100).toFixed(0)}%)`,
+    reached(14, 0.15) > 0.85);
+  // And it must not snap back the same way, or the view flickers on every gust.
+  ok(`closing is slow  (${(reached(4, 0.15) * 100).toFixed(0)}% in the same time)`,
+    reached(4, 0.15) < 0.5);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe settings say what the code actually does');
 {
   const panel = readFileSync(new URL('../src/ui/settingsPanel.js', import.meta.url), 'utf8');

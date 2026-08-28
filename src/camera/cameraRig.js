@@ -185,7 +185,18 @@ export class CameraRig {
       ? clamp(player.horizontalSpeed / 90, 0, 1) * 16
       : 0;
     const targetFov = (this.freecam.active ? settings.get('freecamFov') : settings.get('fov')) + speedKick;
-    this.fov = damp(this.fov, targetFov, 5, dt);
+    // Opens quickly and closes slowly.
+    //
+    // One rate for both meant the view took about six tenths of a second to
+    // widen — and a rocket has already done most of its work by then: lit from
+    // 8 m/s, a Rocket I puts you at 20.8 by the first tick and 30.4 by the
+    // third. The acceleration was over before the camera acknowledged it, which
+    // is why it read as no kick at all rather than as a fast one.
+    //
+    // Asymmetric is also just how it should feel: speed arriving is a shove,
+    // and speed bleeding away is a drift.
+    const opening = targetFov > this.fov;
+    this.fov = damp(this.fov, targetFov, opening ? 14 : 4, dt);
     if (Math.abs(camera.fov - this.fov) > 0.01) {
       camera.fov = this.fov;
       camera.updateProjectionMatrix();

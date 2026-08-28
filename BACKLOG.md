@@ -200,7 +200,14 @@ what is left · `[?]` needs a decision from you.
       bigger rocket pushes harder, so the small slots brake. It now pushes
       toward its target, never past it, never back from beyond it. The brake is
       60.7 m/s -> 0, and each rocket still settles at its own cruise.
-- [ ] D8. More speed/movement initially when going from slow to rocket speed
+- [x] D8. More speed/movement initially when going from slow to rocket speed
+      The speed was already there — lit from 8 m/s a Rocket I puts you at 20.8 by
+      the first tick and 30.4 by the third. What was missing was the view: the
+      field of view eased in on one rate for both directions, about six tenths of
+      a second, so the acceleration was over before the camera acknowledged it.
+      It opens fast now and closes slowly — 88% of the way in 0.15 s instead of
+      53% — which is also just how it should feel: arriving speed is a shove,
+      leaving speed is a drift.
 - [x] D9. Speed accuracy breaks over time — the player slows down
       Same frame-clock cause: as the world loaded and the frame rate fell, the
       catch-up ceiling threw the difference away and you really did slow down
