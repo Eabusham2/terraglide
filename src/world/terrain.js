@@ -1116,6 +1116,12 @@ export class Terrain {
     // ground reads as sea level too, and shading that as ocean turns a
     // continent into a sea for as long as its relief takes to arrive.
     node.material.uniforms.uMeasured.value = node.builtElevZoom >= 0 ? 1 : 0;
+    // What the photograph of this square says about its own green. See
+    // canopy.js: a field is smooth green, a wood is green broken at crown
+    // scale, and only the second gets bumps.
+    if (node.material.uniforms.uCanopy) {
+      node.material.uniforms.uCanopy.value = this.streamer.canopyAt?.(tile) ?? 0;
+    }
     node.dirty = false;
     node.builtVersion = this.elevation.version ?? 0;
     node.used = this.streamer.frame;

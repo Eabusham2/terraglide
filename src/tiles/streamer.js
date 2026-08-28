@@ -107,6 +107,8 @@ export class ImageryStreamer extends Emitter {
      * See sharpness.js for the numbers behind it.
      */
     this.sharpness = new Map();
+    /** Per-tile canopy score from the photograph itself. See canopy.js. */
+    this.canopy = new Map();
     this.finest = new Set();
     this.worker.addEventListener('message', (event) => this.onWorkerMessage(event.data));
   }
@@ -160,6 +162,18 @@ export class ImageryStreamer extends Emitter {
    * answer is about *this square*, not about the zoom level — coverage is
    * patchy, and a level that is real over a city is a resample a valley away.
    */
+  /**
+   * The measured canopy score for a square, or for the nearest ancestor that
+   * has one. Zero means "no opinion", not "no trees".
+   */
+  canopyAt(tile) {
+    for (let z = tile.z, x = tile.x, y = tile.y; z >= 0; z--, x >>= 1, y >>= 1) {
+      const score = this.canopy.get(tileKey(z, x, y));
+      if (score !== undefined) return score;
+    }
+    return 0;
+  }
+
   noteSharpness(tile, value) {
     const key = tileKey(tile.z, tile.x, tile.y);
     this.sharpness.set(key, value);
@@ -511,6 +525,9 @@ export class ImageryStreamer extends Emitter {
     entry.texture = texture;
     entry.state = STATE_READY;
     if (Number.isFinite(msg.sharpness)) this.noteSharpness(entry.tile, msg.sharpness);
+    if (Number.isFinite(msg.canopy)) {
+      this.canopy.set(tileKey(entry.tile.z, entry.tile.x, entry.tile.y), msg.canopy);
+    }
     this.tileSizeHint = msg.bitmap.width || this.tileSizeHint;
     this.stats.loaded++;
     this.zoomRecord(entry.tile.z).loaded++;

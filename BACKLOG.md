@@ -277,8 +277,15 @@ what is left · `[?]` needs a decision from you.
 
 ## H. World and atmosphere
 
-- [ ] H1. There are no bumps on trees
-- [ ] H2. When bumping green parts, skip it where the green runs bigger than a size throughout, so grass is not marked — but still count areas with holes of a different colour
+- [x] H1. There are no bumps on trees
+      Cause: the relief was gated entirely on an OpenStreetMap wood polygon, so
+      anywhere nobody has drawn one — most of the world — there were no bumps at
+      all. The photograph is asked now where the survey is silent.
+- [x] H2. When bumping green parts, skip it where the green runs bigger than a size throughout, so grass is not marked — but still count areas with holes of a different colour
+      Implemented as the rule was stated, measured per tile from the photograph:
+      green share x how broken that green is at crown scale. On real Esri tiles —
+      rainforest 0.765, conifer 0.842, broadleaf 0.803, scrub with trees 0.403,
+      uniform green fields 0.129, ploughed field 0.000, desert 0.000.
 - [~] H3. Improve Antarctica
       — the launch-into-Antarctica throw is fixed. The coarse elevation there
       is genuinely 2.7 km wrong (zoom 6/8/10 all read ~944 m for 3,656 m of

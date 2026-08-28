@@ -1,4 +1,5 @@
 import { isNoDataCard, makeCanvas } from './noData.js';
+import { measureCanopy } from './canopy.js';
 import { measureSharpness } from './sharpness.js';
 import { decodeBingElevation, decodeGoogleElevation } from './elevationGrid.js';
 
@@ -88,7 +89,10 @@ async function handleImagery(msg, jobKey, post) {
   // level of resolution from the level above it resampled bigger — and stop
   // asking for levels that are only the latter. See sharpness.js.
   const sharpness = measureSharpness(bitmap, makeCanvas);
-  post({ ok: true, channel: msg.channel, id: msg.id, bitmap, sharpness }, [bitmap]);
+  // Whether the green in it is a canopy or a field, so woodland relief works
+  // where nobody has drawn a wood. See canopy.js.
+  const canopy = measureCanopy(bitmap, makeCanvas, msg.tile?.z ?? msg.z ?? 0);
+  post({ ok: true, channel: msg.channel, id: msg.id, bitmap, sharpness, canopy }, [bitmap]);
 }
 
 async function handleElevation(msg, jobKey, post) {

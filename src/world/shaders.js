@@ -99,6 +99,15 @@ const TERRAIN_FRAG = /* glsl */ `
   uniform float uWoodSpan;
   uniform float uHasWood;
   uniform float uWoodStrength;
+  /**
+   * How much of this square's green the photograph itself says is canopy.
+   *
+   * Per tile, measured in the worker — see canopy.js. Where the survey has a
+   * wood drawn, the survey wins, because somebody went and looked. Where it has
+   * nothing, this is what is left, and it is why there are bumps on trees in
+   * the ninety per cent of the world nobody has mapped a forest in.
+   */
+  uniform float uCanopy;
 
   varying vec2 vUv;
   varying vec3 vNormalW;
@@ -256,6 +265,10 @@ const TERRAIN_FRAG = /* glsl */ `
         wood *= flatness;
       }
     }
+    // Where nobody drew a wood, ask the photograph. The survey is the better
+    // answer and stays on top of this: the larger of the two, not the sum, so a
+    // mapped forest is never made lumpier by the measurement agreeing with it.
+    wood = max(wood, uCanopy * flatness);
     if (wood > 0.01) {
       // Slope of the canopy by differencing, a metre and a half either way,
       // which is about a quarter of a crown.
@@ -465,6 +478,7 @@ export function createTerrainMaterial(shared) {
       uWoodOrigin: shared.uWoodOrigin,
       uWoodSpan: shared.uWoodSpan,
       uHasWood: shared.uHasWood,
+      uCanopy: { value: 0 },
       uWoodStrength: shared.uWoodStrength,
     },
     vertexShader: TERRAIN_VERT,

@@ -1460,6 +1460,87 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nGreen with holes in it is a wood; green that runs on is a field');
+{
+  const { measureCanopy, CANOPY_FROM_ZOOM } = await import('../src/tiles/canopy.js');
+
+  // Stand in for a decoded tile: a fake bitmap and a fake canvas whose
+  // getImageData hands back whatever pattern we want to test the rule on.
+  // Real imagery cannot go in the repo — it is somebody else's photograph and
+  // re-publishing it is not ours to do — so the rule is tested on patterns and
+  // the numbers from the real thing are in the commit message.
+  const tile = (paint) => {
+    const side = 128;
+    const data = new Uint8ClampedArray(side * side * 4);
+    for (let y = 0; y < side; y++) {
+      for (let x = 0; x < side; x++) {
+        const [r, g, b] = paint(x, y);
+        const i = (y * side + x) * 4;
+        data[i] = r;
+        data[i + 1] = g;
+        data[i + 2] = b;
+        data[i + 3] = 255;
+      }
+    }
+    const canvas = {
+      getContext: () => ({ drawImage() {}, getImageData: () => ({ data, width: side, height: side }) }),
+    };
+    return [{ width: side, height: side }, () => canvas];
+  };
+
+  const score = (paint, zoom = 17) => {
+    const [bitmap, makeCanvas] = tile(paint);
+    return measureCanopy(bitmap, makeCanvas, zoom);
+  };
+
+  // One green, running unbroken across the whole square. A meadow.
+  const meadow = score(() => [70, 118, 54]);
+  ok(`a field of one green scores nothing  (${meadow.toFixed(3)})`, meadow < 0.05);
+
+  // The same green, broken at crown scale by shadowed gaps.
+  const wood = score((x, y) => {
+    const crown = Math.sin(x * 0.55) * Math.sin(y * 0.55) > -0.1;
+    return crown ? [72, 124, 56] : [30, 52, 26];
+  });
+  ok(`the same green with gaps in it scores  (${wood.toFixed(3)})`, wood > 0.3);
+  ok('and scores far above the field', wood > meadow * 4);
+
+  // Not green at all: rock, sand, a city, water.
+  const bare = score(() => [176, 162, 138]);
+  ok(`bare ground scores nothing  (${bare.toFixed(3)})`, bare === 0);
+  const grey = score(() => [200, 200, 200]);
+  ok(`and so does a flat grey card  (${grey.toFixed(3)})`, grey === 0);
+
+  // Noise is not a canopy: a field with sensor grain in it must not read as
+  // trees, which is why the break is measured across a crown-sized step rather
+  // than between neighbouring pixels.
+  let seed = 7;
+  const noisy = score(() => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    const n = ((seed >> 16) % 7) - 3;
+    return [70 + n, 118 + n, 54 + n];
+  });
+  ok(`a grainy field is still a field  (${noisy.toFixed(3)})`, noisy < 0.15);
+
+  // Too coarse to ask: a pixel wider than a tree cannot say whether the green
+  // is broken, and answering anyway would bump whole countries.
+  ok('below the depth it means anything, no opinion',
+    score((x, y) => (Math.sin(x * 0.55) * Math.sin(y * 0.55) > -0.1 ? [72, 124, 56] : [30, 52, 26]),
+      CANOPY_FROM_ZOOM - 1) === 0);
+
+  // Wired through: measured in the worker, kept on the streamer, read by the
+  // material — and the survey still wins where there is one.
+  const jobs = readFileSync(new URL('../src/tiles/tileJobs.js', import.meta.url), 'utf8');
+  ok('it is measured where the tile is decoded', /measureCanopy\(bitmap/.test(jobs));
+  const streamer = readFileSync(new URL('../src/tiles/streamer.js', import.meta.url), 'utf8');
+  ok('and kept per square', /canopyAt\(tile\)/.test(streamer));
+  const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
+  ok('the ground reads it', /uniform float uCanopy;/.test(shaders));
+  ok('the survey wins where there is one, rather than adding to it',
+    /wood = max\(wood, uCanopy \* flatness\);/.test(shaders));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nHeight above the ground is a height');
 {
   const { formatAltitude, formatDistance, formatHeight } = await import('../src/core/units.js');
