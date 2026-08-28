@@ -1097,6 +1097,33 @@ console.log('\nAuto graphics is a dial, not a label');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nGround behind you is held for the same time on every machine');
+{
+  const { ImageryStreamer } = await import('../src/tiles/streamer.js');
+  const streamer = new ImageryStreamer({ addEventListener() {}, postMessage() {} }, null);
+
+  // The hold used to be counted in frames — 240 of them, commented as "about
+  // four seconds at 60 fps", which is true only at exactly sixty:
+  //   144 fps 1.7 s | 60 fps 4.0 s | 30 fps 8.0 s | 10 fps 24 s
+  // So the better the machine, the sooner the imagery behind you was thrown
+  // away, and turning round fetched it all again.
+  const source = readFileSync(new URL('../src/tiles/streamer.js', import.meta.url), 'utf8');
+  ok('the hold is a time, not a frame count',
+    /const KEEP_SECONDS/.test(source) && !/KEEP_FRAMES/.test(source));
+  ok('and it is long enough to fly out and come back',
+    /const KEEP_SECONDS = (\d+)/.exec(source)[1] >= 15);
+  ok('every entry carries when it was last seen', /seen: now\(\)/.test(source));
+  ok('and eviction reads that rather than the frame counter',
+    /moment - \(entry\.seen \?\? 0\) < KEEP_SECONDS/.test(source));
+
+  // A tile just asked for is stamped, whatever the frame number is doing.
+  const tile = { z: 14, x: 100, y: 200 };
+  const entry = streamer.entries?.get?.(`14/100/200`) ?? null;
+  ok('a fresh streamer has nothing to evict', entry === null);
+  ok('and touching an unknown tile is harmless', streamer.touch(tile) === undefined);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nAll three ways of opening the game can say what went wrong');
 {
   const read = (name) => readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');

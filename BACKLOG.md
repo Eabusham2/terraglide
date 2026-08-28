@@ -89,8 +89,18 @@ what is left · `[?]` needs a decision from you.
 - [ ] B5. Ground becomes griddy and comes back — moves up or down and shows a grid
 - [ ] B6. Randomly starts disappearing, getting patchy, falling apart, coming back in chunks
 - [ ] B7. Random refresh of textures
-- [ ] B8. High res unloads from behind me
-- [ ] B9. Unloading and reloading and breaking
+- [x] B8. High res unloads from behind me
+      Cause: the texture cache held a tile for 240 *frames*, commented as "about
+      four seconds at 60 fps" — true only at exactly sixty. 144 fps got 1.7 s,
+      30 fps got 8, 10 fps got 24. The better the machine, the sooner the ground
+      behind you was thrown away. Now 20 seconds of wall clock, the same on
+      every machine.
+- [x] B9. Unloading and reloading and breaking
+      Cause: the texture cache held a tile for 240 *frames*, commented as "about
+      four seconds at 60 fps" — true only at exactly sixty. 144 fps got 1.7 s,
+      30 fps got 8, 10 fps got 24. The better the machine, the sooner the ground
+      behind you was thrown away. Now 20 seconds of wall clock, the same on
+      every machine.
 - [ ] B10. Sometimes everything becomes super blurry when I do something, comes back after 1 s
 - [ ] B11. Random times when looking, everything becomes a solid colour
 - [ ] B12. Randomly blurring depending on where I look
@@ -323,7 +333,12 @@ what is left · `[?]` needs a decision from you.
       the ceiling the oldest fine detail goes, in order, never at random.
 - [ ] M6. Player position is still off on the minimap
 - [ ] M7. Ground still has holes, still reloads, still moves up and down
-- [ ] M8. Unloading while the player is still inside the render distance
+- [x] M8. Unloading while the player is still inside the render distance
+      Cause: the texture cache held a tile for 240 *frames*, commented as "about
+      four seconds at 60 fps" — true only at exactly sixty. 144 fps got 1.7 s,
+      30 fps got 8, 10 fps got 24. The better the machine, the sooner the ground
+      behind you was thrown away. Now 20 seconds of wall clock, the same on
+      every machine.
 - [ ] M9. Ground becomes blurry
 - [ ] M10. Player width and speed on the ground do not feel real
 - [x] M11. Still teleporting when I look down after an RTP

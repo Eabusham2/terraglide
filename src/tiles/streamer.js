@@ -5,10 +5,6 @@ import { tileKey, wrapTileX } from '../geo/mercator.js';
 import { SHARPNESS_FLOOR, SHARPNESS_FROM_ZOOM, SHARPNESS_RATIO } from './sharpness.js';
 
 /**
- * How many frames a tile stays safe from eviction after it was last drawn.
- * About four seconds at 60 fps — long enough to cover turning round.
- */
-/**
  * At and below this zoom a tile is cover rather than detail: it is what
  * everything beneath it stretches when its own photograph has not arrived.
  */
@@ -16,7 +12,31 @@ const COVER_ZOOM = 9;
 /** How many cover tiles to keep. One at zoom nine is about 100 km across. */
 const COVER_BUDGET = 160;
 
-const KEEP_FRAMES = 240;
+/**
+ * How long a tile stays safe from eviction after it was last drawn.
+ *
+ * Seconds, because it used to be *frames* — 240 of them, commented as "about
+ * four seconds at 60 fps", which is only true on a machine running at exactly
+ * sixty:
+ *
+ *   144 fps   1.7 s        30 fps    8 s
+ *    60 fps   4.0 s        10 fps   24 s
+ *
+ * So the better the machine, the sooner the ground behind you was thrown away
+ * — 1.7 seconds on a fast one. Turn round after glancing at something and the
+ * imagery you were just looking at has to come down the wire again. That is
+ * "high res unloads from behind me" and "unloading while the player is still
+ * inside the render distance".
+ *
+ * Twenty seconds, and the same twenty everywhere. Long enough to fly out and
+ * come back, which is what the old comment was reaching for and what four
+ * seconds was never going to cover.
+ */
+const KEEP_SECONDS = 20;
+
+/** Milliseconds, monotonic where the browser offers one. */
+const now = () =>
+  (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
 
 /**
  * Imagery streamer: a priority queue in front of the tile worker, plus an LRU
@@ -263,10 +283,11 @@ export class ImageryStreamer extends Emitter {
     const key = tileKey(tile.z, tile.x, tile.y);
     let entry = this.entries.get(key);
     if (!entry) {
-      entry = { key, tile, state: 0, texture: null, used: this.frame, priority };
+      entry = { key, tile, state: 0, texture: null, used: this.frame, seen: now(), priority };
       this.entries.set(key, entry);
     }
     entry.used = this.frame;
+    entry.seen = now();
     entry.priority = priority;
     if (entry.state === STATE_BARE) return entry;
     if (entry.state !== STATE_READY && this.underBarren(tile)) {
@@ -331,7 +352,10 @@ export class ImageryStreamer extends Emitter {
   /** Mark a tile as still in use without requesting a load. */
   touch(tile) {
     const entry = this.entries.get(tileKey(tile.z, tile.x, tile.y));
-    if (entry) entry.used = this.frame;
+    if (entry) {
+      entry.used = this.frame;
+      entry.seen = now();
+    }
     return entry;
   }
 
@@ -358,6 +382,7 @@ export class ImageryStreamer extends Emitter {
       const entry = this.entries.get(tileKey(z, x, y));
       if (entry && entry.state === STATE_READY && entry.texture) {
         entry.used = this.frame;
+        entry.seen = now();
         return { texture: entry.texture, scale, offsetX, offsetY, exact: step === 0 };
       }
       // Walk to the parent; track which quadrant we came from.
@@ -505,6 +530,7 @@ export class ImageryStreamer extends Emitter {
    */
   evict() {
     const limit = settings.preset().textureCacheSize;
+    const moment = now();
     // Coarse tiles are cover for everything under them, and they were being
     // thrown away like any other.
     //
@@ -530,7 +556,7 @@ export class ImageryStreamer extends Emitter {
       rest.sort((a, b) => a.used - b.used);
       for (const entry of rest) {
         if (excess <= 0) break;
-        if (entry.used >= this.frame - KEEP_FRAMES || entry.state === STATE_PENDING) continue;
+        if (moment - (entry.seen ?? 0) < KEEP_SECONDS * 1000 || entry.state === STATE_PENDING) continue;
         drop(entry);
         excess--;
       }
