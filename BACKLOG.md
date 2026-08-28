@@ -140,8 +140,20 @@ what is left · `[?]` needs a decision from you.
 
 - [ ] F1. NWSE on the minimap preview is too big
 - [ ] F2. Improve the position of NWSE on the map
-- [ ] F3. Map is white, especially when going up
-- [ ] F4. Map is white for a moment when zooming in
+- [x] F3. Map is white, especially when going up
+      Cause: resolve() only ever walks up. Zooming out — which is what climbing
+      does to the minimap — leaves the sharp squares cached and the coarse one
+      not yet asked for, so it found nothing and the renderer painted
+      STREET_BLANK over everything. That colour is #eceae3, near-white. It now
+      draws the finer squares it already has, and paints paper only where
+      nothing at all is known.
+- [x] F4. Map is white for a moment when zooming in
+      Cause: resolve() only ever walks up. Zooming out — which is what climbing
+      does to the minimap — leaves the sharp squares cached and the coarse one
+      not yet asked for, so it found nothing and the renderer painted
+      STREET_BLANK over everything. That colour is #eceae3, near-white. It now
+      draws the finer squares it already has, and paints paper only where
+      nothing at all is known.
 - [ ] F5. Stretched map
 - [x] F6. Explored area must look the same and stay visible at every zoom
       Cause: save() threw away 45% of the level-16 squares at random whenever the

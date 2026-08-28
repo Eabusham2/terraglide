@@ -163,10 +163,26 @@ export function drawMap(ctx, view, layers) {
             drawSize + 0.5,
             drawSize + 0.5,
           );
-        } else if (blank) {
-          // Nothing loaded here yet.
-          target.fillStyle = blank;
-          target.fillRect(screenX, screenY, drawSize, drawSize);
+        } else {
+          // Nothing at this level or coarser. Anything finer counts too:
+          // zooming out — which is what climbing does to the minimap — leaves
+          // the sharp squares in the cache and the coarse one not yet asked
+          // for, and painting over them with blank paper is why the map went
+          // white.
+          const inside = cache.descend(tileZoom, wrappedX, ty, 2);
+          if (blank && inside.length < 16) {
+            target.fillStyle = blank;
+            target.fillRect(screenX, screenY, drawSize, drawSize);
+          }
+          for (const part of inside) {
+            target.drawImage(
+              part.bitmap,
+              screenX + part.x * drawSize,
+              screenY + part.y * drawSize,
+              part.size * drawSize + 0.5,
+              part.size * drawSize + 0.5,
+            );
+          }
         }
       }
     }

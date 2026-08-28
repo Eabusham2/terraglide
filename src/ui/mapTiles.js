@@ -275,6 +275,42 @@ export class MapTileCache {
   }
 
   /**
+   * The cached squares *inside* a tile, when the tile itself is missing.
+   *
+   * `resolve` only ever walks up, which is the right move when you zoom in:
+   * the coarser square is in the cache and stretching it is what every slippy
+   * map does. Zooming out is the mirror image and had no answer at all — the
+   * coarse square has not been fetched yet and the finer ones you were just
+   * looking at are sitting in the cache, unusable, because nothing looked
+   * down. So the map painted blank paper over everything, and blank paper for
+   * the street layer is near-white. That is "the map is white when I zoom" and
+   * "the map is white, especially when going up" — going up zooms the minimap
+   * out.
+   *
+   * Returns whatever it finds as unit-square placements, so a partly-covered
+   * tile draws the parts it has instead of nothing.
+   *
+   * @returns {Array<{bitmap: ImageBitmap, x: number, y: number, size: number}>}
+   */
+  descend(z, x, y, depth = 2, out = []) {
+    if (depth <= 0) return out;
+    const span = 1 / 2 ** depth;
+    const steps = 2 ** depth;
+    const bx = x * steps;
+    const by = y * steps;
+    for (let j = 0; j < steps; j++) {
+      for (let i = 0; i < steps; i++) {
+        const bitmap = this.peek(z + depth, wrapTileX(bx + i, z + depth), by + j);
+        if (bitmap) out.push({ bitmap, x: i * span, y: j * span, size: span });
+      }
+    }
+    // Nothing at this depth: the squares may be coarser than that but still
+    // finer than the one being asked for.
+    if (out.length === 0 && depth > 1) return this.descend(z, x, y, depth - 1, out);
+    return out;
+  }
+
+  /**
    * Average colour of the imagery at a point, or null if that tile has not
    * arrived. Used to take scenery colour from the actual aerial photograph
    * rather than from a palette someone invented: a fir in a Norwegian spruce

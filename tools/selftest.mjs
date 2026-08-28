@@ -1076,6 +1076,47 @@ console.log('\nAuto graphics is a dial, not a label');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe map does not go white when it changes zoom');
+{
+  const { MapTileCache } = await import('../src/ui/mapTiles.js');
+  const stub = (cache, z, x, y) => cache.tiles.set(`${z}/${x}/${y}`, {
+    key: `${z}/${x}/${y}`, state: 'ready', bitmap: { width: 256, height: 256 }, used: 0,
+  });
+  const covered = (parts) => parts.reduce((sum, part) => sum + part.size * part.size, 0);
+  const Z = 12;
+  const X = 1000;
+  const Y = 700;
+
+  // Zooming out — which is what climbing does to the minimap — leaves the
+  // sharp squares in the cache and the coarse one not yet asked for. resolve
+  // only ever walks up, so it had no answer, and the renderer painted blank
+  // paper. Blank paper for the street layer is near-white, over everything.
+  const cache = new MapTileCache();
+  ok('walking up finds nothing when you zoom out', cache.resolve(Z, X, Y) === null);
+
+  for (let j = 0; j < 4; j++) {
+    for (let i = 0; i < 4; i++) stub(cache, Z + 2, X * 4 + i, Y * 4 + j);
+  }
+  const full = cache.descend(Z, X, Y, 2);
+  ok(`the squares inside it are used instead  (${full.length} pieces)`, full.length === 16);
+  ok('covering the whole square', Math.abs(covered(full) - 1) < 1e-9);
+
+  // Partly covered draws the parts it has rather than nothing.
+  const half = new MapTileCache();
+  stub(half, Z + 1, X * 2, Y * 2);
+  stub(half, Z + 1, X * 2 + 1, Y * 2);
+  const parts = half.descend(Z, X, Y, 2);
+  ok(`a partly cached square draws its parts  (${(covered(parts) * 100).toFixed(0)}%)`,
+    parts.length === 2 && Math.abs(covered(parts) - 0.5) < 1e-9);
+
+  ok('and an empty cache still says nothing', new MapTileCache().descend(Z, X, Y, 2).length === 0);
+
+  const renderer = readFileSync(new URL('../src/ui/mapRenderer.js', import.meta.url), 'utf8');
+  ok('the renderer asks before it paints paper', /cache\.descend\(/.test(renderer));
+  ok('and only paints it where nothing is known', /inside\.length < 16/.test(renderer));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe map shows exactly the ground you explored');
 {
   const { encodeCells, decodeCells } = await import('../src/ui/exploration.js');
