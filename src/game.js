@@ -892,7 +892,10 @@ export class Game {
     }
     player.syncGeo();
 
-    this.rig.update(player, dt, this.terrain);
+    this.rig.update(player, dt, this.terrain, movement);
+    // The flight model reads the bank off the player; the rig owns it because
+    // that is where the input for it lands.
+    player.roll = this.rig.roll;
 
     // The shader shades unphotographed ground by slope, which means nothing
     // on a flat plate, so it needs to know whether any relief has arrived.
@@ -1512,9 +1515,6 @@ export class Game {
         this.toast(label[next]);
         break;
       }
-      case 'barrelRoll':
-        if (this.rig.startBarrelRoll()) this.toast('Barrel roll');
-        break;
       case 'worldMap':
         this.worldmap.toggle({ lat: player.lat, lon: player.lon, heading: player.yaw });
         break;

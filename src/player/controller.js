@@ -59,6 +59,13 @@ const JUMP_BUFFER_S = 0.16;
  * velocity is 78 m/s and a tick is a twentieth of a second, so four metres is
  * the real ceiling; this leaves room for speed mode and every cheat at once.
  */
+/**
+ * How hard a fully banked wing turns you, radians a second.
+ *
+ * A quarter-turn every couple of seconds on its side, which is a wide, readable
+ * arc rather than a pivot.
+ */
+const BANK_TURN = 0.8;
 const RESYNC_M = 200;
 /** How far the feet can be lifted per second when walking up a slope. */
 const STEP_SMOOTHING = 12;
@@ -207,6 +214,20 @@ export class PlayerController {
     // One set of wings. See src/player/elytra.js.
     stepGlide(player.velocity, this.look, player.pitch);
     player.airborneSeconds += step;
+
+    // A banked wing turns you, which is the whole reason to roll one.
+    //
+    // Lift acts along the wing's own up, so tipping it over points part of that
+    // lift sideways and the flight path curves — that is what an aircraft does,
+    // and it is what the mod this is copied from does. Without it a roll is a
+    // camera trick: the horizon tilts and you carry on in a straight line.
+    //
+    // Scaled by how fast you are going, because a wing with no air over it
+    // turns nothing, and capped so a full inversion does not spin you.
+    if (player.roll) {
+      const bite = Math.min(1, player.horizontalSpeed / 28);
+      player.yaw += Math.sin(player.roll) * BANK_TURN * bite * step;
+    }
 
     // Crouch pulls the nose down a touch — handy for shedding altitude.
     if (input.crouch) player.velocity.y -= 4 * step;

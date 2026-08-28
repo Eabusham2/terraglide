@@ -14,6 +14,7 @@ const ROWS = [
   ['Fire a rocket — opens the wings for you (or use the mouse)', ['rocket']],
   ['Swim — jump to rise, crouch to dive', ['jump', 'crouch']],
   ['Speed mode — 2x for a while, then a cooldown', ['speedMode']],
+  ['Roll — hold while gliding to bank, and a bank turns you', ['left', 'right']],
   ['Open or stow the wings \u2014 works any time you are off the ground', ['wings']],
   ['Random teleport', ['rtp']],
   ['World map', ['worldMap']],

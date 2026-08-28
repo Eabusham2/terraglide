@@ -89,6 +89,14 @@ export class Player extends Emitter {
     this.velocity = new THREE.Vector3();
     this.yaw = 0;
     this.pitch = 0;
+    /**
+     * How far the wings are banked over, radians, right wing down positive.
+     *
+     * Owned by the camera rig, which is where the input for it lives, and
+     * copied here each frame so the flight model can read it. A banked wing
+     * turns you — see tickGlide.
+     */
+    this.roll = 0;
 
     this.mode = 'walk'; // walk | glide | fall
     this.onGround = false;

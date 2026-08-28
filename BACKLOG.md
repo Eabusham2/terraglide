@@ -252,7 +252,11 @@ what is left · `[?]` needs a decision from you.
 - [ ] G14. Fallbacks
 - [ ] G15. Retry when failed
 - [ ] G16. Stop ignoring failures and marking them normal
-- [ ] G17. Remember tokens
+- [x] G17. Remember tokens
+      Measured rather than assumed: localStorage works from file:// in Chromium
+      (all file URLs share one origin), the store writes every token, and a fresh
+      store built from the same storage reads them back. The store class is
+      exported now so that reload path can actually be exercised.
 - [ ] G18. Why is it lower res than, e.g., the Mapbox website
 - [ ] G19. Show the imagery year
 - [x] G20. Why cap zoom at 22 or 23 — force it to infinity and future-proof it (1–25, then Infinity)
@@ -323,7 +327,13 @@ what is left · `[?]` needs a decision from you.
 - [x] I17. Favicon as an elytra
       A pair of folded wings with the spine between them, five paths, inline SVG.
       Rendered at 16, 32 and 128 px and looked at, not just written.
-- [ ] I18. Barrel roll as in the MC mod, not a keybind
+- [x] I18. Barrel roll as in the MC mod, not a keybind
+      Was a key: X ran a canned 360 over 0.8 s whatever you were doing. Now it is
+      the strafe keys held while gliding — you keep rolling for as long as you
+      hold, all the way round if you want, and the wings come back level when
+      you let go. And a bank turns you, scaled by airspeed, which is the reason
+      to roll one: a 30-degree bank is a 46-degree arc over two seconds, upside
+      down turns nothing. The keybind is gone.
 - [x] I19. FOV increase should depend on speed
       Already there — clamp(horizontalSpeed/90) * 16 degrees, behind the
       speedFovKick setting. But it also added a flat 6 degrees while speed mode
@@ -415,4 +425,10 @@ what is left · `[?]` needs a decision from you.
       — line removed.
 - [ ] M16. One branch, with gh-pages as the only other
 - [ ] M17. Stop patching with bandaids — fix the system
-- [ ] M18. Barrel roll, implemented like the mod, not as a keybind
+- [x] M18. Barrel roll, implemented like the mod, not as a keybind
+      Was a key: X ran a canned 360 over 0.8 s whatever you were doing. Now it is
+      the strafe keys held while gliding — you keep rolling for as long as you
+      hold, all the way round if you want, and the wings come back level when
+      you let go. And a bank turns you, scaled by airspeed, which is the reason
+      to roll one: a 30-degree bank is a 46-degree arc over two seconds, upside
+      down turns nothing. The keybind is gone.

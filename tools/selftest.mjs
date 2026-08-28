@@ -1460,6 +1460,67 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nRolling is something you fly, not a button you press');
+{
+  const { CameraRig } = await import('../src/camera/cameraRig.js');
+  const THREE = await import('../vendor/three/three.module.js');
+  const rig = new CameraRig(new THREE.PerspectiveCamera(78, 1.6, 0.15, 1000));
+
+  // It was a key: press X and a canned 360 went round over eight tenths of a
+  // second whatever you were doing. That is a stunt button, and "implement it
+  // like the mod, not as a keybind" is exactly the difference.
+  const binds = readFileSync(new URL('../src/core/keybinds.js', import.meta.url), 'utf8');
+  ok('there is no roll key any more', !/barrelRoll/.test(binds));
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  ok('and nothing triggers one', !/startBarrelRoll/.test(game));
+
+  // Held, while gliding, from the strafe keys.
+  const hold = (input, seconds, flying = true) => {
+    for (let t = 0; t < seconds; t += 1 / 60) rig.updateRoll(1 / 60, input, flying);
+    return rig.roll;
+  };
+  rig.roll = 0;
+  ok(`holding right banks you  (${((hold(1, 0.3) * 180) / Math.PI).toFixed(0)}\u00b0)`, rig.roll > 0.5);
+  // Compared before it can wrap: roll is kept inside one turn either way, so
+  // half a second at full deflection is already past upright and comes back
+  // round negative — which is the intended behaviour and a bad thing to
+  // measure "further" against.
+  const early = rig.roll;
+  ok(`holding longer banks further  (${((hold(1, 0.2) * 180) / Math.PI).toFixed(0)}\u00b0)`,
+    rig.roll > early);
+  // All the way over and round again: the barrel roll is still there, flown.
+  rig.roll = 0;
+  let wrapped = false;
+  for (let t = 0; t < 3; t += 1 / 60) {
+    const before = rig.roll;
+    rig.updateRoll(1 / 60, 1, true);
+    if (rig.roll < before - 1) wrapped = true;
+  }
+  ok('and holding it takes you the whole way round', wrapped);
+
+  rig.roll = 0;
+  ok(`left goes the other way  (${((hold(-1, 0.4) * 180) / Math.PI).toFixed(0)}\u00b0)`, rig.roll < -0.4);
+
+  // Let go and it comes back level, so you cannot be stranded inverted.
+  ok(`letting go levels off  (${((hold(0, 4) * 180) / Math.PI).toFixed(1)}\u00b0)`, Math.abs(rig.roll) < 0.05);
+  // And on your feet the horizon is the horizon.
+  rig.roll = 1;
+  ok('walking has no roll at all', Math.abs(hold(1, 2, false)) < 0.05);
+
+  // A bank has to turn you or it is a camera trick.
+  const controller = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');
+  ok('a banked wing turns you', /player\.yaw \+= Math\.sin\(player\.roll\)/.test(controller));
+  ok('and only with air over it', /horizontalSpeed \/ 28/.test(controller));
+  const rate = Number(/const BANK_TURN = ([\d.]+)/.exec(controller)?.[1]);
+  const turnIn2s = (roll) => (Math.sin(roll) * rate * 1 * 2 * 180) / Math.PI;
+  ok(`level flight does not turn  (${turnIn2s(0).toFixed(0)}\u00b0)`, turnIn2s(0) === 0);
+  ok(`a 30\u00b0 bank is a wide arc  (${turnIn2s(Math.PI / 6).toFixed(0)}\u00b0 in 2 s)`,
+    turnIn2s(Math.PI / 6) > 20 && turnIn2s(Math.PI / 6) < 70);
+  ok(`and upside down does not spin you  (${turnIn2s(Math.PI).toFixed(0)}\u00b0)`,
+    Math.abs(turnIn2s(Math.PI)) < 1);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe view widens with how fast you are actually going');
 {
   const rig = readFileSync(new URL('../src/camera/cameraRig.js', import.meta.url), 'utf8');

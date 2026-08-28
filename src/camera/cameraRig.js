@@ -33,8 +33,22 @@ const PITCH_LIMIT = Math.PI / 2 - 0.02;
  * meant to look like.
  */
 const EYE_FORWARD = 0.1;
-/** One barrel roll, in seconds. */
-const ROLL_TIME = 0.8;
+/**
+ * How fast a held roll turns you, in radians a second.
+ *
+ * A shade over one full revolution every two seconds at full deflection, which
+ * is quick enough to feel like an aircraft and slow enough to stop halfway and
+ * hold a bank.
+ */
+const ROLL_RATE = 3.4;
+/**
+ * How fast the wings come back level when you stop asking.
+ *
+ * Slow, so a deliberate bank stays where you put it for a second or two and you
+ * are not fighting the controls to hold a turn; fast enough that letting go
+ * always ends level rather than leaving you inverted.
+ */
+const ROLL_RECOVER = 1.6;
 /** Frequency of the rocket shove, in hertz. Low enough to read as a push. */
 const SHAKE_HZ = 7;
 
@@ -89,16 +103,41 @@ export class CameraRig {
   }
 
   /**
-   * Start a barrel roll, unless one is already running.
+   * Roll, the way the mod does it.
    *
-   * It used to be behind a setting that was off by default, which meant the
-   * key did nothing and there was no way to discover why. A key you pressed
-   * deliberately is the permission.
+   * This was a key: press X and a canned three-hundred-and-sixty went round
+   * over eight tenths of a second whatever you were doing, then stopped. That
+   * is a stunt button, not a control surface, and "implement it like the mod,
+   * not as a keybind" is exactly the difference.
+   *
+   * So it is the strafe keys, held, while you are gliding — the only time an
+   * aircraft has anything to roll about, and the only time those keys were not
+   * already doing something. Hold one and you keep rolling, all the way over
+   * and round again if you want; let go and the wings come back level. A full
+   * barrel roll is still there, but you fly it rather than trigger it.
+   *
+   * @param {number} dt
+   * @param {number} input  -1 to 1, left to right
+   * @param {boolean} flying  gliding or in creative flight
    */
-  startBarrelRoll() {
-    if (this.rolling) return false;
-    this.rolling = 0.0001;
-    return true;
+  updateRoll(dt, input, flying) {
+    if (!flying) {
+      // On your feet the horizon is the horizon.
+      this.roll = damp(this.roll, 0, ROLL_RECOVER * 2, dt);
+      if (Math.abs(this.roll) < 0.002) this.roll = 0;
+      return;
+    }
+    if (input !== 0) {
+      this.roll += input * ROLL_RATE * dt;
+      // Keep it in one turn either way so the number stays readable and the
+      // recovery below always takes the short way round.
+      const turn = Math.PI * 2;
+      if (this.roll > Math.PI) this.roll -= turn;
+      else if (this.roll < -Math.PI) this.roll += turn;
+      return;
+    }
+    this.roll = damp(this.roll, 0, ROLL_RECOVER, dt);
+    if (Math.abs(this.roll) < 0.002) this.roll = 0;
   }
 
   adjustFreecamSpeed(delta) {
@@ -130,8 +169,11 @@ export class CameraRig {
     cam.position.y = Math.max(cam.position.y, groundHeight + 0.5);
   }
 
-  update(player, dt, terrain) {
+  update(player, dt, terrain, input) {
     const camera = this.camera;
+    // Roll comes from the strafe keys while you are flying. See updateRoll.
+    const lateral = input ? (input.right ? 1 : 0) - (input.left ? 1 : 0) : 0;
+    this.updateRoll(dt, lateral, player.mode === 'glide' || player.mode === 'fly');
     // How fast you are actually going, and nothing else.
     //
     // There used to be a flat six degrees on top while speed mode was running,
@@ -155,13 +197,6 @@ export class CameraRig {
       camera.quaternion.setFromEuler(this._euler);
       return;
     }
-
-    // The only roll is a barrel roll, and only if you asked for one.
-    if (this.rolling) {
-      this.rolling += dt / ROLL_TIME;
-      if (this.rolling >= 1) this.rolling = 0;
-    }
-    this.roll = this.rolling ? this.rolling * Math.PI * 2 : 0;
 
     const eye = player.eyeHeight;
     // The drawn position, not the physics one — see Player.renderPosition.

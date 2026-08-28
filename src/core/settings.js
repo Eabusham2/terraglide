@@ -305,7 +305,12 @@ export const GRAPHICS_PRESETS = {
 
 const STORAGE_KEY = 'settings';
 
-class SettingsStore extends Emitter {
+/**
+ * The store itself, exported so a reload can be exercised: constructing a
+ * second one reads the same storage back, which is the only way to check that
+ * a pasted key actually survives closing the tab.
+ */
+export class SettingsStore extends Emitter {
   constructor() {
     super();
     const saved = readJSON(STORAGE_KEY, {});
