@@ -1460,6 +1460,42 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nDetail goes where you can see it, not straight down');
+{
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+
+  // The split test used the horizontal distance, which is nought for the ground
+  // directly beneath you however high you are — so at altitude the quadtree
+  // descended to maximum depth straight down and spent the frame's whole tile
+  // budget on a patch seen from kilometres up. maxDrawn then cuts the walk
+  // short, and what goes missing is the view.
+  ok('the split test uses the real distance',
+    /const eyeDist = Math\.hypot\(flatDist, vertical\);/.test(terrain));
+  ok('including the height of the square itself',
+    /Math\.max\(minY - camera\.position\.y, 0, camera\.position\.y - maxY\)/.test(terrain));
+  ok('and both sides of the hysteresis use it',
+    /wasSplit \? eyeDist < line \* LOD_HYSTERESIS_OUT : eyeDist < line \* LOD_HYSTERESIS_IN/.test(terrain));
+  // Culling and reach are questions about ground covered, not apparent size.
+  ok('reach is still horizontal', /if \(flatDist > reach\)/.test(terrain));
+  ok('and so is the ground kept under your feet', /flatDist > FLOOR_REACH/.test(terrain));
+
+  // Reproduce the depth each rule reaches straight down.
+  const deepest = (distance, lodFactor = 4.6 / 2.4, lat = 46.5) => {
+    let deep = 0;
+    for (let z = 1; z < 24; z++) {
+      const size = (40075016.686 * Math.cos((lat * Math.PI) / 180)) / 2 ** z;
+      if (distance < size * lodFactor) deep = z;
+    }
+    return deep;
+  };
+  ok(`horizontal distance descends to the bottom  (z${deepest(0)})`, deepest(0) >= 22);
+  ok(`at 300 m up the real distance stops sooner  (z${deepest(300)})`, deepest(300) < deepest(0));
+  ok(`and at 9 km, sooner again  (z${deepest(9000)})`, deepest(9000) < deepest(300));
+  // Standing on the ground is unchanged, which is the case that must not move.
+  ok(`on foot it is as deep as ever  (z${deepest(2)})`, deepest(2) >= 22);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nChanging provider does not blank the world');
 {
   const { ImageryStreamer, STATE_READY } = await import('../src/tiles/streamer.js');

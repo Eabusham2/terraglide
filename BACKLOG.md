@@ -149,7 +149,15 @@ what is left · `[?]` needs a decision from you.
 - [ ] C5. Map zooms in faster and more detailed than the terrain — ground should be faster and higher quality
 - [ ] C6. Takes too long for max res to arrive — maybe fewer modes
 - [ ] C7. Preload/load everything when close, so approaching does not trigger a high-res render unless it is a LOD
-- [ ] C8. Flying up should not decrease quality
+- [x] C8. Flying up should not decrease quality
+      Cause: the split test used the *horizontal* distance, which is nought for
+      ground directly beneath you however high you are — so at 9 km the quadtree
+      descended to zoom 23 straight down (true distance says z12) and spent the
+      frame's whole tile budget there. maxDrawn then cuts the walk short and the
+      view is what goes missing. The quality did not decrease; it went somewhere
+      useless. Split now uses the real distance, including the square's own
+      height range; culling and reach stay horizontal, because those are about
+      ground covered rather than apparent size. On foot, nothing changes.
 - [x] C9. Minimap often does not load satellite when high up — four rescues by a
       standby latched the map onto it for the session with no way back, and two
       of the ways to earn one (no imagery here, provider not ready) are not the

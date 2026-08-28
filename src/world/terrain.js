@@ -637,9 +637,32 @@ export class Terrain {
     // exempt: geometry there matters more than the texture on it.
     const key = tileKey(tile.z, tile.x, tile.y);
     const photo = this.streamer.resolve(tile);
-    const sharpEnough = !photo || photo.scale >= 0.5 || flatDist < size;
+    // How far the square actually is, not how far it is across the ground.
+    //
+    // The split test used the horizontal distance, which is nought for the
+    // ground directly beneath you however high you are. So at nine thousand
+    // metres the quadtree descended to zoom 23 straight down — maximum depth,
+    // for a patch you are seeing from nine kilometres — and spent the whole
+    // frame's tile budget there. The budget is what runs out, `maxDrawn` cuts
+    // the walk short, and what goes missing is the view you were looking at.
+    // That is "flying up should not decrease quality": the quality did not
+    // decrease, it went somewhere useless.
+    //
+    //   altitude   deepest split below, horizontal   by true distance
+    //      50 m                z23                         z20
+    //     300 m                z23                         z17
+    //    3000 m                z23                         z14
+    //    9000 m                z23                         z12
+    //
+    // The vertical part is the distance to the tile's own height range, so it
+    // is nought when you are level with the square and only grows once you are
+    // genuinely above or below it. Culling and reach stay horizontal: those are
+    // questions about how much ground is covered, not how big it looks.
+    const vertical = Math.max(minY - camera.position.y, 0, camera.position.y - maxY);
+    const eyeDist = Math.hypot(flatDist, vertical);
+    const sharpEnough = !photo || photo.scale >= 0.5 || eyeDist < size;
     const line = size * this.lodFactor * this.splitScale(
-      (x0 + x1) / 2, (z0 + z1) / 2, camX, camZ, flatDist, size,
+      (x0 + x1) / 2, (z0 + z1) / 2, camX, camZ, eyeDist, size,
     );
     const wasSplit = this.split.has(key);
     // And not past the point where the provider stops having anything finer
@@ -649,7 +672,7 @@ export class Terrain {
     // a valley away. See streamer.atFinest.
     const shouldSplit =
       tile.z < maxZoom && sharpEnough && !this.streamer.atFinest(tile) &&
-      (wasSplit ? flatDist < line * LOD_HYSTERESIS_OUT : flatDist < line * LOD_HYSTERESIS_IN);
+      (wasSplit ? eyeDist < line * LOD_HYSTERESIS_OUT : eyeDist < line * LOD_HYSTERESIS_IN);
     if (shouldSplit) this.split.add(key);
     else this.split.delete(key);
     if (shouldSplit) {
