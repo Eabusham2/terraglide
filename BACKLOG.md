@@ -82,8 +82,18 @@ what is left · `[?]` needs a decision from you.
 
 - [ ] C1. Load high res where I am and where I am looking, more chunks in parallel
 - [ ] C2. Load high res more, long-range low res less
-- [ ] C3. Ground loading is super slow but the minimap is already loaded
-- [ ] C4. Make it load HQ ground fast
+- [x] C3. Ground loading is super slow but the minimap is already loaded
+      Cause found: the per-frame streaming budget was spare time only, so any
+      machine missing its target pinned to the 1.5 ms floor — 45 ms of terrain
+      work a second at 30 fps against 1296 at 144. It now also gets a share of
+      the frame, so the rate holds at any frame rate. The minimap was sharp
+      first because it never went through this budget at all.
+- [x] C4. Make it load HQ ground fast
+      Cause found: the per-frame streaming budget was spare time only, so any
+      machine missing its target pinned to the 1.5 ms floor — 45 ms of terrain
+      work a second at 30 fps against 1296 at 144. It now also gets a share of
+      the frame, so the rate holds at any frame rate. The minimap was sharp
+      first because it never went through this budget at all.
 - [ ] C5. Map zooms in faster and more detailed than the terrain — ground should be faster and higher quality
 - [ ] C6. Takes too long for max res to arrive — maybe fewer modes
 - [ ] C7. Preload/load everything when close, so approaching does not trigger a high-res render unless it is a LOD

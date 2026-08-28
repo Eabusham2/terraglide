@@ -15,6 +15,13 @@ import { settings } from './settings.js';
  * far better than the whole world drawn softly.
  */
 export const MIN_SCALE = 0.75;
+
+/**
+ * The share of a frame streaming and mesh building may take when there is no
+ * spare time to take instead. A quarter is visible as a cost and invisible as
+ * a stall, and it is the difference between the world arriving and not.
+ */
+export const STREAM_SHARE = 0.25;
 export class PerfGovernor {
   constructor() {
     this.fps = 60;
@@ -53,10 +60,43 @@ export class PerfGovernor {
     else this.scale = clamp(this.scale, MIN_SCALE, target);
   }
 
-  /** Milliseconds of streaming / geometry work this frame can still afford. */
+  /**
+   * Milliseconds of streaming / geometry work this frame can afford.
+   *
+   * Two rules, and the answer is the larger of them.
+   *
+   * The first is spare time: whatever this frame came in under the target,
+   * plus a little. That was the only rule, and on any machine that misses its
+   * target it is negative — so it clamped to the 1.5 ms floor and stayed
+   * there. Since the budget is spent per *frame*, a slow machine also gets
+   * fewer of them, and the two compound:
+   *
+   *   144 fps   9.0 ms/frame   1296 ms of terrain work per second of wall clock
+   *    60 fps   4.5 ms          270 ms
+   *    30 fps   1.5 ms           45 ms
+   *    10 fps   1.5 ms           15 ms
+   *     2 fps   1.5 ms            3 ms
+   *
+   * A machine at 30 fps got a twenty-ninth of the loading rate of one at 144,
+   * while having strictly more to load — and it is usually slow *because* the
+   * world has not arrived yet. So it never arrived: the ground stayed low
+   * quality for minutes, and the minimap, which does not go through this
+   * budget at all, was sharp immediately. That is "ground loading is super
+   * slow but the minimap is already loaded".
+   *
+   * The second rule is a share of the frame in front of it, which cannot go
+   * negative. Work done per second of wall clock then stays roughly constant
+   * however slow the machine is, and the cost is bounded: a frame grows by a
+   * quarter, not by whatever it takes.
+   *
+   * Taking the larger means a fast machine keeps every millisecond of spare
+   * time it had before — this is not a smaller budget anywhere.
+   */
   budgetMs() {
     const target = 1000 / Math.max(30, settings.get('fpsTarget'));
-    return clamp(target - this.smoothedMs + 4.5, 1.5, 9);
+    const spare = target - this.smoothedMs + 4.5;
+    const share = this.smoothedMs * STREAM_SHARE;
+    return clamp(Math.max(spare, share), 1.5, Math.max(9, share));
   }
 }
 

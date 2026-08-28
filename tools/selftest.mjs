@@ -1076,6 +1076,57 @@ console.log('\nAuto graphics is a dial, not a label');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nA slow machine is not starved of the loading it needs most');
+{
+  const { PerfGovernor, STREAM_SHARE } = await import('../src/core/perf.js');
+  const { settings } = await import('../src/core/settings.js');
+  const beforeTarget = settings.get('fpsTarget');
+  settings.set('fpsTarget', 60);
+
+  const gov = new PerfGovernor();
+  // Milliseconds of terrain work a machine at this frame rate gets through in
+  // a second of wall clock. The budget is per frame, so a slow machine is
+  // charged twice: a smaller budget and fewer frames to spend it in.
+  const perSecond = (fps) => {
+    gov.smoothedMs = 1000 / fps;
+    return gov.budgetMs() * fps;
+  };
+
+  // The old rule was spare time only — negative on any machine that misses its
+  // target, so it pinned to the 1.5 ms floor. 30 fps got 45 ms of work a
+  // second against 144 fps's 1296: a twenty-ninth of the rate, with strictly
+  // more to load, and usually slow *because* the world had not arrived. So it
+  // never arrived. The minimap, which does not go through this budget, was
+  // sharp immediately — which is exactly what the report said.
+  ok('a machine at 30 fps is not starved', perSecond(30) > perSecond(144) * 0.15);
+  ok('nor one at 10', perSecond(10) > perSecond(144) * 0.15);
+  ok('nor one at 2', perSecond(2) > perSecond(144) * 0.15);
+  ok('the loading rate barely depends on the frame rate',
+    Math.max(perSecond(30), perSecond(10), perSecond(2)) /
+      Math.min(perSecond(30), perSecond(10), perSecond(2)) < 1.05);
+
+  // Bounded: this buys loading with frame time, and the price is fixed.
+  const share = (fps) => { gov.smoothedMs = 1000 / fps; return gov.budgetMs() / gov.smoothedMs; };
+  ok('and it never takes more than its share of a slow frame',
+    share(30) <= STREAM_SHARE + 1e-9 && share(2) <= STREAM_SHARE + 1e-9);
+
+  // Taking the larger of the two rules, so nothing that worked before is now
+  // given less than it was.
+  const old = (fps) => {
+    const ms = 1000 / fps;
+    return Math.min(9, Math.max(1.5, 1000 / 60 - ms + 4.5));
+  };
+  let worse = 0;
+  for (const fps of [240, 144, 90, 60, 45, 30, 20, 15, 10, 5, 2, 1]) {
+    gov.smoothedMs = 1000 / fps;
+    if (gov.budgetMs() < old(fps) - 1e-9) worse++;
+  }
+  ok('and no frame rate gets less than it used to', worse === 0);
+
+  settings.set('fpsTarget', beforeTarget);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe map does not give up on satellite for good');
 {
   const { MapTileCache } = await import('../src/ui/mapTiles.js');
