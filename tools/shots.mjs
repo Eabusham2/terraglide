@@ -248,7 +248,13 @@ const views = [
 console.log(`${'view'.padEnd(14)} ${'holes'.padStart(7)} ${'detail'.padStart(7)}   state`);
 for (const [name, pose] of views) {
   await page.evaluate(pose);
-  await page.waitForTimeout(9000);
+  // Settle, then set the pose again just before the shutter. A glide loses
+  // height while it settles — the first-person shot was being taken at 37 m
+  // over the valley floor rather than the 700 the pose asks for, which is a
+  // different picture of a different thing.
+  await page.waitForTimeout(8000);
+  await page.evaluate(pose);
+  await page.waitForTimeout(1200);
   await page.evaluate(() => { document.getElementById('ui').style.visibility = 'hidden'; });
   const shot = await page.screenshot();
   // A second frame with the character taken out, for measuring against.
@@ -258,10 +264,33 @@ for (const [name, pose] of views) {
   // surrounded by ground on every side. So every change to the model moved a
   // number about the terrain — brightening the trousers took the reading on
   // "looking at your feet" from 4.9 per cent to 25.5 without a tile changing.
-  await page.evaluate(() => window.terraglide.avatar.setVisible(false));
-  await page.waitForTimeout(120);
+  // The game sets the avatar's visibility every frame from the perspective, so
+  // switching it off is undone before the shutter opens. Stub the setter for
+  // the one frame, then give it back.
+  await page.evaluate(() => {
+    const a = window.terraglide.avatar;
+    a.__setVisible = a.setVisible;
+    a.setVisible = () => {};
+    // update() writes the view model's visibility every frame as well, so the
+    // pose has to stop too or it puts the arms back before the shutter opens.
+    a.__update = a.update;
+    a.update = () => {};
+    a.root.visible = false;
+    // The held arms hang off the camera rather than off the avatar's root, so
+    // hiding the root leaves them in frame — which is 3 per cent of a
+    // first-person glide counted as holes in the ground.
+    a.__viewModelWas = a.viewModel.visible;
+    a.viewModel.visible = false;
+  });
+  await page.waitForTimeout(200);
   const bare = await page.screenshot();
-  await page.evaluate(() => window.terraglide.avatar.setVisible(true));
+  await page.evaluate(() => {
+    const a = window.terraglide.avatar;
+    a.setVisible = a.__setVisible;
+    a.update = a.__update;
+    a.setVisible(true);
+    a.viewModel.visible = a.__viewModelWas;
+  });
   await page.evaluate(() => { document.getElementById('ui').style.visibility = ''; });
   await writeFile(join(OUT, `${name}.png`), shot);
   const withHud = await page.screenshot();
