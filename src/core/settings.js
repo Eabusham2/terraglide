@@ -14,6 +14,7 @@ import { readJSON, removeKey, writeJSON } from './storage.js';
  * graphics:          'low' | 'medium' | 'high' | 'ultra'
  * mouseMode:         'locked' | 'pan'
  * units:             'metric' | 'imperial'
+ * speedPer:          'hour' | 'minute' | 'second'
  * world3d:           'off' | 'google' | 'cesium'
  * world3dDetail:     'low' | 'medium' | 'high' | 'ultra' — triangle budget
  * perspective:       'first' | 'third' | 'second'
@@ -126,6 +127,14 @@ export const DEFAULT_SETTINGS = {
 
   /* world / exploration */
   units: defaultUnits(),
+  /**
+   * Which unit of time speed is read in.
+   *
+   * Per hour is the car speedometer everybody knows and stays the default, but
+   * it is a poor unit for flying: a glide is felt per second, and "how far did
+   * that dive take me" is a question per minute answers.
+   */
+  speedPer: 'hour',
   /**
    * Draw the flat maps as a street map only, with no photography anywhere.
    *

@@ -68,11 +68,45 @@ export function formatAltitude(metres, units) {
     : `${Math.round(metres).toLocaleString()} m`;
 }
 
-export function formatSpeed(metresPerSecond, units) {
+/**
+ * Speed, in whichever unit of time you asked for.
+ *
+ * Per hour is what a car speedometer reads and it is the default, but it is a
+ * poor unit for this: gliding is a thing you feel per second, and "how far did
+ * that dive take me" is a question per minute answers. Both were asked for.
+ *
+ *   metric      km/h    km/min   m/s
+ *   imperial    mph     mi/min   ft/s
+ */
+export function formatSpeed(metresPerSecond, units, per = 'hour') {
   if (!Number.isFinite(metresPerSecond)) return '—';
-  return units === 'imperial'
+  const imperial = units === 'imperial';
+  if (per === 'second') {
+    return imperial
+      ? `${Math.round(metresPerSecond / M_PER_FT)} ft/s`
+      : `${metresPerSecond.toFixed(1)} m/s`;
+  }
+  if (per === 'minute') {
+    return imperial
+      ? `${(metresPerSecond * 60 * 0.000621371).toFixed(2)} mi/min`
+      : `${(metresPerSecond * 0.06).toFixed(2)} km/min`;
+  }
+  return imperial
     ? `${Math.round(metresPerSecond * 2.2369363)} mph`
     : `${Math.round(metresPerSecond * 3.6)} km/h`;
+}
+
+/**
+ * Which way you are looking, up or down, in degrees.
+ *
+ * Positive is up. The compass says where you are pointed on the ground and
+ * said nothing at all about the other axis, which is half of flying.
+ */
+export function formatPitch(radians) {
+  if (!Number.isFinite(radians)) return '—';
+  const deg = Math.round((radians * 180) / Math.PI);
+  if (deg === 0) return 'level';
+  return `${deg > 0 ? '+' : '\u2212'}${Math.abs(deg)}\u00b0`;
 }
 
 export function formatHeight(metres, units) {

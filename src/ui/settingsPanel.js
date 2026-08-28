@@ -213,6 +213,22 @@ const SECTIONS = [
         ],
       },
       {
+        key: 'speedPer',
+        label: 'Speed read as',
+        type: 'select',
+        options: () => [
+          { value: 'hour', label: 'Per hour (km/h, mph)' },
+          { value: 'minute', label: 'Per minute (km/min, mi/min)' },
+          { value: 'second', label: 'Per second (m/s, ft/s)' },
+        ],
+        help: (value) =>
+          value === 'second'
+            ? 'What a glide actually feels like.'
+            : value === 'minute'
+              ? 'Good for reading how far a dive took you.'
+              : 'The car speedometer everybody knows.',
+      },
+      {
         key: 'rtpTarget',
         label: 'Random teleport lands',
         type: 'select',

@@ -1097,6 +1097,46 @@ console.log('\nAuto graphics is a dial, not a label');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nSpeed and look angle read in the units you asked for');
+{
+  const { formatSpeed, formatPitch } = await import('../src/core/units.js');
+
+  // Speed was only ever per hour. A glide is felt per second, and "how far did
+  // that dive take me" is a question per minute answers. Both were asked for.
+  ok(`per hour is unchanged  (${formatSpeed(30, 'metric')})`, formatSpeed(30, 'metric') === '108 km/h');
+  ok(`and imperial too  (${formatSpeed(30, 'imperial')})`, formatSpeed(30, 'imperial') === '67 mph');
+  ok(`per second, metric  (${formatSpeed(30, 'metric', 'second')})`,
+    formatSpeed(30, 'metric', 'second') === '30.0 m/s');
+  ok(`per second, imperial  (${formatSpeed(30, 'imperial', 'second')})`,
+    formatSpeed(30, 'imperial', 'second') === '98 ft/s');
+  ok(`per minute, metric  (${formatSpeed(30, 'metric', 'minute')})`,
+    formatSpeed(30, 'metric', 'minute') === '1.80 km/min');
+  ok(`per minute, imperial  (${formatSpeed(30, 'imperial', 'minute')})`,
+    formatSpeed(30, 'imperial', 'minute') === '1.12 mi/min');
+  // The three agree with each other, which is the only way to know none of the
+  // conversions is a typo.
+  const metric = [1, 60, 3600].map((m, i) =>
+    parseFloat(formatSpeed(30, 'metric', ['second', 'minute', 'hour'][i])) * (i === 0 ? 1 : i === 1 ? 1000 / 60 : 1000 / 3600));
+  ok(`the three time units agree  (${metric.map((v) => v.toFixed(1)).join(' ')})`,
+    metric.every((v) => Math.abs(v - 30) < 0.5));
+  ok('nothing is read from a number that is not one', formatSpeed(NaN, 'metric') === '—');
+
+  // The compass said where you were pointed on the ground and nothing about
+  // the other axis, which is half of flying.
+  ok(`level reads as level  (${formatPitch(0)})`, formatPitch(0) === 'level');
+  ok('up is positive', formatPitch(0.5).startsWith('+'));
+  ok('down is negative', /^\u2212/.test(formatPitch(-0.5)));
+  ok(`and it is degrees  (${formatPitch(Math.PI / 4)})`, formatPitch(Math.PI / 4) === '+45\u00b0');
+
+  const hud = readFileSync(new URL('../src/ui/hud.js', import.meta.url), 'utf8');
+  ok('the HUD shows the look angle', /setText\('pitch', formatPitch/.test(hud));
+  ok('and reads the speed unit from the setting',
+    /formatSpeed\(player\.speed, units, settings\.get\('speedPer'\)\)/.test(hud));
+  const panel = readFileSync(new URL('../src/ui/settingsPanel.js', import.meta.url), 'utf8');
+  ok('and there is a control for it', /key: 'speedPer'/.test(panel));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nGround behind you is held for the same time on every machine');
 {
   const { ImageryStreamer } = await import('../src/tiles/streamer.js');

@@ -9,6 +9,7 @@ import {
   formatDistance,
   formatHeight,
   formatLatLon,
+  formatPitch,
   formatSpeed,
   formatTemperature,
 } from '../core/units.js';
@@ -87,6 +88,7 @@ export class HUD {
             <span data-id="speed">—</span>
             <span data-id="glide">—</span>
             <span data-id="heading">—</span>
+            <span data-id="pitch">—</span>
             <span data-id="mode">—</span>
             <span data-id="water"></span>
           </div>
@@ -214,7 +216,7 @@ export class HUD {
     this.setText('address', state.address || 'Unmapped location');
     this.setText('coords', formatLatLon(player.lat, player.lon, 5));
     this.setText('altitude', `${formatAltitude(player.position.y, units)} · ${formatDistance(player.altitudeAboveGround, units, 0)} AGL`);
-    this.setText('speed', formatSpeed(player.speed, units));
+    this.setText('speed', formatSpeed(player.speed, units, settings.get('speedPer')));
     // The flight path angle, which is the number a glider pilot actually flies
     // to: how many degrees below the horizon you are travelling, as opposed to
     // where you happen to be looking. Level is 0, a dive is negative.
@@ -224,6 +226,9 @@ export class HUD {
       : 0;
     this.setText('glide', `${angle >= 0 ? '+' : '\u2212'}${Math.abs(angle).toFixed(1)}\u00b0`);
     this.setText('heading', formatBearing(player.yaw));
+    // The compass says where you are pointed on the ground and said nothing
+    // about the other axis, which is half of flying.
+    this.setText('pitch', formatPitch(player.pitch));
     this.setText('mode', modeLabel(player, state));
     // Over water, the useful number is how far the nearest land is.
     this.setText('water', state.landAway || '');

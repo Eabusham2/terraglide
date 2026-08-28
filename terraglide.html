@@ -82774,11 +82774,45 @@ function formatAltitude(metres, units) {
     : `${Math.round(metres).toLocaleString()} m`;
 }
 
-function formatSpeed(metresPerSecond, units) {
+/**
+ * Speed, in whichever unit of time you asked for.
+ *
+ * Per hour is what a car speedometer reads and it is the default, but it is a
+ * poor unit for this: gliding is a thing you feel per second, and "how far did
+ * that dive take me" is a question per minute answers. Both were asked for.
+ *
+ *   metric      km/h    km/min   m/s
+ *   imperial    mph     mi/min   ft/s
+ */
+function formatSpeed(metresPerSecond, units, per = 'hour') {
   if (!Number.isFinite(metresPerSecond)) return '—';
-  return units === 'imperial'
+  const imperial = units === 'imperial';
+  if (per === 'second') {
+    return imperial
+      ? `${Math.round(metresPerSecond / M_PER_FT)} ft/s`
+      : `${metresPerSecond.toFixed(1)} m/s`;
+  }
+  if (per === 'minute') {
+    return imperial
+      ? `${(metresPerSecond * 60 * 0.000621371).toFixed(2)} mi/min`
+      : `${(metresPerSecond * 0.06).toFixed(2)} km/min`;
+  }
+  return imperial
     ? `${Math.round(metresPerSecond * 2.2369363)} mph`
     : `${Math.round(metresPerSecond * 3.6)} km/h`;
+}
+
+/**
+ * Which way you are looking, up or down, in degrees.
+ *
+ * Positive is up. The compass says where you are pointed on the ground and
+ * said nothing at all about the other axis, which is half of flying.
+ */
+function formatPitch(radians) {
+  if (!Number.isFinite(radians)) return '—';
+  const deg = Math.round((radians * 180) / Math.PI);
+  if (deg === 0) return 'level';
+  return `${deg > 0 ? '+' : '\u2212'}${Math.abs(deg)}\u00b0`;
 }
 
 function formatHeight(metres, units) {
@@ -82833,6 +82867,7 @@ __tg_exports["localeRegion"] = localeRegion;
 __tg_exports["formatDistance"] = formatDistance;
 __tg_exports["formatAltitude"] = formatAltitude;
 __tg_exports["formatSpeed"] = formatSpeed;
+__tg_exports["formatPitch"] = formatPitch;
 __tg_exports["formatHeight"] = formatHeight;
 __tg_exports["formatTemperature"] = formatTemperature;
 __tg_exports["formatLatLon"] = formatLatLon;
@@ -84128,6 +84163,7 @@ const { readJSON, removeKey, writeJSON } = __tg_require("src/core/storage.js");
  * graphics:          'low' | 'medium' | 'high' | 'ultra'
  * mouseMode:         'locked' | 'pan'
  * units:             'metric' | 'imperial'
+ * speedPer:          'hour' | 'minute' | 'second'
  * world3d:           'off' | 'google' | 'cesium'
  * world3dDetail:     'low' | 'medium' | 'high' | 'ultra' — triangle budget
  * perspective:       'first' | 'third' | 'second'
@@ -84240,6 +84276,14 @@ const DEFAULT_SETTINGS = {
 
   /* world / exploration */
   units: defaultUnits(),
+  /**
+   * Which unit of time speed is read in.
+   *
+   * Per hour is the car speedometer everybody knows and stays the default, but
+   * it is a poor unit for flying: a glide is felt per second, and "how far did
+   * that dive take me" is a question per minute answers.
+   */
+  speedPer: 'hour',
   /**
    * Draw the flat maps as a street map only, with no photography anywhere.
    *
@@ -97900,7 +97944,7 @@ const { clamp } = __tg_require("src/core/math.js");
 const { AIR_SECONDS, SPEED_MODE_COOLDOWN_S, SPEED_MODE_SECONDS } = __tg_require("src/player/player.js");
 const { keybinds } = __tg_require("src/core/keybinds.js");
 const { settings } = __tg_require("src/core/settings.js");
-const { compassPoint, formatAltitude, formatBearing, formatDistance, formatHeight, formatLatLon, formatSpeed, formatTemperature } = __tg_require("src/core/units.js");
+const { compassPoint, formatAltitude, formatBearing, formatDistance, formatHeight, formatLatLon, formatPitch, formatSpeed, formatTemperature } = __tg_require("src/core/units.js");
 const { HOTBAR } = __tg_require("src/player/player.js");
 const { escapeHtml } = __tg_require("src/ui/worldmap.js");
 
@@ -97976,6 +98020,7 @@ class HUD {
             <span data-id="speed">—</span>
             <span data-id="glide">—</span>
             <span data-id="heading">—</span>
+            <span data-id="pitch">—</span>
             <span data-id="mode">—</span>
             <span data-id="water"></span>
           </div>
@@ -98103,7 +98148,7 @@ class HUD {
     this.setText('address', state.address || 'Unmapped location');
     this.setText('coords', formatLatLon(player.lat, player.lon, 5));
     this.setText('altitude', `${formatAltitude(player.position.y, units)} · ${formatDistance(player.altitudeAboveGround, units, 0)} AGL`);
-    this.setText('speed', formatSpeed(player.speed, units));
+    this.setText('speed', formatSpeed(player.speed, units, settings.get('speedPer')));
     // The flight path angle, which is the number a glider pilot actually flies
     // to: how many degrees below the horizon you are travelling, as opposed to
     // where you happen to be looking. Level is 0, a dive is negative.
@@ -98113,6 +98158,9 @@ class HUD {
       : 0;
     this.setText('glide', `${angle >= 0 ? '+' : '\u2212'}${Math.abs(angle).toFixed(1)}\u00b0`);
     this.setText('heading', formatBearing(player.yaw));
+    // The compass says where you are pointed on the ground and said nothing
+    // about the other axis, which is half of flying.
+    this.setText('pitch', formatPitch(player.pitch));
     this.setText('mode', modeLabel(player, state));
     // Over water, the useful number is how far the nearest land is.
     this.setText('water', state.landAway || '');
@@ -98665,6 +98713,22 @@ const SECTIONS = [
           { value: 'metric', label: 'Metric (m, km, °C)' },
           { value: 'imperial', label: 'Imperial (ft, mi, °F)' },
         ],
+      },
+      {
+        key: 'speedPer',
+        label: 'Speed read as',
+        type: 'select',
+        options: () => [
+          { value: 'hour', label: 'Per hour (km/h, mph)' },
+          { value: 'minute', label: 'Per minute (km/min, mi/min)' },
+          { value: 'second', label: 'Per second (m/s, ft/s)' },
+        ],
+        help: (value) =>
+          value === 'second'
+            ? 'What a glide actually feels like.'
+            : value === 'minute'
+              ? 'Good for reading how far a dive took you.'
+              : 'The car speedometer everybody knows.',
       },
       {
         key: 'rtpTarget',

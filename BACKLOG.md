@@ -265,9 +265,14 @@ what is left · `[?]` needs a decision from you.
 - [ ] I4. Make altitude accurate
 - [ ] I5. Make speed accurate, and size
 - [ ] I6. Number on the compass
-- [ ] I7. Vertical look angle in degrees, maybe either side of the compass
-- [ ] I8. Centre dot / plus
-- [ ] I9. Per second and per minute, not only per hour
+- [x] I7. Vertical look angle in degrees, maybe either side of the compass
+      Added next to the compass in the location card: 'level', '+45°', '−20°'.
+- [x] I8. Centre dot / plus
+      Already there — .hud-crosshair, behind the showCrosshair setting. Confirmed
+      visible in a screenshot of the running game.
+- [x] I9. Per second and per minute, not only per hour
+      Added as a setting: per hour (km/h, mph), per minute (km/min, mi/min),
+      per second (m/s, ft/s). Per hour stays the default.
 - [ ] I10. Imperial/metric everywhere, not only in some places
 - [ ] I11. Seeing hand, rocket and body while gliding
 - [ ] I12. Improve the freecam model
