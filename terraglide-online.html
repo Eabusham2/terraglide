@@ -1,22 +1,26 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>TerraGlide</title>
-<!--
-  TerraGlide, online edition. Everything below the fold comes from
-  https://eabusham2.github.io/terraglide/
-  so this file never goes stale and never needs rebuilding. It needs a network;
-  for a copy that does not, use terraglide.html from the same place.
+  <head>
+    <!--
+      TerraGlide, online edition. Everything the page needs comes from
+      https://eabusham2.github.io/terraglide/
+      so this file never goes stale and never needs rebuilding. It needs a
+      network; for a copy that does not, use terraglide.html from the same
+      place.
 
-  Change the two URLs below to point at your own mirror. TerraGlide by
-  Eabusham2 — https://github.com/eabusham2/terraglide
--->
-<link rel="stylesheet" href="https://eabusham2.github.io/terraglide/styles/main.css">
-</head>
-<body>
-<div id="app">
+      Change the URLs below to point at your own mirror. TerraGlide by
+      Eabusham2 — https://github.com/eabusham2/terraglide
+    -->
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <title>TerraGlide</title>
+    <link rel="stylesheet" href="https://eabusham2.github.io/terraglide/styles/main.css" />
+    <meta name="description" content="Explore the real world on foot and by elytra, over stitched satellite, elevation and street-level map data." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23223'/%3E%3Cpath d='M4 22 L14 10 L20 18 L24 14 L28 22 Z' fill='%237e9e73'/%3E%3Ccircle cx='23' cy='8' r='3' fill='%23d8c98a'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <div id="app">
       <canvas id="viewport"></canvas>
       <div id="ui"></div>
       <div id="boot">
@@ -26,6 +30,74 @@
         </div>
       </div>
     </div>
-<script type="module" src="https://eabusham2.github.io/terraglide/src/main.js"></script>
-</body>
+    <script type="module" src="https://eabusham2.github.io/terraglide/src/main.js"></script>
+    <script>
+      /*
+        Opened by double-clicking, out of the zip.
+
+        Browsers refuse to load ES modules from file:// — the origin is opaque,
+        the fetch is a cross-origin one, and there is nobody to grant it. So
+        main.js never runs and the watchdog below eventually blamed the network
+        for it: "the code did not finish downloading". There is no network
+        involved. Nothing was downloading. The advice was wrong and it took
+        twenty seconds of a blank screen to give it.
+
+        The file that does work is in the same folder, because it is in the same
+        zip: terraglide.html carries the whole game inline and has no modules to
+        refuse. So go there, at once, rather than explaining a browser rule to
+        somebody who wanted to play a game.
+
+        Only when the modules themselves are local files. The online edition is
+        this same page with its script pointing at the published site, and that
+        loads from file:// perfectly well — sending it away would swap a working
+        page for a three-megabyte download.
+      */
+      var moduleTag = document.querySelector('script[type=module]');
+      if (location.protocol === 'file:' && (moduleTag ? moduleTag.src : '').indexOf('file:') === 0) {
+        var status = document.getElementById('boot-status');
+        if (status) status.textContent = 'Opening the single-file copy\u2026';
+        location.replace('./terraglide.html');
+      }
+
+      /*
+        A watchdog for the one failure that says nothing.
+
+        The page loads sixty-odd separate ES modules. If any single one of them
+        does not arrive — a filtered school network, a captive portal, a proxy
+        that mangles one response — the module graph never finishes, main.js
+        never runs, and the boot screen sits on "Starting engine…" for ever
+        with no error anywhere a player can see. It is indistinguishable from
+        the game simply being broken, and it is the report that came back.
+
+        This cannot fix the network. What it can do is stop the silence: if
+        nothing has started after a while, say what that means and point at the
+        single-file build, which is one request instead of sixty and works when
+        this does not.
+      */
+      window.addEventListener('error', (event) => {
+        if (!/\.m?js/.test(String(event.filename ?? ''))) return;
+        window.__terraglideLoadError = String(event.message ?? 'script error');
+      }, true);
+      setTimeout(() => {
+        if (window.terraglide) return;
+        const status = document.getElementById('boot-status');
+        if (!status) return;
+        const detail = window.__terraglideLoadError
+          ? 'A script failed to load: ' + window.__terraglideLoadError
+          : 'The game\u2019s code did not finish arriving. Something between here and '
+            + 'the files is blocking or rewriting one of them \u2014 a filtered network, '
+            + 'a proxy, an extension \u2014 rather than a fault in the game.';
+        status.textContent = 'Could not start';
+        const p = document.createElement('p');
+        p.style.cssText = 'max-width:46ch;margin:10px auto 0;color:#767d87;font-size:12px;line-height:1.5';
+        p.textContent = detail;
+        const link = document.createElement('p');
+        link.style.cssText = 'margin:10px auto 0;font-size:12px';
+        link.innerHTML = 'Try <a href="https://eabusham2.github.io/terraglide/terraglide.html" style="color:#9fb8d8">terraglide.html</a>'
+          + ' \u2014 the whole game in one file, one request instead of sixty.';
+        status.parentNode.appendChild(p);
+        status.parentNode.appendChild(link);
+      }, 20000);
+    </script>
+  </body>
 </html>

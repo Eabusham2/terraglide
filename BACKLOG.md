@@ -32,7 +32,15 @@ what is left · `[?]` needs a decision from you.
       High for everybody, so a Chromebook started at a quality it could never
       hold; the first run now reads the GPU name, memory and core count and
       starts Low on a modest machine. Open until you confirm on yours.
-- [ ] A10. Online single file broken; single file missing things
+- [x] A10. Online single file broken; single file missing things
+      Two causes. The zip's index.html runs from file://, where browsers refuse
+      ES modules, so main.js never ran and the watchdog blamed the network after
+      20 s of blank screen — no network was involved, and terraglide.html was in
+      the same folder. It now goes straight there. And tools/online.mjs stripped
+      every <script> from index.html, which threw away the watchdog with the
+      module tag, so the page most likely to fail was the only one that could
+      not say so — that is the silent 'Starting engine…'. The online edition is
+      now index.html itself with three URLs made absolute, so it cannot drift.
 - [ ] A11. Freecam shows the ground not holding; breaks in freecam
 
 - [x] A1. Cannot move or jump on launch — it keeps restarting when I do

@@ -1097,6 +1097,48 @@ console.log('\nAuto graphics is a dial, not a label');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nAll three ways of opening the game can say what went wrong');
+{
+  const read = (name) => readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
+  const index = read('index.html');
+  const online = read('terraglide-online.html');
+  const bundle = read('terraglide.html');
+
+  // Double-clicked out of the zip, index.html runs from file:// — and browsers
+  // refuse ES modules there, so main.js never runs. The watchdog then blamed
+  // the network after twenty seconds of blank screen. There is no network. The
+  // file that works is in the same folder, out of the same zip.
+  ok('opened as a local file, it goes to the copy that works',
+    /location\.protocol === 'file:'/.test(index) && /location\.replace\('\.\/terraglide\.html'\)/.test(index));
+  // The guard has to see the module tag, and a classic script only sees what
+  // the parser has already reached.
+  ok('and the watchdog can see the module tag',
+    index.indexOf('type="module"') < index.indexOf('<script>'));
+  // Only when the modules themselves are local. The online edition is this same
+  // page pointed at the published site and loads from file:// perfectly well.
+  ok('but not when the modules come from a site',
+    /moduleTag \? moduleTag\.src : ''\)\.indexOf\('file:'\) === 0/.test(index));
+
+  // The online edition used to be a second copy of the page with every script
+  // stripped out, which threw away the watchdog along with the module tag — so
+  // the page most likely to fail was the only one that could not say so.
+  ok('the online edition kept the watchdog', online.includes('Could not start'));
+  ok('and the favicon', online.includes('rel="icon"'));
+  ok('and the description', online.includes('name="description"'));
+  ok('and points its offline link at the published copy',
+    /href="https:\/\/[^"]+\/terraglide\.html"/.test(online));
+  ok('and left no relative path behind', !/"\.\//.test(online));
+
+  // The bundle is built from the same index.html. If the redirect survived into
+  // it, opening it from a file would send it to itself, for ever.
+  const moduleTag = /<script[^>]*type="module"[^>]*>/.exec(bundle);
+  ok('the single file cannot redirect to itself',
+    !bundle.includes("indexOf('file:')") || !(moduleTag && /src=/.test(moduleTag[0])));
+  ok('and carries its modules rather than fetching them',
+    !(moduleTag && /src=/.test(moduleTag[0])));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe map does not go white when it changes zoom');
 {
   const { MapTileCache } = await import('../src/ui/mapTiles.js');

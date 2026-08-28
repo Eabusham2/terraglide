@@ -20,7 +20,35 @@
         </div>
       </div>
     </div>
+    <script type="module" src="./src/main.js"></script>
     <script>
+      /*
+        Opened by double-clicking, out of the zip.
+
+        Browsers refuse to load ES modules from file:// — the origin is opaque,
+        the fetch is a cross-origin one, and there is nobody to grant it. So
+        main.js never runs and the watchdog below eventually blamed the network
+        for it: "the code did not finish downloading". There is no network
+        involved. Nothing was downloading. The advice was wrong and it took
+        twenty seconds of a blank screen to give it.
+
+        The file that does work is in the same folder, because it is in the same
+        zip: terraglide.html carries the whole game inline and has no modules to
+        refuse. So go there, at once, rather than explaining a browser rule to
+        somebody who wanted to play a game.
+
+        Only when the modules themselves are local files. The online edition is
+        this same page with its script pointing at the published site, and that
+        loads from file:// perfectly well — sending it away would swap a working
+        page for a three-megabyte download.
+      */
+      var moduleTag = document.querySelector('script[type=module]');
+      if (location.protocol === 'file:' && (moduleTag ? moduleTag.src : '').indexOf('file:') === 0) {
+        var status = document.getElementById('boot-status');
+        if (status) status.textContent = 'Opening the single-file copy\u2026';
+        location.replace('./terraglide.html');
+      }
+
       /*
         A watchdog for the one failure that says nothing.
 
@@ -46,8 +74,9 @@
         if (!status) return;
         const detail = window.__terraglideLoadError
           ? 'A script failed to load: ' + window.__terraglideLoadError
-          : 'The game\u2019s code did not finish downloading. That is usually a network '
-            + 'blocking or rewriting one of the files rather than a fault in the game.';
+          : 'The game\u2019s code did not finish arriving. Something between here and '
+            + 'the files is blocking or rewriting one of them \u2014 a filtered network, '
+            + 'a proxy, an extension \u2014 rather than a fault in the game.';
         status.textContent = 'Could not start';
         const p = document.createElement('p');
         p.style.cssText = 'max-width:46ch;margin:10px auto 0;color:#767d87;font-size:12px;line-height:1.5';
@@ -60,6 +89,5 @@
         status.parentNode.appendChild(link);
       }, 20000);
     </script>
-    <script type="module" src="./src/main.js"></script>
   </body>
 </html>

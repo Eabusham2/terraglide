@@ -35,38 +35,51 @@ const OUT = process.argv[3] ?? join(ROOT, 'terraglide-online.html');
 
 const html = await readFile(join(ROOT, 'index.html'), 'utf8');
 
-// Take the body markup from index.html rather than keeping a second copy of it:
-// the HUD, the boot panel and the canvas ids are all load-bearing, and two
-// copies of load-bearing markup is one copy too many.
-const body = html
-  .replace(/[\s\S]*<body>/, '')
-  .replace(/<\/body>[\s\S]*/, '')
-  .replace(/\s*<script[\s\S]*?<\/script>/g, '')
-  .trim();
+// The online edition *is* index.html with three URLs made absolute.
+//
+// It used to be a second copy of the page, rebuilt from index.html's body with
+// every `<script>` stripped out. That threw away the boot watchdog along with
+// the module tag, so the one page most likely to fail — it depends on a remote
+// host being reachable — was the only one that could not say so, and a failure
+// showed as "Starting engine…" for ever. It also quietly dropped the favicon,
+// the description and the colour-scheme hint, which is the rest of "the single
+// file is missing things".
+//
+// Rewriting instead of rebuilding means the two can never drift again: whatever
+// index.html grows next, this has it.
+const page = html
+  .replace('href="./styles/main.css"', `href="${base}styles/main.css"`)
+  .replace('src="./src/main.js"', `src="${base}src/main.js"`)
+  // The offline bundle the watchdog offers is not next to this file — this file
+  // could be anywhere. Point at the published copy.
+  .replace(/"\.\/terraglide\.html"/g, `"${base}terraglide.html"`)
+  .replace(
+    '<head>',
+    `<head>
+    <!--
+      TerraGlide, online edition. Everything the page needs comes from
+      ${base}
+      so this file never goes stale and never needs rebuilding. It needs a
+      network; for a copy that does not, use terraglide.html from the same
+      place.
 
-const page = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>TerraGlide</title>
-<!--
-  TerraGlide, online edition. Everything below the fold comes from
-  ${base}
-  so this file never goes stale and never needs rebuilding. It needs a network;
-  for a copy that does not, use terraglide.html from the same place.
+      Change the URLs below to point at your own mirror. TerraGlide by
+      Eabusham2 — https://github.com/eabusham2/terraglide
+    -->`,
+  );
 
-  Change the two URLs below to point at your own mirror. TerraGlide by
-  Eabusham2 — https://github.com/eabusham2/terraglide
--->
-<link rel="stylesheet" href="${base}styles/main.css">
-</head>
-<body>
-${body}
-<script type="module" src="${base}src/main.js"></script>
-</body>
-</html>
-`;
+for (const [what, needle] of [
+  ['the stylesheet', `${base}styles/main.css`],
+  ['the module entry', `${base}src/main.js`],
+  ['the offline bundle link', `${base}terraglide.html`],
+  ['the boot watchdog', 'Could not start'],
+  ['the favicon', 'rel="icon"'],
+]) {
+  if (!page.includes(needle)) throw new Error(`online build lost ${what} — index.html changed shape`);
+}
+if (page.includes('"./src/') || page.includes('"./styles/')) {
+  throw new Error('online build left a relative path behind');
+}
 
 await writeFile(OUT, page);
 const kb = (Buffer.byteLength(page) / 1024).toFixed(1);
