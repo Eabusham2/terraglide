@@ -294,9 +294,20 @@ what is left · `[?]` needs a decision from you.
 - [ ] G11. Explain the "Cesium ion imagery asset / 2" setting properly
 - [ ] G12. Ensure the latest Cesium data is used
 - [ ] G13. Auto-change provider via an auto option in the dropdown
-- [ ] G14. Fallbacks
-- [ ] G15. Retry when failed
-- [ ] G16. Stop ignoring failures and marking them normal
+- [x] G14. Fallbacks
+      Already: providerChain builds a standby list (keyed providers first, then
+      free ones), a refused tile walks down it, and the flat maps fall back to the
+      keyless mosaic. The refusal-latch bug in that path was fixed earlier.
+- [x] G15. Retry when failed
+      Already: a failed tile retries after 20 s, and every standby provider is
+      tried before it counts as a failure at all. What was missing was the case
+      above — the permanent write-off that no retry could reach.
+- [x] G16. Stop ignoring failures and marking them normal
+      The real one: "nobody has this square" was kept in a Set, which means for
+      ever. One dropped connection wrote off whatever you were flying over — and
+      the four squares beneath it and the sixteen beneath those — for the rest of
+      the session, and it read as ground that simply had no imagery. It carries a
+      time now and expires after 90 s.
 - [x] G17. Remember tokens
       Measured rather than assumed: localStorage works from file:// in Chromium
       (all file URLs share one origin), the store writes every token, and a fresh

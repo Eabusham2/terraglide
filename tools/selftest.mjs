@@ -1060,8 +1060,11 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
       readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8')));
   ok('the verdict is inherited by everything under it',
     /while \(z >= SHARPNESS_FROM_ZOOM\)/.test(streamer));
+  // Written off with a timestamp rather than for ever — see "A refusal is not a
+  // permanent fact about the world". A Set here meant one dropped connection
+  // blanked whatever you were flying over for the rest of the session.
   ok('a square nobody has flown is written off rather than re-asked',
-    /this\.barren\.add\(entry\.key\)/.test(streamer));
+    /this\.barren\.set\(entry\.key, now\(\)\)/.test(streamer));
   ok('and a level a whole region lacks pulls the depth back',
     /reviewDepth\(z\)/.test(streamer));
 }
@@ -1460,6 +1463,42 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nA refusal is not a permanent fact about the world');
+{
+  const { ImageryStreamer } = await import('../src/tiles/streamer.js');
+  const streamer = new ImageryStreamer({ addEventListener() {}, postMessage() {} }, null);
+  const source = readFileSync(new URL('../src/tiles/streamer.js', import.meta.url), 'utf8');
+
+  // "Nobody has this square" was remembered in a Set, which meant for ever: one
+  // refusal and that square, the four below it and the sixteen below those were
+  // never asked again for the rest of the session. Right for ground nobody has
+  // photographed; wrong for the far commoner cause, which is a network that
+  // dropped for five seconds.
+  ok('it is remembered with a time, not just remembered',
+    /this\.barren = new Map\(\)/.test(source));
+  ok('and written with one', /this\.barren\.set\(entry\.key, now\(\)\)/.test(source));
+  const ttl = Number(/const BARREN_TTL_MS = (\d+)/.exec(source)?.[1]);
+  ok(`it expires  (${ttl / 1000} s)`, ttl > 0 && ttl < 600000);
+
+  // underBarren asks about a square's *ancestors*, never about the square
+  // itself: a tile that failed is governed by its own retryAt, and the record
+  // exists to stop the four beneath it and the sixteen beneath those. So the
+  // thing to test is a child of a refused square, not the square.
+  // The clock is performance.now(), which counts from process start — writing
+  // Date.now() into the record makes every entry look impossibly fresh.
+  const child = { z: 16, x: 400, y: 800 };
+  ok('a square with no refusal above it is fine', !streamer.underBarren(child));
+
+  streamer.barren.set('14/100/200', performance.now());
+  ok('a fresh refusal above it is believed', streamer.underBarren(child));
+
+  streamer.barren.set('14/100/200', performance.now() - ttl - 1000);
+  ok('an old one is not', !streamer.underBarren(child));
+  ok('and is forgotten rather than re-checked for ever', !streamer.barren.has('14/100/200'));
+  ok('so the next ask goes out again', !streamer.underBarren(child));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nDetail goes where you can see it, not straight down');
 {
   const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
@@ -1518,7 +1557,7 @@ console.log('\nChanging provider does not blank the world');
     });
   }
   streamer.sharpness.set('14/1/1', 6.2);
-  streamer.barren.add('14/9/9');
+  streamer.barren.set('14/9/9', performance.now());
 
   // Pick a different provider. This used to call clear(), which disposes every
   // texture at once — so the whole world went flat grey and came back a square
@@ -4034,8 +4073,12 @@ console.log('\nnot asking for photographs nobody has');
   ok('and the attempt counter steps over the ones that cannot',
     /nextAttempt\(entry\)/.test(streamer)
     && /!this\.canServe\(this\.standbys\[attempt - 1\], entry\.tile\.z\)/.test(streamer));
+  // Remembered with a time, so a dropped connection does not blank the ground
+  // you happen to be over for the rest of the session. It was a Set, and a Set
+  // means for ever.
   ok('a square nobody has is remembered rather than re-asked every twenty seconds',
-    /this\.barren = new Set\(\)/.test(streamer) && /this\.barren\.add\(entry\.key\)/.test(streamer));
+    /this\.barren = new Map\(\)/.test(streamer) && /this\.barren\.set\(entry\.key, now\(\)\)/.test(streamer));
+  ok('and the memory of it expires', /const BARREN_TTL_MS/.test(streamer));
   ok('and the squares inside it are never asked at all',
     /underBarren\(tile\)/.test(streamer) && /entry\.state = STATE_BARE;\n      return entry;/.test(streamer));
   ok('but only four levels up, so one refusal cannot write off a continent',

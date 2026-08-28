@@ -89960,6 +89960,18 @@ const COVER_BUDGET = 160;
  */
 const KEEP_SECONDS = 20;
 
+/**
+ * How long "nobody has a photograph of this" is believed for.
+ *
+ * Ninety seconds. Ground nobody has imaged stays unimaged, so re-asking costs
+ * one request every minute and a half for a square that will refuse again —
+ * nothing. A network that dropped, a server having a moment, a token that has
+ * just been pasted: all of those recover, and before this none of them ever got
+ * a second chance, because a refusal was remembered for the whole session and
+ * took the sixteen squares beneath it with it.
+ */
+const BARREN_TTL_MS = 90000;
+
 /** Milliseconds, monotonic where the browser offers one. */
 const now = () =>
   (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now());
@@ -90023,7 +90035,17 @@ class ImageryStreamer extends Emitter {
      * here" or 404, and every one of them is retried every twenty seconds
      * forever. Remembering the answer turns that into asking once.
      */
-    this.barren = new Set();
+    /**
+     * Squares every provider refused, and when.
+     *
+     * A Set once, which meant for ever: one refusal and that square — and the
+     * four below it, and the sixteen below those — were never asked again for
+     * the rest of the session. That is right for ground nobody has
+     * photographed and wrong for the far commoner cause, which is a network
+     * that dropped for five seconds. A wifi hiccup permanently blanked
+     * whatever you happened to be flying over. See BARREN_TTL_MS.
+     */
+    this.barren = new Map();
     /**
      * Per-tile detail, and the squares where descending stops buying any.
      *
@@ -90296,12 +90318,19 @@ class ImageryStreamer extends Emitter {
    */
   underBarren(tile) {
     if (this.barren.size === 0) return false;
+    const moment = now();
     let { z, x, y } = tile;
     for (let i = 0; i < 4 && z > 1; i++) {
       z -= 1;
       x >>= 1;
       y >>= 1;
-      if (this.barren.has(tileKey(z, x, y))) return true;
+      const at = this.barren.get(tileKey(z, x, y));
+      if (at !== undefined) {
+        if (moment - at < BARREN_TTL_MS) return true;
+        // Long enough ago that it is worth asking again: the world does not
+        // change, but networks and servers do.
+        this.barren.delete(tileKey(z, x, y));
+      }
     }
     return false;
   }
@@ -90460,7 +90489,7 @@ class ImageryStreamer extends Emitter {
         entry.retryAt = performance.now() + 20000;
         // Nobody has this square. Say so once, so the four below it and the
         // sixteen below those are never asked at all.
-        this.barren.add(entry.key);
+        this.barren.set(entry.key, now());
       }
       this.stats.failed++;
       if (!msg.aborted) {
