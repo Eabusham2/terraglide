@@ -16,7 +16,10 @@ const BUTTONS = [
   { id: 'jump', label: 'Jump', hold: true },
   // Held, because it is also how you dive when you are in the water.
   { id: 'dive', label: 'Dive', hold: true },
-  { id: 'speedMode', label: '2x' },
+  // Named, not just numbered. It was "2x", which is a value rather than a
+  // thing, and "where is speed mode on the touchscreen" was the result — it was
+  // right there and did not say so.
+  { id: 'speedMode', label: 'Surge' },
   { id: 'rtp', label: 'Teleport' },
   { id: 'worldMap', label: 'Map' },
   { id: 'cheats', label: '•••', cheat: true },

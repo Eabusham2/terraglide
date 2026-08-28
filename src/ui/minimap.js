@@ -110,6 +110,7 @@ export class Minimap {
     this.dpr = dpr;
     this.size = size;
     this.element.dataset.corner = settings.get('minimapCorner');
+    this.element.dataset.shape = settings.get('minimapShape');
     this.element.style.display = settings.get('minimapVisible') ? '' : 'none';
     this.timer = REDRAW_INTERVAL;
   }

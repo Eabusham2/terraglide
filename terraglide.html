@@ -674,6 +674,25 @@ input[type='checkbox'] {
   background: #0f1114;
 }
 
+/*
+ * The shape of it. The canvas is square and `overflow: hidden` on the frame is
+ * what cuts it, so every shape here is one radius — no second element, no mask,
+ * and the compass and scale bar inside keep working unchanged.
+ */
+.minimap[data-shape='circle'] {
+  border-radius: 50%;
+}
+
+/* A superellipse is not expressible as a border-radius, so this is the closest
+   honest approximation: a very large radius that still leaves flat sides. */
+.minimap[data-shape='squircle'] {
+  border-radius: 28%;
+}
+
+.minimap[data-shape='square'] {
+  border-radius: 0;
+}
+
 .minimap[data-corner='top-right'] {
   top: 12px;
   right: 12px;
@@ -84306,6 +84325,14 @@ const DEFAULT_SETTINGS = {
   /* minimap */
   minimapVisible: true,
   minimapCorner: 'top-right',
+  /**
+   * 'rounded' | 'circle' | 'square' | 'squircle' — the shape of the minimap.
+   *
+   * Rounded is what it always was. A circle is what a compass rose wants and
+   * what most games use; a square wastes no pixels and lines up with the rest
+   * of the interface; a squircle is the shape between them.
+   */
+  minimapShape: 'rounded',
   minimapSize: 220,
   minimapZoom: 14,
   minimapRotates: false,
@@ -98617,6 +98644,7 @@ class Minimap {
     this.dpr = dpr;
     this.size = size;
     this.element.dataset.corner = settings.get('minimapCorner');
+    this.element.dataset.shape = settings.get('minimapShape');
     this.element.style.display = settings.get('minimapVisible') ? '' : 'none';
     this.timer = REDRAW_INTERVAL;
   }
@@ -98967,6 +98995,17 @@ const SECTIONS = [
     label: 'Minimap & HUD',
     fields: [
       { key: 'minimapVisible', label: 'Show minimap', type: 'toggle' },
+      {
+        key: 'minimapShape',
+        label: 'Shape',
+        type: 'select',
+        options: () => [
+          { value: 'rounded', label: 'Rounded corners' },
+          { value: 'circle', label: 'Circle' },
+          { value: 'squircle', label: 'Squircle' },
+          { value: 'square', label: 'Square' },
+        ],
+      },
       {
         key: 'minimapCorner',
         label: 'Corner',
@@ -99481,7 +99520,10 @@ const BUTTONS = [
   { id: 'jump', label: 'Jump', hold: true },
   // Held, because it is also how you dive when you are in the water.
   { id: 'dive', label: 'Dive', hold: true },
-  { id: 'speedMode', label: '2x' },
+  // Named, not just numbered. It was "2x", which is a value rather than a
+  // thing, and "where is speed mode on the touchscreen" was the result — it was
+  // right there and did not say so.
+  { id: 'speedMode', label: 'Surge' },
   { id: 'rtp', label: 'Teleport' },
   { id: 'worldMap', label: 'Map' },
   { id: 'cheats', label: '•••', cheat: true },

@@ -1460,6 +1460,31 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe minimap is whatever shape you want it');
+{
+  const { DEFAULT_SETTINGS } = await import('../src/core/settings.js');
+  const css = readFileSync(new URL('../styles/main.css', import.meta.url), 'utf8');
+  const panel = readFileSync(new URL('../src/ui/settingsPanel.js', import.meta.url), 'utf8');
+  const minimap = readFileSync(new URL('../src/ui/minimap.js', import.meta.url), 'utf8');
+
+  ok('there is a shape setting', 'minimapShape' in DEFAULT_SETTINGS);
+  ok(`and it starts where it always was  (${DEFAULT_SETTINGS.minimapShape})`,
+    DEFAULT_SETTINGS.minimapShape === 'rounded');
+  ok('there is a control for it', /key: 'minimapShape'/.test(panel));
+  ok('the element carries it', /dataset\.shape = settings\.get\('minimapShape'\)/.test(minimap));
+  for (const shape of ['circle', 'squircle', 'square']) {
+    ok(`${shape} is drawn`, new RegExp(`\\.minimap\\[data-shape='${shape}'\\]`).test(css));
+  }
+  // Every option the control offers has to be a shape the stylesheet knows, or
+  // picking it silently does nothing.
+  const offered = /key: 'minimapShape'[\s\S]*?\],/.exec(panel)?.[0] ?? '';
+  const values = [...offered.matchAll(/value: '(\w+)'/g)].map((m) => m[1]);
+  ok(`the control offers four  (${values.join(', ')})`, values.length === 4);
+  ok('and the stylesheet knows every one of them',
+    values.every((v) => v === 'rounded' || css.includes(`data-shape='${v}'`)));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nSurge is worth using and worth waiting for');
 {
   const { SURGE_FACTOR, SPEED_MODE_SECONDS, SPEED_MODE_COOLDOWN_S } =

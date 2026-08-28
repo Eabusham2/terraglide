@@ -157,6 +157,14 @@ export const DEFAULT_SETTINGS = {
   /* minimap */
   minimapVisible: true,
   minimapCorner: 'top-right',
+  /**
+   * 'rounded' | 'circle' | 'square' | 'squircle' — the shape of the minimap.
+   *
+   * Rounded is what it always was. A circle is what a compass rose wants and
+   * what most games use; a square wastes no pixels and lines up with the rest
+   * of the interface; a squircle is the shape between them.
+   */
+  minimapShape: 'rounded',
   minimapSize: 220,
   minimapZoom: 14,
   minimapRotates: false,

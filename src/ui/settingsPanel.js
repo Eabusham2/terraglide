@@ -278,6 +278,17 @@ const SECTIONS = [
     fields: [
       { key: 'minimapVisible', label: 'Show minimap', type: 'toggle' },
       {
+        key: 'minimapShape',
+        label: 'Shape',
+        type: 'select',
+        options: () => [
+          { value: 'rounded', label: 'Rounded corners' },
+          { value: 'circle', label: 'Circle' },
+          { value: 'squircle', label: 'Squircle' },
+          { value: 'square', label: 'Square' },
+        ],
+      },
+      {
         key: 'minimapCorner',
         label: 'Corner',
         type: 'select',

@@ -184,7 +184,9 @@ what is left · `[?]` needs a decision from you.
       so walking, gliding and falling all carry it. Rockets get it on top.
 - [ ] E4. Countdown should not run down while in settings or paused
 - [ ] E5. Streamline the speed mode panel
-- [ ] E6. Where is speed mode on touchscreen
+- [x] E6. Where is speed mode on touchscreen
+      It was there all along, labelled "2x" — a value rather than a thing. It says
+      Surge now, like everywhere else.
 
 ## F. Map and minimap
 
@@ -237,7 +239,10 @@ what is left · `[?]` needs a decision from you.
 - [ ] F12. Waypoint dragger in the map
 - [ ] F13. Waypoints appear on the map
 - [ ] F14. Waypoint and distance as a box of text plus a coloured beam beacon
-- [ ] F15. Circular, square or squircle option for the minimap
+- [x] F15. Circular, square or squircle option for the minimap
+      Four: rounded (as it was), circle, squircle, square. One border-radius each
+      — the canvas is square and overflow:hidden on the frame is what cuts it, so
+      the compass and scale bar inside carry on unchanged.
 
 ## G. Providers and 3D
 

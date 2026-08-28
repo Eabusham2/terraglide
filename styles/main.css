@@ -657,6 +657,25 @@ input[type='checkbox'] {
   background: #0f1114;
 }
 
+/*
+ * The shape of it. The canvas is square and `overflow: hidden` on the frame is
+ * what cuts it, so every shape here is one radius — no second element, no mask,
+ * and the compass and scale bar inside keep working unchanged.
+ */
+.minimap[data-shape='circle'] {
+  border-radius: 50%;
+}
+
+/* A superellipse is not expressible as a border-radius, so this is the closest
+   honest approximation: a very large radius that still leaves flat sides. */
+.minimap[data-shape='squircle'] {
+  border-radius: 28%;
+}
+
+.minimap[data-shape='square'] {
+  border-radius: 0;
+}
+
 .minimap[data-corner='top-right'] {
   top: 12px;
   right: 12px;
