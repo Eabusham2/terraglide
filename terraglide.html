@@ -88012,7 +88012,9 @@ const BOOTS = 0x23262b;
 // Darker than it was: from above, the top of a wing is the one surface facing
 // both the sun and the camera, and at 0x8d9a86 it came back at 142 against a
 // body at 87 — a pale board with a dark blob under it. See tools/model.mjs.
-const WING = 0x79866f;
+const WING = 0x67725e;
+/** What a wing gets, against SELF_FILL. See the material factory. */
+const WING_FILL = 0.12;
 const WING_EDGE = 0x5f6a5b;
 const ROCKET = 0xc9a97c;
 
@@ -88233,8 +88235,15 @@ class Avatar {
     this.body = body;
     this.root.add(body);
 
-    const mat = (colour) => {
-      const emissive = new THREE.Color(colour).multiplyScalar(SELF_FILL);
+    // The fill is for surfaces the key light does not reach, so how much a part
+    // needs depends on how well lit it already is. The wings are the exception
+    // on this body: their broad faces are canted up and back, toward the sky
+    // and the sun, so they are the one part that is reliably lit — and giving
+    // them a jacket's worth of fill took them to 182 against a body at 95 and a
+    // landscape at 100, which is a character with two lamps strapped to its
+    // back.
+    const mat = (colour, fill = SELF_FILL) => {
+      const emissive = new THREE.Color(colour).multiplyScalar(fill);
       const level = emissive.r * 0.299 + emissive.g * 0.587 + emissive.b * 0.114;
       if (level > 0 && level < FILL_FLOOR) emissive.multiplyScalar(FILL_FLOOR / level);
       return new THREE.MeshLambertMaterial({ color: colour, emissive });
@@ -88388,9 +88397,10 @@ class Avatar {
     // clears the jacket at every pose.
     this.wings.position.set(0, 0.76, 0.092);
     body.add(this.wings);
-    const wingMat = mat(WING);
-    this.wingL = this.makeWing(wingMat, mat(WING_EDGE), -1);
-    this.wingR = this.makeWing(wingMat, mat(WING_EDGE), 1);
+    const wingMat = mat(WING, WING_FILL);
+    const wingEdge = mat(WING_EDGE, WING_FILL);
+    this.wingL = this.makeWing(wingMat, wingEdge, -1);
+    this.wingR = this.makeWing(wingMat, wingEdge, 1);
     this.wings.add(this.wingL, this.wingR);
     this.cloth.wing.push(wingMat);
 
