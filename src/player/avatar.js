@@ -204,15 +204,20 @@ const LEG_LENGTH = 0.46;
 const BOOT_HEIGHT = 0.05;
 
 /**
- * How far the wing tip falls below, and trails behind, the shoulder it grows
- * from, as fractions of standing height.
+ * How far the wing lifts out of its own plane by the tip, as a fraction of
+ * standing height. Applied by the square of how far out a point is, so the
+ * root sits flat against the back and the curve gathers toward the tip —
+ * which is the shape a shell has and a board does not.
  *
- * Applied by the square of how far out a point is, so the root stays flat
- * against the back and the curve gathers toward the tip — which is the shape a
- * shell has and a board does not.
+ * This used to have a partner that displaced along Y as well, meant as droop.
+ * Y is in the plane the outline is drawn in, so it was not droop at all: it
+ * sheared the outline backward, by the square of the span, and a square-law
+ * shear turns two straight edges into two arcs. That is why the wings came out
+ * as fat rounded lobes — a moth, or a pair of leaves — however the outline
+ * itself was drawn. Sweep belongs in the wing's attitude, where it can be
+ * measured; the outline should be the shape it says it is.
  */
-const WING_DROOP = 0.072;
-const WING_SWEEP = 0.03;
+const WING_CAMBER = 0.03;
 /** Where the wing meets the back. Everything outboard of this bends. */
 const WING_ROOT_X = 0.045;
 /** The tip, and so half the spread. */
@@ -225,8 +230,7 @@ function wingFraction(x) {
 
 /** One outline point, bent — for the pieces built from the outline directly. */
 function bentPoint(x, y) {
-  const t = wingFraction(x) ** 2;
-  return new THREE.Vector3(x, y - WING_DROOP * t, WING_SWEEP * t);
+  return new THREE.Vector3(x, y, WING_CAMBER * wingFraction(x) ** 2);
 }
 
 /**
@@ -241,8 +245,7 @@ function bendWing(geometry) {
   const position = geometry.getAttribute('position');
   for (let i = 0; i < position.count; i += 1) {
     const t = wingFraction(position.getX(i)) ** 2;
-    position.setY(i, position.getY(i) - WING_DROOP * t);
-    position.setZ(i, position.getZ(i) + WING_SWEEP * t);
+    position.setZ(i, position.getZ(i) + WING_CAMBER * t);
   }
   position.needsUpdate = true;
   geometry.computeVertexNormals();
@@ -491,6 +494,24 @@ export class Avatar {
     // you are flying at rather than across it.
     this.glidePose = { reach: -3.05, spread: 0.26 };
 
+    /**
+     * How the open wings sit on your back.
+     *
+     * Three Euler angles rather than three numbers typed into the pose, because
+     * what they produce is not what they look like: the wing is drawn in the
+     * body's XY plane and then the whole body is laid face down, so a rotation
+     * that reads as "tilt" on paper comes out as sweep in the air. They are
+     * solved against the flight path instead — see tools/wingpose.mjs, which
+     * reports the sweep and the dihedral a set of angles actually produces.
+     */
+    // Solved, not typed: 28 degrees of sweep along the mid-chord line, 6 of
+    // dihedral, and a face 0.99 flat to the airflow. It was 40 degrees of
+    // sweep and *minus* 22 of dihedral — the tips hung 30 cm below the
+    // shoulders, which is a wing hanging off a body rather than one holding it
+    // up, and is most of what made the whole thing read as on backwards or
+    // inside out.
+    this.wingPose = { x: -0.15, y: 0.05, z: 0.4 };
+
     this.walkPhase = 0;
     this.glideBlend = 0;
     /** Scratch for the pose pivot, and the damped first-person set-back. */
@@ -589,23 +610,32 @@ export class Avatar {
     // Outline in fractions of standing height: x outboard from the spine, y
     // along the back with +y toward the shoulders.
     //
-    //   span 0.460   chord 0.306   aspect 1.50:1
-    //   spread 2 x 0.505 = 1.01 of standing height
+    //   span 0.475   root chord 0.215   tip chord 0.028   aspect 2.21:1
+    //   spread 2 x 0.525 = 1.05 of standing height
     //
-    // It ran to x = 0.8 before, so the pair spanned 1.60 of height — 2.9 metres
-    // on a 1.83 metre player, nine times his own width. That is a hang glider,
-    // and from the chase camera it was the entire frame with a person hanging
-    // under it as a detail. An elytron spans about as wide as its wearer is
-    // tall, and has an aspect around 1.5:1; a paper aeroplane is nearer 2:1 and
-    // a hang glider wider still. Both numbers are checked in the self-test,
+    // The tip is the point of it, in both senses. The previous outline put its
+    // outermost vertex at 0.505 with neighbours at 0.009 and -0.145, so the
+    // last fifth of the wing carried a chord of 0.154 — 28 cm of wing hanging
+    // off the end. That is not a wingtip, it is a paddle. The tip chord is
+    // 0.028 now, the leading edge runs almost straight out before it kinks
+    // into the sweep, and the trailing edge carries its depth inboard where a
+    // wing's depth belongs.
+    //
+    // It ran to x = 0.8 originally, so the pair spanned 1.60 of height — 2.9
+    // metres on a 1.83 metre player, nine times his own width. That is a hang
+    // glider, and from the chase camera it was the entire frame with a person
+    // hanging under it as a detail. An elytron spans about as wide as its
+    // wearer is tall, which is where the span comes from.
+    //
+    // The aspect ratio was reasoned out the same way — an elytron is about
+    // 1.5:1 — and 1.5 came out looking like a moth. Depth is what does it: at
+    // 1.5 the chord is two thirds of the span and the pair read as leaves
+    // stuck on a back however the edges are drawn. Slenderness is what reads
+    // as a wing, so it is 2.2. Both numbers are checked in the self-test,
     // because the silhouette is the character.
-    //
-    // Ten points rather than eight, so the trailing edge can carry the
-    // elytron's long taper back to the hip instead of cutting straight across.
     const outline = [
-      [0.045, 0.111], [0.170, 0.119], [0.310, 0.085], [0.430, 0.009],
-      [0.505, -0.077], [0.470, -0.145], [0.360, -0.179], [0.220, -0.187],
-      [0.105, -0.162], [0.045, -0.119],
+      [0.050, 0.090], [0.230, 0.072], [0.400, 0.020], [0.525, -0.070],
+      [0.510, -0.098], [0.330, -0.132], [0.170, -0.137], [0.050, -0.125],
     ];
     const shape = new THREE.Shape();
     shape.moveTo(side * outline[0][0], outline[0][1]);
@@ -634,7 +664,7 @@ export class Avatar {
     // outline's own front points so it follows the bend instead of cutting
     // across it. One straight bar over a curved wing is the join that gives a
     // flat plank away, and it is what the old single 0.8-long spar was.
-    const front = outline.slice(0, 5).map(([x, y]) => bentPoint(side * x, y));
+    const front = outline.slice(0, 4).map(([x, y]) => bentPoint(side * x, y));
     for (let i = 0; i < front.length - 1; i += 1) {
       const a = front[i];
       const b = front[i + 1];
@@ -996,8 +1026,9 @@ export class Avatar {
     // your head. Drawing them in first person put a metre of canvas through
     // the camera. You cannot see your own wings, so do not draw them.
     this.wings.visible = player.elytraDeployed && !this.firstPerson;
-    this.wingL.rotation.set(0.15 * open, -0.35 + 1.5 * (1 - open), 0.2 * open);
-    this.wingR.rotation.set(0.15 * open, 0.35 - 1.5 * (1 - open), -0.2 * open);
+    const wing = this.wingPose;
+    this.wingL.rotation.set(wing.x * open, -wing.y + 1.5 * (1 - open), wing.z * open);
+    this.wingR.rotation.set(wing.x * open, wing.y - 1.5 * (1 - open), -wing.z * open);
 
     // The head keeps looking where you look, whatever the shoulders are doing.
     this.head.rotation.y = -neck;
