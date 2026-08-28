@@ -639,7 +639,21 @@ console.log('\nThe body you can see');
     settle(player);
     const rig = readFileSync(new URL('../src/camera/cameraRig.js', import.meta.url), 'utf8');
     const lean = Number(/const EYE_FORWARD = ([\d.]+)/.exec(rig)?.[1]);
-    const torsoHalfDepth = 0.15 / 2;
+    // Measured off the built body, not copied from it. This was the literal
+    // `0.15 / 2`, so when the torso was reshaped to a person's proportions the
+    // check went on testing a number the game no longer used, and passed for
+    // the wrong reason.
+    //
+    // A fresh, unposed avatar: `lean` is a fraction of standing height, and the
+    // one above has been scaled to metres and yawed by the shoulder tests, so
+    // measuring that gives the wrong units off a box widened by the turn. The
+    // model faces -Z, so the chest front is the most negative face; max.z would
+    // be the shoulder blades.
+    const plain = new Avatar(new THREE.Scene());
+    plain.root.updateMatrixWorld(true);
+    const torsoBox = new THREE.Box3().setFromObject(plain.torso);
+    const torsoHalfDepth = -torsoBox.min.z;
+    const chestTop = torsoBox.max.y;
     ok('the camera leans out to where a face is', lean > torsoHalfDepth,
       `${lean} of height, chest front at ${torsoHalfDepth}`);
     // ...but only just, and this is the number that decides whether looking
@@ -650,7 +664,7 @@ console.log('\nThe body you can see');
     // is only 39 degrees below wherever you are pointing. Lean too far and
     // that angle goes past ninety: the chest is *behind* the camera and no
     // amount of looking down will find it, which is what used to happen.
-    const chestAngle = (Math.atan2(0.94 - 0.81, lean - torsoHalfDepth) * 180) / Math.PI;
+    const chestAngle = (Math.atan2(0.94 - chestTop, lean - torsoHalfDepth) * 180) / Math.PI;
     ok('and close enough that glancing down finds your chest', chestAngle < 80,
       `chest enters the view ${chestAngle.toFixed(0)}\u00b0 below level`);
     ok('and not so far that your feet are behind you', lean < 0.25, `${lean}`);
@@ -1477,6 +1491,38 @@ console.log('\nThe player stands on the ground and the feet are attached');
   // seven centimetres above the sole on a person — and the boots were parked
   // below the origin entirely. Buried boots, floating trousers, a hand's span
   // of nothing between them.
+  // The figure is a person's shape, not a block's.
+  //
+  // Against real anthropometry it was 1.68x too wide across the chest, 1.80x
+  // across the shoulders and 2.09x across the hips. That is "why do I feel so
+  // big" and "the player size should match up" — and it is why looking down in
+  // first person filled the view with cloth: your own chest is a quarter of a
+  // metre from your eye, and at half a metre wide it is a wall.
+  {
+    const box = (o) => new THREE.Box3().setFromObject(o);
+    const t = box(avatar.torso);
+    const measures = {
+      'chest width': [t.max.x - t.min.x, 0.155],
+      'chest depth': [t.max.z - t.min.z, 0.1],
+      'head height': [box(avatar.head).max.y - box(avatar.head).min.y, 0.13],
+      'shoulder span': [box(avatar.armR.limb).max.x - box(avatar.armL.limb).min.x, 0.23],
+      'hip span': [box(avatar.legR.limb).max.x - box(avatar.legL.limb).min.x, 0.115],
+    };
+    for (const [name, [mine, actual]] of Object.entries(measures)) {
+      const ratio = mine / actual;
+      ok(`${name} is a person's  (${ratio.toFixed(2)}x)`, ratio > 0.8 && ratio < 1.25);
+    }
+  }
+
+  // The capsule you collide with is a person too. 0.21 of height is an 0.83 m
+  // barrel on a six-foot-six frame: you could not walk between two bollards.
+  {
+    const src = readFileSync(new URL('../src/player/player.js', import.meta.url), 'utf8');
+    const factor = Number(/return Math\.max\([\d.]+, this\.height \* ([\d.]+)\);/.exec(src)?.[1]);
+    ok(`the collision width is a person's  (${(factor * 2).toFixed(2)} of height across)`,
+      factor * 2 > 0.18 && factor * 2 < 0.30);
+  }
+
   ok(`the sole rests on the ground  (${boot.lo.toFixed(3)})`, Math.abs(boot.lo) < 0.005);
   ok(`nothing is buried under it  (${Math.min(leg.lo, boot.lo).toFixed(3)})`,
     Math.min(leg.lo, boot.lo) > -0.005);

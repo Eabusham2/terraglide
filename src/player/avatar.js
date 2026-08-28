@@ -160,22 +160,39 @@ export class Avatar {
     // Kept so a texture can be dropped onto the right pieces once it arrives.
     this.cloth = { jacket: [], trousers: [], wing: [], rocket: [] };
 
-    // Proportions as fractions of standing height.
-    this.torso = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.3, 0.15), mat(JACKET));
+    // Proportions as fractions of standing height, and they are a person's.
+    //
+    // They were Minecraft's, which is a different thing. Measured against real
+    // anthropometry the figure was 1.68x too wide across the chest, 1.80x
+    // across the shoulders and 2.09x across the hips — that is "why do I feel
+    // so big", "the player size should match up" and "the player width does not
+    // feel real".
+    //
+    // It is also why looking down in first person filled the screen with a wall
+    // of cloth. Your own chest sits a quarter of a metre from your eye; at half
+    // a metre wide it is not a chest you are looking at, it is a wall.
+    //
+    //   measure          was     now     a real person
+    //   chest width      0.26    0.17    0.155
+    //   chest depth      0.15    0.105   0.10
+    //   shoulder span    0.415   0.231   0.23
+    //   hip span         0.24    0.135   0.115
+    //   head height      0.16    0.135   0.13
+    this.torso = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.3, 0.105), mat(JACKET));
     this.torso.position.y = 0.66;
     body.add(this.torso);
     this.cloth.jacket.push(this.torso.material);
 
-    this.head = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.16, 0.15), mat(SKIN));
+    this.head = new THREE.Mesh(new THREE.BoxGeometry(0.125, 0.135, 0.135), mat(SKIN));
     this.head.position.y = 0.9;
     body.add(this.head);
 
-    this.hair = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.05, 0.16), mat(0x2f2a26));
-    this.hair.position.y = 0.965;
+    this.hair = new THREE.Mesh(new THREE.BoxGeometry(0.132, 0.045, 0.142), mat(0x2f2a26));
+    this.hair.position.y = 0.955;
     body.add(this.hair);
 
-    this.armL = this.makeLimb(0.075, 0.3, mat(JACKET), -0.17, 0.79);
-    this.armR = this.makeLimb(0.075, 0.3, mat(JACKET), 0.17, 0.79);
+    this.armL = this.makeLimb(0.055, 0.3, mat(JACKET), -0.088, 0.79);
+    this.armR = this.makeLimb(0.055, 0.3, mat(JACKET), 0.088, 0.79);
     // The legs reach the ground.
     //
     // They were 0.36 long from a hip at 0.51, so they stopped at 0.15 — a
@@ -189,8 +206,8 @@ export class Avatar {
     // meets the leg bottom at 0.05 and the sole lands on exactly 0. See the
     // boots below, which are positioned from these numbers rather than beside
     // them.
-    this.legL = this.makeLimb(0.09, LEG_LENGTH, mat(TROUSERS), -0.07, HIP_Y);
-    this.legR = this.makeLimb(0.09, LEG_LENGTH, mat(TROUSERS), 0.07, HIP_Y);
+    this.legL = this.makeLimb(0.062, LEG_LENGTH, mat(TROUSERS), -0.030, HIP_Y);
+    this.legR = this.makeLimb(0.062, LEG_LENGTH, mat(TROUSERS), 0.030, HIP_Y);
     body.add(this.armL.pivot, this.armR.pivot, this.legL.pivot, this.legR.pivot);
     this.cloth.jacket.push(this.armL.limb.material, this.armR.limb.material);
     this.cloth.trousers.push(this.legL.limb.material, this.legR.limb.material);
@@ -201,7 +218,7 @@ export class Avatar {
     // the offset that puts the boot's top against the leg's bottom is half the
     // leg plus half the boot. Derived rather than typed, because typing it is
     // how the boots ended up hanging a quarter of a metre clear of the legs.
-    const bootGeo = new THREE.BoxGeometry(0.1, BOOT_HEIGHT, 0.14);
+    const bootGeo = new THREE.BoxGeometry(0.075, BOOT_HEIGHT, 0.135);
     const bootY = -(LEG_LENGTH + BOOT_HEIGHT) / 2;
     this.bootL = new THREE.Mesh(bootGeo, mat(BOOTS));
     this.bootL.position.set(0, bootY, -0.02);
@@ -218,7 +235,7 @@ export class Avatar {
     // centimetre, and the spars and the folded canvas ate straight through it.
     // That is the elytra "halfway in the player". A further four centimetres
     // clears the jacket at every pose.
-    this.wings.position.set(0, 0.76, 0.115);
+    this.wings.position.set(0, 0.76, 0.092);
     body.add(this.wings);
     const wingMat = mat(WING);
     this.wingL = this.makeWing(wingMat, mat(WING_EDGE), -1);

@@ -147,7 +147,13 @@ export class Player extends Emitter {
   }
 
   get radius() {
-    return Math.max(0.3, this.height * 0.21);
+    // A person, not a barrel. 0.21 of standing height is an 0.83 m wide capsule
+    // on a six-foot-six frame — you could not walk between two bollards, and
+    // pressed against a wall your shoulder was half a metre inside it. Real
+    // shoulder breadth is about 0.23 of height, so half of that is the honest
+    // radius. That is "the player width does not feel real", and it is the same
+    // complaint as feeling too big.
+    return Math.max(0.2, this.height * 0.12);
   }
 
   /**

@@ -272,9 +272,23 @@ what is left · `[?]` needs a decision from you.
 
 ## I. Player, HUD and controls
 
-- [ ] I1. Player size should match up properly
+- [x] I1. Player size should match up properly
+      Measured against real anthropometry the figure was 1.68x too wide across
+      the chest, 1.80x across the shoulders and 2.09x across the hips — it was
+      Minecraft-shaped, not person-shaped. Now within 1.00-1.17x. The collision
+      capsule went with it: 0.21 of height is an 0.83 m barrel on a 6'6" frame,
+      now 0.12 (0.24 across). This is also why looking down in first person
+      filled the screen with a wall of cloth — your own chest, half a metre wide,
+      a quarter of a metre from your eye.
 - [ ] I2. Default height 6 ft, and matching
-- [ ] I3. Why do I feel so big
+- [x] I3. Why do I feel so big
+      Measured against real anthropometry the figure was 1.68x too wide across
+      the chest, 1.80x across the shoulders and 2.09x across the hips — it was
+      Minecraft-shaped, not person-shaped. Now within 1.00-1.17x. The collision
+      capsule went with it: 0.21 of height is an 0.83 m barrel on a 6'6" frame,
+      now 0.12 (0.24 across). This is also why looking down in first person
+      filled the screen with a wall of cloth — your own chest, half a metre wide,
+      a quarter of a metre from your eye.
 - [ ] I4. Make altitude accurate
 - [ ] I5. Make speed accurate, and size
 - [ ] I6. Number on the compass
@@ -358,7 +372,14 @@ what is left · `[?]` needs a decision from you.
       behind you was thrown away. Now 20 seconds of wall clock, the same on
       every machine.
 - [ ] M9. Ground becomes blurry
-- [ ] M10. Player width and speed on the ground do not feel real
+- [x] M10. Player width and speed on the ground do not feel real
+      Measured against real anthropometry the figure was 1.68x too wide across
+      the chest, 1.80x across the shoulders and 2.09x across the hips — it was
+      Minecraft-shaped, not person-shaped. Now within 1.00-1.17x. The collision
+      capsule went with it: 0.21 of height is an 0.83 m barrel on a 6'6" frame,
+      now 0.12 (0.24 across). This is also why looking down in first person
+      filled the screen with a wall of cloth — your own chest, half a metre wide,
+      a quarter of a metre from your eye.
 - [x] M11. Still teleporting when I look down after an RTP
       The walk returns outright on a frustum miss, so the square under you was
       never visited while you looked at the horizon: never split, never built,
