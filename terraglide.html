@@ -87628,6 +87628,21 @@ const ROCKET_AXIS = new THREE.Vector3(0, 1, 0);
  */
 const VIEW_AIM = new THREE.Vector3(-0.3, 0.55, -0.78).normalize();
 
+/**
+ * Where the legs hang from, how long they are, and how tall a boot is — all as
+ * fractions of standing height, and all three used to place the boots too.
+ *
+ * They have to add up: HIP_Y - LEG_LENGTH - BOOT_HEIGHT is where the sole
+ * lands, and it must be zero, because the model is built one unit tall with
+ * the origin at the feet and scaled to the player's height. It did not add up
+ * — 0.51 - 0.36 - 0.05 = 0.10 — and the boots were placed by a hand-written
+ * offset that missed in the other direction, so the legs floated and the boots
+ * sank.
+ */
+const HIP_Y = 0.51;
+const LEG_LENGTH = 0.46;
+const BOOT_HEIGHT = 0.05;
+
 class Avatar {
   constructor(scene) {
     this.root = new THREE.Group();
@@ -87658,19 +87673,38 @@ class Avatar {
 
     this.armL = this.makeLimb(0.075, 0.3, mat(JACKET), -0.17, 0.79);
     this.armR = this.makeLimb(0.075, 0.3, mat(JACKET), 0.17, 0.79);
-    this.legL = this.makeLimb(0.09, 0.36, mat(TROUSERS), -0.07, 0.51);
-    this.legR = this.makeLimb(0.09, 0.36, mat(TROUSERS), 0.07, 0.51);
+    // The legs reach the ground.
+    //
+    // They were 0.36 long from a hip at 0.51, so they stopped at 0.15 — a
+    // sixth of a body height above the sole, twenty-seven centimetres on a
+    // person. The boots were parked at 0.015 to 0.035 *below* the origin, so
+    // the picture was a pair of boots buried to the ankle with a hand's span of
+    // nothing between them and the trousers. That is "still floating or
+    // underground, and the feet are separate", and it is both halves of it.
+    //
+    // Hip 0.51 (the underside of the torso), leg 0.46, boot 0.05: the boot top
+    // meets the leg bottom at 0.05 and the sole lands on exactly 0. See the
+    // boots below, which are positioned from these numbers rather than beside
+    // them.
+    this.legL = this.makeLimb(0.09, LEG_LENGTH, mat(TROUSERS), -0.07, HIP_Y);
+    this.legR = this.makeLimb(0.09, LEG_LENGTH, mat(TROUSERS), 0.07, HIP_Y);
     body.add(this.armL.pivot, this.armR.pivot, this.legL.pivot, this.legR.pivot);
     this.cloth.jacket.push(this.armL.limb.material, this.armR.limb.material);
     this.cloth.trousers.push(this.legL.limb.material, this.legR.limb.material);
 
     // Toes point forward, which is −Z.
-    const bootGeo = new THREE.BoxGeometry(0.1, 0.05, 0.14);
+    //
+    // A boot is a child of its leg, and the leg mesh is centred on itself, so
+    // the offset that puts the boot's top against the leg's bottom is half the
+    // leg plus half the boot. Derived rather than typed, because typing it is
+    // how the boots ended up hanging a quarter of a metre clear of the legs.
+    const bootGeo = new THREE.BoxGeometry(0.1, BOOT_HEIGHT, 0.14);
+    const bootY = -(LEG_LENGTH + BOOT_HEIGHT) / 2;
     this.bootL = new THREE.Mesh(bootGeo, mat(BOOTS));
-    this.bootL.position.set(0, -0.34, -0.02);
+    this.bootL.position.set(0, bootY, -0.02);
     this.legL.limb.add(this.bootL);
     this.bootR = new THREE.Mesh(bootGeo, mat(BOOTS));
-    this.bootR.position.set(0, -0.34, -0.02);
+    this.bootR.position.set(0, bootY, -0.02);
     this.legR.limb.add(this.bootR);
 
     // Wings sit on the back, which is +Z.

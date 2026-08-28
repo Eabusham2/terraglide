@@ -1076,6 +1076,59 @@ console.log('\nAuto graphics is a dial, not a label');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe player stands on the ground and the feet are attached');
+{
+  const THREE = await import('../vendor/three/three.module.js');
+  const { Avatar } = await import('../src/player/avatar.js');
+  const scene = new THREE.Scene();
+  const avatar = new Avatar(scene);
+  avatar.root.visible = true;
+  avatar.root.updateMatrixWorld(true);
+
+  // World-space extent of a piece of the model, in fractions of standing
+  // height — the root is built one unit tall with the origin at the sole.
+  // `own` measures just this mesh's geometry: setFromObject walks children,
+  // and a boot is a child of its leg, so measuring the leg that way measures
+  // the boot instead.
+  const span = (object, own = false) => {
+    if (own) {
+      object.geometry.computeBoundingBox();
+      const box = object.geometry.boundingBox.clone().applyMatrix4(object.matrixWorld);
+      return { lo: box.min.y, hi: box.max.y };
+    }
+    const box = new THREE.Box3().setFromObject(object);
+    return { lo: box.min.y, hi: box.max.y };
+  };
+
+  const leg = span(avatar.legL.limb, true);
+  const boot = span(avatar.bootL);
+
+  // The legs were 0.36 from a hip at 0.51, so they stopped at 0.15 — twenty-
+  // seven centimetres above the sole on a person — and the boots were parked
+  // below the origin entirely. Buried boots, floating trousers, a hand's span
+  // of nothing between them.
+  ok(`the sole rests on the ground  (${boot.lo.toFixed(3)})`, Math.abs(boot.lo) < 0.005);
+  ok(`nothing is buried under it  (${Math.min(leg.lo, boot.lo).toFixed(3)})`,
+    Math.min(leg.lo, boot.lo) > -0.005);
+  ok(`the boot meets the leg  (gap ${(leg.lo - boot.hi).toFixed(3)})`,
+    Math.abs(leg.lo - boot.hi) < 0.005);
+  ok('and the other foot too',
+    Math.abs(span(avatar.bootR).lo) < 0.005
+      && Math.abs(span(avatar.legR.limb, true).lo - span(avatar.bootR).hi) < 0.005);
+
+  // The whole figure fits the unit it is scaled by: nothing below the sole,
+  // nothing above the crown.
+  const whole = span(avatar.root);
+  ok(`the model is one unit tall  (${whole.lo.toFixed(3)} to ${whole.hi.toFixed(3)})`,
+    whole.lo > -0.02 && whole.hi > 0.9 && whole.hi < 1.06);
+
+  // The legs hang from the bottom of the torso rather than from inside it.
+  const torso = span(avatar.torso);
+  ok(`the legs start at the torso  (${(leg.hi - torso.lo).toFixed(3)})`,
+    Math.abs(leg.hi - torso.lo) < 0.03);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nA slow machine is not starved of the loading it needs most');
 {
   const { PerfGovernor, STREAM_SHARE } = await import('../src/core/perf.js');

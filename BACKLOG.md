@@ -232,7 +232,14 @@ what is left · `[?]` needs a decision from you.
 
 ## M. From the third message
 
-- [ ] M1. Player model still floating or underground, feet separate — I said look, and I did not
+- [x] M1. Player model still floating or underground, feet separate — I said look, and I did not
+      Looked. It is arithmetic: hip 0.51, legs 0.36, so the trousers stopped at
+      0.15 — twenty-seven centimetres above the sole — and the boots were placed
+      by a hand-written -0.34 that put them at -0.035 to 0.015, below the origin
+      entirely. Buried boots, floating trousers, a hand's span of nothing
+      between. Legs are 0.46 now and the boot offset is derived from the leg and
+      boot heights rather than typed, so 0.51 - 0.46 - 0.05 = 0 puts the sole on
+      the ground and the boot top against the leg.
 - [ ] M2. Flying model broken
 - [ ] M3. It is so laggy
 - [ ] M4. The quality is bad; zooming in on the map looks better than the ground
