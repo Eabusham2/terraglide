@@ -251,6 +251,17 @@ for (const [name, pose] of views) {
   await page.waitForTimeout(9000);
   await page.evaluate(() => { document.getElementById('ui').style.visibility = 'hidden'; });
   const shot = await page.screenshot();
+  // A second frame with the character taken out, for measuring against.
+  //
+  // The hole test looks for sky enclosed by ground, and your own body is sky
+  // by that definition: it is not ground, and standing on a hillside it is
+  // surrounded by ground on every side. So every change to the model moved a
+  // number about the terrain — brightening the trousers took the reading on
+  // "looking at your feet" from 4.9 per cent to 25.5 without a tile changing.
+  await page.evaluate(() => window.terraglide.avatar.setVisible(false));
+  await page.waitForTimeout(120);
+  const bare = await page.screenshot();
+  await page.evaluate(() => window.terraglide.avatar.setVisible(true));
   await page.evaluate(() => { document.getElementById('ui').style.visibility = ''; });
   await writeFile(join(OUT, `${name}.png`), shot);
   const withHud = await page.screenshot();
@@ -263,7 +274,7 @@ for (const [name, pose] of views) {
     ctx.drawImage(img, 0, 0);
     const d = ctx.getImageData(0, 0, img.width, img.height);
     return { width: d.width, height: d.height, data: Array.from(d.data) };
-  }, shot.toString('base64'));
+  }, bare.toString('base64'));
 
   const { holes, detail } = measure(png);
   const state = await page.evaluate(() => {
