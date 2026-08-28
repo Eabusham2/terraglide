@@ -420,12 +420,16 @@ what is left · `[?]` needs a decision from you.
       km/h — beside a temperature on the same line that did convert). Both go
       through formatters now, and a check refuses a hard-coded unit in either
       file.
-- [~] I11. Seeing hand, rocket and body while gliding
-      Partly: looked at first person in the running game. The body was there but
+- [x] I11. Seeing hand, rocket and body while gliding
+      Looked at first person in the running game. The body was there but
       unreadable — the chest was Minecraft-wide and the cloth texture had its
       wrapping set to repeat and its repeat never set, so one photograph of the
       weave was stretched over the whole chest at about fifty times life size.
-      Both fixed. Still to check: the rocket in hand while gliding.
+      Both fixed. The rocket in hand while gliding is checked now too, and it
+      was on the wrong side of the body: the glide pose crossed both arms over
+      the chest, so the hand holding it was where the other hand should have
+      been. See M2. There are hands on the ends of the arms now as well — the
+      sleeve used to stop in mid-air, so the firework was held by nothing.
 - [ ] I12. Improve the freecam model
 - [x] I13. Freecam that does not pause the game
       Already so: the freecam is deliberately not in the pause list, and there is a
@@ -496,7 +500,44 @@ what is left · `[?]` needs a decision from you.
       between. Legs are 0.46 now and the boot offset is derived from the leg and
       boot heights rather than typed, so 0.51 - 0.46 - 0.05 = 0 puts the sole on
       the ground and the boot top against the leg.
-- [ ] M2. Flying model broken
+- [x] M2. Flying model broken
+      A screenshot from the chase camera, and six separate faults in it.
+
+      The wings spanned 1.60 of standing height — 2.9 metres on a 1.83 metre
+      player, nine times his own width. A hang glider, and from behind it was
+      the whole frame with a person hanging under it as a detail. An elytron
+      spans about as wide as its wearer is tall, so the outline runs to 0.505 a
+      side now, with the chord set to the 1.5:1 aspect an elytron has rather
+      than the 2:1 of a paper aeroplane.
+
+      The wing was also a prism — one polygon extruded 14 mm, so every point on
+      the top surface shared a normal and the whole thing shaded as one flat
+      colour. It is bent into a shell, every vertex pushed down and back by the
+      square of how far out it is, and the leading edge is built from the bent
+      outline so it follows the curve instead of cutting across it.
+
+      The arms crossed. An arm hangs along -Y from its shoulder, so a positive
+      Z rotation swings it toward +X, which for the left arm is over the chest
+      and out the other side. Both signs were that way round, so in a glide the
+      hands finished on each other's sides and the firework held in the right
+      hand appeared on the left of the body with nothing near it.
+
+      The legs crossed too: the tuck swung each foot 50 mm inward across hips
+      44 mm apart, so the ankles overlapped and the legs — the largest thing on
+      a figure seen from directly behind — drew as one blank rectangle.
+
+      And nothing on the body had any fill. The scene's sun and hemisphere are
+      right for a landscape and wrong for the one object that has to stay
+      readable in it: glide with the sun ahead and every surface facing the
+      chase camera is lit by 0x4a4a44 alone. The character carries its own fill
+      now, emissive on its own materials so it lands nowhere else in the world.
+      The trousers were lightened and the wing membrane darkened besides — they
+      were 87 against 142, so the figure read as a dark slab under pale sails.
+
+      Measured, not guessed: tools/model.mjs draws the character alone under the
+      game's own lights from six angles and reports the mean brightness of each
+      part, because judging a forty-pixel figure against a hillside is how a
+      model with one leg and no arms survived several passes.
 - [ ] M3. It is so laggy
 - [ ] M4. The quality is bad; zooming in on the map looks better than the ground
 - [x] M5. Explored area on the map is still nowhere near what was actually explored

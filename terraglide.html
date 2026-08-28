@@ -87980,11 +87980,55 @@ const { ROCKET_COLOURS } = __tg_require("src/player/player.js");
 
 const SKIN = 0xb9906f;
 const JACKET = 0x53627a;
-const TROUSERS = 0x3a4149;
+/**
+ * The sleeves, a shade off the chest.
+ *
+ * An arm hangs flush against the side of the chest — that is where an arm is,
+ * and moving it out to make a gap detaches the shoulder. So what separates
+ * them has to be tone rather than daylight, which is also what separates them
+ * on a real jacket: a sleeve is a different panel of cloth, cut on a different
+ * grain, and it never quite matches the front. Without this the standing
+ * figure is one slab of jacket from shoulder to hip with no arms in it at all.
+ */
+const SLEEVE = 0x46556c;
+// Lightened from 0x3a4149. Measured against the rest of the body under the
+// game's own lights, the trousers came back at 87 while the wings above them
+// read 130 — and a gliding figure is mostly trailing legs, so the character
+// read as a dark slab hung under two pale sails. Cloth this dark is a colour a
+// person would wear; it is not a colour a character can be lit in.
+const TROUSERS = 0x4d5665;
 const BOOTS = 0x23262b;
-const WING = 0x8d9a86;
+// Darker than it was: from above, the top of a wing is the one surface facing
+// both the sun and the camera, and at 0x8d9a86 it came back at 142 against a
+// body at 87 — a pale board with a dark blob under it. See tools/model.mjs.
+const WING = 0x79866f;
 const WING_EDGE = 0x5f6a5b;
 const ROCKET = 0xc9a97c;
+
+/**
+ * The character carries its own fill light.
+ *
+ * The scene has a sun and a hemisphere, which is the right lighting for a
+ * landscape and the wrong lighting for the one object that has to stay
+ * readable in it. Glide with the sun ahead of you and every surface pointing
+ * at the chase camera is a back face: it gets the hemisphere's ground colour,
+ * 0x4a4a44, and nothing else. A jacket at 0x53627a lit by that alone is a
+ * black slab with a silhouette — which is exactly what the body looked like
+ * from behind, a grey wardrobe hanging under the wings.
+ *
+ * A film crew fixes it with a fill light off the key. Doing that literally
+ * would mean a light following the camera, and a light is a light: every
+ * shader in the world pays for it, for the sake of one object a couple of
+ * hundred triangles big. Self-emissive is the same fill with none of that
+ * cost, and it lands on the character and on nothing else in the world.
+ *
+ * A fraction of each garment's own colour, so the fill is the colour the
+ * garment is rather than a grey wash over it — and a floor under it, because
+ * a quarter of nearly nothing is still nothing and the trousers and the boots
+ * are dark enough that the fraction alone left them black.
+ */
+const SELF_FILL = 0.28;
+const FILL_FLOOR = 0.085;
 
 /**
  * How far the head may twist before the body gives up and turns to follow.
@@ -88113,6 +88157,53 @@ const HIP_Y = 0.51;
 const LEG_LENGTH = 0.46;
 const BOOT_HEIGHT = 0.05;
 
+/**
+ * How far the wing tip falls below, and trails behind, the shoulder it grows
+ * from, as fractions of standing height.
+ *
+ * Applied by the square of how far out a point is, so the root stays flat
+ * against the back and the curve gathers toward the tip — which is the shape a
+ * shell has and a board does not.
+ */
+const WING_DROOP = 0.072;
+const WING_SWEEP = 0.03;
+/** Where the wing meets the back. Everything outboard of this bends. */
+const WING_ROOT_X = 0.045;
+/** The tip, and so half the spread. */
+const WING_TIP_X = 0.505;
+
+/** How far out a point is: 0 at the root, 1 at the tip. */
+function wingFraction(x) {
+  return clamp((Math.abs(x) - WING_ROOT_X) / (WING_TIP_X - WING_ROOT_X), 0, 1);
+}
+
+/** One outline point, bent — for the pieces built from the outline directly. */
+function bentPoint(x, y) {
+  const t = wingFraction(x) ** 2;
+  return new THREE.Vector3(x, y - WING_DROOP * t, WING_SWEEP * t);
+}
+
+/**
+ * Bend an extruded wing into a shell, in place.
+ *
+ * The displacement is a function of x alone, so the top surface, the bottom
+ * surface and the rim all move together and the solid stays solid. The normals
+ * are then thrown away and recomputed, which is the entire point of doing it:
+ * the flat prism's normals were what made it shade like a sheet of paper.
+ */
+function bendWing(geometry) {
+  const position = geometry.getAttribute('position');
+  for (let i = 0; i < position.count; i += 1) {
+    const t = wingFraction(position.getX(i)) ** 2;
+    position.setY(i, position.getY(i) - WING_DROOP * t);
+    position.setZ(i, position.getZ(i) + WING_SWEEP * t);
+  }
+  position.needsUpdate = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+}
+
 class Avatar {
   constructor(scene) {
     this.root = new THREE.Group();
@@ -88123,7 +88214,12 @@ class Avatar {
     this.body = body;
     this.root.add(body);
 
-    const mat = (colour) => new THREE.MeshLambertMaterial({ color: colour });
+    const mat = (colour) => {
+      const emissive = new THREE.Color(colour).multiplyScalar(SELF_FILL);
+      const level = emissive.r * 0.299 + emissive.g * 0.587 + emissive.b * 0.114;
+      if (level > 0 && level < FILL_FLOOR) emissive.multiplyScalar(FILL_FLOOR / level);
+      return new THREE.MeshLambertMaterial({ color: colour, emissive });
+    };
     // Kept so a texture can be dropped onto the right pieces once it arrives.
     this.cloth = { jacket: [], trousers: [], wing: [], rocket: [] };
 
@@ -88150,16 +88246,71 @@ class Avatar {
     body.add(this.torso);
     this.cloth.jacket.push(this.torso.material);
 
+    // A neck. The chest tops out at 0.81 and the jaw starts at 0.832, so
+    // without one there are twenty-two thousandths of a height — four
+    // centimetres on a person — of open sky between the head and the
+    // shoulders, and the head reads as floating above the body rather than
+    // sitting on it.
+    this.neck = new THREE.Mesh(new THREE.BoxGeometry(0.058, 0.045, 0.058), mat(SKIN));
+    this.neck.position.y = 0.822;
+    body.add(this.neck);
+
     this.head = new THREE.Mesh(new THREE.BoxGeometry(0.125, 0.135, 0.135), mat(SKIN));
     this.head.position.y = 0.9;
     body.add(this.head);
 
-    this.hair = new THREE.Mesh(new THREE.BoxGeometry(0.132, 0.045, 0.142), mat(0x2f2a26));
-    this.hair.position.y = 0.955;
+    // The crown lands on exactly 1.0, because the model is built one unit tall
+    // and scaled by the player's height — a hair that stopped at 0.9775 made
+    // everyone 2 cm shorter than the number they had set, and put the eye
+    // fractionally higher up the skull than it belongs.
+    const hairMat = mat(0x2f2a26);
+    this.hair = new THREE.Mesh(new THREE.BoxGeometry(0.132, 0.045, 0.142), hairMat);
+    this.hair.position.y = 1 - 0.045 / 2;
     body.add(this.hair);
 
-    this.armL = this.makeLimb(0.055, 0.3, mat(JACKET), -0.088, 0.79);
-    this.armR = this.makeLimb(0.055, 0.3, mat(JACKET), 0.088, 0.79);
+    // Hair over the back of the skull as well as the top of it. From the chase
+    // camera you spend most of your time looking at the back of your own head,
+    // and a cap alone leaves that a blank tan box.
+    this.hairBack = new THREE.Mesh(new THREE.BoxGeometry(0.129, 0.105, 0.026), hairMat);
+    this.hairBack.position.set(0, 0.912, 0.0605);
+    body.add(this.hairBack);
+
+    // Eyes. Two blocks and nothing else, but they are the difference between a
+    // head and a tan box: a box has no front, so without them there was no
+    // telling which way the figure faced at any distance at all. The model
+    // faces −Z, so they sit a whisker proud of the front face and are children
+    // of the head, which turns under them when you look about.
+    const eyeGeo = new THREE.BoxGeometry(0.024, 0.017, 0.006);
+    const eyeMat = mat(0x25201c);
+    for (const side of [-1, 1]) {
+      const eye = new THREE.Mesh(eyeGeo, eyeMat);
+      eye.position.set(side * 0.029, 0.013, -0.0665);
+      this.head.add(eye);
+    }
+
+    // Arms hang beside the chest, not inside it.
+    //
+    // At x = 0.088 with a chest 0.17 wide, the shoulder joint sat three
+    // thousandths outside the jacket and 45 per cent of each arm was buried in
+    // it — so the standing figure had no arms in silhouette at all, just a
+    // slab with a head, and the firework appeared to float beside a shoulder
+    // with nothing holding it. Biacromial breadth is 0.23 of stature, which
+    // puts the joints at 0.115 and the inner face of the arm flush with the
+    // side of the chest: the whole arm shows, and the shoulder still joins.
+    this.armL = this.makeLimb(0.055, 0.3, mat(SLEEVE), -0.115, 0.79);
+    this.armR = this.makeLimb(0.055, 0.3, mat(SLEEVE), 0.115, 0.79);
+
+    // Hands, because a person has them and because a sleeve ending in mid-air
+    // is where the firework appeared to be held by nothing. The wrist is at
+    // 0.485 of stature and the fingertips at 0.38, which is what these are.
+    const handGeo = new THREE.BoxGeometry(0.052, 0.09, 0.062);
+    const handY = -0.15 - 0.045;
+    this.fistL = new THREE.Mesh(handGeo, mat(SKIN));
+    this.fistL.position.y = handY;
+    this.armL.limb.add(this.fistL);
+    this.fistR = new THREE.Mesh(handGeo, mat(SKIN));
+    this.fistR.position.y = handY;
+    this.armR.limb.add(this.fistR);
     // The legs reach the ground.
     //
     // They were 0.36 long from a hip at 0.51, so they stopped at 0.15 — a
@@ -88173,8 +88324,22 @@ class Avatar {
     // meets the leg bottom at 0.05 and the sole lands on exactly 0. See the
     // boots below, which are positioned from these numbers rather than beside
     // them.
-    this.legL = this.makeLimb(0.062, LEG_LENGTH, mat(TROUSERS), -0.030, HIP_Y);
-    this.legR = this.makeLimb(0.062, LEG_LENGTH, mat(TROUSERS), 0.030, HIP_Y);
+    //
+    // Set apart far enough to be two of them. At x = 0.030 with a leg 0.062
+    // wide the pair overlapped by two thousandths, so they drew as one column
+    // of trouser from hip to floor — a figure standing on a plinth. Thigh
+    // centres are about 0.045 of stature apart, which leaves 0.028 between
+    // them: five centimetres of daylight on a person, and enough that the
+    // glide tuck can bring the feet together without them passing through each
+    // other.
+    // 0.078 thick and set at 0.051, so the pair measures 0.180 across the
+    // thighs against a bitrochanteric breadth of 0.191, with 44 mm of daylight
+    // between them on a 1.83 m player. They were 0.062 at 0.030, which is both
+    // too thin for a thigh and two thousandths short of the gap needed to be
+    // two of anything: they intersected, and drew as one column of trouser
+    // from hip to floor.
+    this.legL = this.makeLimb(0.078, LEG_LENGTH, mat(TROUSERS), -0.051, HIP_Y);
+    this.legR = this.makeLimb(0.078, LEG_LENGTH, mat(TROUSERS), 0.051, HIP_Y);
     body.add(this.armL.pivot, this.armR.pivot, this.legL.pivot, this.legR.pivot);
     this.cloth.jacket.push(this.armL.limb.material, this.armR.limb.material);
     this.cloth.trousers.push(this.legL.limb.material, this.legR.limb.material);
@@ -88185,7 +88350,7 @@ class Avatar {
     // the offset that puts the boot's top against the leg's bottom is half the
     // leg plus half the boot. Derived rather than typed, because typing it is
     // how the boots ended up hanging a quarter of a metre clear of the legs.
-    const bootGeo = new THREE.BoxGeometry(0.075, BOOT_HEIGHT, 0.135);
+    const bootGeo = new THREE.BoxGeometry(0.088, BOOT_HEIGHT, 0.135);
     const bootY = -(LEG_LENGTH + BOOT_HEIGHT) / 2;
     this.bootL = new THREE.Mesh(bootGeo, mat(BOOTS));
     this.bootL.position.set(0, bootY, -0.02);
@@ -88219,7 +88384,9 @@ class Avatar {
     // The limb mesh is a box of its own length centred on its origin, so the
     // hand is at −length/2. The grip goes there; which way the rocket then
     // points is decided every frame by aimRocket.
-    this.rocket.position.set(0, -this.armR.length / 2 + 0.015, -0.02);
+    // In the fist, not up the sleeve: the grip sits at the centre of the hand
+    // that closes around it, which is where the hand now is.
+    this.rocket.position.set(0, handY, -0.02);
     this.armR.limb.add(this.rocket);
     this.cloth.rocket = [rocketMat];
     this.rocketColour = -1;
@@ -88338,15 +88505,41 @@ class Avatar {
    * to a point — extruded from a profile, which costs a few dozen triangles
    * and is the difference between a wing and a plank.
    *
+   * The extrusion alone was still a prism, though: one polygon pushed 14 mm
+   * along Z, so every point on the top surface shared a normal and the whole
+   * wing shaded as one flat colour whatever the light was doing. A pale board.
+   * Real elytra are shells — they curve down and back from the shoulder — and
+   * that curve is what puts a gradient across the surface and makes it read as
+   * a wing rather than as a cut-out. So the extrusion is bent after the fact
+   * and its normals recomputed from the geometry that results: one pass over a
+   * few hundred floats at build time, and nothing at all per frame.
+   *
    * The profile is drawn for the right wing and mirrored by negating x, so one
    * set of numbers describes both and they cannot drift apart.
    */
   makeWing(material, edgeMaterial, side) {
     const group = new THREE.Group();
 
+    // Outline in fractions of standing height: x outboard from the spine, y
+    // along the back with +y toward the shoulders.
+    //
+    //   span 0.460   chord 0.306   aspect 1.50:1
+    //   spread 2 x 0.505 = 1.01 of standing height
+    //
+    // It ran to x = 0.8 before, so the pair spanned 1.60 of height — 2.9 metres
+    // on a 1.83 metre player, nine times his own width. That is a hang glider,
+    // and from the chase camera it was the entire frame with a person hanging
+    // under it as a detail. An elytron spans about as wide as its wearer is
+    // tall, and has an aspect around 1.5:1; a paper aeroplane is nearer 2:1 and
+    // a hang glider wider still. Both numbers are checked in the self-test,
+    // because the silhouette is the character.
+    //
+    // Ten points rather than eight, so the trailing edge can carry the
+    // elytron's long taper back to the hip instead of cutting straight across.
     const outline = [
-      [0, 0.17], [0.3, 0.15], [0.58, 0.06], [0.76, -0.1],
-      [0.8, -0.19], [0.6, -0.23], [0.24, -0.25], [0, -0.21],
+      [0.045, 0.111], [0.170, 0.119], [0.310, 0.085], [0.430, 0.009],
+      [0.505, -0.077], [0.470, -0.145], [0.360, -0.179], [0.220, -0.187],
+      [0.105, -0.162], [0.045, -0.119],
     ];
     const shape = new THREE.Shape();
     shape.moveTo(side * outline[0][0], outline[0][1]);
@@ -88355,27 +88548,38 @@ class Avatar {
 
     const membrane = new THREE.Mesh(
       new THREE.ExtrudeGeometry(shape, {
-        depth: 0.014,
+        depth: 0.012,
         bevelEnabled: true,
-        bevelThickness: 0.004,
-        bevelSize: 0.004,
+        bevelThickness: 0.003,
+        bevelSize: 0.003,
         bevelSegments: 1,
         curveSegments: 1,
       }),
       material,
     );
-    membrane.position.z = -0.007;
+    membrane.position.z = -0.006;
     // Extrusion runs along +Z and the outline is drawn in XY, which is already
-    // the plane a wing lies in: outboard along X, along the back on Y.
+    // the plane a wing lies in: outboard along X, along the back on Y. Then it
+    // is bent out of that plane — see bendWing, and the comment on the method.
+    bendWing(membrane.geometry);
     group.add(membrane);
 
-    // The leading edge, thicker and darker, running from the shoulder to the
-    // tip. It is what catches the light and tells you which way the wing is
-    // pointing when the membrane is edge-on.
-    const spar = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.034, 0.034), edgeMaterial);
-    spar.position.set(side * 0.4, 0.12, 0);
-    spar.rotation.z = side * -0.31;
-    group.add(spar);
+    // The leading edge, darker and standing a little proud, built from the
+    // outline's own front points so it follows the bend instead of cutting
+    // across it. One straight bar over a curved wing is the join that gives a
+    // flat plank away, and it is what the old single 0.8-long spar was.
+    const front = outline.slice(0, 5).map(([x, y]) => bentPoint(side * x, y));
+    for (let i = 0; i < front.length - 1; i += 1) {
+      const a = front[i];
+      const b = front[i + 1];
+      const segment = new THREE.Mesh(
+        new THREE.BoxGeometry(a.distanceTo(b), 0.02, 0.024),
+        edgeMaterial,
+      );
+      segment.position.copy(a).lerp(b, 0.5);
+      segment.rotation.z = Math.atan2(b.y - a.y, b.x - a.x);
+      group.add(segment);
+    }
 
     group.userData.side = side;
     return group;
@@ -88545,6 +88749,7 @@ class Avatar {
     this.firstPerson = firstPerson;
     this.head.visible = !firstPerson;
     this.hair.visible = !firstPerson;
+    this.hairBack.visible = !firstPerson;
     this.applyModelMode();
   }
 
@@ -88664,17 +88869,35 @@ class Avatar {
     // of filling it — you should see the world, with your arms at the edges.
     // From outside they go wider still: a glider seen from behind is mostly
     // silhouette, and arms tight to the body turn it into a blob.
+    //
+    // Out, not across. An arm hangs along −Y from its shoulder, so a positive
+    // Z rotation swings it toward +X — which for the *left* arm is over the
+    // chest and out the other side. Both signs were that way round, so a
+    // gliding figure crossed its arms in front of itself: the left hand
+    // finished at x +0.26 and the right at −0.26, mirrored from where they
+    // stand, and the firework held in the right hand appeared on the left of
+    // the body with nothing near it. Which is a thing you can see in a
+    // screenshot and cannot see in a wireframe, and is why the hands are
+    // measured in the self-test now.
     const spread = this.firstPerson ? 0.62 : 0.85;
-    this.armL.pivot.rotation.z = spread * tuck;
-    this.armR.pivot.rotation.z = -spread * tuck;
+    this.armL.pivot.rotation.z = -spread * tuck;
+    this.armR.pivot.rotation.z = spread * tuck;
 
     // Legs together and trailing along the body, with a little bend at the
     // hip. Splayed straight legs read as two blocks end-on from behind, which
     // is exactly the angle you see yourself from in third person.
     this.legL.pivot.rotation.x -= 0.34 * tuck;
     this.legR.pivot.rotation.x -= 0.34 * tuck;
-    this.legL.pivot.rotation.z = this.legL.pivot.rotation.z * (1 - tuck) + 0.06 * tuck;
-    this.legR.pivot.rotation.z = this.legR.pivot.rotation.z * (1 - tuck) - 0.06 * tuck;
+    //
+    // Apart at the ankle, not crossed at it. Bringing the legs together was
+    // meant to stop them reading as two blocks end-on; taken this far it did
+    // the opposite. Each foot swings 50 mm and the hips are only 44 mm apart,
+    // so the ankles crossed by 31 mm and the pair drew as one featureless
+    // rectangle — which from directly behind is the largest thing on the
+    // character. The other way round leaves 145 mm between the boots, which is
+    // roughly what a person's feet do in the air and reads as a pair of legs.
+    this.legL.pivot.rotation.z = this.legL.pivot.rotation.z * (1 - tuck) - 0.06 * tuck;
+    this.legR.pivot.rotation.z = this.legR.pivot.rotation.z * (1 - tuck) + 0.06 * tuck;
 
     // The nose takes the colour of the slot you are on, so what is in your
     // hand and what is lit in the hotbar are visibly the same rocket.
@@ -88696,6 +88919,7 @@ class Avatar {
     // The head keeps looking where you look, whatever the shoulders are doing.
     this.head.rotation.y = -neck;
     this.hair.rotation.y = -neck;
+    this.hairBack.rotation.y = -neck;
     if (!this.firstPerson) {
       this.head.rotation.x = damp(
         this.head.rotation.x,
