@@ -1316,6 +1316,39 @@ console.log('\nTurning your head does not lose the ground');
     return resolved > 0;
   };
   ok('the ground under you is built even facing away', visits(here));
+
+  // The freecam renders from somewhere else while the ground stays built for
+  // the player — that split is deliberate, so flying the camera across a
+  // country does not re-cut the whole quadtree. But the frustum came from the
+  // player's camera too, so ground behind the player was never drawn, and the
+  // freecam is usually pointed at exactly that. No mesh, no hole to see it
+  // through, just sky.
+  const facing = (yaw) => {
+    const cam = new THREE.PerspectiveCamera(70, 16 / 9, 0.1, 1e7);
+    cam.position.set(camX, 1400, camZ);
+    cam.rotation.set(0, yaw, 0, 'YXZ');
+    cam.updateMatrixWorld(true);
+    cam.updateProjectionMatrix();
+    return cam;
+  };
+  const behind = { z, x: here.x, y: here.y + 3 };
+  const drawnWith = (viewCamera) => {
+    terrain.frustum = new THREE.Frustum();
+    const m = new THREE.Matrix4().multiplyMatrices(
+      viewCamera.projectionMatrix, viewCamera.matrixWorldInverse);
+    terrain.frustum.setFromProjectionMatrix(m);
+    terrain.split.clear();
+    terrain.drawn.length = 0;
+    terrain.budget = { ms: 1e6, start: performance.now(), built: 0, refreshed: 0 };
+    terrain.visit(behind, facing(0), camX, camZ, 200000, 20);
+    return terrain.drawn.length > 0;
+  };
+  ok('ground behind the player is invisible to the player', !drawnWith(facing(0)));
+  ok('but the freecam looking back at it sees it', drawnWith(facing(Math.PI)));
+
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  ok('and the game passes the camera it actually draws through',
+    /terrain\.update\([\s\S]{0,240}?this\.camera,\s*\n\s*\);/.test(game));
   // And the frustum still does its job everywhere else, which is most of what
   // makes the quadtree affordable.
   ok('ground you cannot see and are not on is still skipped', !visits(away));

@@ -883,7 +883,15 @@ export class Game {
     // pulled a hundred kilometres of new tiles down behind it — which is the
     // opposite of what a look-around camera is for, and the reason it could
     // stall the game. The terrain keeps streaming around the player.
-    this.terrain.update(this.rig.isFreecam ? this.streamCamera(player) : this.camera, budget);
+    // Two cameras on purpose in freecam: the ground is built for where the
+    // player is, so flying the camera off does not re-cut the quadtree, but it
+    // is culled against what is actually on screen so nothing in view is
+    // missing. They are the same camera the rest of the time.
+    this.terrain.update(
+      this.rig.isFreecam ? this.streamCamera(player) : this.camera,
+      budget,
+      this.camera,
+    );
     this.terrain.invalidateStale(this.camera.position.x, this.camera.position.z);
     // Close the far edge off. The terrain has just worked out how far it is
     // drawing this frame, so the wall goes exactly there rather than at some

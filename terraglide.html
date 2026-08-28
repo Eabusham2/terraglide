@@ -94949,7 +94949,14 @@ class Terrain {
     this.drawn.length = 0;
   }
 
-  update(camera, budgetMs) {
+  /**
+   * @param {THREE.Camera} camera  what the ground is built *for*: distance,
+   *   level of detail, which square is asked for first.
+   * @param {number} budgetMs
+   * @param {THREE.Camera} [viewCamera]  what the ground is *seen* through, if
+   *   that is something else. Only the frustum comes from this one.
+   */
+  update(camera, budgetMs, viewCamera = camera) {
     const preset = settings.preset();
     // The ground always sharpens as far as the provider will actually serve
     // here. The setting is a ceiling you may lower, not a target — there is no
@@ -95009,7 +95016,21 @@ class Terrain {
     this.streamer.beginFrame();
     this.elevation.beginFrame();
 
-    this.projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    // Culled against the camera the frame is actually drawn through, which is
+    // not always the one the ground is built for.
+    //
+    // In freecam they are different on purpose: streaming stays anchored to the
+    // player so flying the camera across a country does not re-cut the whole
+    // quadtree. But the frustum came from the same camera, so anything outside
+    // the *player's* view was never drawn — and the freecam is usually pointed
+    // at exactly that. Ground behind the player was simply not there: no mesh,
+    // no hole to see it through, just the sky. Which is "in freecam the ground
+    // behind me is invisible", and most of what "the ground is not holding, as
+    // seen by freecam" was actually showing.
+    this.projScreenMatrix.multiplyMatrices(
+      viewCamera.projectionMatrix,
+      viewCamera.matrixWorldInverse,
+    );
     this.frustum.setFromProjectionMatrix(this.projScreenMatrix);
 
     const camX = camera.position.x;
@@ -100436,7 +100457,15 @@ class Game {
     // pulled a hundred kilometres of new tiles down behind it — which is the
     // opposite of what a look-around camera is for, and the reason it could
     // stall the game. The terrain keeps streaming around the player.
-    this.terrain.update(this.rig.isFreecam ? this.streamCamera(player) : this.camera, budget);
+    // Two cameras on purpose in freecam: the ground is built for where the
+    // player is, so flying the camera off does not re-cut the quadtree, but it
+    // is culled against what is actually on screen so nothing in view is
+    // missing. They are the same camera the rest of the time.
+    this.terrain.update(
+      this.rig.isFreecam ? this.streamCamera(player) : this.camera,
+      budget,
+      this.camera,
+    );
     this.terrain.invalidateStale(this.camera.position.x, this.camera.position.z);
     // Close the far edge off. The terrain has just worked out how far it is
     // drawing this frame, so the wall goes exactly there rather than at some

@@ -263,7 +263,14 @@ export class Terrain {
     this.drawn.length = 0;
   }
 
-  update(camera, budgetMs) {
+  /**
+   * @param {THREE.Camera} camera  what the ground is built *for*: distance,
+   *   level of detail, which square is asked for first.
+   * @param {number} budgetMs
+   * @param {THREE.Camera} [viewCamera]  what the ground is *seen* through, if
+   *   that is something else. Only the frustum comes from this one.
+   */
+  update(camera, budgetMs, viewCamera = camera) {
     const preset = settings.preset();
     // The ground always sharpens as far as the provider will actually serve
     // here. The setting is a ceiling you may lower, not a target — there is no
@@ -323,7 +330,21 @@ export class Terrain {
     this.streamer.beginFrame();
     this.elevation.beginFrame();
 
-    this.projScreenMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    // Culled against the camera the frame is actually drawn through, which is
+    // not always the one the ground is built for.
+    //
+    // In freecam they are different on purpose: streaming stays anchored to the
+    // player so flying the camera across a country does not re-cut the whole
+    // quadtree. But the frustum came from the same camera, so anything outside
+    // the *player's* view was never drawn — and the freecam is usually pointed
+    // at exactly that. Ground behind the player was simply not there: no mesh,
+    // no hole to see it through, just the sky. Which is "in freecam the ground
+    // behind me is invisible", and most of what "the ground is not holding, as
+    // seen by freecam" was actually showing.
+    this.projScreenMatrix.multiplyMatrices(
+      viewCamera.projectionMatrix,
+      viewCamera.matrixWorldInverse,
+    );
     this.frustum.setFromProjectionMatrix(this.projScreenMatrix);
 
     const camX = camera.position.x;

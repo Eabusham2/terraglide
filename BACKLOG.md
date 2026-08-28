@@ -41,7 +41,13 @@ what is left · `[?]` needs a decision from you.
       module tag, so the page most likely to fail was the only one that could
       not say so — that is the silent 'Starting engine…'. The online edition is
       now index.html itself with three URLs made absolute, so it cannot drift.
-- [ ] A11. Freecam shows the ground not holding; breaks in freecam
+- [x] A11. Freecam shows the ground not holding; breaks in freecam
+      Cause: in freecam the terrain is built for the player's camera on purpose —
+      so flying the camera across a country does not re-cut the quadtree — but
+      the frustum came from that same camera, so anything outside the player's
+      view was never drawn. The freecam is usually pointed at exactly that. The
+      frustum now comes from the camera the frame is drawn through; priority and
+      level of detail still come from the player.
 
 - [x] A1. Cannot move or jump on launch — it keeps restarting when I do
       — input did nothing because the arrival hold froze the player and then
@@ -88,7 +94,13 @@ what is left · `[?]` needs a decision from you.
 - [ ] B10. Sometimes everything becomes super blurry when I do something, comes back after 1 s
 - [ ] B11. Random times when looking, everything becomes a solid colour
 - [ ] B12. Randomly blurring depending on where I look
-- [ ] B13. In freecam I see the ground behind me as invisible
+- [x] B13. In freecam I see the ground behind me as invisible
+      Cause: in freecam the terrain is built for the player's camera on purpose —
+      so flying the camera across a country does not re-cut the quadtree — but
+      the frustum came from that same camera, so anything outside the player's
+      view was never drawn. The freecam is usually pointed at exactly that. The
+      frustum now comes from the camera the frame is drawn through; priority and
+      level of detail still come from the player.
 - [ ] B14. Debug and remove glitches generally
 
 ## C. Loading order and speed
