@@ -194,7 +194,7 @@ const SECTIONS = [
         max: 2.4,
         step: 0.01,
         format: (v) => `${formatHeight(v, settings.get('units'))}`,
-        help: 'Default is 6 ft 6 in.',
+        help: 'Default is 6 ft.',
       },
 
     ],

@@ -161,7 +161,7 @@ export class Player extends Emitter {
     return clamp(cheats.playerScale, 0.25, 60);
   }
 
-  /** Standing height in metres (6 ft 6 in at scale 1). */
+  /** Standing height in metres (6 ft at scale 1). */
   get height() {
     return settings.get('playerHeightM') * this.scale;
   }

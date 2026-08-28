@@ -123,7 +123,14 @@ export const DEFAULT_SETTINGS = {
   detailedPlayerModel: false,
 
   /* player */
-  playerHeightM: 1.98, // 6 ft 6 in
+  /**
+   * Standing height, metres. Six feet exactly.
+   *
+   * It was 1.98 — six foot six — which is a tall man, and everything scaled off
+   * it inherited the extra: stride, eye height, reach, the collision capsule.
+   * Part of "why do I feel so big".
+   */
+  playerHeightM: 1.8288, // 6 ft 0 in
 
   /* world / exploration */
   units: defaultUnits(),

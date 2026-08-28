@@ -1460,6 +1460,44 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nHeight above the ground is a height');
+{
+  const { formatAltitude, formatDistance, formatHeight } = await import('../src/core/units.js');
+  const { DEFAULT_SETTINGS } = await import('../src/core/settings.js');
+  const hud = readFileSync(new URL('../src/ui/hud.js', import.meta.url), 'utf8');
+
+  // AGL went through formatDistance, which switches to miles past a thousand
+  // feet and was asked for no decimal places. Three hundred metres above the
+  // ground therefore read "0 mi AGL" — a thousand feet up, reported as zero.
+  ok(`the old rule said nothing at 305 m  (${formatDistance(305, 'imperial', 0)})`,
+    formatDistance(305, 'imperial', 0) === '0 mi');
+  ok(`the new one says the height  (${formatAltitude(305, 'imperial')})`,
+    /1,001 ft/.test(formatAltitude(305, 'imperial')));
+  ok('and the readout uses it',
+    /formatAltitude\(player\.altitudeAboveGround, units\)/.test(hud));
+  ok('for both figures on the line',
+    (hud.match(/formatAltitude\(player\./g) ?? []).length === 2);
+
+  // It stays a height all the way up rather than turning into a distance.
+  for (const metres of [305, 900, 3000, 9000]) {
+    ok(`${metres} m reads in feet  (${formatAltitude(metres, 'imperial')})`,
+      /ft$/.test(formatAltitude(metres, 'imperial')));
+  }
+
+  // Six feet, and the copy that quotes it agrees.
+  ok(`the default height is six feet  (${formatHeight(DEFAULT_SETTINGS.playerHeightM, 'imperial')})`,
+    formatHeight(DEFAULT_SETTINGS.playerHeightM, 'imperial') === `6' 0"`);
+  const panel = readFileSync(new URL('../src/ui/settingsPanel.js', import.meta.url), 'utf8');
+  ok('and the field says so', /Default is 6 ft\./.test(panel));
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  ok('and so does the README', /6 ft \(1\.83 m\)/.test(readme));
+  // The help card reads the setting rather than quoting a number, so it cannot
+  // fall out of step.
+  const help = readFileSync(new URL('../src/ui/help.js', import.meta.url), 'utf8');
+  ok('the help card asks rather than quotes', /heightLabel\(\)/.test(help));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nBoth systems of units, everywhere and not only in places');
 {
   const { formatArea, formatWind } = await import('../src/core/units.js');

@@ -298,7 +298,11 @@ what is left · `[?]` needs a decision from you.
       now 0.12 (0.24 across). This is also why looking down in first person
       filled the screen with a wall of cloth — your own chest, half a metre wide,
       a quarter of a metre from your eye.
-- [ ] I2. Default height 6 ft, and matching
+- [x] I2. Default height 6 ft, and matching
+      1.98 m (6'6") -> 1.8288 m (6'0"). Everything scales off it — stride, eye
+      height, reach, the collision capsule — so they all follow. The settings help
+      and the README say six feet; the help card reads the setting rather than
+      quoting a number, so it cannot fall out of step.
 - [x] I3. Why do I feel so big
       Measured against real anthropometry the figure was 1.68x too wide across
       the chest, 1.80x across the shoulders and 2.09x across the hips — it was
@@ -307,7 +311,11 @@ what is left · `[?]` needs a decision from you.
       now 0.12 (0.24 across). This is also why looking down in first person
       filled the screen with a wall of cloth — your own chest, half a metre wide,
       a quarter of a metre from your eye.
-- [ ] I4. Make altitude accurate
+- [x] I4. Make altitude accurate
+      Height above ground went through formatDistance, which switches to miles past
+      a thousand feet and was asked for no decimals — so 305 m AGL printed "0 mi".
+      A thousand feet up, reported as zero. It reads 1,001 ft now, and stays in
+      feet all the way to 29,528.
 - [ ] I5. Make speed accurate, and size
 - [x] I6. Number on the compass
       The strip had letters at the four cardinals and blank ticks everywhere else,

@@ -79,7 +79,7 @@ map. Dive is held: it drops the nose in the air and takes you under in water.
 
 Every one of those is rebindable in **Settings → Controls**.
 
-You are 6 ft 6 in (1.98 m) by default and can grow to about 40x, which changes
+You are 6 ft (1.83 m) by default and can grow to about 40x, which changes
 your stride, your jump and how the world reads underfoot. Deep water holds you
 up — jump to rise, crouch to dive, and the sea floor is where the bottom
 actually is, so you can swim down to it.

@@ -217,7 +217,17 @@ export class HUD {
     // Location block.
     this.setText('address', state.address || 'Unmapped location');
     this.setText('coords', formatLatLon(player.lat, player.lon, 5));
-    this.setText('altitude', `${formatAltitude(player.position.y, units)} · ${formatDistance(player.altitudeAboveGround, units, 0)} AGL`);
+    // Height above the ground is a height, not a distance travelled.
+    //
+    // It went through formatDistance, which switches to miles past a thousand
+    // feet and was asked for nought decimal places — so at three hundred metres
+    // above the ground the game told you "0 mi AGL". A thousand feet up,
+    // reported as zero. At nine hundred metres it said "1 mi", and at three
+    // thousand "2 mi" for something that is 1.86.
+    this.setText(
+      'altitude',
+      `${formatAltitude(player.position.y, units)} · ${formatAltitude(player.altitudeAboveGround, units)} AGL`,
+    );
     this.setText('speed', formatSpeed(player.speed, units, settings.get('speedPer')));
     // The flight path angle, which is the number a glider pilot actually flies
     // to: how many degrees below the horizon you are travelling, as opposed to
