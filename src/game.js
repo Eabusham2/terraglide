@@ -11,6 +11,7 @@ import { formatDistance, formatLatLon } from './core/units.js';
 import { InputManager } from './camera/input.js';
 import { CameraRig } from './camera/cameraRig.js';
 import { LocalFrame } from './geo/frame.js';
+import { clearImageryAges, describeImagery, imageryAt } from './geo/imageryAge.js';
 import { geocoder } from './geo/geocode.js';
 import { haversine, latToNormY, lonToNormX } from './geo/mercator.js';
 import { waterMap } from './geo/water.js';
@@ -620,6 +621,8 @@ export class Game {
     const providerKeys = ['imageryProvider', 'elevationProvider', 'googleKey', 'mapboxKey', 'bingKey', 'azureKey'];
     if (providerKeys.includes(key)) {
       this.applyProviders({ rebuild: key === 'elevationProvider' });
+      // The dates belong to whoever's photographs they were.
+      clearImageryAges();
       this.toast('Provider updated');
     }
     if (key === 'panoramaProvider' || key === 'mapillaryToken') this.panorama.clear();
@@ -1775,6 +1778,15 @@ export class Game {
     // shown. It goes first, because when it is on it is what you are looking at.
     if (this.tiles3d?.attribution) parts.push(this.tiles3d.attribution);
     if (this.imagerySource?.attribution) parts.push(this.imagerySource.attribution);
+    // When the photograph under you was taken, and what took it. Esri publish
+    // it per square and it is worth saying: the ground is a particular day, and
+    // a 2011 picture of a city is a different city. Asked once per coarse
+    // square, in the background — the line simply does not gain a date if
+    // nothing answers. See geo/imageryAge.js.
+    if (this.imagerySource?.descriptor?.id === 'esri') {
+      const age = describeImagery(imageryAt(this.player.lat, this.player.lon));
+      if (age) parts.push(age);
+    }
     if (this.elevationSource?.attribution) parts.push(this.elevationSource.attribution);
     if (settings.get('buildings')) parts.push('Buildings © OpenStreetMap contributors');
     if (settings.get('addressLookup')) {

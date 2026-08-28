@@ -86124,6 +86124,156 @@ class LocalFrame {
 
 __tg_exports["LocalFrame"] = LocalFrame;
 };
+__tg_modules["src/geo/imageryAge.js"] = function (__tg_exports) {
+/**
+ * When the photograph under you was taken, and by what.
+ *
+ * "Show the imagery year" is a fair thing to ask of a game made of real
+ * photographs: the ground you are flying over is a particular day, and which
+ * day it was changes what you are looking at. A 2011 image of a city is a
+ * different city.
+ *
+ * Esri publish it. The World Imagery service carries its own metadata as layer
+ * zero, and a point query against it comes back with the capture date, the
+ * ground resolution, the satellite or aircraft that took it, the vendor, and —
+ * usefully — the deepest zoom that square is actually served at:
+ *
+ *   SRC_DATE   20180909        9 September 2018
+ *   SRC_RES    0.5             half a metre a pixel
+ *   SRC_DESC   WV02            WorldView-2
+ *   NICE_DESC  Vantor          who supplied it
+ *   MaxMapLevel 19             how deep it goes here
+ *
+ * One request per coarse square, cached, and never on the critical path: if it
+ * does not answer, the line simply does not gain a date. Nothing waits for it.
+ */
+
+const { lonToNormX, latToNormY } = __tg_require("src/geo/mercator.js");
+
+const ENDPOINT =
+  'https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/0/query';
+
+/**
+ * How coarsely to cache the answer.
+ *
+ * Zoom 9 is about eighty kilometres a square at the equator. Imagery blocks are
+ * far larger than a tile and far smaller than a country, and one question per
+ * eighty kilometres is a question every few minutes of flying rather than one
+ * per tile.
+ */
+const CACHE_ZOOM = 9;
+
+/** Don't hold a query open for ever; the answer is a nicety. */
+const TIMEOUT_MS = 6000;
+
+const cache = new Map();
+const inFlight = new Set();
+
+/** `20180909` -> a Date, or null. */
+function parseStamp(value) {
+  const digits = String(value ?? '');
+  if (!/^\d{8}$/.test(digits)) return null;
+  const year = Number(digits.slice(0, 4));
+  const month = Number(digits.slice(4, 6));
+  const day = Number(digits.slice(6, 8));
+  if (year < 1970 || year > 2100 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * A short line a person can read: "Sep 2018 · 0.5 m · WorldView-2".
+ *
+ * Only the parts that came back. A record with a date and nothing else says
+ * the date, rather than saying the date followed by two empty separators.
+ */
+function describeImagery(info) {
+  if (!info) return '';
+  const parts = [];
+  if (info.date) parts.push(`${MONTHS[info.date.getUTCMonth()]} ${info.date.getUTCFullYear()}`);
+  if (Number.isFinite(info.resolutionM) && info.resolutionM > 0) {
+    parts.push(info.resolutionM < 1 ? `${info.resolutionM} m` : `${Math.round(info.resolutionM)} m`);
+  }
+  if (info.sensor) parts.push(info.sensor);
+  return parts.join(' · ');
+}
+
+function keyFor(lat, lon) {
+  const n = 2 ** CACHE_ZOOM;
+  const x = Math.floor(lonToNormX(lon) * n);
+  const y = Math.floor(latToNormY(lat) * n);
+  return `${x}/${y}`;
+}
+
+/**
+ * What is already known about the photograph here, and ask if nothing is.
+ *
+ * Returns synchronously — the cached answer or null — and starts one request in
+ * the background when it has nothing. The caller draws whatever it gets and
+ * gains the date a moment later without having waited for it.
+ *
+ * @returns {null | {date: Date|null, resolutionM: number, sensor: string,
+ *   vendor: string, maxZoom: number}}
+ */
+function imageryAt(lat, lon) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const key = keyFor(lat, lon);
+  if (cache.has(key)) return cache.get(key);
+  if (inFlight.has(key)) return null;
+  inFlight.add(key);
+  ask(lat, lon)
+    .then((info) => {
+      // A miss is cached too. Ocean and the poles have no metadata record, and
+      // asking again every frame for country that will never have one is how a
+      // nicety turns into a request storm.
+      cache.set(key, info);
+    })
+    .catch(() => cache.set(key, null))
+    .finally(() => inFlight.delete(key));
+  return null;
+}
+
+async function ask(lat, lon) {
+  const geometry = encodeURIComponent(
+    JSON.stringify({ x: lon, y: lat, spatialReference: { wkid: 4326 } }),
+  );
+  const url =
+    `${ENDPOINT}?f=json&returnGeometry=false&inSR=4326&spatialRel=esriSpatialRelIntersects`
+    + '&geometryType=esriGeometryPoint&outFields=SRC_DATE,SRC_RES,SRC_DESC,NICE_DESC,MaxMapLevel'
+    + `&geometry=${geometry}`;
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), TIMEOUT_MS) : null;
+  try {
+    const response = await fetch(url, { signal: controller?.signal });
+    if (!response.ok) return null;
+    const body = await response.json();
+    const attributes = body?.features?.[0]?.attributes;
+    if (!attributes) return null;
+    return {
+      date: parseStamp(attributes.SRC_DATE),
+      resolutionM: Number(attributes.SRC_RES),
+      sensor: String(attributes.SRC_DESC ?? '').trim(),
+      vendor: String(attributes.NICE_DESC ?? '').trim(),
+      maxZoom: Number(attributes.MaxMapLevel) || 0,
+    };
+  } catch {
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/** Forget everything — used when the imagery provider changes under us. */
+function clearImageryAges() {
+  cache.clear();
+  inFlight.clear();
+}
+
+__tg_exports["describeImagery"] = describeImagery;
+__tg_exports["imageryAt"] = imageryAt;
+__tg_exports["clearImageryAges"] = clearImageryAges;
+};
 __tg_modules["src/geo/appleMaps.js"] = function (__tg_exports) {
 const { settings } = __tg_require("src/core/settings.js");
 
@@ -100466,6 +100616,7 @@ const { formatDistance, formatLatLon } = __tg_require("src/core/units.js");
 const { InputManager } = __tg_require("src/camera/input.js");
 const { CameraRig } = __tg_require("src/camera/cameraRig.js");
 const { LocalFrame } = __tg_require("src/geo/frame.js");
+const { clearImageryAges, describeImagery, imageryAt } = __tg_require("src/geo/imageryAge.js");
 const { geocoder } = __tg_require("src/geo/geocode.js");
 const { haversine, latToNormY, lonToNormX } = __tg_require("src/geo/mercator.js");
 const { waterMap } = __tg_require("src/geo/water.js");
@@ -101070,6 +101221,8 @@ class Game {
     const providerKeys = ['imageryProvider', 'elevationProvider', 'googleKey', 'mapboxKey', 'bingKey', 'azureKey'];
     if (providerKeys.includes(key)) {
       this.applyProviders({ rebuild: key === 'elevationProvider' });
+      // The dates belong to whoever's photographs they were.
+      clearImageryAges();
       this.toast('Provider updated');
     }
     if (key === 'panoramaProvider' || key === 'mapillaryToken') this.panorama.clear();
@@ -102225,6 +102378,15 @@ class Game {
     // shown. It goes first, because when it is on it is what you are looking at.
     if (this.tiles3d?.attribution) parts.push(this.tiles3d.attribution);
     if (this.imagerySource?.attribution) parts.push(this.imagerySource.attribution);
+    // When the photograph under you was taken, and what took it. Esri publish
+    // it per square and it is worth saying: the ground is a particular day, and
+    // a 2011 picture of a city is a different city. Asked once per coarse
+    // square, in the background — the line simply does not gain a date if
+    // nothing answers. See geo/imageryAge.js.
+    if (this.imagerySource?.descriptor?.id === 'esri') {
+      const age = describeImagery(imageryAt(this.player.lat, this.player.lon));
+      if (age) parts.push(age);
+    }
     if (this.elevationSource?.attribution) parts.push(this.elevationSource.attribution);
     if (settings.get('buildings')) parts.push('Buildings © OpenStreetMap contributors');
     if (settings.get('addressLookup')) {

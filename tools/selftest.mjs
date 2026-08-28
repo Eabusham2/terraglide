@@ -1460,6 +1460,76 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe ground says when it was photographed');
+{
+  const { describeImagery, imageryAt } = await import('../src/geo/imageryAge.js');
+
+  // Formatting, without the network: the request itself is checked by having
+  // been run against the live service, and the numbers are in the commit
+  // message. What is committed is the reading of the reply.
+  const info = (over) => ({
+    date: new Date(Date.UTC(2018, 8, 9)), resolutionM: 0.5, sensor: 'WV02',
+    vendor: 'Vantor', maxZoom: 19, ...over,
+  });
+  ok(`a full record reads plainly  (${describeImagery(info())})`,
+    describeImagery(info()) === 'Sep 2018 · 0.5 m · WV02');
+  // Sub-metre imagery keeps its decimals; metres do not need them.
+  ok(`centimetres survive  (${describeImagery(info({ resolutionM: 0.075 }))})`,
+    /0\.075 m/.test(describeImagery(info({ resolutionM: 0.075 }))));
+  ok(`and metres are rounded  (${describeImagery(info({ resolutionM: 15.2 }))})`,
+    /15 m/.test(describeImagery(info({ resolutionM: 15.2 }))));
+
+  // Only the parts that came back: a record with a date and nothing else says
+  // the date, not the date followed by two empty separators.
+  ok(`a date alone  (${describeImagery({ date: new Date(Date.UTC(2011, 0, 2)) })})`,
+    describeImagery({ date: new Date(Date.UTC(2011, 0, 2)) }) === 'Jan 2011');
+  ok('nothing at all says nothing', describeImagery(null) === '' && describeImagery({}) === '');
+
+  // Never blocks: the first ask returns nothing and starts a request.
+  ok('asking is not waiting', imageryAt(48.54, 8.23) === null);
+  // And nonsense is refused rather than sent.
+  ok('a position that is not one is refused', imageryAt(NaN, 8.23) === null);
+
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  ok('the attribution line carries it', /describeImagery\(imageryAt\(/.test(game));
+  // Somebody else's dates, so they go when the provider does.
+  ok('and changing provider forgets it', /clearImageryAges\(\)/.test(game));
+  // Only for the provider it came from.
+  ok('and it is only claimed for Esri', /descriptor\?\.id === 'esri'/.test(game));
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nA paused world does not spend your surge');
+{
+  const { Player } = await import('../src/player/player.js');
+  const player = new Player({ toWorld: () => ({ x: 0, y: 0, z: 0 }), toGeo: () => ({ lat: 0, lon: 0 }) });
+
+  // A paused frame is `update(0)`, so every timer is stepped by nothing. That
+  // is the mechanism, and it is worth a check because it is invisible: nothing
+  // in tickTimers mentions pausing, and it would be easy to "fix" a timer by
+  // giving it a wall clock of its own and silently break this.
+  player.startSpeedMode();
+  const full = player.speedRemaining;
+  for (let i = 0; i < 600; i++) player.tickTimers(0);
+  ok(`ten seconds of paused frames spend nothing  (${player.speedRemaining} s left)`,
+    player.speedRemaining === full);
+
+  for (let i = 0; i < 60; i++) player.tickTimers(1 / 60);
+  ok(`and a second of real time spends one  (${player.speedRemaining.toFixed(2)} s left)`,
+    Math.abs(full - player.speedRemaining - 1) < 0.02);
+
+  // The cooldown is the same clock.
+  player.speedActive = false;
+  player.speedCooldown = 20;
+  for (let i = 0; i < 600; i++) player.tickTimers(0);
+  ok('and the recharge does not tick either', player.speedCooldown === 20);
+
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  ok('because a paused frame advances the clock by nothing',
+    /this\.update\(this\.paused \? 0 :/.test(game));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nA waypoint you can see from the air');
 {
   const THREE = await import('../vendor/three/three.module.js');

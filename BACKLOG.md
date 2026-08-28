@@ -182,7 +182,10 @@ what is left · `[?]` needs a decision from you.
 - [x] E3. Should affect everything, not just rockets — base, walk, glide
       Already does: speedMultiplier scales the displacement the controller applies,
       so walking, gliding and falling all carry it. Rockets get it on top.
-- [ ] E4. Countdown should not run down while in settings or paused
+- [x] E4. Countdown should not run down while in settings or paused
+      Already so, and now checked: a paused frame is update(0), so every timer is
+      stepped by nothing. Ten seconds of paused frames spend no surge and no
+      cooldown; a second of real time spends one second.
 - [ ] E5. Streamline the speed mode panel
 - [x] E6. Where is speed mode on touchscreen
       It was there all along, labelled "2x" — a value rather than a thing. It says
@@ -275,7 +278,11 @@ what is left · `[?]` needs a decision from you.
       store built from the same storage reads them back. The store class is
       exported now so that reload path can actually be exercised.
 - [ ] G18. Why is it lower res than, e.g., the Mapbox website
-- [ ] G19. Show the imagery year
+- [x] G19. Show the imagery year
+      Esri publish it per square — capture date, ground resolution, the satellite
+      that took it, and the deepest zoom that square is served at. It sits on the
+      attribution line: Black Forest "Sep 2018 · 0.5 m · WV02", Vienna "Apr 2025 ·
+      0.075 m · Stadt Wien". One request per 80 km square, cached, background.
 - [x] G20. Why cap zoom at 22 or 23 — force it to infinity and future-proof it (1–25, then Infinity)
       — the slider runs 1 to 25 and then to "No limit", which is the default.
       Every fixed number here was wrong in turn: 19, then 20, then the deepest
