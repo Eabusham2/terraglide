@@ -331,7 +331,10 @@ export function drawMap(ctx, view, layers) {
 function drawCompass(ctx, width, height, rotation, size) {
   const cx = width / 2;
   const cy = height / 2;
-  const radius = Math.min(width, height) / 2 - size * 0.9;
+  // Out at the rim, where a compass mark belongs. At 0.9 of the letter height
+  // they sat a whole letter inside the edge, in the middle of the map, over
+  // the ground you were trying to read.
+  const radius = Math.min(width, height) / 2 - size * 0.62;
   const marks = [
     { label: 'N', angle: 0, colour: '#f4b26a' },
     { label: 'E', angle: Math.PI / 2, colour: '#e2e8f0' },
@@ -346,7 +349,9 @@ function drawCompass(ctx, width, height, rotation, size) {
     const a = mark.angle + rotation - Math.PI / 2;
     const x = cx + Math.cos(a) * radius;
     const y = cy + Math.sin(a) * radius;
-    ctx.lineWidth = size * 0.28;
+    // A thinner outline. At 0.28 the halo was as wide as the strokes of the
+    // letter and the pair read as one blob at small sizes.
+    ctx.lineWidth = size * 0.2;
     ctx.strokeStyle = 'rgba(15, 17, 20, 0.85)';
     ctx.strokeText(mark.label, x, y);
     ctx.fillStyle = mark.colour;

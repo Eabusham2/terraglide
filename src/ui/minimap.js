@@ -166,7 +166,11 @@ export class Minimap {
           playerSize: 7,
           pathWidth: 1.3,
           compass: true,
-          compassSize: Math.max(13, Math.round(this.size * 0.08)),
+          // Eight per cent of a 240 px minimap is a nineteen-pixel letter, which
+          // is bigger than the place names underneath it and reads as a label
+          // for the map rather than a mark on it. Five and a half, floored at
+          // ten so it stays legible on a phone.
+          compassSize: Math.max(10, Math.round(this.size * 0.055)),
         },
       },
     );

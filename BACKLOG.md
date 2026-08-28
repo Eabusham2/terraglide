@@ -175,8 +175,13 @@ what is left · `[?]` needs a decision from you.
 
 ## F. Map and minimap
 
-- [ ] F1. NWSE on the minimap preview is too big
-- [ ] F2. Improve the position of NWSE on the map
+- [x] F1. NWSE on the minimap preview is too big
+      Was 8% of the minimap — a 19 px letter on a 240 px map, bigger than the
+      place names under it. Now 5.5%, floored at 10 px for phones.
+- [x] F2. Improve the position of NWSE on the map
+      They sat a whole letter's height inside the rim, over the ground you were
+      reading. Moved out to 0.62 of the letter height, and the outline halo
+      thinned from 0.28 to 0.2 so the pair stops reading as one blob when small.
 - [x] F3. Map is white, especially when going up
       Cause: resolve() only ever walks up. Zooming out — which is what climbing
       does to the minimap — leaves the sharp squares cached and the coarse one
