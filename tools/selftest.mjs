@@ -1463,6 +1463,36 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe settings say what the code actually does');
+{
+  const panel = readFileSync(new URL('../src/ui/settingsPanel.js', import.meta.url), 'utf8');
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+
+  // "Draw twice as far over country you have seen" — while the distance is a
+  // separate slider running 64 to 1024 km. There is no two anywhere in it.
+  ok('the label no longer promises a factor it does not apply',
+    !/twice as far/.test(panel));
+  ok('and says what it does instead',
+    /Keep drawing past the horizon where you have been/.test(panel));
+  ok('with the distance as its own control underneath',
+    /How far, over ground you have seen/.test(panel));
+
+  // "Why is the distance horizon forced": the setting is a floor, and the real
+  // horizon raises it — up to six times — because stopping the world at 24 km
+  // from four hundred metres up puts a band of haze where the mountains are.
+  ok('render distance is a floor that the horizon can raise',
+    /clamp\(horizon, setting, setting \* 6\)/.test(terrain));
+  ok('and the setting says so', /Climbing extends it/.test(panel));
+  ok('and says how far it can go', /up to six times this/.test(panel));
+
+  // The number in that copy is the real geometric horizon.
+  const horizon = (metres) => Math.sqrt(2 * 6371000 * metres) / 1000;
+  ok(`four hundred metres up really is about seventy km  (${horizon(400).toFixed(0)})`,
+    Math.abs(horizon(400) - 71) < 3);
+  ok(`and standing up is about five  (${horizon(2).toFixed(0)})`, Math.abs(horizon(2) - 5) < 1);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe map opens where you were reading it');
 {
   const { DEFAULT_SETTINGS } = await import('../src/core/settings.js');

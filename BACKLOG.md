@@ -172,8 +172,17 @@ what is left · `[?]` needs a decision from you.
       and it expires.
 - [ ] C10. Distant view should be fixed low-res LODs, getting less detailed further out
 - [ ] C11. LODs for distance render only
-- [ ] C12. Why is the distance horizon forced
-- [ ] C13. "Draw twice as far over country you have seen" — what is this, and it reads badly
+- [x] C12. Why is the distance horizon forced
+      Because the setting is a floor, not a ceiling: renderDistance is
+      clamp(horizon, setting, setting * 6). From 400 m up the real horizon is
+      71 km, and stopping the world at a 24 km setting anyway puts a flat band of
+      haze across the view where the mountains should be. That was true and
+      unexplained; the setting now says it.
+- [x] C13. "Draw twice as far over country you have seen" — what is this, and it reads badly
+      It read badly because it was wrong: the distance is a separate slider from
+      64 to 1024 km, so there is no "twice" anywhere in it. The toggle is now
+      "Keep drawing past the horizon where you have been" with the distance as its
+      own control underneath.
 
 ## D. Physics
 
