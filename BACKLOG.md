@@ -314,7 +314,11 @@ what is left · `[?]` needs a decision from you.
 - [ ] I12. Improve the freecam model
 - [ ] I13. Freecam that does not pause the game
 - [ ] I14. Keybinds — "wtf is f"
-- [ ] I15. Touchscreen controls do not go away when returning to keyboard
+- [x] I15. Touchscreen controls do not go away when returning to keyboard
+      watchForTouch only ever called setEnabled(true) — nothing turned them off.
+      On anything with both a finger and a keyboard, one tap pinned the sticks
+      over the game for the session. A game key or a real mouse press now puts
+      them away; a coarse pointer still starts them on, for a phone.
 - [ ] I16. Broken letters on certain devices
 - [ ] I17. Favicon as an elytra
 - [ ] I18. Barrel roll as in the MC mod, not a keybind

@@ -1460,6 +1460,42 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nTouch controls follow how you are actually playing');
+{
+  const source = readFileSync(new URL('../src/ui/touch.js', import.meta.url), 'utf8');
+  const watch = /watchForTouch\(\) \{[\s\S]*?\n  \}/.exec(source)?.[0] ?? '';
+
+  // It only ever turned them on. On anything with both a finger and a keyboard
+  // — a Chromebook, a touchscreen laptop, a tablet with a keyboard — one stray
+  // tap pinned the sticks over the game for the session with no way back.
+  ok('a finger brings them up', /setEnabled\(true\)/.test(watch));
+  ok('and a key or a mouse puts them away', /setEnabled\(false\)/.test(watch));
+  ok('a coarse pointer still starts them on, for a phone',
+    /pointer: coarse[\s\S]{0,80}setEnabled\(true\)/.test(watch));
+
+  // Pointer movement is not a signal: touch devices synthesise mouse moves, and
+  // the controls would vanish from under the finger using them.
+  ok('movement alone does not put them away', !/pointermove/.test(watch));
+  ok('only a real mouse press does', /pointerType !== 'mouse'/.test(watch));
+
+  // Reproduce the rule on the keys it will actually see, so "a key" cannot
+  // quietly come to mean "any key at all".
+  const wouldHide = (key, mods = {}) => {
+    if (mods.metaKey || mods.ctrlKey || mods.altKey) return false;
+    if (key.length > 1 && !/^Arrow|^Shift$|^Control$/.test(key)) return false;
+    return true;
+  };
+  ok('W puts them away', wouldHide('w'));
+  ok('so does an arrow key', wouldHide('ArrowUp'));
+  ok('and shift', wouldHide('Shift'));
+  // A tablet's own on-screen keyboard sends these while you type a place name
+  // into the map, and that is not a reason to take the controls away.
+  ok('Enter does not', !wouldHide('Enter'));
+  ok('nor Backspace', !wouldHide('Backspace'));
+  ok('nor a browser shortcut', !wouldHide('r', { ctrlKey: true }));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nCloth is woven at the size of cloth');
 {
   const THREE = await import('../vendor/three/three.module.js');

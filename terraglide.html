@@ -99485,13 +99485,44 @@ class TouchControls {
     }
   }
 
-  /** Turn the controls on the first time a finger touches the screen. */
+  /**
+   * Follow whichever way the player is actually playing.
+   *
+   * A finger brings the controls up; a key or a mouse click puts them away
+   * again. It only ever did the first half, so on anything with both — a
+   * Chromebook, a touchscreen laptop, a tablet with a keyboard — one stray tap
+   * pinned the sticks and buttons over the game for the rest of the session
+   * with no way back. That is "the touchscreen controls do not go away when I
+   * return to the keyboard".
+   *
+   * A coarse pointer still turns them on at startup, which is what a phone
+   * wants; a phone has no keyboard to turn them off with.
+   *
+   * Only a real mouse press and a real key count. Pointer *movement* is not a
+   * signal — plenty of touch devices synthesise mouse moves, and the controls
+   * would vanish under the finger using them.
+   */
   watchForTouch() {
     const enable = (event) => {
       if (event.pointerType === 'touch' || event.type === 'touchstart') this.setEnabled(true);
     };
     window.addEventListener('pointerdown', enable, { passive: true });
     window.addEventListener('touchstart', enable, { passive: true });
+
+    const disable = (event) => {
+      // A key the game uses, not any key at all: a tablet's on-screen keyboard
+      // sends Enter and Backspace while you type into the map's search box.
+      if (event.type === 'keydown') {
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
+        if (event.key.length > 1 && !/^Arrow|^Shift$|^Control$/.test(event.key)) return;
+      } else if (event.pointerType !== 'mouse') {
+        return;
+      }
+      this.setEnabled(false);
+    };
+    window.addEventListener('keydown', disable, { passive: true });
+    window.addEventListener('pointerdown', disable, { passive: true });
+
     if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) this.setEnabled(true);
   }
 
