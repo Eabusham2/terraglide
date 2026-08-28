@@ -360,6 +360,45 @@ input[type='checkbox'] {
   padding-top: 7px;
 }
 
+/*
+ * Waypoint labels, pinned to the foot of each beam.
+ *
+ * Never clickable and never in the way: the beam is the thing you steer by and
+ * the label only says what it is.
+ */
+.hud-beacons {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.beacon-label {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  margin-top: -8px;
+  padding: 3px 7px;
+  border-radius: 3px;
+  border-left: 2px solid var(--beacon, #c8b98f);
+  background: rgba(12, 14, 18, 0.72);
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: left;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.beacon-label b {
+  display: block;
+  font-weight: 600;
+  color: var(--beacon, #c8b98f);
+}
+
+.beacon-label span {
+  display: block;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
 /* The exact bearing, sitting under the needle where an instrument puts it. */
 .compass-heading {
   position: absolute;

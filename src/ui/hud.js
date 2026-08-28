@@ -56,6 +56,8 @@ export class HUD {
 
       <div class="hud-crosshair" data-id="crosshair"><i></i></div>
 
+      <div class="hud-beacons" data-id="beacons"></div>
+
       <div class="hud-rail">
         <div class="cheat-flag" data-id="cheat-flag" hidden>
           <label>Modified</label>
@@ -311,6 +313,49 @@ export class HUD {
       this.refs.debug.textContent = state.debug;
     } else {
       this.refs.debug.hidden = true;
+    }
+  }
+
+  /**
+   * Name and distance beside every beacon on screen.
+   *
+   * The elements are reused between frames and only their text and position
+   * change: rebuilding the markup every frame at sixty hertz is how a handful
+   * of waypoints turns into a stutter, and the label would flicker as the
+   * browser reparsed it.
+   *
+   * @param {Array<{id:number,name:string,colour:string,metres:number,x:number,y:number}>} list
+   * @param {string} units
+   */
+  setBeacons(list, units) {
+    const host = this.refs.beacons;
+    if (!host) return;
+    this._beaconNodes ??= new Map();
+    const live = new Set();
+    for (const beacon of list) {
+      live.add(beacon.id);
+      let node = this._beaconNodes.get(beacon.id);
+      if (!node) {
+        node = document.createElement('div');
+        node.className = 'beacon-label';
+        node.innerHTML = '<b></b><span></span>';
+        host.appendChild(node);
+        this._beaconNodes.set(beacon.id, node);
+      }
+      node.style.left = `${(beacon.x * 100).toFixed(2)}%`;
+      node.style.top = `${(beacon.y * 100).toFixed(2)}%`;
+      node.style.setProperty('--beacon', beacon.colour);
+      const name = node.firstChild;
+      if (name.textContent !== beacon.name) name.textContent = beacon.name;
+      const away = formatDistance(beacon.metres, units);
+      const distance = node.lastChild;
+      if (distance.textContent !== away) distance.textContent = away;
+      node.hidden = false;
+    }
+    for (const [id, node] of this._beaconNodes) {
+      if (live.has(id)) continue;
+      node.remove();
+      this._beaconNodes.delete(id);
     }
   }
 

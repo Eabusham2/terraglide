@@ -237,8 +237,15 @@ what is left · `[?]` needs a decision from you.
       are two questions: `paused` stops the clock, `takingKeys` stops the
       keyboard. The map now does only the second.
 - [ ] F12. Waypoint dragger in the map
-- [ ] F13. Waypoints appear on the map
-- [ ] F14. Waypoint and distance as a box of text plus a coloured beam beacon
+- [x] F13. Waypoints appear on the map
+      Already so on both maps — minimap behind the minimapShowWaypoints setting,
+      world map always.
+- [x] F14. Waypoint and distance as a box of text plus a coloured beam beacon
+      Built: a coloured beam standing on the ground under every waypoint, bright at
+      the foot and fading with height, additive and depth-write off so it never
+      punches a hole in the ground. Widened with distance so it does not vanish
+      inside a pixel from ten kilometres. Beside each one, a box with the name and
+      the distance in the colour of its beam.
 - [x] F15. Circular, square or squircle option for the minimap
       Four: rounded (as it was), circle, squircle, square. One border-radius each
       — the canvas is square and overflow:hidden on the frame is what cuts it, so

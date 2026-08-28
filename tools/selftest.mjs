@@ -1460,6 +1460,84 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nA waypoint you can see from the air');
+{
+  const THREE = await import('../vendor/three/three.module.js');
+  const { Beacons, BEACON_REACH_M } = await import('../src/world/beacons.js');
+  const { LocalFrame } = await import('../src/geo/frame.js');
+
+  const frame = new LocalFrame(46.56, 7.91);
+  const store = { waypoints: [] };
+  const scene = new THREE.Scene();
+  const beacons = new Beacons({
+    scene, store, frame, terrain: { heightAt: () => 1200 },
+  });
+  const camera = new THREE.PerspectiveCamera(78, 1.6, 0.15, 260000);
+  const look = (x, y, z) => {
+    camera.position.set(x, y, z);
+    camera.rotation.set(0, 0, 0, 'YXZ');
+    camera.updateMatrixWorld(true);
+    camera.updateProjectionMatrix();
+    beacons.update(camera, { lat: 46.56, lon: 7.91 });
+  };
+
+  // A waypoint was a square on two maps: it says where a place is while you are
+  // looking at a map, and nothing at all while you are looking at the world.
+  look(0, 1400, 0);
+  ok('no waypoints, no beams', beacons.beams.size === 0 && beacons.labels.length === 0);
+
+  // North of the anchor, so it is in front of a camera looking down -Z. South
+  // of it and the beam is behind you, correctly unlabelled and a useless test.
+  store.waypoints.push({ id: 1, name: 'Camp', lat: 46.5695, lon: 7.91, colour: '#a9c88f' });
+  look(0, 1400, 0);
+  ok('one waypoint stands one beam up', beacons.beams.size === 1);
+
+  const beam = [...beacons.beams.values()][0];
+  // On the ground, not at the height it was dropped from.
+  ok(`the beam stands on the ground  (foot at ${(beam.mesh.position.y - beam.mesh.scale.y / 2).toFixed(0)} m)`,
+    Math.abs(beam.mesh.position.y - beam.mesh.scale.y / 2 - 1200) < 1);
+  ok('and it is a tall thin column', beam.mesh.scale.y > 1000 && beam.mesh.scale.x < beam.mesh.scale.y / 50);
+  // Never writes depth, or it punches a hole in the ground behind it.
+  ok('it does not write into the depth buffer', beam.material.depthWrite === false);
+  ok('and is drawn after the world', beam.mesh.renderOrder > 0);
+
+  // Wider with distance, or it lands inside a pixel and disappears.
+  look(0, 1400, 0);
+  const near = beam.mesh.scale.x;
+  look(0, 1400, 40000);
+  const far = beam.mesh.scale.x;
+  ok(`it widens with distance  (${near.toFixed(1)} m near, ${far.toFixed(0)} m far)`, far > near * 5);
+
+  // A deleted waypoint takes its beam with it.
+  store.waypoints.length = 0;
+  look(0, 1400, 0);
+  ok('deleting the waypoint removes the beam', beacons.beams.size === 0);
+
+  // Out of reach entirely.
+  store.waypoints.push({ id: 2, name: 'Far', lat: 46.56, lon: 7.91, colour: '#8fb3c8' });
+  look(0, 1400, BEACON_REACH_M + 5000);
+  ok('and nothing is built past the reach', beacons.beams.size === 0);
+
+  // The label carries what the ask asked for: a name and a distance.
+  store.waypoints[0].lat = 46.5695;
+  look(0, 1400, 0);
+  ok('the label says the name', beacons.labels[0]?.name === 'Far');
+  ok('and how far away it is', Number.isFinite(beacons.labels[0]?.metres));
+  ok('and carries the colour of its beam', beacons.labels[0]?.colour === '#8fb3c8');
+  ok('placed where the beam stands',
+    beacons.labels[0]?.x > 0 && beacons.labels[0]?.x < 1);
+
+  const hud = readFileSync(new URL('../src/ui/hud.js', import.meta.url), 'utf8');
+  ok('the HUD draws them', /setBeacons\(list, units\)/.test(hud));
+  // Reused between frames: rebuilding the markup sixty times a second is how a
+  // handful of waypoints becomes a stutter and a flickering label.
+  ok('and reuses its elements', /_beaconNodes/.test(hud));
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  ok('and a rebase moves the beams with the world',
+    (game.match(/beacons\.rebase\(\)/g) ?? []).length >= 2);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nGreen with holes in it is a wood; green that runs on is a field');
 {
   const { measureCanopy, CANOPY_FROM_ZOOM } = await import('../src/tiles/canopy.js');

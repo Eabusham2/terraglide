@@ -34,6 +34,7 @@ import { Panorama } from './world/panorama.js';
 import { pickRandomDestination } from './world/rtp.js';
 import { createSharedUniforms } from './world/shaders.js';
 import { EdgeWall } from './world/edgeWall.js';
+import { Beacons } from './world/beacons.js';
 import { SeaFloor } from './world/seaFloor.js';
 import { Woodland } from './world/woodland.js';
 import { Sky } from './world/sky.js';
@@ -186,6 +187,14 @@ export class Game {
     this.sky = new Sky(this.scene, this.shared);
     this.edgeWall = new EdgeWall(this.scene, this.shared);
     this.seaFloor = new SeaFloor(this.scene, this.shared);
+    // A beam of light on every waypoint, so a saved place is findable from the
+    // air rather than only on a map. See world/beacons.js.
+    this.beacons = new Beacons({
+      scene: this.scene,
+      store: waypoints,
+      terrain: this.terrain,
+      frame: this.frame,
+    });
     this.weather = new Weather(this.scene, this.shared);
     /** Real photogrammetry, loaded on demand — see loadWorld3D(). */
     this.tiles3d = null;
@@ -440,6 +449,7 @@ export class Game {
         this.streamer.clear();
         this.terrain.rebase();
         this.buildings.rebase();
+        this.beacons.rebase();
         this.panorama.clear();
       } catch (err) {
         console.error('rebuild after context restore failed', err);
@@ -922,6 +932,8 @@ export class Game {
     // guess that would either float in front of the last tiles or leave a gap.
     this.edgeWall.update(this.camera, this.terrain.edgeProfile);
     this.seaFloor.update(this.camera, this.terrain.farDistance);
+    this.beacons.update(this.camera, player);
+    this.hud.setBeacons(this.beacons.labels, settings.get('units'));
     // Which of that disc is actually sea. A few rows a frame, off the same
     // elevation field the ground is built from.
     this.seaFloor.updateMask(this.terrain, this.camera, this.terrain.farDistance);
@@ -1335,6 +1347,8 @@ export class Game {
     this.player.position.set(0, y, 0);
     this.terrain.rebase();
     this.buildings.rebase();
+    // The beams stand at world coordinates, and a rebase moves where those are.
+    this.beacons.rebase();
     this.panorama.rebase();
     this.camera.position.set(0, y + this.player.eyeHeight, 0);
     if (this.rig.isFreecam) this.rig.freecam.position.set(0, y + 40, 0);
