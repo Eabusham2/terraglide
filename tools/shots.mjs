@@ -1,0 +1,251 @@
+#!/usr/bin/env node
+/**
+ * Look at the running game, headlessly, and take pictures of it.
+ *
+ * This existed three times as a scratch file and was lost to a container reset
+ * three times, and each time the answer to "did you actually look at it?" got
+ * worse. So it lives in the repo now.
+ *
+ * It serves the working tree over HTTP, launches the Chromium that Playwright
+ * already ships, and — because the sandbox this runs in has no route out from
+ * the browser, only from Node — proxies every outbound tile request back
+ * through the same server. On a normal machine the proxy is harmless: the
+ * requests go out either way.
+ *
+ * Software rendering means one or two frames a second. That is fine for
+ * screenshots and useless for judging smoothness, so do not judge smoothness
+ * with it.
+ *
+ *   npm i -D playwright                 (once, if it is not already there)
+ *   node tools/shots.mjs                          a few standard views
+ *   node tools/shots.mjs --lat 46.56 --lon 7.91   somewhere specific
+ *   node tools/shots.mjs --out /tmp/shots         where to write them
+ *
+ * Every shot is also measured, because "it looks fine" is what got this wrong
+ * before: each one reports the share of the frame that is sky enclosed by
+ * ground (a hole), and how much fine detail the lower half carries (a flat
+ * frame means the ground has gone to one colour).
+ */
+
+import http from 'node:http';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { extname, join, normalize, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+const PORT = 8080;
+
+const args = process.argv.slice(2);
+const flag = (name, fallback) => {
+  const i = args.indexOf(`--${name}`);
+  return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
+};
+const OUT = resolve(flag('out', join(ROOT, 'shots')));
+const LAT = Number(flag('lat', 46.5623));
+const LON = Number(flag('lon', 7.9126));
+/** Seconds to let the ground arrive before believing what is on screen. */
+const SETTLE_S = Number(flag('settle', 55));
+
+const TYPES = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.mjs': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.glb': 'model/gltf-binary',
+  '.wasm': 'application/wasm',
+};
+
+function serve() {
+  return http.createServer(async (req, res) => {
+    const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
+    // The browser has no way out of the sandbox; Node does. Everything the page
+    // asks for that is not ours comes back through here.
+    if (url.pathname === '/__fetch') {
+      try {
+        const upstream = await fetch(url.searchParams.get('u'), {
+          headers: { 'user-agent': 'terraglide-shots' },
+        });
+        res.writeHead(upstream.status, {
+          'content-type': upstream.headers.get('content-type') ?? 'application/octet-stream',
+          'access-control-allow-origin': '*',
+        });
+        res.end(Buffer.from(await upstream.arrayBuffer()));
+      } catch (err) {
+        res.writeHead(502);
+        res.end(String(err));
+      }
+      return;
+    }
+    const path = join(ROOT, normalize(url.pathname).replace(/^(\.\.[/\\])+/, ''));
+    try {
+      const body = await readFile(path.endsWith('/') ? join(path, 'index.html') : path);
+      res.writeHead(200, { 'content-type': TYPES[extname(path)] ?? 'application/octet-stream' });
+      res.end(body);
+    } catch {
+      res.writeHead(404);
+      res.end('not here');
+    }
+  });
+}
+
+/** Playwright's own Chromium, wherever this environment put it. */
+async function chromiumPath() {
+  const { readdir } = await import('node:fs/promises');
+  const base = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
+  try {
+    for (const entry of await readdir(base)) {
+      if (!entry.startsWith('chromium-')) continue;
+      return join(base, entry, 'chrome-linux', 'chrome');
+    }
+  } catch {
+    /* fall through to Playwright's own lookup */
+  }
+  return undefined;
+}
+
+/**
+ * Two numbers per frame, because looking is not measuring.
+ *
+ * `holes` is sky with ground *above* it in the same column — sky the terrain
+ * should have covered. The horizon never satisfies that, which is the point:
+ * an earlier version of this counted every frame with a nose-up pitch as full
+ * of holes. Run the interface hidden, or the dark HUD panels read as ground and
+ * the whole sky beneath them reads as a hole.
+ *
+ * `detail` is the mean brightness step between neighbouring pixels across the
+ * lower half. Near zero means the ground has gone to a single flat colour.
+ */
+function measure(png) {
+  const { width, height, data } = png;
+  const sky = (i) => {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    return b > 110 && b > r + 18 && g > r;
+  };
+  let holes = 0;
+  let counted = 0;
+  for (let x = 0; x < width; x += 2) {
+    let ground = false;
+    for (let y = 0; y < height; y++) {
+      const i = (y * width + x) * 4;
+      counted++;
+      if (!sky(i)) ground = true;
+      else if (ground) holes++;
+    }
+  }
+  let steps = 0;
+  let sum = 0;
+  for (let y = Math.floor(height * 0.5); y < height; y += 2) {
+    for (let x = 4; x < width; x += 4) {
+      const a = (y * width + x) * 4;
+      const b = (y * width + x - 4) * 4;
+      sum += Math.abs(
+        (data[a] * 299 + data[a + 1] * 587 + data[a + 2] * 114) / 1000
+          - (data[b] * 299 + data[b + 1] * 587 + data[b + 2] * 114) / 1000,
+      );
+      steps++;
+    }
+  }
+  return { holes: holes / counted, detail: steps ? sum / steps : 0 };
+}
+
+const server = serve();
+await new Promise((done) => server.listen(PORT, '127.0.0.1', done));
+await mkdir(OUT, { recursive: true });
+
+const { chromium } = await import('playwright');
+const browser = await chromium.launch({
+  executablePath: await chromiumPath(),
+  args: [
+    '--use-gl=angle',
+    '--use-angle=swiftshader',
+    '--enable-unsafe-swiftshader',
+    '--no-sandbox',
+    '--disable-dev-shm-usage',
+  ],
+});
+const page = await browser.newPage({ viewport: { width: 960, height: 600 } });
+const problems = [];
+page.on('pageerror', (err) => problems.push(err.message));
+await page.route('**/*', async (route) => {
+  const url = route.request().url();
+  if (url.startsWith(`http://127.0.0.1:${PORT}`)) return route.continue();
+  try {
+    const relayed = await fetch(`http://127.0.0.1:${PORT}/__fetch?u=${encodeURIComponent(url)}`);
+    return route.fulfill({
+      status: relayed.status,
+      body: Buffer.from(await relayed.arrayBuffer()),
+      headers: {
+        'content-type': relayed.headers.get('content-type') ?? 'application/octet-stream',
+        'access-control-allow-origin': '*',
+      },
+    });
+  } catch {
+    return route.abort();
+  }
+});
+
+await page.goto(`http://127.0.0.1:${PORT}/index.html`, { waitUntil: 'domcontentloaded' });
+await page.waitForFunction(() => !!window.terraglide, null, { timeout: 90000 });
+// The boot does a random teleport of its own; ours has to come after it or it
+// is silently overridden and every shot is of somewhere else.
+await page.waitForTimeout(18000);
+await page.evaluate(() => window.terraglide.help.close());
+await page.evaluate(([lat, lon]) => window.terraglide.teleportTo(lat, lon, { reason: 'shots' }), [LAT, LON]);
+await page.waitForTimeout(SETTLE_S * 1000);
+
+const views = [
+  ['ground-level', () => { const p = window.terraglide.player; p.pitch = 0; }],
+  ['ground-down', () => { const p = window.terraglide.player; p.pitch = -1.4; }],
+  ['third-person', () => { window.terraglide.player.pitch = -0.2; window.terraglide.rig.cycle?.(); }],
+  ['glide', () => {
+    const p = window.terraglide.player;
+    p.position.y = p.groundHeight + 700;
+    p.velocity.set(0, 0, -45);
+    p.onGround = false;
+    p.pitch = -0.25;
+    p.toggleElytra(true);
+  }],
+];
+
+console.log(`${'view'.padEnd(14)} ${'holes'.padStart(7)} ${'detail'.padStart(7)}   state`);
+for (const [name, pose] of views) {
+  await page.evaluate(pose);
+  await page.waitForTimeout(9000);
+  await page.evaluate(() => { document.getElementById('ui').style.visibility = 'hidden'; });
+  const shot = await page.screenshot();
+  await page.evaluate(() => { document.getElementById('ui').style.visibility = ''; });
+  await writeFile(join(OUT, `${name}.png`), shot);
+  const withHud = await page.screenshot();
+  await writeFile(join(OUT, `${name}-hud.png`), withHud);
+
+  const png = await page.evaluate(async (b64) => {
+    const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+    const canvas = new OffscreenCanvas(img.width, img.height);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, img.width, img.height);
+    return { width: d.width, height: d.height, data: Array.from(d.data) };
+  }, shot.toString('base64'));
+
+  const { holes, detail } = measure(png);
+  const state = await page.evaluate(() => {
+    const g = window.terraglide;
+    const p = g.player;
+    return `z${g.terrain.stats.maxZoom} ${g.terrain.stats.drawn} tiles, ${Math.round(p.position.y - p.groundHeight)} m up, ${p.mode}`;
+  });
+  const note = holes > 0.01 ? '  HOLES' : detail < 1.2 ? '  FLAT' : '';
+  console.log(`${name.padEnd(14)} ${(holes * 100).toFixed(2).padStart(6)}% ${detail.toFixed(2).padStart(7)}   ${state}${note}`);
+}
+
+if (problems.length > 0) {
+  console.log('\npage errors:');
+  for (const message of problems.slice(0, 8)) console.log(' ', message);
+}
+console.log(`\nwrote ${views.length * 2} images to ${OUT}`);
+await browser.close();
+server.close();

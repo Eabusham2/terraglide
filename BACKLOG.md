@@ -224,7 +224,11 @@ what is left · `[?]` needs a decision from you.
 - [ ] F8. Map does not show only what I saw, and changes size with zoom
 - [ ] F9. Remove grids from places like the example map
 - [ ] F10. Improve the starting map zoom
-- [ ] F11. Opening the map should not stop the game
+- [x] F11. Opening the map should not stop the game
+      The map was in the pause list because stopping the world was the only way
+      to stop W flying you into a mountain while you typed a place name. Those
+      are two questions: `paused` stops the clock, `takingKeys` stops the
+      keyboard. The map now does only the second.
 - [ ] F12. Waypoint dragger in the map
 - [ ] F13. Waypoints appear on the map
 - [ ] F14. Waypoint and distance as a box of text plus a coloured beam beacon

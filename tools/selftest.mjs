@@ -1460,6 +1460,33 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe map is something you read, not somewhere you go');
+{
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  const paused = /get paused\(\) \{[\s\S]*?\n  \}/.exec(game)?.[0] ?? '';
+  const keys = /get takingKeys\(\) \{[\s\S]*?\n  \}/.exec(game)?.[0] ?? '';
+
+  // Opening the map stopped the world, because stopping the world was the only
+  // way to stop W flying you into a mountain while you typed a place name.
+  // Those are two different questions.
+  ok('the map no longer stops the clock', !/worldmap\.open/.test(paused));
+  ok('but it still takes the keyboard', /worldmap\.open/.test(keys));
+  // A menu is still a menu.
+  ok('a menu stops both', /settingsPanel\.open/.test(paused) && /cheatPanel\.open/.test(paused));
+  ok('and the pause key on its own still works', /pausedByKey/.test(paused));
+  // The freecam was never on the list and must not join it.
+  // Read the returned expression, not the block: the comment above it says the
+  // word "freecam" precisely to explain why the freecam is not in the list.
+  const pausedExpression = /return Boolean\(([\s\S]*?)\);/.exec(paused)?.[1] ?? '';
+  ok('the freecam does not stop the world', !/freecam/i.test(pausedExpression));
+  ok('and neither does the map', !/worldmap/.test(pausedExpression));
+  ok('and input suspension reads the new question',
+    /this\.input\.setSuspended\(takingKeys\)/.test(game));
+  // The clock is the thing `paused` gates, and only that.
+  ok('the clock is what paused gates', /this\.update\(this\.paused \? 0 :/.test(game));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe player stands on the ground and the feet are attached');
 {
   const THREE = await import('../vendor/three/three.module.js');
@@ -2237,8 +2264,11 @@ console.log('\nSpeed mode, fireworks and the pause key');
 
   // Escape is the pause key, and a menu is what pausing looks like.
   const gameSource = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  // A menu counts as paused. The world map used to be on this list and is not
+  // any more — see "The map is something you read"; it takes the keyboard and
+  // leaves the clock running.
   ok('any modal panel counts as paused',
-    /get paused\(\)[\s\S]{0,600}settingsPanel\.open[\s\S]{0,120}worldmap\.open/.test(gameSource));
+    /get paused\(\)[\s\S]{0,900}settingsPanel\.open[\s\S]{0,200}cheatPanel\.open/.test(gameSource));
   ok('and so does the pause key on its own, with no panel over the view',
     /pausedByKey/.test(gameSource) && /pause: 'Key/.test(readFileSync(new URL('../src/core/keybinds.js', import.meta.url), 'utf8')));
   ok('and a paused frame advances the clock by nothing',

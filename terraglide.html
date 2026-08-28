@@ -100518,21 +100518,37 @@ class Game {
     // no way to freeze the game and look at it without a panel over half the
     // screen. The freecam is deliberately not on this list: looking around a
     // stopped world is exactly what it is for.
+    //
+    // Neither is the world map, any more. It was, and "opening the map should
+    // not stop the game" is fair: a map is something you read while the world
+    // carries on, not a menu you retreat into. See takingKeys for the half of
+    // this that still has to happen.
     return Boolean(
       this.pausedByKey ||
         this.settingsPanel.open ||
-        this.worldmap.open ||
         this.help.open ||
         this.cheatPanel.open,
     );
   }
 
+  /**
+   * Something on screen wants the keyboard, so the player must not have it.
+   *
+   * This used to be the same question as `paused`, which is why the map had to
+   * stop the world to stop W from flying you into a mountain while you typed a
+   * place name. They are two different things: the map takes your keys and
+   * leaves the clock running; a menu takes both.
+   */
+  get takingKeys() {
+    return Boolean(this.paused || this.worldmap.open);
+  }
+
   update(dt) {
     const player = this.player;
-    const panelOpen = this.paused;
-    if (panelOpen !== this.uiSuspended) {
-      this.uiSuspended = panelOpen;
-      this.input.setSuspended(panelOpen);
+    const takingKeys = this.takingKeys;
+    if (takingKeys !== this.uiSuspended) {
+      this.uiSuspended = takingKeys;
+      this.input.setSuspended(takingKeys);
     }
     this.canvas.classList.toggle('pan', settings.get('mouseMode') === 'pan');
 
