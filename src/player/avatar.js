@@ -21,9 +21,28 @@ import { ROCKET_COLOURS } from './player.js';
 
 const SKIN = 0xb9906f;
 const JACKET = 0x53627a;
-const TROUSERS = 0x3a4149;
+/**
+ * The sleeves, a shade off the chest.
+ *
+ * An arm hangs flush against the side of the chest — that is where an arm is,
+ * and moving it out to make a gap detaches the shoulder. So what separates
+ * them has to be tone rather than daylight, which is also what separates them
+ * on a real jacket: a sleeve is a different panel of cloth, cut on a different
+ * grain, and it never quite matches the front. Without this the standing
+ * figure is one slab of jacket from shoulder to hip with no arms in it at all.
+ */
+const SLEEVE = 0x46556c;
+// Lightened from 0x3a4149. Measured against the rest of the body under the
+// game's own lights, the trousers came back at 87 while the wings above them
+// read 130 — and a gliding figure is mostly trailing legs, so the character
+// read as a dark slab hung under two pale sails. Cloth this dark is a colour a
+// person would wear; it is not a colour a character can be lit in.
+const TROUSERS = 0x4d5665;
 const BOOTS = 0x23262b;
-const WING = 0x8d9a86;
+// Darker than it was: from above, the top of a wing is the one surface facing
+// both the sun and the camera, and at 0x8d9a86 it came back at 142 against a
+// body at 87 — a pale board with a dark blob under it. See tools/model.mjs.
+const WING = 0x79866f;
 const WING_EDGE = 0x5f6a5b;
 const ROCKET = 0xc9a97c;
 
@@ -268,6 +287,15 @@ export class Avatar {
     body.add(this.torso);
     this.cloth.jacket.push(this.torso.material);
 
+    // A neck. The chest tops out at 0.81 and the jaw starts at 0.832, so
+    // without one there are twenty-two thousandths of a height — four
+    // centimetres on a person — of open sky between the head and the
+    // shoulders, and the head reads as floating above the body rather than
+    // sitting on it.
+    this.neck = new THREE.Mesh(new THREE.BoxGeometry(0.058, 0.045, 0.058), mat(SKIN));
+    this.neck.position.y = 0.822;
+    body.add(this.neck);
+
     this.head = new THREE.Mesh(new THREE.BoxGeometry(0.125, 0.135, 0.135), mat(SKIN));
     this.head.position.y = 0.9;
     body.add(this.head);
@@ -276,9 +304,30 @@ export class Avatar {
     // and scaled by the player's height — a hair that stopped at 0.9775 made
     // everyone 2 cm shorter than the number they had set, and put the eye
     // fractionally higher up the skull than it belongs.
-    this.hair = new THREE.Mesh(new THREE.BoxGeometry(0.132, 0.045, 0.142), mat(0x2f2a26));
+    const hairMat = mat(0x2f2a26);
+    this.hair = new THREE.Mesh(new THREE.BoxGeometry(0.132, 0.045, 0.142), hairMat);
     this.hair.position.y = 1 - 0.045 / 2;
     body.add(this.hair);
+
+    // Hair over the back of the skull as well as the top of it. From the chase
+    // camera you spend most of your time looking at the back of your own head,
+    // and a cap alone leaves that a blank tan box.
+    this.hairBack = new THREE.Mesh(new THREE.BoxGeometry(0.129, 0.105, 0.026), hairMat);
+    this.hairBack.position.set(0, 0.912, 0.0605);
+    body.add(this.hairBack);
+
+    // Eyes. Two blocks and nothing else, but they are the difference between a
+    // head and a tan box: a box has no front, so without them there was no
+    // telling which way the figure faced at any distance at all. The model
+    // faces −Z, so they sit a whisker proud of the front face and are children
+    // of the head, which turns under them when you look about.
+    const eyeGeo = new THREE.BoxGeometry(0.024, 0.017, 0.006);
+    const eyeMat = mat(0x25201c);
+    for (const side of [-1, 1]) {
+      const eye = new THREE.Mesh(eyeGeo, eyeMat);
+      eye.position.set(side * 0.029, 0.013, -0.0665);
+      this.head.add(eye);
+    }
 
     // Arms hang beside the chest, not inside it.
     //
@@ -289,8 +338,20 @@ export class Avatar {
     // with nothing holding it. Biacromial breadth is 0.23 of stature, which
     // puts the joints at 0.115 and the inner face of the arm flush with the
     // side of the chest: the whole arm shows, and the shoulder still joins.
-    this.armL = this.makeLimb(0.055, 0.3, mat(JACKET), -0.115, 0.79);
-    this.armR = this.makeLimb(0.055, 0.3, mat(JACKET), 0.115, 0.79);
+    this.armL = this.makeLimb(0.055, 0.3, mat(SLEEVE), -0.115, 0.79);
+    this.armR = this.makeLimb(0.055, 0.3, mat(SLEEVE), 0.115, 0.79);
+
+    // Hands, because a person has them and because a sleeve ending in mid-air
+    // is where the firework appeared to be held by nothing. The wrist is at
+    // 0.485 of stature and the fingertips at 0.38, which is what these are.
+    const handGeo = new THREE.BoxGeometry(0.052, 0.09, 0.062);
+    const handY = -0.15 - 0.045;
+    this.fistL = new THREE.Mesh(handGeo, mat(SKIN));
+    this.fistL.position.y = handY;
+    this.armL.limb.add(this.fistL);
+    this.fistR = new THREE.Mesh(handGeo, mat(SKIN));
+    this.fistR.position.y = handY;
+    this.armR.limb.add(this.fistR);
     // The legs reach the ground.
     //
     // They were 0.36 long from a hip at 0.51, so they stopped at 0.15 — a
@@ -364,7 +425,9 @@ export class Avatar {
     // The limb mesh is a box of its own length centred on its origin, so the
     // hand is at −length/2. The grip goes there; which way the rocket then
     // points is decided every frame by aimRocket.
-    this.rocket.position.set(0, -this.armR.length / 2 + 0.015, -0.02);
+    // In the fist, not up the sleeve: the grip sits at the centre of the hand
+    // that closes around it, which is where the hand now is.
+    this.rocket.position.set(0, handY, -0.02);
     this.armR.limb.add(this.rocket);
     this.cloth.rocket = [rocketMat];
     this.rocketColour = -1;
@@ -727,6 +790,7 @@ export class Avatar {
     this.firstPerson = firstPerson;
     this.head.visible = !firstPerson;
     this.hair.visible = !firstPerson;
+    this.hairBack.visible = !firstPerson;
     this.applyModelMode();
   }
 
@@ -846,9 +910,19 @@ export class Avatar {
     // of filling it — you should see the world, with your arms at the edges.
     // From outside they go wider still: a glider seen from behind is mostly
     // silhouette, and arms tight to the body turn it into a blob.
+    //
+    // Out, not across. An arm hangs along −Y from its shoulder, so a positive
+    // Z rotation swings it toward +X — which for the *left* arm is over the
+    // chest and out the other side. Both signs were that way round, so a
+    // gliding figure crossed its arms in front of itself: the left hand
+    // finished at x +0.26 and the right at −0.26, mirrored from where they
+    // stand, and the firework held in the right hand appeared on the left of
+    // the body with nothing near it. Which is a thing you can see in a
+    // screenshot and cannot see in a wireframe, and is why the hands are
+    // measured in the self-test now.
     const spread = this.firstPerson ? 0.62 : 0.85;
-    this.armL.pivot.rotation.z = spread * tuck;
-    this.armR.pivot.rotation.z = -spread * tuck;
+    this.armL.pivot.rotation.z = -spread * tuck;
+    this.armR.pivot.rotation.z = spread * tuck;
 
     // Legs together and trailing along the body, with a little bend at the
     // hip. Splayed straight legs read as two blocks end-on from behind, which
@@ -878,6 +952,7 @@ export class Avatar {
     // The head keeps looking where you look, whatever the shoulders are doing.
     this.head.rotation.y = -neck;
     this.hair.rotation.y = -neck;
+    this.hairBack.rotation.y = -neck;
     if (!this.firstPerson) {
       this.head.rotation.x = damp(
         this.head.rotation.x,

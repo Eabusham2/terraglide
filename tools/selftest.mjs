@@ -744,6 +744,28 @@ console.log('\nThe body you can see');
     ok('the chest is a chest rather than a wardrobe',
       torso.max.x - torso.min.x < 0.2, `${(torso.max.x - torso.min.x).toFixed(3)} of height`);
 
+    // Hands on their own sides, standing and gliding alike.
+    //
+    // In a glide both arms were swung across the chest and out the other side,
+    // so the left hand finished on the right and the right on the left — and
+    // the firework, which is held in the right hand, appeared on the left of
+    // the body with nothing holding it. Nothing in the model was the wrong
+    // shape, so nothing that measured shapes could have caught it.
+    for (const [what, over] of [
+      ['standing', {}],
+      ['gliding', { elytraDeployed: true, onGround: false, mode: 'glide',
+        pitch: -0.35, horizontalSpeed: 45, velocity: new THREE.Vector3(0, -10, -44) }],
+    ]) {
+      const player = makePlayer(over);
+      settle(player);
+      const l = new THREE.Vector3();
+      const r = new THREE.Vector3();
+      avatar.fistL.getWorldPosition(l);
+      avatar.fistR.getWorldPosition(r);
+      ok(`${what}, the left hand is on the left and the right on the right`
+        + `  (${l.x.toFixed(2)} / ${r.x.toFixed(2)})`, l.x < -0.05 && r.x > 0.05);
+    }
+
     // Every garment carries its own fill, so nothing on the character can go
     // to a black slab when the sun is behind it.
     let darkest = 1;

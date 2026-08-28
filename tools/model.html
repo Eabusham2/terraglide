@@ -1,0 +1,176 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>TerraGlide — the character on its own</title>
+<style>html,body{margin:0;background:#6b7a86;overflow:hidden}canvas{display:block}</style>
+<script type="module">
+import * as THREE from '../vendor/three/three.module.js';
+import { Avatar } from '../src/player/avatar.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
+renderer.setSize(700, 700);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x6b7a86);
+
+// The game's own lights, at the game's own intensities. See world/sky.js.
+const sun = new THREE.DirectionalLight(0xffffff, 2.1);
+sun.position.set(-0.45, 0.78, -0.44).multiplyScalar(100);
+scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xbcd0e4, 0x4a4a44, 1.1));
+
+// A patch of ground, so the figure is standing on something and the hemisphere
+// light has a floor to bounce off the way it does in the world.
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(40, 40),
+  new THREE.MeshLambertMaterial({ color: 0x5b6b4a }),
+);
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+const avatar = new Avatar(scene);
+avatar.setVisible(true);
+avatar.root.scale.setScalar(1.83);
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 200);
+
+/** A stand-in for the player object the avatar reads each frame. */
+function makePlayer(over = {}) {
+  return {
+    position: new THREE.Vector3(),
+    renderPosition: new THREE.Vector3(),
+    velocity: new THREE.Vector3(),
+    height: 1.83, scale: 1, pitch: 0, yaw: 0,
+    mode: 'walk', onGround: true, swimming: false, groundSlope: 0,
+    elytraDeployed: false, horizontalSpeed: 0, selectedSlot: 0,
+    rocketsFired: 0, ...over,
+  };
+}
+
+const POSES = {
+  'glide-behind': {
+    player: { elytraDeployed: true, onGround: false, pitch: -0.2, horizontalSpeed: 44,
+      velocity: new THREE.Vector3(0, -8, -44), mode: 'glide' },
+    camera: [0, 3.4, 3.7], look: [0, 1.3, 0],
+  },
+  'glide-above': {
+    player: { elytraDeployed: true, onGround: false, pitch: -0.5, horizontalSpeed: 46,
+      velocity: new THREE.Vector3(0, -12, -46), mode: 'glide' },
+    camera: [0, 4.6, 2.6], look: [0, 1.2, 0],
+  },
+  // The model faces −Z, so the camera that sees its front stands at −Z. It was
+  // at +Z, which photographed the back of the figure and called it the front —
+  // and since the sun comes from −Z as well, that shot was of the shadowed
+  // side, which made every part of the body read darker than it is.
+  // Broadside to a glide. From behind, the body is end-on and every part of it
+  // hides behind the part in front; this is the view that says what attitude
+  // the figure is actually in.
+  'glide-side': {
+    player: { elytraDeployed: true, onGround: false, pitch: -0.35, horizontalSpeed: 45,
+      velocity: new THREE.Vector3(0, -10, -44), mode: 'glide' },
+    camera: [4.6, 2.0, 0], look: [0, 1.3, 0],
+  },
+  'stand-front': { player: {}, camera: [0, 1.1, -3.6], look: [0, 1.0, 0] },
+  'stand-side': { player: {}, camera: [3.6, 1.1, 0], look: [0, 1.0, 0] },
+  'stand-back': { player: {}, camera: [0, 1.4, 3.6], look: [0, 1.0, 0] },
+};
+
+window.__pose = (name) => {
+  const spec = POSES[name];
+  const player = makePlayer(spec.player);
+  // Settle, so the damped shoulders, glide blend and head are where they end up
+  // rather than one frame into getting there.
+  for (let i = 0; i < 240; i += 1) avatar.update(player, 1 / 60);
+  camera.position.set(...spec.camera);
+  camera.lookAt(...spec.look);
+  renderer.render(scene, camera);
+};
+
+/**
+ * Mean brightness of the pixels belonging to each part.
+ *
+ * Done by rendering the parts one at a time against a key colour rather than
+ * by guessing which pixels are which: everything else is hidden, the part is
+ * drawn, and the pixels that are not the background are the part.
+ */
+window.__measure = () => {
+  const groups = {
+    jacket: [avatar.torso, avatar.armL.limb, avatar.armR.limb],
+    trousers: [avatar.legL.limb, avatar.legR.limb],
+    skin: [avatar.head],
+    wing: [avatar.wingL, avatar.wingR],
+  };
+  // Snapshot every mesh and every group in the model, not just the ones being
+  // asked about: the first version hid the five it knew and left the hair, the
+  // boots and the firework drawn in all four passes, so the "wing" column of a
+  // standing figure — which has no wings — came back as 84.
+  const was = new Map();
+  avatar.root.traverse((o) => was.set(o, o.visible));
+  const wasWings = avatar.wings.visible;
+  // A mesh shows itself and its groups, but not the meshes hanging off it: a
+  // leg has a boot welded under it, and counting the boot in the trouser is
+  // how both came back with the same number.
+  const show = (part) => {
+    part.visible = true;
+    if (!part.isMesh) part.traverse((o) => { o.visible = true; });
+    for (let p = part.parent; p && p !== avatar.root.parent; p = p.parent) p.visible = true;
+  };
+  const out = {};
+  // Against a key no part of a person can be, with the ground taken away, so
+  // the pixels that are not the key are exactly the pixels of the part. The
+  // first attempt keyed on colour with the ground still in frame, and the
+  // green of the grass came back as the green of the wings.
+  ground.visible = false;
+  scene.background = new THREE.Color(0xff00ff);
+  for (const [name, parts] of Object.entries(groups)) {
+    avatar.root.traverse((o) => { o.visible = false; });
+    avatar.root.visible = true;
+    if (name !== 'wing' || wasWings) for (const part of parts) show(part);
+    renderer.render(scene, camera);
+    const gl = renderer.getContext();
+    const w = gl.drawingBufferWidth;
+    const h = gl.drawingBufferHeight;
+    const buf = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+    let sum = 0;
+    let n = 0;
+    let blown = 0;
+    for (let i = 0; i < buf.length; i += 4) {
+      const r = buf[i]; const g = buf[i + 1]; const b = buf[i + 2];
+      if (r > 240 && g < 20 && b > 240) continue;
+      const luma = r * 0.299 + g * 0.587 + b * 0.114;
+      sum += luma;
+      n += 1;
+      if (luma > 200) blown += 1;
+    }
+    out[name] = { mean: n ? sum / n : 0, n, blown: n ? blown / n : 0 };
+  }
+  for (const [o, v] of was) o.visible = v;
+  ground.visible = true;
+  scene.background = new THREE.Color(0x6b7a86);
+  renderer.render(scene, camera);
+  return out;
+};
+
+/** Where every part of the body ends up, in world metres, for a given pose. */
+window.__where = (name) => {
+  window.__pose(name);
+  scene.updateMatrixWorld(true);
+  const at = (o) => {
+    const v = new THREE.Vector3();
+    o.getWorldPosition(v);
+    return [v.x, v.y, v.z].map((n) => Number(n.toFixed(2)));
+  };
+  return {
+    head: at(avatar.head), neck: at(avatar.neck), torso: at(avatar.torso),
+    shoulderL: at(avatar.armL.pivot), handL: at(avatar.fistL),
+    handR: at(avatar.fistR),
+    hipR: at(avatar.legR.pivot), kneeR: at(avatar.legR.limb), bootR: at(avatar.bootR),
+    wingRoot: at(avatar.wings), wingTipR: at(avatar.wingR.children[0]),
+  };
+};
+
+window.__pose('stand-front');
+window.__ready = true;
+</script>
