@@ -1460,6 +1460,66 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nChanging provider does not blank the world');
+{
+  const { ImageryStreamer, STATE_READY } = await import('../src/tiles/streamer.js');
+  const posted = [];
+  const streamer = new ImageryStreamer(
+    { addEventListener() {}, postMessage: (m) => posted.push(m) },
+    null,
+  );
+
+  const source = (id, maxZoom = 19) => ({ descriptor: { id, maxZoom }, maxZoom, urlFor: () => 'x' });
+  streamer.setSource(source('esri'));
+
+  // Two squares already showing Esri's photographs.
+  const disposed = [];
+  for (const key of ['14/1/1', '14/1/2']) {
+    const [z, x, y] = key.split('/').map(Number);
+    streamer.entries.set(key, {
+      key, tile: { z, x, y }, state: STATE_READY,
+      texture: { dispose: () => disposed.push(key) }, used: 0, seen: 0,
+    });
+  }
+  streamer.sharpness.set('14/1/1', 6.2);
+  streamer.barren.add('14/9/9');
+
+  // Pick a different provider. This used to call clear(), which disposes every
+  // texture at once — so the whole world went flat grey and came back a square
+  // at a time. Hundreds of them blinking out and back is the flashing, and the
+  // seconds of blank world while it happened is the hang.
+  streamer.setSource(source('mapbox'));
+  ok('the pictures already on screen stay up', disposed.length === 0);
+  ok('and are still marked ready',
+    [...streamer.entries.values()].every((e) => e.state === STATE_READY));
+  ok('but every one is marked for replacement',
+    [...streamer.entries.values()].every((e) => e.stale === true));
+
+  // What must go is everything that was an opinion about the old provider.
+  ok('its sharpness verdicts are dropped', streamer.sharpness.size === 0);
+  ok('and which squares it refused', streamer.barren.size === 0);
+  ok('and anything still in flight is cancelled',
+    posted.some((m) => m.kind === 'cancel') || streamer.jobs.size === 0);
+
+  // Asking again re-queues each square once, and only once.
+  const entry = streamer.request({ z: 14, x: 1, y: 1 }, 1);
+  ok('a stale square asks again', streamer.queue.includes(entry));
+  ok('and is no longer stale', entry.stale === false);
+  streamer.queue.length = 0;
+  streamer.request({ z: 14, x: 1, y: 1 }, 1);
+  ok('and does not ask twice', streamer.queue.length === 0);
+
+  // Picking the same provider again is not a change and costs nothing.
+  streamer.sharpness.set('14/1/1', 6.2);
+  streamer.setSource(source('mapbox'));
+  ok('choosing the same provider changes nothing', streamer.sharpness.size === 1);
+
+  const source_js = readFileSync(new URL('../src/tiles/streamer.js', import.meta.url), 'utf8');
+  ok('and the old picture is disposed only when its replacement lands',
+    /if \(entry\.texture\) entry\.texture\.dispose\(\);\n    entry\.texture = texture;/.test(source_js));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nComing back puts you where you were, doing what you were doing');
 {
   const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');

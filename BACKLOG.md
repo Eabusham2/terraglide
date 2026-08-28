@@ -67,8 +67,20 @@ what is left · `[?]` needs a decision from you.
       never in `drawn` — and meshHeightAt reads `drawn`, so the game did not
       know where the floor was. Looking down brought the real relief in all at
       once. Ground within 250 m is now built whichever way you face.
-- [ ] A4. Hang when changing providers on terrain
-- [ ] A5. Seizure/flashing when changing provider
+- [x] A4. Hang when changing providers on terrain
+      Cause: setSource() called clear(), disposing every texture at once — so the
+      instant you picked a different provider the whole world went flat grey and
+      came back a square at a time. Hundreds blinking out and back is the
+      flashing; the seconds of blank world while it happened is the hang. The
+      old picture of a place is a good picture of that place until the new one
+      lands, so each square now swaps as its replacement arrives.
+- [x] A5. Seizure/flashing when changing provider
+      Cause: setSource() called clear(), disposing every texture at once — so the
+      instant you picked a different provider the whole world went flat grey and
+      came back a square at a time. Hundreds blinking out and back is the
+      flashing; the seconds of blank world while it happened is the hang. The
+      old picture of a place is a good picture of that place until the new one
+      lands, so each square now swaps as its replacement arrives.
 - [~] A6. Pressing a button within 3 s of RTP reverts to old spots and removes the new discovery
       — the half of this I could reproduce is fixed: a keypress no longer
       abandons the hold onto unmeasured ground. The "reverts to old spots"

@@ -90039,10 +90039,47 @@ class ImageryStreamer extends Emitter {
     this.worker.addEventListener('message', (event) => this.onWorkerMessage(event.data));
   }
 
+  /**
+   * Fly over somebody else's photographs from now on.
+   *
+   * Note what this does *not* do: throw away the pictures already on screen. It
+   * used to call clear(), which disposes every texture at once — so the instant
+   * you picked a different provider the whole world went to flat grey and then
+   * came back a tile at a time as the new ones landed. Hundreds of squares
+   * blinking out and back in over several seconds is the flashing, and the
+   * several seconds of a blank world while it happened is the hang.
+   *
+   * The old picture of a place is a perfectly good picture of that place until
+   * the new one arrives. So everything already loaded stays up and is replaced
+   * as its replacement lands, one square at a time, with no moment where there
+   * is nothing.
+   *
+   * What does have to go is everything *derived* from the old provider, because
+   * it is about to be wrong: which squares it refused, how sharp its pictures
+   * were, and how deep it was worth descending. Those are opinions about a
+   * provider, not pictures of the world.
+   */
   setSource(source) {
+    const changed = this.source?.descriptor?.id !== source?.descriptor?.id;
     this.source = source;
     this.standbys = [];
-    this.clear();
+    if (!changed) return;
+    this.barren.clear();
+    this.sharpness.clear();
+    this.finest.clear();
+    this.canopy.clear();
+    // Anything already in flight was asked of the provider you just left.
+    for (const id of this.jobs.keys()) {
+      this.worker.postMessage({ kind: 'cancel', channel: 'imagery', id });
+    }
+    this.jobs.clear();
+    this.queue.length = 0;
+    // Mark what is on screen as belonging to the old provider, so the terrain
+    // asks for each square again and the new picture replaces the old one as it
+    // arrives rather than all at once.
+    for (const entry of this.entries.values()) {
+      if (entry.state === STATE_READY) entry.stale = true;
+    }
   }
 
   /**
@@ -90234,7 +90271,16 @@ class ImageryStreamer extends Emitter {
       entry.state = STATE_BARE;
       return entry;
     }
-    if (entry.state === 0 || (entry.state === STATE_FAILED && entry.retryAt < performance.now())) {
+    // A square carrying the previous provider's picture asks again, once, and
+    // keeps showing what it has until the answer arrives. See setSource.
+    if (entry.stale) {
+      entry.stale = false;
+      entry.refreshing = true;
+      this.queue.push(entry);
+    } else if (
+      entry.state === 0
+      || (entry.state === STATE_FAILED && entry.retryAt < performance.now())
+    ) {
       this.queue.push(entry);
     }
     return entry;
@@ -90448,8 +90494,13 @@ class ImageryStreamer extends Emitter {
     );
     texture.needsUpdate = true;
 
+    // Swapping a picture for a picture: the old one is disposed here, one
+    // square at a time as its replacement lands, rather than all of them the
+    // moment you chose a different provider.
+    if (entry.texture) entry.texture.dispose();
     entry.texture = texture;
     entry.state = STATE_READY;
+    entry.refreshing = false;
     if (Number.isFinite(msg.sharpness)) this.noteSharpness(entry.tile, msg.sharpness);
     if (Number.isFinite(msg.canopy)) {
       this.canopy.set(tileKey(entry.tile.z, entry.tile.x, entry.tile.y), msg.canopy);
