@@ -85,7 +85,14 @@ what is left · `[?]` needs a decision from you.
       — the half of this I could reproduce is fixed: a keypress no longer
       abandons the hold onto unmeasured ground. The "reverts to old spots"
       part I have not reproduced yet and it stays open.
-- [ ] A7. It randomly refreshes
+- [~] A7. It randomly refreshes
+      Nothing in the game reloads itself — no location.reload anywhere — so this is
+      the browser killing the tab, and the likeliest reason is memory. The
+      texture cache was counted in *tiles*, which is a proxy for memory that is
+      wrong by four when a provider serves 512 px instead of 256: "high" was
+      1.2 GB of texture rather than 300 MB, on top of the meshes. It is a byte
+      budget now, and halved again where the browser reports 4 GB or less.
+      Context loss was already handled (preventDefault plus a rebuild).
 - [x] A8. Why is it forcing to fly — why can't it remember position on relog
       The position was always remembered. What you were *doing* was not, so the
       spawn had nothing to go on and took "arrive in the sky" at its word every

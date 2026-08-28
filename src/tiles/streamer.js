@@ -625,8 +625,34 @@ export class ImageryStreamer extends Emitter {
    * them for a few seconds costs nothing but the cache slot and means staying
    * within range of somewhere keeps it loaded, which is the point.
    */
+  /**
+   * How many tiles the cache may hold, given how big this provider's are.
+   *
+   * The preset's number is a count, and a count is a proxy for memory that is
+   * wrong by four whenever a provider serves 512-pixel tiles instead of 256 —
+   * which several do. At 512, "high" is 900 tiles of about 1.2 GB of texture,
+   * on top of the terrain meshes, and a Chromebook answers that by killing the
+   * tab. Which is what "it randomly refreshes" looks like from the inside.
+   *
+   * So the preset's figure is read as what it always meant — that many
+   * *256-pixel* tiles — and converted to a count for whatever size is actually
+   * arriving. The budget in bytes is then the same whoever you fly over.
+   *
+   * And halved again on a machine that says it has little memory. `deviceMemory`
+   * is capped at 8 by the specification and missing on Safari, so a browser that
+   * does not answer is given the benefit of the doubt rather than the floor.
+   */
+  textureLimit() {
+    const nominal = settings.preset().textureCacheSize;
+    const size = this.tileSizeHint || 256;
+    const scaled = nominal * (256 / size) ** 2;
+    const memoryGB = Number(globalThis.navigator?.deviceMemory ?? 0);
+    const share = memoryGB > 0 && memoryGB <= 4 ? 0.5 : 1;
+    return Math.max(64, Math.round(scaled * share));
+  }
+
   evict() {
-    const limit = settings.preset().textureCacheSize;
+    const limit = this.textureLimit();
     const moment = now();
     // Coarse tiles are cover for everything under them, and they were being
     // thrown away like any other.

@@ -1463,6 +1463,49 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe texture cache is a size, not a tally');
+{
+  const { ImageryStreamer } = await import('../src/tiles/streamer.js');
+  const { settings } = await import('../src/core/settings.js');
+  const before = settings.get('graphics');
+  settings.set('graphics', 'high');
+  const streamer = new ImageryStreamer({ addEventListener() {}, postMessage() {} }, null);
+
+  // The preset's number is a count of tiles, and a count is a proxy for memory
+  // that is wrong by four whenever a provider serves 512-pixel tiles instead of
+  // 256 — which several do. At 512 that is about 1.2 GB of texture for "high",
+  // on top of the meshes, and a Chromebook answers that by killing the tab.
+  const megabytes = (tiles, px) => (tiles * px * px * 4 * (4 / 3)) / 1048576;
+
+  streamer.tileSizeHint = 256;
+  const small = streamer.textureLimit();
+  streamer.tileSizeHint = 512;
+  const large = streamer.textureLimit();
+  ok(`bigger tiles mean fewer of them  (${small} at 256 px, ${large} at 512)`, large < small);
+  ok(`and the same memory either way  (${megabytes(small, 256).toFixed(0)} vs ${megabytes(large, 512).toFixed(0)} MB)`,
+    Math.abs(megabytes(small, 256) - megabytes(large, 512)) < 8);
+
+  // A preset still means something: heavier presets hold more.
+  streamer.tileSizeHint = 256;
+  settings.set('graphics', 'low');
+  const low = streamer.textureLimit();
+  settings.set('graphics', 'ultra');
+  const ultra = streamer.textureLimit();
+  ok(`a heavier preset still holds more  (${low} low, ${ultra} ultra)`, ultra > low * 3);
+
+  // Never so small that nothing can be cached at all.
+  streamer.tileSizeHint = 4096;
+  ok(`there is always a floor  (${streamer.textureLimit()})`, streamer.textureLimit() >= 64);
+
+  // A provider that has not answered yet is assumed to serve the common size
+  // rather than the worst case.
+  const fresh = new ImageryStreamer({ addEventListener() {}, postMessage() {} }, null);
+  ok('an unknown provider is assumed to be 256', fresh.tileSizeHint === 256);
+
+  settings.set('graphics', before);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nA refusal is not a permanent fact about the world');
 {
   const { ImageryStreamer } = await import('../src/tiles/streamer.js');
