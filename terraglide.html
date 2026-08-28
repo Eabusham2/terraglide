@@ -88123,8 +88123,26 @@ const HAND_GLIDE = [0.62, 0.62, 0.85, -1.3, 0.42, 0.1];
  * character has no real-world counterpart to fetch, in any provider, so there
  * is nothing here for a texture to displace. Absent the files it stays flat
  * colour, which is what the single-file build gets.
+ *
+ * What they carry is the *weave*, not the colour.
+ *
+ * They used to carry both: the material's colour was set to white when a
+ * texture arrived, so the photograph decided what the garment looked like and
+ * every colour chosen in this file was dead code in the served build. Which
+ * would be fine if the four photographs had been balanced against each other,
+ * and they were not — mean luminance 183 for the wing, 41 for the trousers, a
+ * four-and-a-half to one range across one character. That is the whole of
+ * "pale sails over a dark body": the wings were near-white cloth and the legs
+ * were near-black, and no amount of adjusting constants that the loader threw
+ * away was ever going to change it.
+ *
+ * So each one is reduced to luminance and normalised to this mean before it is
+ * used, which turns a photograph of a material into a detail map: it modulates
+ * around one rather than replacing what it multiplies. The colour then comes
+ * from the constants above, the weave comes from the photograph, and the
+ * served build and the single file finally look the same.
  */
-const CLOTH_TINT = 0xffffff;
+const WEAVE_MEAN = 232;
 
 /** The firework mesh runs along its own +Y; these are what it gets aimed at. */
 /**
@@ -88223,6 +88241,58 @@ function bendWing(geometry) {
   geometry.computeVertexNormals();
   geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
+}
+
+/**
+ * A photograph of a material, turned into a weave.
+ *
+ * Two steps, and both matter. It is reduced to luminance, so the jacket's
+ * olive and the wing's near-white stop fighting the colour the model asked
+ * for — a detail map should say where the threads are, not what colour they
+ * are. Then it is scaled so its mean lands on WEAVE_MEAN, so multiplying by it
+ * leaves a garment roughly the colour it was given rather than a fraction of
+ * it, and the four of them stop being four different exposures.
+ *
+ * Returns a canvas to use in place of the image, or null if there is no canvas
+ * to draw on — in which case the caller keeps the photograph, which is what
+ * the model looked like before any of this and is not worse than nothing.
+ */
+function toWeave(image) {
+  if (typeof document === 'undefined' || !image?.width) return null;
+  let canvas;
+  try {
+    canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) return null;
+    context.drawImage(image, 0, 0);
+    const frame = context.getImageData(0, 0, canvas.width, canvas.height);
+    const pixels = frame.data;
+    let sum = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+      const luma = pixels[i] * 0.299 + pixels[i + 1] * 0.587 + pixels[i + 2] * 0.114;
+      pixels[i] = luma;
+      pixels[i + 1] = luma;
+      pixels[i + 2] = luma;
+      sum += luma;
+    }
+    const mean = sum / (pixels.length / 4);
+    if (!(mean > 1)) return null;
+    const gain = WEAVE_MEAN / mean;
+    for (let i = 0; i < pixels.length; i += 4) {
+      const lit = Math.min(255, pixels[i] * gain);
+      pixels[i] = lit;
+      pixels[i + 1] = lit;
+      pixels[i + 2] = lit;
+    }
+    context.putImageData(frame, 0, 0);
+    return canvas;
+  } catch {
+    // A tainted canvas, or no 2d context. The photograph still dresses the
+    // model; it just dresses it in its own colour, as it always did.
+    return null;
+  }
 }
 
 class Avatar {
@@ -88745,9 +88815,10 @@ class Avatar {
   /**
    * Optional kit textures from the assets folder. Same shape as the scenery
    * loader, and the same manifest, but with no provider gate: see the note by
-   * CLOTH_TINT for why the character is not held to the world's rule. Missing
-   * files are not an error — the flat colours underneath are the fallback, and
-   * they are what the single-file build ships with.
+   * WEAVE_MEAN for why the character is not held to the world's rule, and for
+   * why what arrives is turned into a weave rather than used as a colour.
+   * Missing files are not an error — the flat colours underneath are what a
+   * garment is, and they are what the single-file build ships with.
    */
   async loadTextures(base = ASSET_BASE) {
     if (typeof document === 'undefined' || typeof fetch !== 'function') return;
@@ -88772,9 +88843,12 @@ class Avatar {
       loader.load(
         `${base}${file}`,
         (texture) => {
+          const weave = toWeave(texture.image);
+          if (weave) texture.image = weave;
           texture.colorSpace = THREE.SRGBColorSpace;
           texture.wrapS = THREE.RepeatWrapping;
           texture.wrapT = THREE.RepeatWrapping;
+          texture.needsUpdate = true;
           for (const material of this.cloth[part]) {
             // A repeat sized to the garment, not one image stretched over it.
             //
@@ -88795,8 +88869,6 @@ class Avatar {
               Math.max(1, Math.round(size.y * CLOTH_TILES_PER_HEIGHT)),
             );
             material.map = own;
-            // The tint has done the colouring so far; let the weave through.
-            material.color.setHex(CLOTH_TINT);
             material.needsUpdate = true;
           }
         },
