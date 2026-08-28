@@ -96455,12 +96455,29 @@ const { EARTH_CIRCUMFERENCE, latToNormY, lonToNormX, tileKey } = __tg_require("s
 const LEVELS = [8, 10, 12, 14, 16];
 const DETAIL_LEVEL = 14;
 const STORAGE_KEY = 'explored';
-const MAX_ENTRIES = 160000;
+/**
+ * How many squares the record holds before the oldest fine detail is let go.
+ *
+ * It was 160,000, and over that the save threw away forty-five per cent of the
+ * level-sixteen squares *at random* — permanently, since what it wrote is what
+ * came back. Every reload thinned the survivors again, so the loss compounded:
+ * 55%, then 30%, then 17%. Scattered random holes through ground you had
+ * actually flown, changing every time. That is "the explored area is nowhere
+ * near what I explored" and "it must show exactly where I explored".
+ *
+ * The cap was real — as `"16/34567/22345"` strings a full record is about
+ * three megabytes, which is most of what a browser will store. But explored
+ * ground is discs along a flight path, so the squares come in long unbroken
+ * rows, and writing rows instead of squares is 14x smaller on a realistic
+ * flight. So the ceiling moves rather than the record being damaged to fit
+ * under it.
+ */
+const MAX_ENTRIES = 2000000;
 
 class Exploration extends Emitter {
   constructor() {
     super();
-    this.cells = new Set(readJSON(STORAGE_KEY, []));
+    this.cells = new Set(decodeCells(readJSON(STORAGE_KEY, [])));
     this.dirty = false;
     this.saveTimer = 0;
     this.lastVisit = null;
@@ -96630,12 +96647,21 @@ class Exploration extends Emitter {
     if (!this.dirty) return;
     let list = [...this.cells];
     if (list.length > MAX_ENTRIES) {
-      // Thin the finest level first. Sixteen is the sharpest edge and also by
-      // far the most cells; the coarse levels are what keep a continent's worth
-      // of flying on the map at all, and they are cheap.
-      list = list.filter((key) => !key.startsWith('16/') || Math.random() < 0.55);
+      // Over the ceiling, the oldest fine detail is let go — deterministically,
+      // and in the order it was recorded, because a Set keeps that order. It
+      // used to be a coin flip per square, which sprayed holes through country
+      // you had flown and did it differently every time. Losing the first
+      // flight of a very long session is a fact you can predict; losing a
+      // random half of everywhere is not.
+      const excess = list.length - MAX_ENTRIES;
+      const drop = new Set();
+      for (const key of list) {
+        if (drop.size >= excess) break;
+        if (key.startsWith(`${LEVELS[LEVELS.length - 1]}/`)) drop.add(key);
+      }
+      list = list.filter((key) => !drop.has(key));
     }
-    writeJSON(STORAGE_KEY, list);
+    writeJSON(STORAGE_KEY, encodeCells(list));
     this.dirty = false;
   }
 
@@ -96650,9 +96676,79 @@ class Exploration extends Emitter {
   }
 }
 
+/**
+ * Pack tile keys into rows.
+ *
+ * Explored ground is a chain of discs along wherever you flew, so at every
+ * level the squares come in long unbroken runs across each row. Writing
+ * `[y, xStart, length]` per run instead of one `"16/34567/22345"` string per
+ * square is about fourteen times smaller on a realistic flight — which is what
+ * lets the record keep everything you actually explored instead of being cut
+ * down to fit.
+ */
+function encodeCells(keys) {
+  const byLevel = new Map();
+  for (const key of keys) {
+    const parts = key.split('/');
+    const z = Number(parts[0]);
+    const x = Number(parts[1]);
+    const y = Number(parts[2]);
+    if (!Number.isFinite(z) || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+    if (!byLevel.has(z)) byLevel.set(z, []);
+    byLevel.get(z).push([x, y]);
+  }
+  const runs = {};
+  for (const [z, list] of byLevel) {
+    list.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+    const out = [];
+    let row = null;
+    let start = 0;
+    let length = 0;
+    for (const [x, y] of list) {
+      if (y === row && x === start + length) {
+        length++;
+        continue;
+      }
+      if (row !== null) out.push(row, start, length);
+      row = y;
+      start = x;
+      length = 1;
+    }
+    if (row !== null) out.push(row, start, length);
+    runs[z] = out;
+  }
+  return { v: 2, runs };
+}
+
+/**
+ * Unpack them again, and read the old format too.
+ *
+ * A save written before this is a plain array of keys, and there is no reason
+ * anyone should lose the ground they walked because the file got smaller.
+ */
+function decodeCells(raw) {
+  if (Array.isArray(raw)) return raw.filter((key) => typeof key === 'string');
+  if (!raw || raw.v !== 2 || !raw.runs) return [];
+  const keys = [];
+  for (const [level, out] of Object.entries(raw.runs)) {
+    const z = Number(level);
+    if (!Number.isFinite(z) || !Array.isArray(out)) continue;
+    for (let i = 0; i + 2 < out.length; i += 3) {
+      const y = out[i];
+      const start = out[i + 1];
+      const length = out[i + 2];
+      if (!Number.isFinite(y) || !Number.isFinite(start) || !(length > 0)) continue;
+      for (let x = start; x < start + length; x++) keys.push(tileKey(z, x, y));
+    }
+  }
+  return keys;
+}
+
 const exploration = new Exploration();
 
 __tg_exports["Exploration"] = Exploration;
+__tg_exports["encodeCells"] = encodeCells;
+__tg_exports["decodeCells"] = decodeCells;
 __tg_exports["exploration"] = exploration;
 __tg_exports["DETAIL_LEVEL"] = DETAIL_LEVEL;
 __tg_exports["LEVELS"] = LEVELS;

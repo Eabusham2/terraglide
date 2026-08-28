@@ -1076,6 +1076,60 @@ console.log('\nAuto graphics is a dial, not a label');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe map shows exactly the ground you explored');
+{
+  const { encodeCells, decodeCells } = await import('../src/ui/exploration.js');
+
+  // A flight: discs of visited ground strung along a path, at every level.
+  const flown = new Set();
+  let lat = 46.5;
+  let lon = 7.9;
+  for (let step = 0; step < 400; step++) {
+    lat += 0.004;
+    lon += 0.010;
+    for (const z of [8, 10, 12, 14, 16]) {
+      const n = 2 ** z;
+      const cx = Math.floor(((lon + 180) / 360) * n);
+      const cy = Math.floor(((90 - lat) / 180) * n);
+      const r = z >= 14 ? 4 : z >= 12 ? 3 : 2;
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (dx * dx + dy * dy > r * r) continue;
+          flown.add(`${z}/${cx + dx}/${cy + dy}`);
+        }
+      }
+    }
+  }
+
+  const keys = [...flown];
+  const back = new Set(decodeCells(encodeCells(keys)));
+  // The save used to drop 45% of the finest squares at random, permanently and
+  // compounding on every reload, which is why the map never matched the flight.
+  ok(`every square you flew comes back  (${back.size}/${flown.size})`, back.size === flown.size);
+  ok('and they are the same squares', keys.every((key) => back.has(key)));
+  ok('and none was invented', [...back].every((key) => flown.has(key)));
+
+  // Twice in a row is the same answer: the old rule rolled a die per square,
+  // so two reads of one record disagreed.
+  const a = JSON.stringify(encodeCells(keys));
+  const b = JSON.stringify(encodeCells(keys));
+  ok('saving is deterministic', a === b);
+
+  // Small enough that the record does not have to be cut down to fit.
+  const plain = JSON.stringify(keys).length;
+  ok(`rows beat squares by a wide margin  (${(plain / a.length).toFixed(1)}x)`, plain / a.length > 5);
+
+  // A save written before this still opens.
+  const legacy = decodeCells(['14/1/2', '16/3/4']);
+  ok('an older save is still read', legacy.length === 2 && legacy.includes('14/1/2'));
+  ok('and rubbish is not', decodeCells(null).length === 0 && decodeCells({ v: 9 }).length === 0);
+
+  const source = readFileSync(new URL('../src/ui/exploration.js', import.meta.url), 'utf8');
+  ok('nothing about the record is left to chance',
+    !/Math\.random\(\)\s*<\s*0?\.\d/.test(source));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nA setting that changes takes effect');
 {
   const { settings } = await import('../src/core/settings.js');

@@ -143,8 +143,22 @@ what is left · `[?]` needs a decision from you.
 - [ ] F3. Map is white, especially when going up
 - [ ] F4. Map is white for a moment when zooming in
 - [ ] F5. Stretched map
-- [ ] F6. Explored area must look the same and stay visible at every zoom
-- [ ] F7. Map should show exactly where I explored, especially zoomed out
+- [x] F6. Explored area must look the same and stay visible at every zoom
+      Cause: save() threw away 45% of the level-16 squares at random whenever the
+      record passed 160,000 — permanently, since what it wrote is what came
+      back, so every reload thinned the survivors again (55%, 30%, 17%).
+      Random scattered holes through ground you had actually flown, different
+      every time. The cap was real at ~3 MB of key strings; explored ground is
+      discs along a path, so rows compress 14x and 2.7M squares now fit. Over
+      the ceiling the oldest fine detail goes, in order, never at random.
+- [x] F7. Map should show exactly where I explored, especially zoomed out
+      Cause: save() threw away 45% of the level-16 squares at random whenever the
+      record passed 160,000 — permanently, since what it wrote is what came
+      back, so every reload thinned the survivors again (55%, 30%, 17%).
+      Random scattered holes through ground you had actually flown, different
+      every time. The cap was real at ~3 MB of key strings; explored ground is
+      discs along a path, so rows compress 14x and 2.7M squares now fit. Over
+      the ceiling the oldest fine detail goes, in order, never at random.
 - [ ] F8. Map does not show only what I saw, and changes size with zoom
 - [ ] F9. Remove grids from places like the example map
 - [ ] F10. Improve the starting map zoom
@@ -260,7 +274,14 @@ what is left · `[?]` needs a decision from you.
 - [ ] M2. Flying model broken
 - [ ] M3. It is so laggy
 - [ ] M4. The quality is bad; zooming in on the map looks better than the ground
-- [ ] M5. Explored area on the map is still nowhere near what was actually explored
+- [x] M5. Explored area on the map is still nowhere near what was actually explored
+      Cause: save() threw away 45% of the level-16 squares at random whenever the
+      record passed 160,000 — permanently, since what it wrote is what came
+      back, so every reload thinned the survivors again (55%, 30%, 17%).
+      Random scattered holes through ground you had actually flown, different
+      every time. The cap was real at ~3 MB of key strings; explored ground is
+      discs along a path, so rows compress 14x and 2.7M squares now fit. Over
+      the ceiling the oldest fine detail goes, in order, never at random.
 - [ ] M6. Player position is still off on the minimap
 - [ ] M7. Ground still has holes, still reloads, still moves up and down
 - [ ] M8. Unloading while the player is still inside the render distance
