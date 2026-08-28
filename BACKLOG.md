@@ -574,6 +574,61 @@ what is left · `[?]` needs a decision from you.
       game's own lights from six angles and reports the mean brightness of each
       part, because judging a forty-pixel figure against a hillside is how a
       model with one leg and no arms survived several passes.
+- [x] M2b. The elytra look backwards or upside down
+      Four faults, and the one that mattered was not about the wing at all.
+
+      The tips hung 30 cm below the shoulders — 40 degrees of sweep and minus
+      22 of dihedral, a wing hanging off a body rather than one holding it up.
+      Fixing that gave a wing 0.99 flat to the airflow, 28 degrees of sweep,
+      correct in every way a wing can be measured against the air.
+
+      And 0.06 square to the chase camera, at every pitch. The camera sits 16
+      degrees above the flight line in level flight and climbs to 55 in a dive,
+      so a horizontal surface seen from there is a blade — and a blade has no
+      shape in it to read, which is exactly why it looked like it was on
+      backwards or inside out. Every check passed because every check measured
+      the wing against the air, and the complaint was about the wing against
+      the camera. It is canted to meet it now: 28 degrees of sweep, 5 of
+      dihedral so the tips sit above the shoulders, 0.83 to 0.88 square to the
+      camera from a climb through a steep dive.
+
+      The planform was wrong too. The bend displaced along Y as well as Z, and
+      Y is in the plane the outline is drawn in — so it was a square-law shear,
+      not the droop it was named as, and a square-law shear turns two straight
+      edges into two arcs. Any outline came out a rounded lobe. And the aspect
+      ratio had been reasoned from what an elytron is, about 1.5:1, which
+      renders as two fat leaves: it is 2.1 now, with a tip chord of 0.028
+      instead of 0.154 — a point rather than a paddle.
+
+      Then the colour, which was the deepest one. Every colour set on this
+      character was dead code in the served build: the loader set the material
+      to white when a kit texture arrived and let the photograph decide. The
+      four photographs were not balanced — mean luminance 183 for the wing, 41
+      for the trousers — so the wings were near-white cloth and the legs
+      near-black, which is the whole of "pale sails over a dark blob" and is
+      why the model harness and the running game kept disagreeing. Each texture
+      is reduced to luminance and normalised now, so it is a weave rather than
+      a colour, and the two builds finally match. In the game the wing went
+      from 169-192 to 114-123 against legs at 89 and grass at 80.
+
+      tools/wingpose.mjs solves and reports the attitude; the self-test checks
+      the angle to the camera and the dihedral, not just the shape.
+- [?] M2c. Steep slopes look streaked and smeared
+      Raised by me from my own screenshots, and the measurement does not
+      support what I called it. Sampling the streaked patch with woodland
+      relief off, and again with anisotropy forced to 1, gives readings
+      identical to three significant figures — so it is neither the un-mipmapped
+      woodland mask nor the texture filtering. Pixel-to-pixel step is 2.02 over
+      a mean of 27.8: smooth, not sparkling, so it is not aliasing either.
+
+      What is left is a shadowed slope seen at a grazing angle, showing the
+      source photograph's own chroma noise stretched along the surface — the
+      colour spread is 11.8 against a mean of 27.8, which is high in relative
+      terms and is what reads as rainbow in near-black. That is real imagery
+      displayed honestly. It could be made to look better by lifting or
+      desaturating deep shadow, which is a display choice rather than an
+      invention, but it is a choice worth asking about rather than making.
+
 - [ ] M3. It is so laggy
 - [ ] M4. The quality is bad; zooming in on the map looks better than the ground
 - [x] M5. Explored area on the map is still nowhere near what was actually explored
