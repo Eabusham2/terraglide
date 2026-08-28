@@ -1,30 +1,21 @@
 #!/usr/bin/env node
 /**
- * Look at the running game, headlessly, and take pictures of it.
+ * Can you see your own hands while gliding in first person?
  *
- * This existed three times as a scratch file and was lost to a container reset
- * three times, and each time the answer to "did you actually look at it?" got
- * worse. So it lives in the repo now.
+ * It is a whole tool because it cannot be answered anywhere cheaper. Every
+ * other check on the character measures the character — limb lengths, spans,
+ * which side a hand is on — and the character was never what was wrong. What
+ * was wrong was where the parts finished relative to the camera the rig
+ * actually places, and that depends on the eye lean, the near plane, the FOV
+ * of the moment and the camera's own pitch. None of it is visible from the
+ * avatar alone: a first-person glide showed nothing of you at all, no arms, no
+ * hands, no firework, while every model check passed.
  *
- * It serves the working tree over HTTP, launches the Chromium that Playwright
- * already ships, and — because the sandbox this runs in has no route out from
- * the browser, only from Node — proxies every outbound tile request back
- * through the same server. On a normal machine the proxy is harmless: the
- * requests go out either way.
+ * So this boots the game, flies it, poses a first-person glide at four look
+ * angles, and reports where the fist and the firework land in the frame in
+ * screen coordinates. Exits non-zero if any of them shows you nothing.
  *
- * Software rendering means one or two frames a second. That is fine for
- * screenshots and useless for judging smoothness, so do not judge smoothness
- * with it.
- *
- *   npm i -D playwright                 (once, if it is not already there)
- *   node tools/shots.mjs                          a few standard views
- *   node tools/shots.mjs --lat 46.56 --lon 7.91   somewhere specific
- *   node tools/shots.mjs --out /tmp/shots         where to write them
- *
- * Every shot is also measured, because "it looks fine" is what got this wrong
- * before: each one reports the share of the frame that is sky enclosed by
- * ground (a hole), and how much fine detail the lower half carries (a flat
- * frame means the ground has gone to one colour).
+ *   node tools/handcheck.mjs
  */
 
 import http from 'node:http';
@@ -267,32 +258,59 @@ await page.evaluate(() => {
   p.toggleElytra(true);
 });
 await page.waitForTimeout(9000);
-const probe = await page.evaluate(() => {
-  const g = window.terraglide;
-  const a = g.avatar;
-  const cam = g.camera;
-  cam.updateMatrixWorld(true);
-  a.root.updateMatrixWorld(true);
-  const out = { near: cam.near, fov: cam.fov, aspect: cam.aspect,
-    rootVisible: a.root.visible, firstPerson: a.firstPerson,
-    showBody: g.settings.get('showBody'), parts: [] };
-  const V = (x, y, z) => cam.position.clone().set(x, y, z);
-  for (const [name, o] of [['head', a.head], ['torso', a.torso], ['armR', a.armR.limb],
-    ['fistR', a.fistR], ['fistL', a.fistL], ['rocket', a.rocket],
-    ['legR', a.legR.limb], ['wings', a.wings]]) {
-    if (!o) { out.parts.push({ name, missing: true }); continue; }
-    const m = o.matrixWorld.elements;
-    const w = V(m[12], m[13], m[14]);
-    const local = cam.worldToLocal(w.clone());
-    const ndc = w.clone().project(cam);
-    let chain = true;
-    for (let n = o; n; n = n.parent) if (!n.visible) { chain = false; break; }
-    out.parts.push({ name, chainVisible: chain,
-      camZ: +local.z.toFixed(3), ahead: +(-local.z).toFixed(3),
-      sx: +((ndc.x * 0.5 + 0.5)).toFixed(3), sy: +((-ndc.y * 0.5 + 0.5)).toFixed(3) });
-  }
-  return out;
-});
-console.log(JSON.stringify(probe, null, 1));
+// Where your own hands land on screen in a first-person glide.
+//
+// This is the measurement that was missing. Everything else about the model is
+// checked against the model — limb lengths, spans, which side a hand is on —
+// and the model was never what was wrong. What was wrong was where the parts
+// finished relative to the camera the rig actually places, and that depends on
+// the eye lean, the near plane, the FOV of the moment and the camera's pitch,
+// none of which a check on the avatar alone can see. A first-person glide
+// showed nothing of you at all while every model check passed.
+const rows = [];
+for (const pitch of [-0.9, -0.55, -0.2, 0.15]) {
+  const row = await page.evaluate((pi) => {
+    const g = window.terraglide;
+    const a = g.avatar;
+    g.player.pitch = pi;
+    for (let i = 0; i < 120; i += 1) {
+      g.rig.update(g.player, 1 / 60);
+      a.update(g.player, 1 / 60);
+    }
+    a.hideWhatIsInYourEye(g.camera);
+    const cam = g.camera;
+    cam.updateMatrixWorld(true);
+    a.root.updateMatrixWorld(true);
+    const V = (x, y, z) => cam.position.clone().set(x, y, z);
+    const look = (o) => {
+      const m = o.matrixWorld.elements;
+      const local = cam.worldToLocal(V(m[12], m[13], m[14]));
+      const ndc = V(m[12], m[13], m[14]).project(cam);
+      let chain = true;
+      for (let n = o; n; n = n.parent) if (!n.visible) { chain = false; break; }
+      return { ahead: -local.z, sx: ndc.x * 0.5 + 0.5, sy: -ndc.y * 0.5 + 0.5, chain };
+    };
+    return { pitch: pi, fist: look(a.fistR), rocket: look(a.rocket),
+      near: cam.near, fov: cam.fov };
+  }, pitch);
+  rows.push(row);
+}
+console.log(`${'pitch'.padStart(6)} ${'ahead'.padStart(7)}  ${'fist x/y'.padEnd(13)}`
+  + ` ${'rocket x/y'.padEnd(13)} on screen?`);
+let bad = 0;
+for (const row of rows) {
+  const inFrame = (q) => q.chain && q.ahead > row.near + 0.06
+    && q.sx > 0 && q.sx < 1 && q.sy > 0 && q.sy < 1;
+  const good = inFrame(row.fist) && inFrame(row.rocket);
+  if (!good) bad += 1;
+  console.log(`${String(row.pitch).padStart(6)} ${row.fist.ahead.toFixed(2).padStart(7)}  `
+    + `${`${row.fist.sx.toFixed(2)}/${row.fist.sy.toFixed(2)}`.padEnd(13)} `
+    + `${`${row.rocket.sx.toFixed(2)}/${row.rocket.sy.toFixed(2)}`.padEnd(13)} `
+    + `${good ? 'yes' : 'NO — you can see nothing of yourself'}`);
+}
+console.log(bad === 0
+  ? '\ngliding in first person, your hand and the firework are both on screen'
+  : `\n${bad} of ${rows.length} look angles show you nothing of yourself`);
 await browser.close();
 server.close();
+process.exit(bad === 0 ? 0 : 1);

@@ -471,6 +471,26 @@ export class Avatar {
     this.handPunch = 0;
     this.lastRockets = 0;
 
+    /**
+     * How the arms sit in a first-person glide: how far the shoulder swings
+     * and how wide the pair is set.
+     *
+     * Fields rather than constants because they cannot be reasoned out on
+     * paper. Where a hand lands on screen depends on the camera's pitch and
+     * the FOV of the moment as much as on the arm, so both were swept in the
+     * running game with the camera the rig actually places — see
+     * tools/probe.mjs. Guessing them from the model's own axis is what put the
+     * hands eleven centimetres in front of a fifteen-centimetre near plane and
+     * off both edges of the screen.
+     */
+    // Swept in the running game against four look angles. The screen position
+    // came back identical at every one of them, which is the pose pivot doing
+    // its job: it turns about the eye, so your hands stay where they are in the
+    // frame however you pitch. At -3.05 and 0.26 the fist lands at (0.87, 0.41)
+    // and the firework at (0.87, 0.35) — out at the edges, above the horizon
+    // you are flying at rather than across it.
+    this.glidePose = { reach: -3.05, spread: 0.26 };
+
     this.walkPhase = 0;
     this.glideBlend = 0;
     /** Scratch for the pose pivot, and the damped first-person set-back. */
@@ -918,7 +938,7 @@ export class Avatar {
     // behind your eye when you are lying face down, so however far the arm
     // swings the hand can only get about 0.36 m in front of the camera, and it
     // peaks around -2.7. Past that it starts coming back.
-    const reach = this.firstPerson ? -2.7 : -2.5;
+    const reach = this.firstPerson ? this.glidePose.reach : -2.5;
     this.armL.pivot.rotation.x = this.armL.pivot.rotation.x * (1 - tuck) + reach * tuck;
     this.armR.pivot.rotation.x = this.armR.pivot.rotation.x * (1 - tuck) + reach * tuck;
     // In first person the arms are swept wider so they frame the view instead
@@ -942,7 +962,7 @@ export class Avatar {
     // 50 degrees against a half-frame of 55 at the default 78 FOV: the hands
     // sit near the edges and the forearms sweep in from the corners, which is
     // the shape that was wanted.
-    const spread = this.firstPerson ? 0.32 : 0.85;
+    const spread = this.firstPerson ? this.glidePose.spread : 0.85;
     this.armL.pivot.rotation.z = -spread * tuck;
     this.armR.pivot.rotation.z = spread * tuck;
 

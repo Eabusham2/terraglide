@@ -774,22 +774,24 @@ console.log('\nThe body you can see');
         + `  (${((r.x - l.x) * 1000).toFixed(0)} mm apart)`, r.x - l.x > 0.05);
     }
 
-    // Gliding in first person, you can see your own hands.
+    // Gliding in first person, something of you is out in front of the eye.
     //
-    // This is the check that was missing. The arms were swung back to -1.85 to
-    // keep the firework off the lens, which left the hand four centimetres in
-    // front of the eye against a near plane of fifteen — so a first-person
-    // glide was landscape and nothing else, no arms, no hands, no rocket. And
-    // the spread was 0.62, which put them 66 degrees off the view axis: even
-    // once they cleared the near plane they were outside the frame.
+    // A floor, not a proof, and the difference matters. The check that used to
+    // live here computed a screen position from the model's own axis and passed
+    // while the running game showed nothing of you at all — no arms, no hands,
+    // no firework, landscape and nothing else. It could not have known: where a
+    // hand lands on screen depends on the camera the rig places, and the rig
+    // leaned the eye 0.1 of your height forward, which ate half the distance an
+    // arm can reach in front of it. A number derived from the avatar alone
+    // cannot see a camera that is not where the avatar thinks it is.
     //
-    // So it is checked against the frame, not against a distance: past the
-    // near plane, and inside the half-angles the default FOV actually gives.
+    // So this asserts only what can be known here — the eye is at 0.94 of
+    // height and the glide pose turns about it, so a hand nearer than the near
+    // plane is certainly not visible — and the real test runs the game:
+    // tools/handcheck.mjs poses a first-person glide at four look angles and
+    // reports where the fist and the firework actually land in the frame.
     {
       const NEAR = 0.15;
-      const fov = (78 * Math.PI) / 180;
-      const halfUp = fov / 2;
-      const halfSide = Math.atan(Math.tan(halfUp) * (16 / 9));
       const rig = new Avatar(new THREE.Scene());
       rig.setVisible(true);
       rig.setFirstPerson(true);
@@ -800,21 +802,21 @@ console.log('\nThe body you can see');
       });
       for (let i = 0; i < 240; i += 1) rig.update(player, 1 / 60);
       rig.root.updateMatrixWorld(true);
-      // The camera sits at the eye, which is what the glide pose turns about.
       const eye = new THREE.Vector3(0, 0.94 * 1.83, 0);
       const at = new THREE.Vector3();
       for (const [what, part] of [['your hand', rig.fistR], ['the firework', rig.rocket]]) {
         part.getWorldPosition(at);
-        const ahead = -(at.z - eye.z);
-        const side = Math.atan2(Math.abs(at.x - eye.x), Math.max(ahead, 1e-6));
-        const up = Math.atan2(Math.abs(at.y - eye.y), Math.max(ahead, 1e-6));
-        ok(`gliding, ${what} is past the near plane  (${ahead.toFixed(2)} m of ${NEAR})`,
-          ahead > NEAR + 0.1);
-        ok(`gliding, ${what} is inside the frame`
-          + `  (${((side * 180) / Math.PI).toFixed(0)} deg of ${((halfSide * 180) / Math.PI).toFixed(0)}`
-          + ` across, ${((up * 180) / Math.PI).toFixed(0)} of ${((halfUp * 180) / Math.PI).toFixed(0)} up)`,
-          side < halfSide && up < halfUp);
+        ok(`gliding, ${what} clears the near plane  (${at.distanceTo(eye).toFixed(2)} m of ${NEAR})`,
+          at.distanceTo(eye) > NEAR + 0.1);
       }
+      // And the backstop that deletes anything inside your eye must not be set
+      // so wide that it deletes a thing held at arm's length — which it was, at
+      // 0.34 of height, a 62 cm bubble around a firework carried at 35.
+      const source = readFileSync(new URL('../src/player/avatar.js', import.meta.url), 'utf8');
+      const tooClose = Number(/const TOO_CLOSE_M = ([\d.]+);/.exec(source)?.[1]);
+      ok(`the too-close backstop is nearer than a held firework  (${tooClose} of height`
+        + ` = ${(tooClose * 1.83).toFixed(2)} m)`, tooClose * 1.83 < 0.3);
+      ok('and still further out than the near plane', tooClose * 1.83 > NEAR);
     }
 
     // Every garment carries its own fill, so nothing on the character can go
