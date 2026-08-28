@@ -302,6 +302,9 @@ export class WorldMap {
       );
     }
     this.zoom = next;
+    // Remembered, so the map opens where you were reading it rather than
+    // starting again from a whole continent every time.
+    settings.set('worldMapZoom', next);
     this.dirty = true;
   }
 
@@ -318,6 +321,9 @@ export class WorldMap {
   show(player) {
     this.open = true;
     this.element.hidden = false;
+    // Where you left it. It opened at six every time — most of a continent —
+    // so the first thing anybody did on opening the map was zoom in.
+    this.zoom = clamp(Math.round(settings.get('worldMapZoom')), 2, 19);
     this.centre = { lat: player.lat, lon: player.lon };
     this.player = player;
     this.dirty = true;

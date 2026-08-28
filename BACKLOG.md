@@ -265,7 +265,11 @@ what is left · `[?]` needs a decision from you.
       the ceiling the oldest fine detail goes, in order, never at random.
 - [ ] F8. Map does not show only what I saw, and changes size with zoom
 - [ ] F9. Remove grids from places like the example map
-- [ ] F10. Improve the starting map zoom
+- [x] F10. Improve the starting map zoom
+      It opened at zoom 6 every time — 1,473 km across at a middling latitude,
+      most of a continent — so the first thing anybody did was zoom in. It opens
+      at 11 now (46 km, a city and the country round it) and after that wherever
+      you left it.
 - [x] F11. Opening the map should not stop the game
       The map was in the pause list because stopping the world was the only way
       to stop W flying you into a mountain while you typed a place name. Those

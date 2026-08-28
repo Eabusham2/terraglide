@@ -1463,6 +1463,28 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe map opens where you were reading it');
+{
+  const { DEFAULT_SETTINGS } = await import('../src/core/settings.js');
+  const worldmap = readFileSync(new URL('../src/ui/worldmap.js', import.meta.url), 'utf8');
+  const { metresPerPixel } = await import('../src/ui/mapRenderer.js');
+
+  // It opened at zoom six every time — most of a continent — so the first thing
+  // anybody did on opening the map was zoom in.
+  ok('there is a remembered zoom', 'worldMapZoom' in DEFAULT_SETTINGS);
+  ok('it opens at it', /settings\.get\('worldMapZoom'\)/.test(worldmap));
+  ok('and saves it when you zoom', /settings\.set\('worldMapZoom', next\)/.test(worldmap));
+  ok('clamped to zooms the map actually has', /clamp\(Math\.round\(settings\.get\('worldMapZoom'\)\), 2, 19\)/.test(worldmap));
+
+  // What the old and new defaults actually show, in ground per pixel at a
+  // middling latitude — the number that decides whether a map is useful.
+  const across = (zoom) => (metresPerPixel(48, zoom) * 900) / 1000;
+  ok(`six was most of a continent  (${across(6).toFixed(0)} km across)`, across(6) > 900);
+  ok(`eleven is a city and its country  (${across(DEFAULT_SETTINGS.worldMapZoom).toFixed(0)} km across)`,
+    across(DEFAULT_SETTINGS.worldMapZoom) > 20 && across(DEFAULT_SETTINGS.worldMapZoom) < 120);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe texture cache is a size, not a tally');
 {
   const { ImageryStreamer } = await import('../src/tiles/streamer.js');

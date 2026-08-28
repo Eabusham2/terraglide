@@ -174,6 +174,16 @@ export const DEFAULT_SETTINGS = {
   minimapShape: 'rounded',
   minimapSize: 220,
   minimapZoom: 14,
+  /**
+   * What zoom the world map opens at, remembered between openings.
+   *
+   * It opened at six every time, which is most of a continent — you could see
+   * which country you were in and nothing else, and the first thing anybody did
+   * was zoom in. Eleven shows a city and the country around it, which is the
+   * scale the map is actually useful at, and after that it opens wherever you
+   * left it.
+   */
+  worldMapZoom: 11,
   minimapRotates: false,
   showTrail: true,
   minimapShowWaypoints: true,
