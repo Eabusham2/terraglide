@@ -121,7 +121,14 @@ what is left · `[?]` needs a decision from you.
 - [ ] D4. Going faster by rocketing more downward makes no sense — fix the physics engine
 - [ ] D5. Flight duration and deceleration should match MC — spamming should make you a bit faster (check this)
 - [ ] D6. Rocket times do not match Minecraft — fix, and use the same scale for speed; the light-duration one has MC default speed
-- [ ] D7. Using the slot of a slower rocket slows you down
+- [x] D7. Using the slot of a slower rocket slows you down
+      Measured: cruising at 106 m/s on a Rocket V, firing a Rocket I took you to
+      33.5 — 69% of your speed for pressing the wrong hotbar key. Minecraft's
+      line pulls toward the rocket's target from either direction, which barely
+      shows in vanilla because every firework aims at the same 1.5 b/t; here a
+      bigger rocket pushes harder, so the small slots brake. It now pushes
+      toward its target, never past it, never back from beyond it. The brake is
+      60.7 m/s -> 0, and each rocket still settles at its own cruise.
 - [ ] D8. More speed/movement initially when going from slow to rocket speed
 - [ ] D9. Speed accuracy breaks over time — the player slows down
 - [ ] D10. Speed readout says faster than reality

@@ -87017,9 +87017,43 @@ function stepRocket(velocity, look, power = 1, spent = 0) {
   const vy = velocity.y * TO_TICK;
   const vz = velocity.z * TO_TICK;
 
-  const nx = vx + look.x * 0.1 + (look.x * thrust - vx) * 0.5;
-  const ny = vy + look.y * 0.1 + (look.y * thrust - vy) * 0.5;
-  const nz = vz + look.z * 0.1 + (look.z * thrust - vz) * 0.5;
+  // Minecraft's tick is `v + look*0.1 + (look*thrust - v)*0.5`, and that middle
+  // term does two jobs at once: it swings your velocity round toward where you
+  // are looking, and it pulls your speed toward the rocket's own. Pulls, in
+  // both directions — so in vanilla, firing while already faster than a rocket
+  // slows you down.
+  //
+  // In vanilla that barely shows, because every firework aims at the same 1.5
+  // blocks a tick. Here a bigger rocket pushes harder as well as longer, which
+  // was asked for, and the same line then means a Rocket I fired while cruising
+  // on a Rocket V takes you from 107 m/s to 33.5. Pressing the wrong hotbar key
+  // costs you sixty-nine per cent of your speed, which is not a trade, it is a
+  // trap.
+  //
+  // So the two jobs are separated. The swing toward your look direction is kept
+  // exactly as it was — that is the part that makes a rocket steer. The pull
+  // along your look is only ever allowed to add. A rocket is a motor, not a
+  // brake.
+  //
+  // Everywhere it used to matter this is identical arithmetic: from a standstill
+  // the along-look speed is nought, so the full pull applies, and Rocket I still
+  // settles at Minecraft's 33 m/s.
+  const along = vx * look.x + vy * look.y + vz * look.z;
+  // Push toward the target, never past it, and never back from beyond it. The
+  // flat 0.1 goes with the pull rather than being added unconditionally: in
+  // vanilla the two balance, and keeping the nudge while dropping the pull is a
+  // rocket with no governor — a Rocket V ran away from 107 m/s to 144.
+  const gain = along < thrust ? 0.1 + (thrust - along) * 0.5 : 0;
+  // What is left of your velocity once the along-look part is taken out. This
+  // is the component the swing acts on, and halving it is what the original
+  // line did to it.
+  const sx = vx - along * look.x;
+  const sy = vy - along * look.y;
+  const sz = vz - along * look.z;
+
+  const nx = vx + look.x * gain - sx * 0.5;
+  const ny = vy + look.y * gain - sy * 0.5;
+  const nz = vz + look.z * gain - sz * 0.5;
 
   velocity.x = nx * TO_SECOND;
   velocity.y = ny * TO_SECOND;

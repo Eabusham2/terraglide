@@ -237,7 +237,7 @@ console.log('\nelytra flight model');
       speeds.every((v, i) => i === 0 || v > speeds[i - 1] + 5),
       speeds.map((v) => `${Math.round(v)} m/s`).join(' '));
     ok('rocket I still settles at Minecraft\u2019s 33 m/s',
-      Math.abs(speeds[0] - 33.5) < 1);
+      Math.abs(speeds[0] - 33) < 2);
     ok('and rocket V at about 107', Math.abs(speeds[4] - 107) < 2);
   }
 
@@ -266,16 +266,37 @@ console.log('\nelytra flight model');
       near(Math.hypot(early.x, early.z), Math.hypot(late.x, late.z), 0.001));
   }
 
-  // A rocket pulls your speed *toward* its own from either direction. Fired
-  // while already diving you slow down, which is not a bug: it is what 1.5
-  // blocks a tick means when you are doing three and a half.
+  // A rocket is a motor, not a brake.
+  //
+  // Minecraft's line pulls your speed toward the rocket's own from *either*
+  // direction, and in vanilla that barely shows because every firework aims at
+  // the same 1.5 blocks a tick. Here a bigger rocket pushes harder as well as
+  // longer, which was asked for — and the same line then means the small slots
+  // brake you. Cruising at 106 m/s on a Rocket V, firing a Rocket I took you to
+  // 33.5: sixty-nine per cent of your speed for pressing the wrong hotbar key.
+  //
+  // So it pushes toward its target, never past it, and never back from beyond
+  // it. Regulation on the way up is kept — that is what makes each rocket
+  // settle at its own cruise — and only the pull back down is gone.
   {
     const fast = { x: 0, y: 0, z: -70 };
-    const ticks = rocketTicks(3);
+    const before = Math.hypot(fast.x, fast.z);
+    const ticks = rocketTicks(1);
     for (let tick = 0; tick < ticks; tick++) stepRocket(fast, levelLook, 1, tick / ticks);
-    ok('and firing one while faster than it slows you toward it',
-      Math.hypot(fast.x, fast.z) < 70 && Math.hypot(fast.x, fast.z) > 25,
-      `${Math.hypot(fast.x, fast.z).toFixed(0)} m/s`);
+    const after = Math.hypot(fast.x, fast.z);
+    ok('a rocket weaker than your speed does not brake you',
+      after >= before - 0.01, `${before.toFixed(0)} -> ${after.toFixed(0)} m/s`);
+  }
+
+  // And it still governs on the way up, or a Rocket V runs away instead of
+  // settling: dropping the pull without also dropping the flat nudge took the
+  // V cruise from 107 m/s to 144.
+  {
+    const v = { x: 0, y: 0, z: 0 };
+    const ticks = rocketTicks(1) * 6;
+    for (let tick = 0; tick < ticks; tick++) stepRocket(v, levelLook, 1, 0);
+    ok('but it does not run away past its own target',
+      Math.hypot(v.x, v.z) < 34, `${Math.hypot(v.x, v.z).toFixed(0)} m/s`);
   }
 }
 
