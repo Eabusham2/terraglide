@@ -74,7 +74,12 @@ what is left · `[?]` needs a decision from you.
       abandons the hold onto unmeasured ground. The "reverts to old spots"
       part I have not reproduced yet and it stays open.
 - [ ] A7. It randomly refreshes
-- [ ] A8. Why is it forcing to fly — why can't it remember position on relog
+- [x] A8. Why is it forcing to fly — why can't it remember position on relog
+      The position was always remembered. What you were *doing* was not, so the
+      spawn had nothing to go on and took "arrive in the sky" at its word every
+      time — hence being thrown into the air with the wings out on every reload.
+      Leaving mid-glide brings you back gliding; leaving on your feet brings you
+      back on your feet.
 
 ## B. The ground falls apart
 

@@ -101311,7 +101311,13 @@ class Game {
     this.onStatus('Finding a place to stand');
     const saved = readJSON(POSITION_KEY, null);
     if (saved && Number.isFinite(saved.lat)) {
-      await this.patiently(this.teleportTo(saved.lat, saved.lon, { reason: 'spawn', quiet: true }));
+      // Back where you were, doing what you were doing. `flying` is absent from
+      // records written before this, and an old save should not silently start
+      // landing people who left mid-glide, so it falls back to the setting.
+      const wasFlying = typeof saved.flying === 'boolean' ? saved.flying : true;
+      await this.patiently(
+        this.teleportTo(saved.lat, saved.lon, { reason: 'spawn', quiet: true, flying: wasFlying }),
+      );
     } else {
       // First run: somewhere new, not the same Swiss valley for everybody
       // forever. The same search a random teleport uses, so it lands on
@@ -101959,7 +101965,14 @@ class Game {
 
   /* ------------------------------------------------------------- teleports */
 
-  async teleportTo(lat, lon, { reason = 'manual', quiet = false } = {}) {
+  /**
+   * @param {object} [options]
+   * @param {string} [options.reason]
+   * @param {boolean} [options.quiet]
+   * @param {boolean} [options.flying]  what you were doing before, when the
+   *   player object cannot say — a spawn, where there is no "before" in memory.
+   */
+  async teleportTo(lat, lon, { reason = 'manual', quiet = false, flying } = {}) {
     this.teleporting = true;
     // Being somewhere else makes the old destination somebody else's problem.
     this.autopilot.disengage();
@@ -101988,9 +102001,12 @@ class Game {
     // are standing puts you back on your feet — the first load has no previous
     // state to match, so it takes the setting at its word.
     const wasFlying = !player.onGround || player.elytraDeployed;
+    // A spawn knows what you were doing when you left, and says so; every other
+    // reason reads it off the player, who is standing right here.
+    const flyingBefore = typeof flying === 'boolean' ? flying : wasFlying;
     const airborne =
       settings.get('rtpSkySpawn') &&
-      (reason === 'spawn' || ((reason === 'rtp' || reason === 'map') && wasFlying));
+      (reason === 'spawn' ? flyingBefore : (reason === 'rtp' || reason === 'map') && wasFlying);
     player.teleport(lat, lon, ground, airborne ? SPAWN_HEIGHT_M : 1.2);
     // Arrive looking at the country rather than at your own boots. Teleporting
     // while you happened to be looking down dropped you four hundred metres up
@@ -102092,7 +102108,15 @@ class Game {
   }
 
   savePosition() {
-    writeJSON(POSITION_KEY, { lat: this.player.lat, lon: this.player.lon });
+    // Whether you were flying, as well as where you were. Coming back always
+    // threw you into the air with the wings out, because the spawn took the
+    // "arrive in the sky" setting at its word and had nothing else to go on —
+    // which is "why is it forcing me to fly". Now it has something to go on.
+    writeJSON(POSITION_KEY, {
+      lat: this.player.lat,
+      lon: this.player.lon,
+      flying: !this.player.onGround || this.player.elytraDeployed,
+    });
   }
 
   /* --------------------------------------------------------------- actions */

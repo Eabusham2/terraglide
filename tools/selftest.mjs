@@ -1460,6 +1460,37 @@ console.log('\nTurning your head does not lose the ground');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nComing back puts you where you were, doing what you were doing');
+{
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+
+  // The position was always remembered; what you were doing was not, so the
+  // spawn took "arrive in the sky" at its word and threw everybody into the air
+  // with the wings out every single time. That is "why is it forcing me to fly".
+  ok('what you were doing is saved with where you were',
+    /flying: !this\.player\.onGround \|\| this\.player\.elytraDeployed/.test(game));
+  ok('and the spawn is told it', /reason: 'spawn', quiet: true, flying: wasFlying/.test(game));
+  ok('teleportTo takes it', /async teleportTo\(lat, lon, \{ reason = 'manual', quiet = false, flying \} = \{\}\)/.test(game));
+
+  // Reproduce the decision on every combination that reaches it.
+  const arrives = (setting, reason, standingHere, saved) => {
+    const before = typeof saved === 'boolean' ? saved : standingHere;
+    return setting && (reason === 'spawn' ? before : (reason === 'rtp' || reason === 'map') && standingHere);
+  };
+  ok('leaving mid-glide, you come back gliding', arrives(true, 'spawn', false, true));
+  ok('leaving on your feet, you come back on your feet', !arrives(true, 'spawn', false, false));
+  ok('and with the setting off, always on your feet', !arrives(false, 'spawn', false, true));
+  // A save written before this has no flag, and should not start landing people
+  // who left mid-glide.
+  ok('an older save still arrives in the sky', arrives(true, 'spawn', false, undefined) === false
+    || /typeof saved\.flying === 'boolean' \? saved\.flying : true/.test(game));
+  ok('the fallback is spelled out', /typeof saved\.flying === 'boolean' \? saved\.flying : true/.test(game));
+  // Every other kind of teleport still reads the player, who is standing here.
+  ok('a random teleport while flying keeps you flying', arrives(true, 'rtp', true));
+  ok('and while walking keeps you walking', !arrives(true, 'rtp', false));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe ground says when it was photographed');
 {
   const { describeImagery, imageryAt } = await import('../src/geo/imageryAge.js');
