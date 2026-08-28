@@ -99672,7 +99672,26 @@ class Game {
     };
     this.worldmap.onNotice = (message) => this.toast(message);
 
-    this.settingsPanel.onChange = (key) => this.onSettingChanged(key);
+    // Listen to the store, not to the widget.
+    //
+    // This was `settingsPanel.onChange`, so a setting only took effect if a
+    // hand had moved that particular control. Everything else that writes a
+    // setting — and there is a lot of it — changed the stored value and the
+    // game went on as before:
+    //
+    //  - choosing a graphics preset. `set('graphics', …)` cascades the preset's
+    //    own keys through applyPreset, which emits a change for each. The panel
+    //    reports only the key you touched, so meshDetail, renderDistanceKm and
+    //    the rest were written and never applied. That is "changing a graphics
+    //    preset does nothing" and "ensure graphics presets update".
+    //  - auto quality stepping the tier, which is now what everybody starts on.
+    //    It moved the number and never the picture.
+    //  - importing a save.
+    //
+    // Both of the panel's own call sites already go through settings.set, so
+    // nothing is lost by dropping the direct route, and there is now exactly
+    // one path from a changed setting to the game reacting to it.
+    settings.on('change', ({ key }) => this.noteSettingChanged(key));
     this.settingsPanel.onDataAction = (name, payload) => this.onDataAction(name, payload);
     // Test the providers where you actually are. Asking about a fixed tile
     // somewhere in Europe would happily report USGS as broken while you stand
@@ -99934,6 +99953,25 @@ class Game {
     return this.tiles3d;
   }
 
+  /**
+   * Remember that a setting changed; act on it once, before the next frame.
+   *
+   * Coalesced because a preset writes half a dozen keys in a row and two of
+   * the responses — rebuilding every terrain mesh, resizing the render target
+   * — are far too heavy to run once per key. Applied at the top of the frame
+   * so a change made mid-frame is never half-applied to it.
+   */
+  noteSettingChanged(key) {
+    (this.pendingSettings ??= new Set()).add(key);
+  }
+
+  applyPendingSettings() {
+    const keys = this.pendingSettings;
+    if (!keys || keys.size === 0) return;
+    this.pendingSettings = null;
+    for (const key of keys) this.onSettingChanged(key);
+  }
+
   onSettingChanged(key) {
     const providerKeys = ['imageryProvider', 'elevationProvider', 'googleKey', 'mapboxKey', 'bingKey', 'azureKey'];
     if (providerKeys.includes(key)) {
@@ -99956,12 +99994,14 @@ class Game {
     if (key === 'detailedPlayerModel') {
       this.avatar.loadModel().then(() => this.avatar.applyModelMode());
     }
-    if (key === 'resolutionScale' || key === 'graphics') this.resize();
-    // Choosing a preset by hand is a statement about what you want, so the
-    // governor starts again from there rather than undoing it in a few
-    // seconds and looking like the setting had not saved.
-
-    if (key === 'meshDetail') this.terrain.rebase();
+    if (key === 'resolutionScale' || key === 'graphics' || key === 'autoTier') this.resize();
+    // The mesh grid is read from the preset, so a preset that changes changes
+    // it — and an existing mesh keeps whatever grid it was built with until
+    // something asks for it again. Nothing did, so a new preset only reached
+    // ground you had not visited yet.
+    if (key === 'meshDetail' || key === 'graphics' || key === 'autoTier' || key === 'detailLimit') {
+      this.terrain.rebase();
+    }
     if (key === 'mouseMode' && settings.get('mouseMode') === 'locked') this.input.requestPointerLock();
   }
 
@@ -100087,6 +100127,10 @@ class Game {
     const elapsed = clamp((now - this.lastTime) / 1000, 0, MAX_FRAME_S);
     this.lastTime = now;
     if (document.hidden) return;
+
+    // Anything that changed a setting since the last frame takes effect now,
+    // before anything reads one.
+    this.applyPendingSettings();
 
     // The frame-rate governor wants real seconds; everything else runs on the
     // game clock, which the game-speed cheat is allowed to stretch.

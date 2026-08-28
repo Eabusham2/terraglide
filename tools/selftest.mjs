@@ -1076,6 +1076,41 @@ console.log('\nAuto graphics is a dial, not a label');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nA setting that changes takes effect');
+{
+  const { settings } = await import('../src/core/settings.js');
+  const before = settings.get('graphics');
+
+  const seen = [];
+  const off = settings.on('change', ({ key }) => seen.push(key));
+  settings.set('graphics', 'ultra');
+  seen.length = 0;
+  settings.set('graphics', 'low');
+
+  // Picking a preset writes everything the preset covers, one change event
+  // each. The game used to hear about these through the settings panel's own
+  // callback, which reports only the control a hand actually moved — so eight
+  // of the nine were stored and never applied.
+  ok(`a preset writes more than the key you touched  (${seen.length} keys)`, seen.length > 3);
+  ok('including the one the terrain mesh is built from', seen.includes('meshDetail'));
+  ok('and the one the horizon is drawn to', seen.includes('renderDistanceKm'));
+  if (typeof off === 'function') off();
+
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  ok('the game listens to the store', /settings\.on\('change'/.test(game));
+  ok('and not to the widget', !/settingsPanel\.onChange\s*=/.test(game));
+  // A preset writes half a dozen keys in a row, and two of the responses
+  // rebuild every terrain mesh. Doing that once per key is a stutter storm.
+  ok('changes are coalesced into one pass', /applyPendingSettings\(\)/.test(game));
+  // Auto quality moves autoTier, which moves the preset. It moved the number
+  // and never the picture.
+  ok('and a tier the game chose applies like one you chose',
+    /key === 'autoTier'/.test(game));
+
+  settings.set('graphics', before);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nTurning your head does not lose the ground');
 {
   const THREE = await import('../vendor/three/three.module.js');

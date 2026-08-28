@@ -223,8 +223,20 @@ what is left · `[?]` needs a decision from you.
 - [ ] J1. Completely remove the code of the fake generator
 - [ ] J2. A test on every mode
 - [ ] J3. Fix causes, not symptoms — no papering over
-- [ ] J4. Changing any setting applies instantly (graphics presets, 3D type)
-- [ ] J5. Ensure graphics presets update
+- [x] J4. Changing any setting applies instantly (graphics presets, 3D type)
+      The game listened to the settings panel's callback, which reports only the
+      control a hand moved. Picking Low writes nine settings; eight were stored
+      and never applied — and auto quality, which everyone now starts on, moved
+      the tier without ever moving the picture. It listens to the store now,
+      coalesced to one pass a frame, and a preset change rebuilds the meshes
+      because the mesh grid is read from the preset.
+- [x] J5. Ensure graphics presets update
+      The game listened to the settings panel's callback, which reports only the
+      control a hand moved. Picking Low writes nine settings; eight were stored
+      and never applied — and auto quality, which everyone now starts on, moved
+      the tier without ever moving the picture. It listens to the store now,
+      coalesced to one pass a frame, and a preset change rebuilds the meshes
+      because the mesh grid is read from the preset.
 
 ## L. Standing instructions
 
