@@ -774,6 +774,49 @@ console.log('\nThe body you can see');
         + `  (${((r.x - l.x) * 1000).toFixed(0)} mm apart)`, r.x - l.x > 0.05);
     }
 
+    // Gliding in first person, you can see your own hands.
+    //
+    // This is the check that was missing. The arms were swung back to -1.85 to
+    // keep the firework off the lens, which left the hand four centimetres in
+    // front of the eye against a near plane of fifteen — so a first-person
+    // glide was landscape and nothing else, no arms, no hands, no rocket. And
+    // the spread was 0.62, which put them 66 degrees off the view axis: even
+    // once they cleared the near plane they were outside the frame.
+    //
+    // So it is checked against the frame, not against a distance: past the
+    // near plane, and inside the half-angles the default FOV actually gives.
+    {
+      const NEAR = 0.15;
+      const fov = (78 * Math.PI) / 180;
+      const halfUp = fov / 2;
+      const halfSide = Math.atan(Math.tan(halfUp) * (16 / 9));
+      const rig = new Avatar(new THREE.Scene());
+      rig.setVisible(true);
+      rig.setFirstPerson(true);
+      rig.root.scale.setScalar(1.83);
+      const player = makePlayer({
+        elytraDeployed: true, onGround: false, mode: 'glide', pitch: -0.35,
+        horizontalSpeed: 45, velocity: new THREE.Vector3(0, -10, -44),
+      });
+      for (let i = 0; i < 240; i += 1) rig.update(player, 1 / 60);
+      rig.root.updateMatrixWorld(true);
+      // The camera sits at the eye, which is what the glide pose turns about.
+      const eye = new THREE.Vector3(0, 0.94 * 1.83, 0);
+      const at = new THREE.Vector3();
+      for (const [what, part] of [['your hand', rig.fistR], ['the firework', rig.rocket]]) {
+        part.getWorldPosition(at);
+        const ahead = -(at.z - eye.z);
+        const side = Math.atan2(Math.abs(at.x - eye.x), Math.max(ahead, 1e-6));
+        const up = Math.atan2(Math.abs(at.y - eye.y), Math.max(ahead, 1e-6));
+        ok(`gliding, ${what} is past the near plane  (${ahead.toFixed(2)} m of ${NEAR})`,
+          ahead > NEAR + 0.1);
+        ok(`gliding, ${what} is inside the frame`
+          + `  (${((side * 180) / Math.PI).toFixed(0)} deg of ${((halfSide * 180) / Math.PI).toFixed(0)}`
+          + ` across, ${((up * 180) / Math.PI).toFixed(0)} of ${((halfUp * 180) / Math.PI).toFixed(0)} up)`,
+          side < halfSide && up < halfUp);
+      }
+    }
+
     // Every garment carries its own fill, so nothing on the character can go
     // to a black slab when the sun is behind it.
     let darkest = 1;

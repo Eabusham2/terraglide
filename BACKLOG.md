@@ -425,11 +425,26 @@ what is left · `[?]` needs a decision from you.
       unreadable — the chest was Minecraft-wide and the cloth texture had its
       wrapping set to repeat and its repeat never set, so one photograph of the
       weave was stretched over the whole chest at about fifty times life size.
-      Both fixed. The rocket in hand while gliding is checked now too, and it
-      was on the wrong side of the body: the glide pose crossed both arms over
-      the chest, so the hand holding it was where the other hand should have
-      been. See M2. There are hands on the ends of the arms now as well — the
-      sleeve used to stop in mid-air, so the firework was held by nothing.
+      Both fixed. Then a shot of a first-person glide in the running game, and
+      there was nothing of you in it — no arms, no hands, no rocket, landscape
+      and nothing else. Two causes, and neither was visible without measuring
+      against the frame. The arms had been swung back to -1.85 to keep the
+      firework off the lens, which left the hand four centimetres in front of
+      the eye against a near plane of fifteen. And the spread was 0.62, which
+      put the hands 66 degrees off the view axis: even clear of the near plane
+      they were outside a frame that is 55 degrees to the side at the default
+      FOV, so widening the arms to "frame the view" pushed them out of it.
+      Swept both rather than guessed — your shoulder is a quarter of a metre
+      behind your eye when you are face down, so the hand can only get about
+      0.36 m in front of the camera whatever the arm does, and it peaks around
+      -2.7. At -2.7 and 0.32 the hands are 0.31 m ahead at 50 degrees, and the
+      forearms sweep in from the corners.
+
+      There are hands on the ends of the arms now as well — the sleeve used to
+      stop in mid-air, so the firework was held by nothing — and the rocket was
+      on the wrong side of the body, because the glide pose crossed both arms
+      over the chest. See M2. The self-test checks the hand and the firework
+      against the near plane and both frame half-angles.
 - [ ] I12. Improve the freecam model
 - [x] I13. Freecam that does not pause the game
       Already so: the freecam is deliberately not in the pause list, and there is a

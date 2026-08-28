@@ -88862,7 +88862,17 @@ class Avatar {
     // screen as a pale disc. From outside the same sweep is right — a glider
     // reaches.
     const tuck = this.glideBlend;
-    const reach = this.firstPerson ? -1.85 : -2.5;
+    //
+    // -1.85 was chosen to keep the firework off the lens and went too far the
+    // other way: it left the hand four centimetres in front of the eye, and
+    // the near plane is fifteen. Gliding in first person you saw nothing of
+    // yourself at all — no arms, no hands, no rocket, just landscape.
+    //
+    // Swept for it instead of guessed. Your shoulder is a quarter of a metre
+    // behind your eye when you are lying face down, so however far the arm
+    // swings the hand can only get about 0.36 m in front of the camera, and it
+    // peaks around -2.7. Past that it starts coming back.
+    const reach = this.firstPerson ? -2.7 : -2.5;
     this.armL.pivot.rotation.x = this.armL.pivot.rotation.x * (1 - tuck) + reach * tuck;
     this.armR.pivot.rotation.x = this.armR.pivot.rotation.x * (1 - tuck) + reach * tuck;
     // In first person the arms are swept wider so they frame the view instead
@@ -88879,7 +88889,14 @@ class Avatar {
     // the body with nothing near it. Which is a thing you can see in a
     // screenshot and cannot see in a wireframe, and is why the hands are
     // measured in the self-test now.
-    const spread = this.firstPerson ? 0.62 : 0.85;
+    //
+    // 0.62 put the hand 0.58 m out at 0.25 m ahead, which is 66 degrees off the
+    // view axis — outside the frame at every FOV the game offers, so widening
+    // the arms to "frame the view" pushed them out of it. 0.32 lands them at
+    // 50 degrees against a half-frame of 55 at the default 78 FOV: the hands
+    // sit near the edges and the forearms sweep in from the corners, which is
+    // the shape that was wanted.
+    const spread = this.firstPerson ? 0.32 : 0.85;
     this.armL.pivot.rotation.z = -spread * tuck;
     this.armR.pivot.rotation.z = spread * tuck;
 
