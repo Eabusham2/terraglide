@@ -929,8 +929,16 @@ export class Avatar {
     // is exactly the angle you see yourself from in third person.
     this.legL.pivot.rotation.x -= 0.34 * tuck;
     this.legR.pivot.rotation.x -= 0.34 * tuck;
-    this.legL.pivot.rotation.z = this.legL.pivot.rotation.z * (1 - tuck) + 0.06 * tuck;
-    this.legR.pivot.rotation.z = this.legR.pivot.rotation.z * (1 - tuck) - 0.06 * tuck;
+    //
+    // Apart at the ankle, not crossed at it. Bringing the legs together was
+    // meant to stop them reading as two blocks end-on; taken this far it did
+    // the opposite. Each foot swings 50 mm and the hips are only 44 mm apart,
+    // so the ankles crossed by 31 mm and the pair drew as one featureless
+    // rectangle — which from directly behind is the largest thing on the
+    // character. The other way round leaves 145 mm between the boots, which is
+    // roughly what a person's feet do in the air and reads as a pair of legs.
+    this.legL.pivot.rotation.z = this.legL.pivot.rotation.z * (1 - tuck) - 0.06 * tuck;
+    this.legR.pivot.rotation.z = this.legR.pivot.rotation.z * (1 - tuck) + 0.06 * tuck;
 
     // The nose takes the colour of the slot you are on, so what is in your
     // hand and what is lit in the hotbar are visibly the same rocket.

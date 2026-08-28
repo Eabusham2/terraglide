@@ -764,6 +764,14 @@ console.log('\nThe body you can see');
       avatar.fistR.getWorldPosition(r);
       ok(`${what}, the left hand is on the left and the right on the right`
         + `  (${l.x.toFixed(2)} / ${r.x.toFixed(2)})`, l.x < -0.05 && r.x > 0.05);
+
+      // And the feet. The glide tuck swung each one 50 mm inward across hips
+      // 44 mm apart, so the ankles crossed and the legs — the largest thing on
+      // a figure seen from directly behind — drew as one blank rectangle.
+      avatar.bootL.getWorldPosition(l);
+      avatar.bootR.getWorldPosition(r);
+      ok(`${what}, the feet are two feet rather than one`
+        + `  (${((r.x - l.x) * 1000).toFixed(0)} mm apart)`, r.x - l.x > 0.05);
     }
 
     // Every garment carries its own fill, so nothing on the character can go
