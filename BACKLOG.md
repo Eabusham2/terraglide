@@ -125,14 +125,56 @@ what is left · `[?]` needs a decision from you.
 - [~] B2. Random times a patch below appears, then the player glitches down
       — same cause as A1 and improved by the same change, but only measured on
       arrival. A correction arriving mid-flight is still unhandled.
-- [ ] B3. Sometimes most of the ground below me is missing and I stand on an invisible platform with patches
+- [~] B3. Sometimes most of the ground below me is missing and I stand on an invisible platform with patches
+      An invisible platform is the elevation field still answering while the
+      mesh over it is not drawn, so that is what was measured: over three
+      minutes of hard banking flight, every frame, is there a drawn square whose
+      footprint covers the player?
+
+        frames with no drawn square under the player          0 of 186 (0.00%)
+        built squares within 600 m that were drawn      mean 99.9%, worst 93%
+
+      The 7% at worst is the frustum — squares behind you are built and not
+      drawn, which is correct. So it does not reproduce on this build.
+
+      One cause that could have produced it is fixed since the report: the cap
+      on how many squares may be drawn was keyed on the raw graphics setting,
+      which reads 'auto' for everybody by default, so every machine took the
+      *high* figure of 1100. When that cap bites, what goes undrawn is whatever
+      the walk had not reached, and a machine that could not keep up would lose
+      ground rather than frames. The other is B4, being set down on ground the
+      game has not measured.
+
+      Left open rather than closed because it is your screen it happened on, not
+      this one, and the measurement above is a hard flight rather than every
+      condition — a provider failing mid-flight, or a machine short of memory,
+      are not in it.
 - [~] B4. Floating on invisible ground above the imagery
       — you are no longer *set down* on ground the game has not measured.
       Whether it still happens after a mid-flight correction is untested.
 - [~] B5. Ground becomes griddy and comes back — moves up or down and shows a grid
       The moving up and down is fixed — see B1, it is fresh elevation landing
       and the tile now walks rather than steps. The grid itself is still open.
-- [ ] B6. Randomly starts disappearing, getting patchy, falling apart, coming back in chunks
+- [~] B6. Randomly starts disappearing, getting patchy, falling apart, coming back in chunks
+      Three separate things were behind this and two are now measured out.
+
+      "Coming back in chunks" is the texture cache: ground you looked away from
+      for more than twenty seconds is thrown away and re-fetched square by
+      square, which is exactly what chunks coming back looks like. Measured
+      under B7 — turn away for ninety seconds and you come home at 70%, turn
+      away for twenty and you come home at 100%.
+
+      "Getting patchy" while you turn is B12, and it is stretching rather than
+      disappearing: 45 degrees costs 12% of the frame, an about-face 37%, and
+      nothing goes bare because the coarse cover is stretched over it.
+
+      "Disappearing" is the one that could really be squares not drawn at all,
+      and the cause found for it is the drawn cap taking the high tier's figure
+      on every machine — see B3. Measured after that fix, over three minutes of
+      banking flight, 99.9% of built squares within 600 m were drawn and there
+      was never a frame with nothing under the player.
+
+      Same caveat as B3: open until you see it or stop seeing it.
 - [~] B7. Random refresh of textures
       Not random — it is ground you looked away from for more than twenty
       seconds, and the trigger is exactly that.
@@ -1201,7 +1243,28 @@ what is left · `[?]` needs a decision from you.
       cliff is beside the player rather than under the camera — which is why a
       screenshot could not settle it either way and the probe could.
 
-- [ ] M3. It is so laggy
+- [~] M3. It is so laggy
+      One real cause found and fixed, and it is not the one it looks like: the
+      cap on how many squares may be drawn in a frame was keyed on the raw
+      graphics setting, which reads 'auto' for anyone who has not picked a tier
+      by hand. 'auto' was not one of the keys, so every machine took the high
+      tier's 1100 whatever tier it was actually running — a Chromebook on Low
+      was being asked for more than twice the ground it had chosen. See the
+      commit; the drawn cap is a preset field now, resolved like the rest.
+
+      Honest about what that is worth: measured after the fix, the cap does not
+      bite in ordinary views. Standing on the ground draws 329 squares of a cap
+      of 520, a kilometre up 207, six kilometres up 199 — 332 draw calls and
+      446k triangles at the worst of those. So the mismatch was real and is not
+      what makes it laggy for you.
+
+      What is left cannot be measured here and that is worth saying plainly
+      rather than guessing at: this sandbox renders in software at one or two
+      frames a second by design, so any frame-rate number it produces is about
+      SwiftShader and not about your machine. The numbers that do transfer are
+      the counts above. What would settle it is which tier the game picked on
+      your machine and what the frame counter reads there — both are on the
+      debug overlay.
 - [x] M4. The quality is bad; zooming in on the map looks better than the ground
       Two answers, and the second was a real bug.
 
@@ -1253,14 +1316,47 @@ what is left · `[?]` needs a decision from you.
       They come from the drawn position now. It is settled before they are
       read, and a teleport snaps the two together, so there is no moment where
       the answer is from before the jump.
-- [ ] M7. Ground still has holes, still reloads, still moves up and down
+- [x] M7. Ground still has holes, still reloads, still moves up and down
+      Three claims, three answers.
+
+      Holes: 0.00 to 0.10% of the frame across every standard view, once the
+      character is excluded from the measurement — the first version of that
+      measurement counted the player's own body as sky enclosed by ground and
+      reported holes that were the avatar. And over three minutes of banking
+      flight there was never a frame without a drawn square under the player.
+
+      Reloads: real, and it is the twenty-second rule. See B7 — ground you look
+      away from for longer than that is thrown away and re-fetched, and the
+      same round trip inside twenty seconds costs nothing.
+
+      Moves up and down: fixed. Fresh elevation arriving used to move the tile
+      in one step, so the ground jumped under you; it now morphs from the old
+      height to the new one over a third of a second, per vertex, and anything
+      under five centimetres is not morphed at all. See B1 and B5.
 - [x] M8. Unloading while the player is still inside the render distance
       Cause: the texture cache held a tile for 240 *frames*, commented as "about
       four seconds at 60 fps" — true only at exactly sixty. 144 fps got 1.7 s,
       30 fps got 8, 10 fps got 24. The better the machine, the sooner the ground
       behind you was thrown away. Now 20 seconds of wall clock, the same on
       every machine.
-- [ ] M9. Ground becomes blurry
+- [x] M9. Ground becomes blurry
+      Two causes, both measured, both named elsewhere and neither of them
+      random.
+
+      Turning your head: the ground behind you is outside the frustum, so it is
+      never drawn and never asked for, and turning is the first time it is
+      wanted. 45 degrees costs 12% of the frame for under five seconds, 90
+      degrees 20%, an about-face 37% and about fifteen seconds. It is stretched
+      from the coarse cover rather than missing, which is why it reads as blur.
+      See B12.
+
+      Coming back to somewhere you left: ground you looked away from for more
+      than twenty seconds has been thrown away, so it arrives soft and sharpens.
+      See B7.
+
+      What it is *not* is auto-quality dropping a tier, which was the obvious
+      suspect and was ruled out by measurement under B10 — that averages over
+      seconds and cannot produce a one-second blur.
 - [x] M10. Player width and speed on the ground do not feel real
       Measured against real anthropometry the figure was 1.68x too wide across
       the chest, 1.80x across the shoulders and 2.09x across the hips — it was
