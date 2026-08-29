@@ -4406,6 +4406,137 @@ console.log('\nWalking, jumping and falling like Minecraft');
   }
 }
 
+// J2: a test on every mode.
+//
+// The individual behaviours are tested above and throughout — a fall reaches
+// 78.4, a walk is 4.32, a glide is Minecraft's tick. What was missing is the
+// thing the request actually names: that the controller *picks* the right mode
+// for each state, and that each one moves you at all when it is picked. Those
+// are different failures. A mode that is never selected passes every test of
+// what it does, because none of them go through the selector.
+//
+// Driven through the real controller, one state per mode, rather than by
+// setting player.mode and reading it back.
+console.log('\nEvery mode, through the selector that chooses it');
+{
+  const { Player } = await import('../src/player/player.js');
+  const { PlayerController } = await import('../src/player/controller.js');
+  const { cheats } = await import('../src/core/cheats.js');
+  const frame = { setAnchor() {}, toGeo: () => ({ lat: 0, lon: 0 }) };
+  // Dry land at zero, with a lake from x = 400 east so swimming has somewhere
+  // to happen.
+  const world = {
+    heightAt: (x) => (x > 400 ? -6 : 0),
+    bedAt: (x) => (x > 400 ? -6 : 0),
+    meshHeightAt: () => null,
+    hasElevationAt: () => true,
+    isWaterAt: (x) => x > 400,
+  };
+  const keys = (over = {}) => ({
+    forward: false, back: false, left: false, right: false,
+    jump: false, sprint: false, crouch: false, ...over,
+  });
+  const rig = () => {
+    const player = new Player(frame);
+    return { player, controller: new PlayerController({ player, terrain: world, buildings: null }) };
+  };
+  const run = (r, frames, over) => {
+    for (let i = 0; i < frames; i++) r.controller.update(1 / 60, keys(over));
+  };
+  const moved = (r, frames, over) => {
+    const from = r.player.position.clone();
+    run(r, frames, over);
+    return r.player.position.distanceTo(from);
+  };
+
+  {
+    const r = rig();
+    r.player.onGround = true;
+    const went = moved(r, 120, { forward: true });
+    ok(`standing on the ground is 'walk', and it moves you  (${went.toFixed(1)} m)`,
+      r.player.mode === 'walk' && went > 4, r.player.mode);
+  }
+  {
+    const r = rig();
+    r.player.position.set(0, 500, 0);
+    r.player.onGround = false;
+    const went = moved(r, 60);
+    ok(`airborne with the wings shut is 'fall', and it drops you  (${went.toFixed(1)} m)`,
+      r.player.mode === 'fall' && went > 4, r.player.mode);
+  }
+  {
+    const r = rig();
+    r.player.position.set(0, 500, 0);
+    r.player.onGround = false;
+    r.player.elytraDeployed = true;
+    r.player.velocity.set(0, 0, -30);
+    const from = r.player.position.clone();
+    run(r, 120);
+    const forward = Math.hypot(r.player.position.x - from.x, r.player.position.z - from.z);
+    const dropped = from.y - r.player.position.y;
+    ok(`airborne with the wings open is 'glide', and it flies rather than falls`
+      + `  (${forward.toFixed(0)} m across for ${dropped.toFixed(0)} m down)`,
+      r.player.mode === 'glide' && forward > dropped * 3, r.player.mode);
+  }
+  {
+    const r = rig();
+    r.player.position.set(0, 500, 0);
+    r.player.onGround = false;
+    const was = cheats.fly;
+    if (!was) cheats.toggle('fly');
+    run(r, 30);
+    const held = r.player.position.y;
+    run(r, 120, { jump: true });
+    const climbed = r.player.position.y - held;
+    ok(`the fly cheat is 'fly', and it holds you up and climbs  (${climbed.toFixed(0)} m)`,
+      r.player.mode === 'fly' && Math.abs(held - 500) < 2 && climbed > 5, r.player.mode);
+    // Jump is the ascend key while flying and nothing else. Without that it was
+    // also the wings key — the airborne branch of readJumpEdges only asks
+    // whether you are off the ground, and flying always is — so one press of
+    // ascend deployed the elytra invisibly, made rockets lightable in a mode
+    // with no use for them, and dropped you into a glide the moment the cheat
+    // came off.
+    ok('and climbing on the jump key does not open the wings behind your back',
+      !r.player.elytraDeployed);
+    ok('so a rocket cannot be lit while flying', r.player.fireRocket() === false);
+    if (cheats.fly !== was) cheats.toggle('fly');
+    // Long enough to carry a physics tick. The mode is chosen inside the fixed
+    // 20 Hz tick, so two frames at 60 Hz can pass without it being recomputed —
+    // which is what this read the first time it was written.
+    run(r, 8);
+    ok('and turning it off hands you back to the falling one',
+      r.player.mode === 'fall', r.player.mode);
+  }
+  {
+    // Swimming is a flag rather than a mode name, and it is the one that had no
+    // test of its own at all.
+    const r = rig();
+    r.player.position.set(600, -4, 0);
+    r.player.onGround = false;
+    run(r, 60);
+    ok('standing in the lake sets the swimming flag', r.player.swimming === true);
+    const sinking = r.player.velocity.y;
+    ok(`and water holds you up rather than dropping you at 78 m/s  (${sinking.toFixed(1)} m/s)`,
+      sinking > -12);
+    r.player.position.set(0, 0, 0);
+    r.player.onGround = true;
+    run(r, 30);
+    ok('and it clears again on dry land', r.player.swimming === false);
+  }
+  {
+    // The two perspectives are a mode in the sense the request means: each has
+    // its own body to draw, and the swap is where one of them has gone missing
+    // before.
+    const { settings } = await import('../src/core/settings.js');
+    const before = settings.get('perspective');
+    settings.set('perspective', 'first');
+    ok('first person is a mode you can be in', settings.get('perspective') === 'first');
+    settings.set('perspective', 'third');
+    ok('and so is third', settings.get('perspective') === 'third');
+    settings.set('perspective', before);
+  }
+}
+
 console.log('\nthe map you have actually seen');
 {
   const { Exploration } = await import('../src/ui/exploration.js');

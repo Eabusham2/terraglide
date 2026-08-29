@@ -375,6 +375,19 @@ export class PlayerController {
     const presses = Math.max(edge ? 1 : 0, input.jumpPresses ?? 0);
 
     for (let i = 0; i < presses; i++) {
+      if (cheats.fly) {
+        // While the fly cheat is on, jump is the ascend key and nothing else.
+        //
+        // Without this it was also the wings key, because the branch below only
+        // asks whether you are off the ground and flying always is: one press
+        // of ascend deployed the elytra behind your back. You could not see it
+        // — the fly tick draws and moves you the same either way — but it made
+        // rockets lightable in a mode that has no use for them, and the moment
+        // you turned the cheat off you were gliding instead of falling, from
+        // wherever you happened to be.
+        this.lastJumpTap = this.clock;
+        continue;
+      }
       if (!player.onGround) {
         // A press made in the air is about the wings, never about jumping.
         // Guard the frame you leave the ground on: the buffered jump has not

@@ -831,8 +831,64 @@ what is left · `[?]` needs a decision from you.
 
 ## J. How the work is done
 
-- [ ] J1. Completely remove the code of the fake generator
-- [ ] J2. A test on every mode
+- [x] J1. Completely remove the code of the fake generator
+      Gone, and not by deleting the file and leaving the callers. There is no
+      src/tiles/procedural.js, nothing imports one, no provider list carries an
+      'offline' or 'procedural' id, and core/math.js has lost hash3, rand3 and
+      makeRng — the three functions that were the whole ability to invent a
+      square. A tile that does not arrive is drawn as a neutral grey (see
+      groundNotLoaded) or not drawn at all; elevation with no reading is sea
+      level rather than invented relief; a coastline with no imagery answers
+      "land" rather than guessing; and the two octaves of noise that used to be
+      multiplied over the photograph are gone, which is what used to make bare
+      rock look like carpet.
+
+      The self-test holds all of that shut rather than trusting the deletion:
+      the file must not exist, nothing may match /procedural/i, the provider
+      list may not carry those ids, elevation may not expose an `invented`
+      getter, and the map may not invent a tile.
+
+      What is left that is not measured, in full, because "no fake data" should
+      mean an enumerable claim rather than a slogan. Every remaining call to
+      Math.random or a noise hash in the whole of src/:
+
+        world/weather.js   the cloud sheet, and where raindrops and snowflakes
+                           sit in the box around you. Sky, not ground.
+        world/shaders.js   the same cloud field again, for the shadow the deck
+                           casts and for crown-scale relief inside a wood.
+        world/places.js    picking one of a list of real settlements.
+        world/rtp.js       picking a bearing for a random teleport.
+        geo/mercator.js    picking a point for the same.
+
+      The last three choose rather than invent — a real place, chosen at random.
+      The first two are weather and are the sky. The crown relief is the one
+      that touches the ground, and its *placement* is data both ways: an
+      OpenStreetMap woodland polygon, or a canopy score measured off the
+      photograph's own greenness and roughness. Nothing there decides that a
+      wood exists.
+- [x] J2. A test on every mode
+      The individual behaviours were already tested — a fall reaches 78.4, a
+      walk is 4.32, a glide is Minecraft's tick — but nothing went through the
+      thing being asked about: the selector that *chooses* the mode. Those are
+      different failures. A mode that is never selected passes every test of
+      what it does, because none of them go through the selector.
+
+      There is one now, driving the real controller with one state per mode
+      rather than setting player.mode and reading it back: on the ground is
+      walk and it moves you 8.4 m; airborne with the wings shut is fall and it
+      drops you; airborne with them open is glide and it makes 57 m across for
+      5 m down rather than falling; the fly cheat is fly and it holds altitude
+      and climbs; standing in a lake sets swimming and the water holds you at
+      -0.9 m/s instead of 78; and both perspectives are reachable.
+
+      It found one straight away. Jump was the ascend key while flying *and*
+      still the wings key, because the airborne branch of readJumpEdges only
+      asks whether you are off the ground and flying always is. One press of
+      ascend deployed the elytra behind your back — invisible, because the fly
+      tick moves you the same either way — made rockets lightable in a mode
+      with no use for them, and dropped you into a glide the moment you turned
+      the cheat off, from wherever you were. Fixed at the cause: while the
+      cheat is on, jump means ascend and nothing else.
 - [ ] J3. Fix causes, not symptoms — no papering over
 - [x] J4. Changing any setting applies instantly (graphics presets, 3D type)
       The game listened to the settings panel's callback, which reports only the
@@ -1054,7 +1110,15 @@ what is left · `[?]` needs a decision from you.
       know where the floor was. Looking down brought the real relief in all at
       once. Ground within 250 m is now built whichever way you face.
 - [ ] M12. Photorealistic 3D "failed to fetch"
-- [ ] M13. Not everything fake has been removed
+- [x] M13. Not everything fake has been removed
+      Right at the time, and swept again now rather than assumed. See J1 for the
+      full enumeration: every remaining source of an unmeasured number in the
+      whole of src/ is listed there, and none of them decides where anything on
+      the ground is. What went since the complaint: the noise printed over the
+      imagery, the biome guessed from latitude, the sand along a waterline, the
+      rock on anything steep, the invented interiors of buildings, the invented
+      relief under a tile with no elevation reading, the invented coastline, and
+      hash3/rand3/makeRng themselves.
 - [x] M14. The README reads as a contextless changelog of what I asked you to change
       — rewritten to describe the game rather than narrate edits. Every "there
       used to be" is gone.
