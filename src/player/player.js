@@ -32,6 +32,9 @@ import { rocketPowerFor, rocketTicks, rocketTopSpeed } from './elytra.js';
  * and the icon's glow, which is the point: the thing in the world and the
  * thing in the HUD have to be recognisably the same object.
  */
+/** How many fireworks may burn at once. See fireRocket. */
+const MAX_LIT = 12;
+
 export const ROCKET_COLOURS = ['#8fb8d8', '#74c47a', '#e8c54a', '#e08a35', '#d23f2f'];
 
 export const HOTBAR = [1, 2, 3, 4, 5].map((duration) => ({
@@ -137,8 +140,18 @@ export class Player extends Emitter {
     this.airSeconds = AIR_SECONDS;
     this.drowned = false;
 
-    this.rocketTicksLeft = 0;
-    this.rocketTotalTicks = 0;
+    /**
+     * Every firework still burning, not just the last one lit.
+     *
+     * A firework in Minecraft is an entity, and every one of them applies its
+     * own push on every tick it is alive for. Light a second while the first is
+     * still going and both push — which is why spamming them makes you faster
+     * there and did nothing here, where lighting one simply restarted a single
+     * timer. Each entry keeps the power it was lit with, too, so a rocket in
+     * flight is the rocket you lit rather than whichever slot you have since
+     * scrolled to.
+     */
+    this.rockets = [];
     this.rocketDuration = 0;
     this.rocketsFired = 0;
 
@@ -243,10 +256,37 @@ export class Player extends Emitter {
     return (slot ? slot.power : 1) * this.speedBlend * cheats.rocketPower;
   }
 
-  /** How far through the current burn we are, 0 at ignition and 1 at burnout. */
-  get rocketSpent() {
-    if (this.rocketTicksLeft <= 0 || this.rocketTotalTicks <= 0) return 1;
-    return 1 - this.rocketTicksLeft / this.rocketTotalTicks;
+  /**
+   * How long the longest burn still running has left, in ticks.
+   *
+   * Kept as a plain reading because that is all anyone outside wanted of it —
+   * the HUD asks whether a rocket is lit, the autopilot asks whether it may
+   * light another. Neither wants to know there are three.
+   */
+  get rocketTicksLeft() {
+    let most = 0;
+    for (const rocket of this.rockets) most = Math.max(most, rocket.left);
+    return most;
+  }
+
+  /** Put every burning firework out. */
+  stopRockets() {
+    this.rockets.length = 0;
+  }
+
+  /**
+   * Advance every burning firework by a tick, pushing once for each.
+   *
+   * @param {(power:number, spent:number) => void} push
+   */
+  burnRockets(push) {
+    if (this.rockets.length === 0) return;
+    const bleed = this.speedBlend * cheats.rocketPower;
+    for (const rocket of this.rockets) {
+      push(rocket.power * bleed, 1 - rocket.left / rocket.total);
+      rocket.left -= 1;
+    }
+    this.rockets = this.rockets.filter((rocket) => rocket.left > 0);
   }
 
   /** Unit vector the player is looking along. */
@@ -277,7 +317,7 @@ export class Player extends Emitter {
     this.lon = lon;
     this.groundHeight = groundHeight;
     this.elytraDeployed = false;
-    this.rocketTicksLeft = 0;
+    this.stopRockets();
     this.onGround = true;
     this.emit('teleport', { lat, lon });
   }
@@ -311,8 +351,14 @@ export class Player extends Emitter {
     const item = this.selectedItem;
     const duration = item ? item.duration : 2;
     if (!this.elytraDeployed) return false;
-    this.rocketTicksLeft = rocketTicks(duration);
-    this.rocketTotalTicks = this.rocketTicksLeft;
+    const total = rocketTicks(duration);
+    // Its own power, taken now: a firework in flight is the one you lit, not
+    // whichever slot you have scrolled to since.
+    this.rockets.push({ left: total, total, power: item ? item.power : 1 });
+    // Enough that no human can reach it and small enough to bound the work.
+    // Minecraft has no limit because a player cannot light them fast enough to
+    // need one; a held key and a cheat can.
+    if (this.rockets.length > MAX_LIT) this.rockets.shift();
     this.rocketDuration = duration;
     this.rocketsFired++;
     this.emit('rocket', duration);

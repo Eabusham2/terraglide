@@ -275,9 +275,14 @@ console.log('\nelytra flight model');
   // brake you. Cruising at 106 m/s on a Rocket V, firing a Rocket I took you to
   // 33.5: sixty-nine per cent of your speed for pressing the wrong hotbar key.
   //
-  // So it pushes toward its target, never past it, and never back from beyond
-  // it. Regulation on the way up is kept — that is what makes each rocket
-  // settle at its own cruise — and only the pull back down is gone.
+  // So Minecraft's line is kept and clamped at nought from below, and nothing
+  // else about it is touched. The governor is the pull, not the nudge: vanilla
+  // settles where 0.1 + (thrust - along) * 0.5 reaches nought, which is two
+  // tenths of a block a tick past the rocket's own target. Dropping the nudge
+  // as well, which is what this did before, capped the cruise at the target
+  // exactly — 30 m/s for a Rocket I against vanilla's 33.5 — put a step in the
+  // curve where you reach it, and left a second firework lit mid-burn with
+  // nothing to contribute.
   {
     const fast = { x: 0, y: 0, z: -70 };
     const before = Math.hypot(fast.x, fast.z);
@@ -291,12 +296,57 @@ console.log('\nelytra flight model');
   // And it still governs on the way up, or a Rocket V runs away instead of
   // settling: dropping the pull without also dropping the flat nudge took the
   // V cruise from 107 m/s to 144.
+  //
+  // Tested by whether it converges rather than against a number, because the
+  // number was the thing that was wrong. It used to assert "under 34 m/s",
+  // which was the capped behaviour's own cruise — so the check passed on the
+  // bug and failed on vanilla, whose equilibrium is 34 exactly.
   {
     const v = { x: 0, y: 0, z: 0 };
-    const ticks = rocketTicks(1) * 6;
-    for (let tick = 0; tick < ticks; tick++) stepRocket(v, levelLook, 1, 0);
-    ok('but it does not run away past its own target',
-      Math.hypot(v.x, v.z) < 34, `${Math.hypot(v.x, v.z).toFixed(0)} m/s`);
+    const burn = rocketTicks(1);
+    for (let tick = 0; tick < burn * 6; tick++) stepRocket(v, levelLook, 1, 0);
+    const settled = Math.hypot(v.x, v.z);
+    for (let tick = 0; tick < burn * 6; tick++) stepRocket(v, levelLook, 1, 0);
+    const later = Math.hypot(v.x, v.z);
+    ok(`but it settles instead of running away  (${settled.toFixed(1)} then ${later.toFixed(1)} m/s)`,
+      later - settled < 0.5);
+    // Vanilla's own: 1.7 blocks a tick, being where the pull cancels the nudge.
+    ok(`and settles where vanilla settles  (${settled.toFixed(1)} m/s against 34)`,
+      Math.abs(settled - 34) < 1.5);
+  }
+
+  // Every firework alive pushes, so lighting one while another is burning gets
+  // you to the cruise faster and holds you at it. That is what a single timer
+  // could not do: lighting one mid-burn simply restarted it, and the second
+  // rocket bought nothing at all.
+  {
+    const fly = (lightEvery) => {
+      const v = { x: 0, y: 0, z: 0 };
+      const lit = [];
+      const total = rocketTicks(1);
+      let reached = Infinity;
+      for (let tick = 0; tick < 240; tick++) {
+        if (tick % lightEvery === 0) lit.push({ left: total, total });
+        for (const r of lit) {
+          stepRocket(v, levelLook, 1, 1 - r.left / r.total);
+          r.left -= 1;
+        }
+        for (let i = lit.length - 1; i >= 0; i--) if (lit[i].left <= 0) lit.splice(i, 1);
+        stepGlide(v, levelLook, 0);
+        // 33 rather than 30: the first two ticks are nearly all of the
+        // acceleration whatever you do, so a low mark is reached at the same
+        // tick either way and measures nothing. The stacking shows in the
+        // approach to the cruise, which is where it should.
+        if (reached === Infinity && Math.hypot(v.x, v.z) > 33) reached = tick;
+      }
+      return { speed: Math.hypot(v.x, v.z), reached };
+    };
+    const one = fly(rocketTicks(1));
+    const spammed = fly(3);
+    ok(`spamming rockets gets you up to speed sooner`
+      + `  (${spammed.reached} ticks against ${one.reached})`, spammed.reached < one.reached);
+    ok(`and holds you a shade faster  (${spammed.speed.toFixed(1)} vs ${one.speed.toFixed(1)} m/s)`,
+      spammed.speed >= one.speed - 0.1);
   }
 }
 
@@ -3385,11 +3435,13 @@ console.log('\nSpeed mode, fireworks and the pause key');
   // and a burning firework holds it up while it does.
   player.speedBlend = 2;
   player.speedActive = false;
-  player.rocketTicksLeft = 0;
+  // Fireworks are a list now rather than a single timer, so "one is burning"
+  // is a rocket in the list rather than a number assigned to.
+  player.stopRockets();
   for (let i = 0; i < 30; i++) player.tickTimers(1 / 60);
   const freeFall = player.speedBlend;
   player.speedBlend = 2;
-  player.rocketTicksLeft = 100;
+  player.rockets.push({ left: 100, total: 100, power: 1 });
   for (let i = 0; i < 30; i++) player.tickTimers(1 / 60);
   ok('and a firework still burning slows the bleed', player.speedBlend > freeFall,
     `${player.speedBlend.toFixed(3)} burning vs ${freeFall.toFixed(3)} not`);

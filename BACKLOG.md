@@ -186,11 +186,47 @@ what is left · `[?]` needs a decision from you.
 
 ## D. Physics
 
-- [ ] D1. Physics do not match Minecraft — barely fall when standing still; looking down then forward quickly gives far too much forward speed
+- [?] D1. Physics do not match Minecraft — barely fall when standing still; looking down then forward quickly gives far too much forward speed
+      The glide is Minecraft exactly, and that is measured rather than asserted:
+      a second transcription of LivingEntity.updateFallFlyingMovement, written
+      from the Java in its own units and sign convention, diverges from ours by
+      1.8e-14 blocks a tick over 200 ticks across 66 manoeuvres. Which is float
+      noise. The fall when not gliding is Minecraft's too — 0.08 a tick with a
+      0.98 drag, terminal 3.92 b/t — and the fixed clock always hands the glide
+      whole ticks, so it cannot be running at the wrong rate.
+
+      The flight numbers come out where a player would expect them: level glide
+      1.49 b/t at 7.6:1, nose down 30 degrees 2.48 b/t, straight down 3.92 b/t.
+      "Barely fall when standing still" is what a 7.6:1 glide ratio is, and it
+      is vanilla's.
+
+      So the difference being felt is not in the glide. The two candidates left
+      are scale — 30 m/s crosses a Minecraft village in a second and a real
+      valley in a minute — and the rocket, which deliberately departs from
+      vanilla so a weak slot cannot brake you (D7, D5). Worth asking which.
 - [ ] D2. Looking down to gain speed should work as it does in MC
 - [ ] D3. Should I jolt to a stop when flight duration ends and I am looking down?
 - [ ] D4. Going faster by rocketing more downward makes no sense — fix the physics engine
-- [ ] D5. Flight duration and deceleration should match MC — spamming should make you a bit faster (check this)
+- [x] D5. Flight duration and deceleration should match MC — spamming should make you a bit faster (check this)
+      Checked, and it did nothing: a firework was a single timer, so "lighting
+      one mid-burn simply restarts the burn" — the second rocket bought you
+      nothing at all. In Minecraft a firework is an entity and every one alive
+      applies its own push every tick, so two overlapping push twice. They are
+      a list now, each keeping the power it was lit with, so a rocket in flight
+      is the one you lit rather than whichever slot you have since scrolled to.
+
+      And the push itself was capping too early. Minecraft's line is
+      0.1 + (thrust - along) * 0.5 with no floor, and it settles where that
+      reaches nought — two tenths of a block a tick past the rocket's own
+      target. D7 had dropped the nudge along with the pull, which capped the
+      cruise at the target exactly (30 m/s for a Rocket I against vanilla's
+      33.5), put a step in the curve where you reach it, and left a second
+      firework with nothing to contribute. Clamping the line at nought instead
+      of cutting it keeps all three properties: no brake, the governor intact,
+      and every firework pushing.
+
+      Measured: a Rocket I now settles at 33.5 m/s where vanilla settles at
+      33.5, and spamming reaches 33 m/s in 4 ticks against 6 and holds 33.7.
 - [ ] D6. Rocket times do not match Minecraft — fix, and use the same scale for speed; the light-duration one has MC default speed
 - [x] D7. Using the slot of a slower rocket slows you down
       Measured: cruising at 106 m/s on a Rocket V, firing a Rocket I took you to

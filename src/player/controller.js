@@ -206,10 +206,11 @@ export class PlayerController {
   tickGlide(step, input) {
     const player = this.player;
 
-    if (player.rocketTicksLeft > 0) {
-      stepRocket(player.velocity, this.look, player.rocketPower, player.rocketSpent);
-      player.rocketTicksLeft--;
-    }
+    // One push per firework still burning, not one for the last one lit. See
+    // Player.burnRockets — this is what makes spamming them worth anything.
+    player.burnRockets((power, spent) => {
+      stepRocket(player.velocity, this.look, power, spent);
+    });
 
     // One set of wings. See src/player/elytra.js.
     stepGlide(player.velocity, this.look, player.pitch);
@@ -264,7 +265,7 @@ export class PlayerController {
     player.velocity.z = damp(player.velocity.z, tz, 9, step);
 
     player.airborneSeconds = 0;
-    player.rocketTicksLeft = 0;
+    player.stopRockets();
   }
 
   tickGround(step, input, scale) {
@@ -320,7 +321,7 @@ export class PlayerController {
 
     if (player.onGround) {
       player.airborneSeconds = 0;
-      player.rocketTicksLeft = 0;
+      player.stopRockets();
     } else {
       player.airborneSeconds += step;
     }

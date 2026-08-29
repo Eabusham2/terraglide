@@ -156,11 +156,24 @@ export function stepRocket(velocity, look, power = 1, spent = 0) {
   // the along-look speed is nought, so the full pull applies, and Rocket I still
   // settles at Minecraft's 33 m/s.
   const along = vx * look.x + vy * look.y + vz * look.z;
-  // Push toward the target, never past it, and never back from beyond it. The
-  // flat 0.1 goes with the pull rather than being added unconditionally: in
-  // vanilla the two balance, and keeping the nudge while dropping the pull is a
-  // rocket with no governor — a Rocket V ran away from 107 m/s to 144.
-  const gain = along < thrust ? 0.1 + (thrust - along) * 0.5 : 0;
+  // Minecraft's own line, clamped at nought from below and not otherwise
+  // touched.
+  //
+  // The governor is the pull, not the missing nudge. Vanilla's term is
+  // 0.1 + (thrust - along) * 0.5 with no floor, and it settles where that
+  // reaches nought — 0.2 blocks a tick past the rocket's own target. Dropping
+  // the nudge as well as the pull, which is what this did before, caps the
+  // cruise at the target exactly, puts a step in the curve at the moment you
+  // reach it, and means a second firework lit while the first is burning can
+  // contribute nothing at all. Which is the whole of "spamming should make you
+  // faster" doing nothing.
+  //
+  // Clamping instead keeps all three properties: it still cannot brake you, so
+  // a Rocket I fired at Rocket V speed is inert rather than a trap; it still
+  // has its governor, because the pull goes negative before the clamp does and
+  // holds the cruise where vanilla holds it; and every firework alive pushes,
+  // so lighting more gets you there faster and holds you there.
+  const gain = Math.max(0, 0.1 + (thrust - along) * 0.5);
   // What is left of your velocity once the along-look part is taken out. This
   // is the component the swing acts on, and halving it is what the original
   // line did to it.

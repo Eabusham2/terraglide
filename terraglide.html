@@ -87430,11 +87430,24 @@ function stepRocket(velocity, look, power = 1, spent = 0) {
   // the along-look speed is nought, so the full pull applies, and Rocket I still
   // settles at Minecraft's 33 m/s.
   const along = vx * look.x + vy * look.y + vz * look.z;
-  // Push toward the target, never past it, and never back from beyond it. The
-  // flat 0.1 goes with the pull rather than being added unconditionally: in
-  // vanilla the two balance, and keeping the nudge while dropping the pull is a
-  // rocket with no governor — a Rocket V ran away from 107 m/s to 144.
-  const gain = along < thrust ? 0.1 + (thrust - along) * 0.5 : 0;
+  // Minecraft's own line, clamped at nought from below and not otherwise
+  // touched.
+  //
+  // The governor is the pull, not the missing nudge. Vanilla's term is
+  // 0.1 + (thrust - along) * 0.5 with no floor, and it settles where that
+  // reaches nought — 0.2 blocks a tick past the rocket's own target. Dropping
+  // the nudge as well as the pull, which is what this did before, caps the
+  // cruise at the target exactly, puts a step in the curve at the moment you
+  // reach it, and means a second firework lit while the first is burning can
+  // contribute nothing at all. Which is the whole of "spamming should make you
+  // faster" doing nothing.
+  //
+  // Clamping instead keeps all three properties: it still cannot brake you, so
+  // a Rocket I fired at Rocket V speed is inert rather than a trap; it still
+  // has its governor, because the pull goes negative before the clamp does and
+  // holds the cruise where vanilla holds it; and every firework alive pushes,
+  // so lighting more gets you there faster and holds you there.
+  const gain = Math.max(0, 0.1 + (thrust - along) * 0.5);
   // What is left of your velocity once the along-look part is taken out. This
   // is the component the swing acts on, and halving it is what the original
   // line did to it.
@@ -87587,6 +87600,9 @@ const { rocketPowerFor, rocketTicks, rocketTopSpeed } = __tg_require("src/player
  * and the icon's glow, which is the point: the thing in the world and the
  * thing in the HUD have to be recognisably the same object.
  */
+/** How many fireworks may burn at once. See fireRocket. */
+const MAX_LIT = 12;
+
 const ROCKET_COLOURS = ['#8fb8d8', '#74c47a', '#e8c54a', '#e08a35', '#d23f2f'];
 
 const HOTBAR = [1, 2, 3, 4, 5].map((duration) => ({
@@ -87692,8 +87708,18 @@ class Player extends Emitter {
     this.airSeconds = AIR_SECONDS;
     this.drowned = false;
 
-    this.rocketTicksLeft = 0;
-    this.rocketTotalTicks = 0;
+    /**
+     * Every firework still burning, not just the last one lit.
+     *
+     * A firework in Minecraft is an entity, and every one of them applies its
+     * own push on every tick it is alive for. Light a second while the first is
+     * still going and both push — which is why spamming them makes you faster
+     * there and did nothing here, where lighting one simply restarted a single
+     * timer. Each entry keeps the power it was lit with, too, so a rocket in
+     * flight is the rocket you lit rather than whichever slot you have since
+     * scrolled to.
+     */
+    this.rockets = [];
     this.rocketDuration = 0;
     this.rocketsFired = 0;
 
@@ -87798,10 +87824,37 @@ class Player extends Emitter {
     return (slot ? slot.power : 1) * this.speedBlend * cheats.rocketPower;
   }
 
-  /** How far through the current burn we are, 0 at ignition and 1 at burnout. */
-  get rocketSpent() {
-    if (this.rocketTicksLeft <= 0 || this.rocketTotalTicks <= 0) return 1;
-    return 1 - this.rocketTicksLeft / this.rocketTotalTicks;
+  /**
+   * How long the longest burn still running has left, in ticks.
+   *
+   * Kept as a plain reading because that is all anyone outside wanted of it —
+   * the HUD asks whether a rocket is lit, the autopilot asks whether it may
+   * light another. Neither wants to know there are three.
+   */
+  get rocketTicksLeft() {
+    let most = 0;
+    for (const rocket of this.rockets) most = Math.max(most, rocket.left);
+    return most;
+  }
+
+  /** Put every burning firework out. */
+  stopRockets() {
+    this.rockets.length = 0;
+  }
+
+  /**
+   * Advance every burning firework by a tick, pushing once for each.
+   *
+   * @param {(power:number, spent:number) => void} push
+   */
+  burnRockets(push) {
+    if (this.rockets.length === 0) return;
+    const bleed = this.speedBlend * cheats.rocketPower;
+    for (const rocket of this.rockets) {
+      push(rocket.power * bleed, 1 - rocket.left / rocket.total);
+      rocket.left -= 1;
+    }
+    this.rockets = this.rockets.filter((rocket) => rocket.left > 0);
   }
 
   /** Unit vector the player is looking along. */
@@ -87832,7 +87885,7 @@ class Player extends Emitter {
     this.lon = lon;
     this.groundHeight = groundHeight;
     this.elytraDeployed = false;
-    this.rocketTicksLeft = 0;
+    this.stopRockets();
     this.onGround = true;
     this.emit('teleport', { lat, lon });
   }
@@ -87866,8 +87919,14 @@ class Player extends Emitter {
     const item = this.selectedItem;
     const duration = item ? item.duration : 2;
     if (!this.elytraDeployed) return false;
-    this.rocketTicksLeft = rocketTicks(duration);
-    this.rocketTotalTicks = this.rocketTicksLeft;
+    const total = rocketTicks(duration);
+    // Its own power, taken now: a firework in flight is the one you lit, not
+    // whichever slot you have scrolled to since.
+    this.rockets.push({ left: total, total, power: item ? item.power : 1 });
+    // Enough that no human can reach it and small enough to bound the work.
+    // Minecraft has no limit because a player cannot light them fast enough to
+    // need one; a held key and a cheat can.
+    if (this.rockets.length > MAX_LIT) this.rockets.shift();
     this.rocketDuration = duration;
     this.rocketsFired++;
     this.emit('rocket', duration);
@@ -89547,10 +89606,11 @@ class PlayerController {
   tickGlide(step, input) {
     const player = this.player;
 
-    if (player.rocketTicksLeft > 0) {
-      stepRocket(player.velocity, this.look, player.rocketPower, player.rocketSpent);
-      player.rocketTicksLeft--;
-    }
+    // One push per firework still burning, not one for the last one lit. See
+    // Player.burnRockets — this is what makes spamming them worth anything.
+    player.burnRockets((power, spent) => {
+      stepRocket(player.velocity, this.look, power, spent);
+    });
 
     // One set of wings. See src/player/elytra.js.
     stepGlide(player.velocity, this.look, player.pitch);
@@ -89605,7 +89665,7 @@ class PlayerController {
     player.velocity.z = damp(player.velocity.z, tz, 9, step);
 
     player.airborneSeconds = 0;
-    player.rocketTicksLeft = 0;
+    player.stopRockets();
   }
 
   tickGround(step, input, scale) {
@@ -89661,7 +89721,7 @@ class PlayerController {
 
     if (player.onGround) {
       player.airborneSeconds = 0;
-      player.rocketTicksLeft = 0;
+      player.stopRockets();
     } else {
       player.airborneSeconds += step;
     }
