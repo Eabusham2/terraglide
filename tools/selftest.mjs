@@ -408,6 +408,16 @@ console.log('\nNothing is generated');
   ok('and none of them is offered as an offline world',
     !/id: 'offline'/.test(providers) && !/id: 'procedural'/.test(providers));
   const jobs = read('tiles/tileJobs.js');
+  // And the tools it was built out of are gone with it. A seeded hash and a
+  // PRNG left lying about are an invitation: the next person wanting a height
+  // for a square with no data has a ready-made way to invent one.
+  {
+    const maths = readFileSync(new URL('../src/core/math.js', import.meta.url), 'utf8');
+    for (const gone of ['hash3', 'rand3', 'makeRng']) {
+      ok(`${gone} is gone, not just unused`, !new RegExp(`function ${gone}\\b`).test(maths));
+    }
+  }
+
   ok('a tile job with no URL is an error rather than an invitation',
     /no imagery URL for this tile/.test(jobs) && /no elevation URL for this tile/.test(jobs));
 }

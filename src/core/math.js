@@ -38,30 +38,18 @@ export function mod(a, n) {
   return ((a % n) + n) % n;
 }
 
-/** Deterministic 32-bit hash of three integers, used for procedural content. */
-export function hash3(x, y, z) {
-  let h = Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(z | 0, 1442695041);
-  h = (h ^ (h >>> 13)) >>> 0;
-  h = Math.imul(h, 1274126177) >>> 0;
-  return (h ^ (h >>> 16)) >>> 0;
-}
-
-/** Deterministic float in [0,1) from three integers. */
-export function rand3(x, y, z) {
-  return hash3(x, y, z) / 4294967296;
-}
-
-/** Mulberry32 — compact seeded PRNG. */
-export function makeRng(seed) {
-  let a = seed >>> 0;
-  return function next() {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), 1 | t);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+/*
+ * There was a seeded hash, a float derived from it, and a Mulberry32 generator
+ * here. All three existed to make up terrain, and the terrain they made up is
+ * gone — nothing in the game or the tools referenced any of them any more. Left
+ * in place they are an invitation: the next person wanting a height for a
+ * square with no data has a ready-made way to invent one, and that is the one
+ * thing this world does not do.
+ *
+ * Choosing is not inventing, and the two places that still choose at random are
+ * choosing rather than inventing: a random teleport picks a bearing, and the
+ * place list picks one of a set of real settlements. Neither makes up ground.
+ */
 
 export function fract(x) {
   return x - Math.floor(x);
