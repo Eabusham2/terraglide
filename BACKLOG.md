@@ -292,7 +292,33 @@ what is left · `[?]` needs a decision from you.
       view was never drawn. The freecam is usually pointed at exactly that. The
       frustum now comes from the camera the frame is drawn through; priority and
       level of detail still come from the player.
-- [ ] B14. Debug and remove glitches generally
+- [~] B14. Debug and remove glitches generally
+      Standing rather than closable, so here is the account rather than a tick.
+      Glitches found and fixed by going looking, in this pass alone:
+
+        held rockets at a shallow dive compounded without bound — 350 m/s in
+          twenty seconds, 81,837 in two minutes, against vanilla's steady 35;
+        one press of the ascend key while flying deployed the elytra behind
+          your back, and dropped you into a glide when the cheat came off;
+        every machine drew the *high* tier's ground whatever tier it chose,
+          because the cap was keyed on a setting that reads 'auto';
+        the cloud deck and the wall that closes the world were depth-testing on
+          a different scale from everything else, so from above the clouds
+          there were no clouds;
+        the world map stretched whenever its box changed height rather than
+          width;
+        the fog claimed sixteen times the ground you had actually seen, and
+          more the further you zoomed out;
+        the trail dropped whole flights rather than thinning them, and never
+          trimmed a single unbroken flight at all;
+        both size keys wrote NaN into a setting nothing reads, so neither had
+          ever done anything.
+
+      Every one of those has a self-test that fails on the old behaviour by
+      name. The suite is 1,008 checks.
+
+      Left open because "generally" has no end, and the useful next input is
+      which glitch you are still seeing.
 
 ## C. Loading order and speed
 
@@ -1474,7 +1500,30 @@ what is left · `[?]` needs a decision from you.
       with no use for them, and dropped you into a glide the moment you turned
       the cheat off, from wherever you were. Fixed at the cause: while the
       cheat is on, jump means ascend and nothing else.
-- [ ] J3. Fix causes, not symptoms — no papering over
+- [~] J3. Fix causes, not symptoms — no papering over
+      The rule, and the way to tell whether it is being kept: every fix in here
+      names the thing that was wrong, not the thing that looked wrong. A few
+      from this pass, each stated as cause rather than remedy:
+
+        clouds did not draw from above → four missing shader chunks, so a
+          material was depth-testing on a different scale from the buffer;
+        the map stretched → a two-dimensional size checked in one dimension;
+        the trail forgot → the unit of eviction was a whole flight;
+        the fog grew as you zoomed out → the mask was read at a level the
+          record does not keep, and a coarser cell counts as explored if any
+          part of it is;
+        the rocket ran away → the previous fix clamped half of a vector and
+          left the other half running.
+
+      That last one is the point of this item. Clamping the forward half of the
+      rocket push was itself a symptom fix, and it produced a worse bug than the
+      one it cured. The replacement gates the whole push, which is the shape the
+      original had.
+
+      Two things were tried, measured worse, and reverted rather than kept and
+      explained away: both attempts at favouring near ground in the tile queue
+      (C2), and raising the texture cache to the drawn cap (B7). Both are
+      written down with their numbers so the next attempt starts past them.
 - [x] J4. Changing any setting applies instantly (graphics presets, 3D type)
       The game listened to the settings panel's callback, which reports only the
       control a hand moved. Picking Low writes nine settings; eight were stored
@@ -1492,8 +1541,42 @@ what is left · `[?]` needs a decision from you.
 
 ## L. Standing instructions
 
-- [ ] L1. Improve it all
-- [ ] L2. Bug-test properly before saying something is fixed
+- [~] L1. Improve it all
+      Standing, and the record is the answer: 133 of the 145 items in this file
+      are done or partly done, each with the measurement that settled it. What
+      is left is eight, and of those, four are this kind of standing instruction
+      and the rest are named below.
+
+      No end condition, so it stays open. The useful input is which part is
+      worst now.
+- [~] L2. Bug-test properly before saying something is fixed
+      The rule that produced most of the numbers in this file. What "properly"
+      has come to mean here, learned mostly by getting it wrong:
+
+      Read the exit code, never count FAIL lines — the suite can crash while
+      reporting "failures: 0".
+
+      Make the check fail on the old behaviour before believing it passes on
+      the new one. The runaway guard fails at 458 m/s on the old clamp; the
+      log-depth guard fails by name when one include is removed; the size guard
+      fails on a NaN.
+
+      Watch the measurement itself for the same bugs as the code. In this pass:
+      a six-second speed sample at one frame a second is seven frames, so the
+      window's own length was uncertain by fifteen per cent and read +11% one
+      run and -8% the next for the identical condition — forty seconds fixed it.
+      An earlier version of that compared an instantaneous readout against a
+      six-second average during a transient. A waypoint drag test aimed at the
+      first pixel that hit rather than the middle and missed by half a pixel. A
+      cloud measurement forced the cover beside the game's own update instead of
+      inside it and got overwritten every frame.
+
+      Say what could not be measured. Frame rate cannot be measured here at all
+      — this sandbox renders in software at one or two frames a second — so M3
+      says so rather than producing a number about SwiftShader.
+
+      Keep the negative results. Two queue orderings and one cache change were
+      built, measured worse, and reverted with their numbers written down.
 
 ## K. Needs a decision
 
@@ -1777,7 +1860,20 @@ what is left · `[?]` needs a decision from you.
       exists. Deleting a remote branch is refused by the permission gate here,
       and the second one is also the branch this session was told to develop
       on, so neither is something to delete unilaterally. Both want a word.
-- [ ] M17. Stop patching with bandaids — fix the system
+- [~] M17. Stop patching with bandaids — fix the system
+      Same rule as J3, and the clearest example of it being obeyed is the one
+      where it had previously been broken. D7 stopped a weak rocket braking you
+      by clamping half of vanilla's push vector — a patch on the symptom. It
+      produced a runaway that took you past 80,000 m/s. The fix is not a second
+      clamp; it gates the whole push, which is the shape the original line had.
+
+      Two more from this pass where the system was changed rather than the
+      symptom. The drawn cap was a second table keyed on the raw graphics
+      setting, which is why it could disagree with every other tier setting —
+      the fix is one table, resolved the same way as the rest, not a special
+      case for 'auto'. And the missing shader chunks are guarded across every
+      file that writes a shader, not across the two that were wrong, because
+      the next hand-written shader would have the same hole.
 - [x] M18. Barrel roll, implemented like the mod, not as a keybind
       Was a key: X ran a canned 360 over 0.8 s whatever you were doing. Now it is
       the strafe keys held while gliding — you keep rolling for as long as you
