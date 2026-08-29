@@ -22,7 +22,23 @@ const TERRAIN_VERT = /* glsl */ `
    * for finer tiles that may also be drawing the same ground; see Terrain.show.
    */
   uniform float uSink;
+  /**
+   * How far through a height change this tile is: 0 the moment fresh elevation
+   * lands, 1 once it has settled.
+   *
+   * The ground moves under you as real elevation streams in, because it has to
+   * — a tile is drawn from the finest data that has arrived, and when finer
+   * data arrives the answer changes. What it does not have to do is jump. A
+   * jump of a few metres across a whole tile, in one frame, is "the ground
+   * moves up and down in sections": the sections are elevation tiles and the
+   * moment is the moment their data landed.
+   *
+   * So the vertex remembers where it was and walks to where it now is. It costs
+   * one float a vertex and nothing per frame.
+   */
+  uniform float uMorph;
   attribute float bed;
+  attribute float prevY;
   varying vec2 vUv;
   varying vec3 vNormalW;
   varying float vDist;
@@ -36,7 +52,8 @@ const TERRAIN_VERT = /* glsl */ `
     // to sea level so the ocean is a flat plane; without the real depth
     // underneath it, nothing downstream can tell a beach from a bay.
     vBed = bed;
-    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vec3 settling = vec3(position.x, mix(prevY, position.y, uMorph), position.z);
+    vec4 worldPos = modelMatrix * vec4(settling, 1.0);
     vHeight = worldPos.y;
     vWorld = worldPos.xyz;
     // "flat" is a reserved interpolation qualifier in GLSL ES 3, hence the name.
@@ -474,6 +491,7 @@ export function createTerrainMaterial(shared) {
       // Set per node in Terrain.build; see the water block above.
       uMeasured: { value: 0 },
       uSink: { value: 0 },
+      uMorph: { value: 1 },
       uWoodMask: shared.uWoodMask,
       uWoodOrigin: shared.uWoodOrigin,
       uWoodSpan: shared.uWoodSpan,

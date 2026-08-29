@@ -84,6 +84,23 @@ const SKIRT_REACH = 4;
  * chain of tiles down to the leaf plus its neighbours — a handful — because
  * every level of the quadtree has only a few tiles this close.
  */
+/**
+ * How long a tile takes to walk to its new height, in seconds, and how far it
+ * has to move to be worth walking at all.
+ *
+ * A third of a second is long enough that nothing snaps and short enough that
+ * the ground is never visibly wrong — you are looking at land that is a metre
+ * out for a fifth of a second, which is under the threshold at which anyone
+ * notices a hill is the wrong height, and well over the one at which they
+ * notice it jumped.
+ *
+ * The floor is there because most rebuilds are for a fresh photograph rather
+ * than fresh relief: without it every one of those would start a morph with
+ * nothing to morph.
+ */
+const MORPH_SECONDS = 0.33;
+const MORPH_MIN_M = 0.05;
+
 const FLOOR_REACH = 250;
 const LOD_HYSTERESIS_IN = 0.88;
 const LOD_HYSTERESIS_OUT = 1.12;
@@ -271,6 +288,7 @@ export class Terrain {
    *   that is something else. Only the frustum comes from this one.
    */
   update(camera, budgetMs, viewCamera = camera) {
+    this.settleHeights();
     const preset = settings.preset();
     // The ground always sharpens as far as the provider will actually serve
     // here. The setting is a ceiling you may lower, not a target — there is no
@@ -992,6 +1010,15 @@ export class Terrain {
     let uvs = positions ? node.geometry.attributes.uv.array : null;
     let beds = positions ? node.geometry.attributes.bed.array : null;
     const fresh = !positions;
+    // Whether this rebuild moved the ground enough to be worth walking. Held
+    // here rather than written straight to the material, because the material
+    // is not attached until further down.
+    let startMorph = false;
+    // Where this tile stood before, so it can walk to where it now stands
+    // rather than jumping there. Taken before the loop overwrites the array,
+    // which is the same array — the rebuild path reuses it. See uMorph.
+    let prevY = fresh ? null : node.geometry.attributes.prevY?.array ?? null;
+    if (prevY) for (let v = 0; v < prevY.length; v += 1) prevY[v] = positions[v * 3 + 1];
     if (fresh) {
       positions = new Float32Array(count * 3);
       normals = new Float32Array(count * 3);
@@ -1100,11 +1127,32 @@ export class Terrain {
       geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
       geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
       geometry.setAttribute('bed', new THREE.BufferAttribute(beds, 1));
+      // A tile with no history has nowhere to walk from, so it starts where it
+      // is: prevY is seeded from the heights it was just built with, and the
+      // morph below is left finished. Only a *rebuild* animates.
+      prevY = new Float32Array(count);
+      for (let v = 0; v < count; v += 1) prevY[v] = positions[v * 3 + 1];
+      geometry.setAttribute('prevY', new THREE.BufferAttribute(prevY, 1));
       geometry.setIndex(buildIndices(verts));
     } else {
       geometry.attributes.position.needsUpdate = true;
       geometry.attributes.normal.needsUpdate = true;
       geometry.attributes.bed.needsUpdate = true;
+      geometry.attributes.prevY.needsUpdate = true;
+      // Without a history there is nothing to walk from. A geometry that has
+      // somehow not got the attribute renders correctly anyway: a missing one
+      // reads as nought, and the uniform defaults to finished, so the mix takes
+      // the new height whole.
+      // Only worth animating if the ground actually moved. Most rebuilds are
+      // for a new photograph rather than new relief, and starting a morph that
+      // has nothing to morph would put every tile through a needless frame of
+      // shader work.
+      let moved = 0;
+      for (let v = 0; prevY && v < prevY.length; v += 1) {
+        const d = Math.abs(prevY[v] - positions[v * 3 + 1]);
+        if (d > moved) moved = d;
+      }
+      startMorph = moved > MORPH_MIN_M;
     }
     geometry.boundingSphere = new THREE.Sphere(
       new THREE.Vector3(size / 2, (minY + maxY) / 2, size / 2),
@@ -1139,6 +1187,9 @@ export class Terrain {
     // ground reads as sea level too, and shading that as ocean turns a
     // continent into a sea for as long as its relief takes to arrive.
     node.material.uniforms.uMeasured.value = node.builtElevZoom >= 0 ? 1 : 0;
+    // A tile with no history has nowhere to walk from and starts settled; one
+    // that just gained relief walks. See settleHeights.
+    node.material.uniforms.uMorph.value = startMorph ? 0 : 1;
     // What the photograph of this square says about its own green. See
     // canopy.js: a field is smooth green, a wood is green broken at crown
     // scale, and only the second gets bumps.
@@ -1151,6 +1202,34 @@ export class Terrain {
 
     this.nodes.set(key, node);
     return node;
+  }
+
+  /**
+   * Walk every tile that has just gained finer relief from where it was to
+   * where it now is.
+   *
+   * The ground moves under you as elevation streams in, because it has to: a
+   * tile is drawn from the finest data that has arrived, and when finer data
+   * arrives the answer changes. What it does not have to do is arrive in one
+   * frame. A whole tile stepping several metres between two frames is "the
+   * ground moves up and down in sections" — the sections are elevation tiles
+   * and the moment is the moment their data landed.
+   *
+   * Real time rather than frame count, so it takes the same third of a second
+   * on a slideshow as on a fast machine, and clamped so a long stall does not
+   * finish every morph in the frame that follows it.
+   */
+  settleHeights() {
+    const now = performance.now();
+    const dt = Math.min(0.25, (now - (this._settledAt ?? now)) / 1000);
+    this._settledAt = now;
+    if (dt <= 0) return;
+    const stepPerFrame = dt / MORPH_SECONDS;
+    for (const node of this.nodes.values()) {
+      const morph = node.material?.uniforms?.uMorph;
+      if (!morph || morph.value >= 1) continue;
+      morph.value = Math.min(1, morph.value + stepPerFrame);
+    }
   }
 
   /**
