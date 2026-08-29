@@ -26,6 +26,7 @@ import {
   IMAGERY_PROVIDERS,
   createElevationSource,
   createImagerySource,
+  effectiveProvider,
   providerChain,
 } from './tiles/providers.js';
 import { ImageryStreamer } from './tiles/streamer.js';
@@ -502,7 +503,16 @@ export class Game {
    *   a second of blank ground you cannot move on.
    */
   applyProviders({ rebuild = true } = {}) {
-    this.imagerySource = createImagerySource(settings.values);
+    // "Auto" is a choice about providers rather than a provider, so it is
+    // resolved to a real one here — once — and everything downstream sees an
+    // ordinary id. Resolved every time providers are applied, so adding a key
+    // in the settings panel changes what you are flying over without anybody
+    // reopening the dropdown.
+    const chosenId = effectiveProvider(
+      IMAGERY_PROVIDERS, settings.get('imageryProvider'), settings.values,
+    );
+    const values = { ...settings.values, imageryProvider: chosenId };
+    this.imagerySource = createImagerySource(values);
     this.elevationSource = createElevationSource(settings.values);
     this.streamer.setSource(this.imagerySource);
     // Standbys for the ground itself, in the order asked for: providers you
@@ -510,10 +520,10 @@ export class Game {
     // chosen provider will not serve moves down the list rather than leaving a
     // bare square — and there is nothing invented behind the list any more.
     this.streamer.setStandbys(
-      providerChain(IMAGERY_PROVIDERS, settings.get('imageryProvider'), settings.values)
+      providerChain(IMAGERY_PROVIDERS, chosenId, values)
         .filter((p) => p.id !== this.imagerySource.descriptor.id)
         .slice(0, 3)
-        .map((p) => createImagerySource({ ...settings.values, imageryProvider: p.id })),
+        .map((p) => createImagerySource({ ...values, imageryProvider: p.id })),
     );
     this.elevation.setSource(this.elevationSource);
     mapTiles.setSource(this.imagerySource);
@@ -522,7 +532,7 @@ export class Game {
     mapTiles.setFallback(
       this.imagerySource.descriptor.id === 'sentinel2'
         ? null
-        : createImagerySource({ ...settings.values, imageryProvider: 'sentinel2' }),
+        : createImagerySource({ ...values, imageryProvider: 'sentinel2' }),
     );
     mapTiles.setDegraded(false);
     // The second tile set: the drawn street map the flat maps show for ground
@@ -538,9 +548,9 @@ export class Game {
     // broken map rather than a loading one. A photograph has no such problem:
     // stretched, it is simply a soft photograph, so it keeps the wide default.
     streetTiles.maxStretch = 1;
-    streetTiles.setSource(createImagerySource({ ...settings.values, imageryProvider: 'esri-street' }));
+    streetTiles.setSource(createImagerySource({ ...values, imageryProvider: 'esri-street' }));
     streetTiles.setFallback([
-      createImagerySource({ ...settings.values, imageryProvider: 'openfreemap' }),
+      createImagerySource({ ...values, imageryProvider: 'openfreemap' }),
     ]);
     // The water probe gets the standbys too: whether somewhere is the sea must
     // not depend on which company has flown over it.

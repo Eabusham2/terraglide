@@ -769,6 +769,44 @@ export class TileSource {
  * The chosen provider is always first whatever else is true — picking one is a
  * statement — and everything else is a standby for when it will not answer.
  */
+/**
+ * The provider setting's "let the game decide" value.
+ *
+ * Not a member of the provider list: it is a *choice about* providers, and
+ * putting it in the list would have it turning up in fallback chains, in the
+ * standby order and in the "which square does this one serve" logic, none of
+ * which mean anything for a thing that is not a map server.
+ */
+export const AUTO_PROVIDER = 'auto';
+
+/**
+ * What "auto" means right now: the best provider you can actually use.
+ *
+ * The same order the standby chain is built in — anything you hold a key for
+ * first, then the free ones deepest first — which makes auto exactly "the top
+ * of the list I would fall back through anyway". Adding a key changes the
+ * answer on the next frame without anybody having to reopen the dropdown, and
+ * removing one falls back rather than leaving a blank world.
+ */
+export function resolveAuto(list, values) {
+  // Ranked here rather than through providerChain: that function takes a
+  // *chosen* provider and orders the rest behind it, and a null choice resolves
+  // to the head of the list rather than to no preference — so asking it for the
+  // best always came back with whatever happened to be written first.
+  const usable = list.filter((p) => !p.hidden && (!p.needsKey || values?.[p.needsKey]));
+  usable.sort((a, b) => {
+    const keyed = (p) => (p.needsKey ? 0 : 1);
+    if (keyed(a) !== keyed(b)) return keyed(a) - keyed(b);
+    return (b.maxZoom ?? 0) - (a.maxZoom ?? 0);
+  });
+  return usable[0]?.id ?? list[0]?.id;
+}
+
+/** The chosen provider's id, with "auto" resolved to a real one. */
+export function effectiveProvider(list, chosenId, values) {
+  return chosenId === AUTO_PROVIDER ? resolveAuto(list, values) : chosenId;
+}
+
 export function providerChain(list, chosenId, values) {
   const chosen = findProvider(list, chosenId);
   const rest = list.filter((p) => p.id !== chosen?.id && !p.hidden);

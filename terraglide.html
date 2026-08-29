@@ -83954,6 +83954,44 @@ class TileSource {
  * The chosen provider is always first whatever else is true — picking one is a
  * statement — and everything else is a standby for when it will not answer.
  */
+/**
+ * The provider setting's "let the game decide" value.
+ *
+ * Not a member of the provider list: it is a *choice about* providers, and
+ * putting it in the list would have it turning up in fallback chains, in the
+ * standby order and in the "which square does this one serve" logic, none of
+ * which mean anything for a thing that is not a map server.
+ */
+const AUTO_PROVIDER = 'auto';
+
+/**
+ * What "auto" means right now: the best provider you can actually use.
+ *
+ * The same order the standby chain is built in — anything you hold a key for
+ * first, then the free ones deepest first — which makes auto exactly "the top
+ * of the list I would fall back through anyway". Adding a key changes the
+ * answer on the next frame without anybody having to reopen the dropdown, and
+ * removing one falls back rather than leaving a blank world.
+ */
+function resolveAuto(list, values) {
+  // Ranked here rather than through providerChain: that function takes a
+  // *chosen* provider and orders the rest behind it, and a null choice resolves
+  // to the head of the list rather than to no preference — so asking it for the
+  // best always came back with whatever happened to be written first.
+  const usable = list.filter((p) => !p.hidden && (!p.needsKey || values?.[p.needsKey]));
+  usable.sort((a, b) => {
+    const keyed = (p) => (p.needsKey ? 0 : 1);
+    if (keyed(a) !== keyed(b)) return keyed(a) - keyed(b);
+    return (b.maxZoom ?? 0) - (a.maxZoom ?? 0);
+  });
+  return usable[0]?.id ?? list[0]?.id;
+}
+
+/** The chosen provider's id, with "auto" resolved to a real one. */
+function effectiveProvider(list, chosenId, values) {
+  return chosenId === AUTO_PROVIDER ? resolveAuto(list, values) : chosenId;
+}
+
 function providerChain(list, chosenId, values) {
   const chosen = findProvider(list, chosenId);
   const rest = list.filter((p) => p.id !== chosen?.id && !p.hidden);
@@ -84166,6 +84204,9 @@ __tg_exports["recommendedProvider"] = recommendedProvider;
 __tg_exports["providerLabel"] = providerLabel;
 __tg_exports["gibsDate"] = gibsDate;
 __tg_exports["TileSource"] = TileSource;
+__tg_exports["AUTO_PROVIDER"] = AUTO_PROVIDER;
+__tg_exports["resolveAuto"] = resolveAuto;
+__tg_exports["effectiveProvider"] = effectiveProvider;
 __tg_exports["providerChain"] = providerChain;
 __tg_exports["createImagerySource"] = createImagerySource;
 __tg_exports["createElevationSource"] = createElevationSource;
@@ -100334,7 +100375,7 @@ __tg_modules["src/ui/settingsPanel.js"] = function (__tg_exports) {
 const { ACTIONS, keyLabel, keybinds } = __tg_require("src/core/keybinds.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { formatHeight } = __tg_require("src/core/units.js");
-const { NO_ZOOM_CEILING, ZOOM_SLIDER_MAX, ELEVATION_PROVIDERS, IMAGERY_PROVIDERS, PANORAMA_PROVIDERS, bestProviderFor, providerLabel, testProviders } = __tg_require("src/tiles/providers.js");
+const { NO_ZOOM_CEILING, ZOOM_SLIDER_MAX, ELEVATION_PROVIDERS, IMAGERY_PROVIDERS, PANORAMA_PROVIDERS, AUTO_PROVIDER, bestProviderFor, findProvider, providerLabel, resolveAuto, testProviders } = __tg_require("src/tiles/providers.js");
 const { escapeHtml } = __tg_require("src/ui/worldmap.js");
 
 /**
@@ -100356,8 +100397,18 @@ const SECTIONS = [
         key: 'imageryProvider',
         label: 'Imagery',
         type: 'select',
-        options: () => IMAGERY_PROVIDERS.filter((p) => !p.hidden).map((p) => ({ value: p.id, label: providerLabel(p) })),
-        help: (value) => providerNote(IMAGERY_PROVIDERS, value),
+        options: () => [
+          { value: AUTO_PROVIDER, label: 'Auto — the best one you can use' },
+          ...IMAGERY_PROVIDERS.filter((p) => !p.hidden)
+            .map((p) => ({ value: p.id, label: providerLabel(p) })),
+        ],
+        help: (value) => (value === AUTO_PROVIDER
+          ? `Whichever provider you can actually use, picked fresh every time this`
+            + ` panel changes anything: one you hold a key for first, then the free ones,`
+            + ` deepest first. Right now that is`
+            + ` ${providerLabel(findProvider(IMAGERY_PROVIDERS, resolveAuto(IMAGERY_PROVIDERS, settings.values)))}.`
+            + ` Add a key below and it moves by itself.`
+          : providerNote(IMAGERY_PROVIDERS, value)),
         test: 'imagery',
       },
       {
@@ -101558,7 +101609,7 @@ const { Avatar } = __tg_require("src/player/avatar.js");
 const { PlayerController } = __tg_require("src/player/controller.js");
 const { Player, SURGE_FACTOR } = __tg_require("src/player/player.js");
 const { ElevationField } = __tg_require("src/tiles/elevation.js");
-const { IMAGERY_PROVIDERS, createElevationSource, createImagerySource, providerChain } = __tg_require("src/tiles/providers.js");
+const { IMAGERY_PROVIDERS, createElevationSource, createImagerySource, effectiveProvider, providerChain } = __tg_require("src/tiles/providers.js");
 const { ImageryStreamer } = __tg_require("src/tiles/streamer.js");
 const { createTileWorker } = __tg_require("src/tiles/workerHost.js");
 const { Buildings } = __tg_require("src/world/buildings.js");
@@ -102033,7 +102084,16 @@ class Game {
    *   a second of blank ground you cannot move on.
    */
   applyProviders({ rebuild = true } = {}) {
-    this.imagerySource = createImagerySource(settings.values);
+    // "Auto" is a choice about providers rather than a provider, so it is
+    // resolved to a real one here — once — and everything downstream sees an
+    // ordinary id. Resolved every time providers are applied, so adding a key
+    // in the settings panel changes what you are flying over without anybody
+    // reopening the dropdown.
+    const chosenId = effectiveProvider(
+      IMAGERY_PROVIDERS, settings.get('imageryProvider'), settings.values,
+    );
+    const values = { ...settings.values, imageryProvider: chosenId };
+    this.imagerySource = createImagerySource(values);
     this.elevationSource = createElevationSource(settings.values);
     this.streamer.setSource(this.imagerySource);
     // Standbys for the ground itself, in the order asked for: providers you
@@ -102041,10 +102101,10 @@ class Game {
     // chosen provider will not serve moves down the list rather than leaving a
     // bare square — and there is nothing invented behind the list any more.
     this.streamer.setStandbys(
-      providerChain(IMAGERY_PROVIDERS, settings.get('imageryProvider'), settings.values)
+      providerChain(IMAGERY_PROVIDERS, chosenId, values)
         .filter((p) => p.id !== this.imagerySource.descriptor.id)
         .slice(0, 3)
-        .map((p) => createImagerySource({ ...settings.values, imageryProvider: p.id })),
+        .map((p) => createImagerySource({ ...values, imageryProvider: p.id })),
     );
     this.elevation.setSource(this.elevationSource);
     mapTiles.setSource(this.imagerySource);
@@ -102053,7 +102113,7 @@ class Game {
     mapTiles.setFallback(
       this.imagerySource.descriptor.id === 'sentinel2'
         ? null
-        : createImagerySource({ ...settings.values, imageryProvider: 'sentinel2' }),
+        : createImagerySource({ ...values, imageryProvider: 'sentinel2' }),
     );
     mapTiles.setDegraded(false);
     // The second tile set: the drawn street map the flat maps show for ground
@@ -102069,9 +102129,9 @@ class Game {
     // broken map rather than a loading one. A photograph has no such problem:
     // stretched, it is simply a soft photograph, so it keeps the wide default.
     streetTiles.maxStretch = 1;
-    streetTiles.setSource(createImagerySource({ ...settings.values, imageryProvider: 'esri-street' }));
+    streetTiles.setSource(createImagerySource({ ...values, imageryProvider: 'esri-street' }));
     streetTiles.setFallback([
-      createImagerySource({ ...settings.values, imageryProvider: 'openfreemap' }),
+      createImagerySource({ ...values, imageryProvider: 'openfreemap' }),
     ]);
     // The water probe gets the standbys too: whether somewhere is the sea must
     // not depend on which company has flown over it.

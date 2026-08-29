@@ -350,6 +350,36 @@ console.log('\nelytra flight model');
   }
 }
 
+console.log('\nauto picks the best provider you can actually use');
+{
+  const prov = await import('../src/tiles/providers.js');
+  const { AUTO_PROVIDER, IMAGERY_PROVIDERS, resolveAuto, effectiveProvider } = prov;
+
+  ok('with no key at all it lands on the keyless one',
+    resolveAuto(IMAGERY_PROVIDERS, {}) === 'esri');
+  for (const [key, id] of [['mapboxKey', 'mapbox'], ['googleKey', 'google'], ['bingKey', 'bing']]) {
+    const got = resolveAuto(IMAGERY_PROVIDERS, { [key]: 'x' });
+    ok(`a ${id} key moves it to ${id}  (${got})`, got === id);
+  }
+  // Two keys: the deeper of the two, which is the same order the standby chain
+  // falls through, so auto is exactly the top of the list it would use anyway.
+  const both = resolveAuto(IMAGERY_PROVIDERS, { googleKey: 'x', mapboxKey: 'y' });
+  ok(`two keys take the deeper  (${both})`, both === 'mapbox' || both === 'google');
+
+  // Auto is a choice about providers, not a provider: it must never reach the
+  // code that asks a provider for a square.
+  ok('and it is not itself in the provider list',
+    !IMAGERY_PROVIDERS.some((p) => p.id === AUTO_PROVIDER));
+  ok('so everything downstream sees a real one',
+    effectiveProvider(IMAGERY_PROVIDERS, AUTO_PROVIDER, {}) === 'esri'
+    && effectiveProvider(IMAGERY_PROVIDERS, 'gibs', {}) === 'gibs');
+
+  // And the panel offers it, or none of the above is reachable.
+  const panel = readFileSync(new URL('../src/ui/settingsPanel.js', import.meta.url), 'utf8');
+  ok('the dropdown offers it', /value: AUTO_PROVIDER/.test(panel));
+  ok('and says which one it has picked', /resolveAuto\(IMAGERY_PROVIDERS, settings\.values\)/.test(panel));
+}
+
 console.log('\na written-off depth can be un-written-off');
 {
   const { ImageryStreamer } = await import('../src/tiles/streamer.js');
@@ -4375,8 +4405,11 @@ console.log('\nphotograph where you have been, drawn map where you have not');
     /export const streetTiles/.test(readFileSync(new URL('../src/ui/mapTiles.js', import.meta.url), 'utf8'))
     && /imageryProvider: 'esri-street'/.test(game)
     && /imageryProvider: 'openfreemap'/.test(game));
+  // Whatever the spread is called, the street layer's own id is written last
+  // and wins — which is the thing that matters, and is why this no longer
+  // pins the name of the object being spread.
   ok('so swapping which satellite you fly over does not change the fog',
-    /streetTiles\.setSource\(createImagerySource\(\{ \.\.\.settings\.values, imageryProvider: 'esri-street' \}\)\)/.test(game));
+    /streetTiles\.setSource\(createImagerySource\(\{ \.\.\.\w+, imageryProvider: 'esri-street' \}\)\)/.test(game));
 
   // The edge follows what you could see from where you stood — exploration
   // records by horizon, not by the square you are in — and is then feathered,

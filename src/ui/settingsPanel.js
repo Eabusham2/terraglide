@@ -7,8 +7,11 @@ import {
   ELEVATION_PROVIDERS,
   IMAGERY_PROVIDERS,
   PANORAMA_PROVIDERS,
+  AUTO_PROVIDER,
   bestProviderFor,
+  findProvider,
   providerLabel,
+  resolveAuto,
   testProviders,
 } from '../tiles/providers.js';
 import { escapeHtml } from './worldmap.js';
@@ -32,8 +35,18 @@ const SECTIONS = [
         key: 'imageryProvider',
         label: 'Imagery',
         type: 'select',
-        options: () => IMAGERY_PROVIDERS.filter((p) => !p.hidden).map((p) => ({ value: p.id, label: providerLabel(p) })),
-        help: (value) => providerNote(IMAGERY_PROVIDERS, value),
+        options: () => [
+          { value: AUTO_PROVIDER, label: 'Auto — the best one you can use' },
+          ...IMAGERY_PROVIDERS.filter((p) => !p.hidden)
+            .map((p) => ({ value: p.id, label: providerLabel(p) })),
+        ],
+        help: (value) => (value === AUTO_PROVIDER
+          ? `Whichever provider you can actually use, picked fresh every time this`
+            + ` panel changes anything: one you hold a key for first, then the free ones,`
+            + ` deepest first. Right now that is`
+            + ` ${providerLabel(findProvider(IMAGERY_PROVIDERS, resolveAuto(IMAGERY_PROVIDERS, settings.values)))}.`
+            + ` Add a key below and it moves by itself.`
+          : providerNote(IMAGERY_PROVIDERS, value)),
         test: 'imagery',
       },
       {

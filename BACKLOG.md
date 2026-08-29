@@ -462,7 +462,28 @@ what is left · `[?]` needs a decision from you.
 - [ ] G10. Add more Cesium; Bing via Cesium
 - [ ] G11. Explain the "Cesium ion imagery asset / 2" setting properly
 - [ ] G12. Ensure the latest Cesium data is used
-- [ ] G13. Auto-change provider via an auto option in the dropdown
+- [x] G13. Auto-change provider via an auto option in the dropdown
+      There was a "find the best one here" button that ran once and wrote its
+      answer into the setting. Now there is a standing choice: "Auto — the best
+      one you can use", first in the dropdown, resolved fresh every time the
+      panel changes anything. Paste a Mapbox key and the ground is Mapbox on the
+      next frame without reopening the dropdown; remove it and it falls back
+      rather than leaving a blank world.
+
+      The order is the same one the standby chain already falls through —
+      anything you hold a key for first, then the free ones deepest first — so
+      auto is exactly the top of the list the game would use anyway rather than
+      a second opinion that could disagree with it.
+
+      It is deliberately not a member of the provider list. It is a choice
+      *about* providers, and putting it in the list would have it turning up in
+      fallback chains, in the standby order, and in "which square does this one
+      serve", none of which mean anything for something that is not a map
+      server. It is resolved to a real id once, where the sources are built, and
+      everything downstream sees an ordinary provider.
+
+      The help text says which one it has landed on, so it is never a mystery
+      what you are actually flying over.
 - [x] G14. Fallbacks
       Already: providerChain builds a standby list (keyed providers first, then
       free ones), a refused tile walks down it, and the flat maps fall back to the
