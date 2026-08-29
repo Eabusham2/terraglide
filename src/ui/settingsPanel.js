@@ -112,7 +112,13 @@ const SECTIONS = [
       { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation.' },
       { key: 'appleMapsToken', label: 'Apple Maps token', type: 'secret', help: 'A MapKit JS token from your Apple Developer account. Used for addresses and place search.' },
       { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'One token, two uses: the Cesium route into photorealistic 3D, and ion imagery below.' },
-      { key: 'cesiumImageryAsset', label: 'Cesium ion imagery asset', type: 'range', min: 1, max: 10000, step: 1, showWhen: () => settings.get('imageryProvider') === 'cesium-ion', help: 'Which raster asset in your ion account to fly over. 2 is Bing Aerial, which most accounts have.' },
+      { key: 'cesiumImageryAsset', label: 'Cesium ion imagery asset', type: 'range', min: 1, max: 10000, step: 1, showWhen: () => settings.get('imageryProvider') === 'cesium-ion', help: 'The number ion gives a raster layer in your account — open My Assets on'
+        + ' the ion dashboard and it is the ID column, also the last part of the asset\'s own URL.'
+        + ' It must be an *imagery* asset: terrain and 3D Tiles have IDs too and will simply'
+        + ' refuse every tile, which looks like a broken key rather than the wrong number.'
+        + ' 2 is Bing Aerial and is on almost every account, which is why it is the default.'
+        + ' Get it wrong and nothing is invented — the ground falls back through the other'
+        + ' providers and says so.' },
       { key: 'mapillaryToken', label: 'Mapillary token', type: 'secret' },
       { key: 'maxarConnectId', label: 'Maxar SecureWatch connect ID', type: 'secret', help: 'Maxar\u2019s own imagery service. An enterprise credential \u2014 Esri, Bing and Google all serve Maxar scenes without one.' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },

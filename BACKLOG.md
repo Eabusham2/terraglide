@@ -460,7 +460,15 @@ what is left · `[?]` needs a decision from you.
 - [ ] G8. Bing has satellite and a 3D mode — add the 3D
 - [ ] G9. Add Azure aerial
 - [ ] G10. Add more Cesium; Bing via Cesium
-- [ ] G11. Explain the "Cesium ion imagery asset / 2" setting properly
+- [x] G11. Explain the "Cesium ion imagery asset / 2" setting properly
+      It said "which raster asset in your ion account to fly over", which tells
+      you what the number is for and nothing about where to get it or what
+      happens when it is wrong. It now says where to find it — My Assets on the
+      ion dashboard, the ID column — that it must be an *imagery* asset, since
+      terrain and 3D Tiles have IDs too and pasting one of those refuses every
+      tile and looks like a broken key rather than a wrong number, why 2 is the
+      default, and that getting it wrong invents nothing: the ground falls back
+      through the other providers and says so.
 - [ ] G12. Ensure the latest Cesium data is used
 - [x] G13. Auto-change provider via an auto option in the dropdown
       There was a "find the best one here" button that ran once and wrote its
@@ -503,7 +511,20 @@ what is left · `[?]` needs a decision from you.
       (all file URLs share one origin), the store writes every token, and a fresh
       store built from the same storage reads them back. The store class is
       exported now so that reload path can actually be exercised.
-- [ ] G18. Why is it lower res than, e.g., the Mapbox website
+- [x] G18. Why is it lower res than, e.g., the Mapbox website
+      Two reasons, one of which was a bug and is fixed.
+
+      The bug: the ground was capped below what the provider serves and could
+      never recover — see M4. A depth written off in one place stayed written
+      off everywhere for the rest of the session, because the cap stopped
+      anything asking above it, so nothing could arrive to lift it.
+
+      The rest is presentation, and the Mapbox setting now says so where it is
+      asked: it is the same tiles at the same 512-pixel size their own site
+      draws. A flat map puts about one texel on one screen pixel; here the
+      photograph is draped over terrain and usually seen at an angle, so the
+      same picture covers fewer pixels. Fly straight down at it and the two
+      match.
 - [x] G19. Show the imagery year
       Esri publish it per square — capture date, ground resolution, the satellite
       that took it, and the deepest zoom that square is served at. It sits on the

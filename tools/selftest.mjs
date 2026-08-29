@@ -350,6 +350,25 @@ console.log('\nelytra flight model');
   }
 }
 
+console.log('\nsettings that explain themselves');
+{
+  const panel = readFileSync(new URL('../src/ui/settingsPanel.js', import.meta.url), 'utf8');
+  const prov = readFileSync(new URL('../src/tiles/providers.js', import.meta.url), 'utf8');
+  // "Which raster asset in your ion account to fly over" told you what the
+  // number was for and not one thing about where to get it or what happens
+  // when it is wrong — and the commonest way to get it wrong is to paste a
+  // terrain or 3D Tiles id, which refuses every tile and looks like a broken
+  // key rather than the wrong number.
+  const cesium = /cesiumImageryAsset[\s\S]{0,1400}?\}/.exec(panel)?.[0] ?? '';
+  ok('the ion asset setting says where to find the number', /My Assets/.test(cesium));
+  ok('and that an imagery asset is not a terrain one', /terrain and 3D Tiles/.test(cesium));
+  ok('and what happens when it is wrong', /falls back/.test(cesium));
+  // And why the same provider's own website looks sharper, which is
+  // presentation rather than data and is worth saying where it is asked.
+  ok('and Mapbox says why its website looks sharper',
+    /one texel on one[\s\S]{0,40}screen pixel/.test(prov));
+}
+
 console.log('\nthe map is drawn where you are drawn');
 {
   const player = readFileSync(new URL('../src/player/player.js', import.meta.url), 'utf8');

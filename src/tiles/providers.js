@@ -188,6 +188,11 @@ export const IMAGERY_PROVIDERS = [
     maxZoom: 22,
     template: 'https://api.mapbox.com/v4/mapbox.satellite/{z}/{x}/{y}@2x.jpg90?access_token={key}',
     attribution: '© Mapbox © Maxar',
+    note: 'The same tiles their own website draws, at the same 512-pixel size.'
+      + ' It looks sharper there because a flat map puts about one texel on one'
+      + ' screen pixel, while here the photograph is draped over terrain and'
+      + ' usually seen at an angle — the same picture over fewer pixels. Fly'
+      + ' straight down at it and the two match.',
   },
   {
     id: 'esri-street',
