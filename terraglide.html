@@ -87407,11 +87407,12 @@ const ROCKET_THRUST = 1.5;
  * a flat line; it is gone, because a flat line is what it is.
  *
  * What this actually feels like, and the numbers are Minecraft's own: held
- * level, a rocket settles you at about 33 m/s. That is the famous figure —
+ * level, a Rocket I settles you at about 33 m/s. That is the famous figure —
  * elytra plus rockets cruises at a shade over thirty-three metres a second —
- * and it is *lower* than a dive, which reaches 78. So firing while already
- * faster than that slows you down. That is not a bug in the rocket; it is what
- * a rocket is: it pulls your speed toward its own, from either direction.
+ * and it is *lower* than a dive, which reaches 78. In vanilla, firing while
+ * already faster than that therefore slows you down, because the push pulls
+ * your speed toward the rocket's own from either direction. Here it does not:
+ * see stepRocket, and D7.
  */
 const ROCKET_TAPER = 1;
 const TO_TICK = TICK; // m/s -> blocks/tick
@@ -87488,60 +87489,63 @@ function stepRocket(velocity, look, power = 1, spent = 0) {
   const vy = velocity.y * TO_TICK;
   const vz = velocity.z * TO_TICK;
 
-  // Minecraft's tick is `v + look*0.1 + (look*thrust - v)*0.5`, and that middle
-  // term does two jobs at once: it swings your velocity round toward where you
-  // are looking, and it pulls your speed toward the rocket's own. Pulls, in
-  // both directions — so in vanilla, firing while already faster than a rocket
-  // slows you down.
-  //
-  // In vanilla that barely shows, because every firework aims at the same 1.5
-  // blocks a tick. Here a bigger rocket pushes harder as well as longer, which
-  // was asked for, and the same line then means a Rocket I fired while cruising
-  // on a Rocket V takes you from 107 m/s to 33.5. Pressing the wrong hotbar key
-  // costs you sixty-nine per cent of your speed, which is not a trade, it is a
-  // trap.
-  //
-  // So the two jobs are separated. The swing toward your look direction is kept
-  // exactly as it was — that is the part that makes a rocket steer. The pull
-  // along your look is only ever allowed to add. A rocket is a motor, not a
-  // brake.
-  //
-  // Everywhere it used to matter this is identical arithmetic: from a standstill
-  // the along-look speed is nought, so the full pull applies, and Rocket I still
-  // settles at Minecraft's 33 m/s.
+  // Minecraft's tick is `v + look*0.1 + (look*thrust - v)*0.5`, applied whole.
+  // `along` is how fast you are already going in the direction you are looking,
+  // which is the only part of your velocity the rocket's own target competes
+  // with.
   const along = vx * look.x + vy * look.y + vz * look.z;
-  // Minecraft's own line, clamped at nought from below and not otherwise
-  // touched.
+  // Minecraft's own line: 0.1 + (thrust - along) * 0.5, and it settles where
+  // that reaches nought — 0.2 blocks a tick past the rocket's own target.
   //
-  // The governor is the pull, not the missing nudge. Vanilla's term is
-  // 0.1 + (thrust - along) * 0.5 with no floor, and it settles where that
-  // reaches nought — 0.2 blocks a tick past the rocket's own target. Dropping
-  // the nudge as well as the pull, which is what this did before, caps the
-  // cruise at the target exactly, puts a step in the curve at the moment you
-  // reach it, and means a second firework lit while the first is burning can
-  // contribute nothing at all. Which is the whole of "spamming should make you
-  // faster" doing nothing.
+  // Read as a vector, vanilla's push does two jobs: it drives your speed along
+  // your look toward the rocket's target, and it halves whatever part of your
+  // velocity points somewhere else, which is what makes a rocket steer. Both
+  // are the same term, and `pull` is that term resolved along your look.
+  const pull = 0.1 + (thrust - along) * 0.5;
+  // In vanilla the pull goes negative once you are faster than the rocket, and
+  // pulls in both directions — so firing a firework while already quicker slows
+  // you down. That barely shows there, because every firework aims at the same
+  // 1.5 blocks a tick. Here a bigger rocket pushes harder as well as longer,
+  // which was asked for, and the same line then means a Rocket I fired while
+  // cruising on a Rocket V takes you from 107 m/s to 33.5 (D7). Pressing the
+  // wrong hotbar key is not a trade, it is a trap.
   //
-  // Clamping instead keeps all three properties: it still cannot brake you, so
-  // a Rocket I fired at Rocket V speed is inert rather than a trap; it still
-  // has its governor, because the pull goes negative before the clamp does and
-  // holds the cruise where vanilla holds it; and every firework alive pushes,
-  // so lighting more gets you there faster and holds you there.
-  const gain = Math.max(0, 0.1 + (thrust - along) * 0.5);
-  // What is left of your velocity once the along-look part is taken out. This
-  // is the component the swing acts on, and halving it is what the original
-  // line did to it.
-  const sx = vx - along * look.x;
-  const sy = vy - along * look.y;
-  const sz = vz - along * look.z;
+  // So a rocket that has nothing left to give at this speed gives nothing —
+  // the whole push is skipped, not half of it.
+  //
+  // Half of it was the bug. Clamping only the forward part left the steering
+  // part at full strength for ever, and that is an engine: it forces your
+  // velocity onto your look axis, so at a shallow dive your sink is no longer
+  // the glide's own 4.5 m/s but |v| * sin(dive) — and the elytra hands a tenth
+  // of the sink back as forward speed. A gain proportional to your speed,
+  // against a drag that is only one per cent of it, compounds. Held at 20
+  // degrees down it passed 350 m/s in twenty seconds and 80,000 in two minutes,
+  // where vanilla sits at 35 for ever. Which is exactly "going faster by
+  // rocketing more downward makes no sense" (D4), and the shallow-dive band
+  // where it is worst is exactly "looking down then forward gives far too much
+  // forward speed" (D1). It needed spammed rockets to hold the thrust on, which
+  // is what D5 had just made possible.
+  //
+  // Skipping the whole push keeps every property the clamp was there for. It
+  // still cannot brake you: a spent rocket is inert rather than a trap. It
+  // still has vanilla's governor, because the pull reaches nought 0.2 blocks a
+  // tick past the target and the steering stops with it, so nothing can hold
+  // you off the glide's own equilibrium. Every firework alive still pushes, so
+  // lighting more gets you there faster. And steering never actually goes dead:
+  // past the governor the glide's own swing takes over, which is the ten per
+  // cent a turn an elytra has always had.
+  if (pull > 0) {
+    // What is left of your velocity once the along-look part is taken out. This
+    // is the component the swing acts on, and halving it is what the original
+    // line does to it.
+    const sx = vx - along * look.x;
+    const sy = vy - along * look.y;
+    const sz = vz - along * look.z;
 
-  const nx = vx + look.x * gain - sx * 0.5;
-  const ny = vy + look.y * gain - sy * 0.5;
-  const nz = vz + look.z * gain - sz * 0.5;
-
-  velocity.x = nx * TO_SECOND;
-  velocity.y = ny * TO_SECOND;
-  velocity.z = nz * TO_SECOND;
+    velocity.x = (vx + look.x * pull - sx * 0.5) * TO_SECOND;
+    velocity.y = (vy + look.y * pull - sy * 0.5) * TO_SECOND;
+    velocity.z = (vz + look.z * pull - sz * 0.5) * TO_SECOND;
+  }
 }
 
 /**

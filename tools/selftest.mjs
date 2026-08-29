@@ -275,14 +275,16 @@ console.log('\nelytra flight model');
   // brake you. Cruising at 106 m/s on a Rocket V, firing a Rocket I took you to
   // 33.5: sixty-nine per cent of your speed for pressing the wrong hotbar key.
   //
-  // So Minecraft's line is kept and clamped at nought from below, and nothing
-  // else about it is touched. The governor is the pull, not the nudge: vanilla
-  // settles where 0.1 + (thrust - along) * 0.5 reaches nought, which is two
-  // tenths of a block a tick past the rocket's own target. Dropping the nudge
-  // as well, which is what this did before, capped the cruise at the target
-  // exactly — 30 m/s for a Rocket I against vanilla's 33.5 — put a step in the
-  // curve where you reach it, and left a second firework lit mid-burn with
-  // nothing to contribute.
+  // So Minecraft's line is kept whole and simply gated: a rocket whose pull has
+  // gone negative has nothing left to give at this speed and gives nothing.
+  // The governor is the pull, not the nudge: vanilla settles where
+  // 0.1 + (thrust - along) * 0.5 reaches nought, which is two tenths of a block
+  // a tick past the rocket's own target. Dropping the nudge as well, which is
+  // what this did once, capped the cruise at the target exactly — 30 m/s for a
+  // Rocket I against vanilla's 33.5 — put a step in the curve where you reach
+  // it, and left a second firework lit mid-burn with nothing to contribute.
+  // Clamping only the forward half, which is what it did next, left the
+  // steering half running for ever — see the runaway check below.
   {
     const fast = { x: 0, y: 0, z: -70 };
     const before = Math.hypot(fast.x, fast.z);
@@ -313,6 +315,52 @@ console.log('\nelytra flight model');
     // Vanilla's own: 1.7 blocks a tick, being where the pull cancels the nudge.
     ok(`and settles where vanilla settles  (${settled.toFixed(1)} m/s against 34)`,
       Math.abs(settled - 34) < 1.5);
+  }
+
+  // Held thrust at a shallow dive must settle, not compound.
+  //
+  // This is the one that got away. Clamping only the forward half of vanilla's
+  // push left the steering half — the `- perpendicular * 0.5` that makes a
+  // rocket turn — running at full strength for ever once the forward half was
+  // spent. And that half is an engine all by itself: it pins your velocity to
+  // your look axis, so a shallow dive sinks at |v| * sin(dive) rather than the
+  // glide's own few metres a second, and the elytra hands a tenth of the sink
+  // straight back as forward speed. Gain proportional to speed against a drag
+  // that is one per cent of it, so it compounds. Held twenty degrees down, a
+  // Rocket III passed 350 m/s in twenty seconds and 80,000 m/s in two minutes.
+  // Vanilla sits at 35 for ever.
+  //
+  // Spamming rockets is what holds the thrust on, so this was reachable the
+  // moment fireworks became a list. Swept across the angles rather than spot-
+  // checked, because the band it blew up in was ten to thirty-five degrees and
+  // a check at forty-five would have passed.
+  {
+    let worst = 0;
+    let worstAt = 0;
+    let worstSlot = 0;
+    for (const duration of [1, 3, 5]) {
+      const power = rocketPowerFor(duration);
+      for (let deg = 0; deg <= 90; deg += 5) {
+        const pitch = (-deg * Math.PI) / 180;
+        const look = { x: 0, y: Math.sin(pitch), z: -Math.cos(pitch) };
+        const v = { x: 0, y: 0, z: 0 };
+        // Twenty seconds of unbroken thrust, which is what a full hotbar buys.
+        for (let tick = 0; tick < 400; tick++) {
+          stepRocket(v, look, power, 0);
+          stepGlide(v, look, pitch);
+        }
+        const speed = Math.hypot(v.x, v.y, v.z);
+        if (speed > worst) {
+          worst = speed;
+          worstAt = deg;
+          worstSlot = duration;
+        }
+      }
+    }
+    // A Rocket V cruises at 107 and a vertical dive terminates at 78, so
+    // nothing held anywhere should reach 130. It used to reach 457.
+    ok(`thrust held at any angle settles  (worst ${worst.toFixed(0)} m/s, Rocket ${worstSlot} at ${worstAt} degrees down)`,
+      worst < 130);
   }
 
   // Every firework alive pushes, so lighting one while another is burning gets
