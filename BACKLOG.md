@@ -263,8 +263,49 @@ what is left · `[?]` needs a decision from you.
       levels below the provider and could never recover, plus the map being a
       flat view at native scale against ground seen at an angle and stretched
       58 per cent of the time while moving.
-- [ ] C6. Takes too long for max res to arrive — maybe fewer modes
-- [ ] C7. Preload/load everything when close, so approaching does not trigger a high-res render unless it is a LOD
+- [x] C6. Takes too long for max res to arrive — maybe fewer modes
+      The waiting was real and had two causes, both already fixed elsewhere: the
+      streaming budget was spare time only, so a machine missing its target got
+      45 ms of terrain work a second instead of 1296 (C3/C4), and the depth
+      limit latched two levels below the provider with no way back (M4/C5).
+
+      Measured after both, over a two and a half minute repeated dive from 900 m
+      down to 120 m: in the final frame, 320 of the 326 squares on screen are
+      drawn at their own resolution and six are stretched, none bare. That is
+      the max res arriving.
+
+      "Maybe fewer modes" is the one thing not worth doing. Of the 1,238 tiles
+      fetched across that approach, 363 — 29% — later had a finer tile of the
+      same ground fetched as well, which is the ladder the complaint is about.
+      But those are not waste: at 900 m you are looking at z14 and at 120 m you
+      are looking at z20, and both are on the screen at the time. Taking rungs
+      out does not make the sharp one arrive sooner; it makes you look at a
+      coarser picture for longer on the way down. The depth by count over that
+      approach was z11:22 z12:30 z13:33 z14:53 z15:77 z16:115 z17:139 z18:142
+      z19:125 z20:157 z21:307 — a pyramid, with most of the spend at the bottom
+      where you end up.
+- [?] C7. Preload/load everything when close, so approaching does not trigger a high-res render unless it is a LOD
+      The first half was built and measured worse. Asking ahead of where you are
+      going — the tiles you will need in a second, fetched now — took the share
+      of the frame drawn from stretched imagery from 58.1% to 61.7%, and 61.5%
+      with the look-ahead gated on speed. It was reverted; see B10 for the
+      caveat about the sandbox proxy, which serialises tiles and so punishes any
+      extra request harder than a real browser would.
+
+      The reason it loses is the same one that sank C2's reordering: throughput
+      is the constraint, not ordering, and a speculative request is one a
+      certain request did not get. It only pays if the guess is nearly always
+      right, and steering is not.
+
+      The second half — "unless it is a LOD" — is already so. Approaching does
+      not trigger a fresh high-res render of ground you have: the finer tile is
+      requested while the coarser one you already have keeps being drawn,
+      stretched, until it lands. That is what the 29% ladder in C6 is.
+
+      Left as a question rather than closed, because the thing that would make
+      the first half work is not more prefetching, it is more throughput —
+      several tiles in flight per round trip — and whether that is worth doing
+      depends on which provider you actually fly on.
 - [x] C8. Flying up should not decrease quality
       Cause: the split test used the *horizontal* distance, which is nought for
       ground directly beneath you however high you are — so at 9 km the quadtree
@@ -279,8 +320,40 @@ what is left · `[?]` needs a decision from you.
       of the ways to earn one (no imagery here, provider not ready) are not the
       server's fault. Now a rate, over ten seconds, transport failures only,
       and it expires.
-- [ ] C10. Distant view should be fixed low-res LODs, getting less detailed further out
-- [ ] C11. LODs for distance render only
+- [x] C10. Distant view should be fixed low-res LODs, getting less detailed further out
+      It already is, and here it is measured rather than asserted. Standing on
+      the ground looking at the horizon, and again from 400 m with the nose 15
+      degrees down, every square actually drawn, bucketed by how far off it is
+      and reported as the shallowest / middle / deepest zoom in the bucket:
+
+        under 250 m      18 / 20 / 21
+        250 m to 1 km    17 / 18 / 19
+        1 to 4 km        15 / 16 / 17
+        4 to 16 km       13 / 14 / 15
+        16 to 64 km      11 / 12 / 13
+        past 64 km       11 / 11 / 11
+
+      Which is a fixed pyramid getting two levels coarser for every four times
+      the distance, and it stops at z11 rather than running on. It is not a
+      constant anyone typed: it falls out of the screen-space-error rule, which
+      splits a square only while it still looks bigger than a threshold. At
+      30 km a z12 square is 9.8 km across and subtends about 250 screen pixels
+      on a 960-wide view, so its 256-pixel texture is landing at roughly 1:1 —
+      exactly the level it should be, and one coarser would visibly blur the
+      horizon.
+- [x] C11. LODs for distance render only
+      Same answer as C10, from the same measurement: the distant view is drawn
+      from coarse levels only and never descends. Past 16 km nothing finer than
+      z13 is ever built, and past 64 km nothing finer than z11 — the quadtree
+      stops splitting there because the square already looks small enough, so
+      the deep levels are never requested, never fetched and never meshed for
+      ground at that range.
+
+      The one place this was not true was straight up and down, and it is fixed:
+      the split test used horizontal distance, which is nought for the ground
+      directly beneath you however high you are, so at 9 km the tree descended
+      to z23 under your feet — maximum depth for a patch seen from nine
+      kilometres — and spent the frame's whole budget there. See C8.
 - [x] C12. Why is the distance horizon forced
       Because the setting is a floor, not a ceiling: renderDistance is
       clamp(horizon, setting, setting * 6). From 400 m up the real horizon is
