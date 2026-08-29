@@ -207,7 +207,45 @@ what is left · `[?]` needs a decision from you.
 
       Asking ahead of where you are going was tried and reverted; see B10 for
       the numbers and the caveat about the sandbox's proxy.
-- [ ] C2. Load high res more, long-range low res less
+- [~] C2. Load high res more, long-range low res less
+      Measured first, and the picture is not what it looks like from the code.
+
+      Flying at 400 m, the share of drawn ground at its own resolution rather
+      than stretched from a coarser tile: within a kilometre 64%, one to sixteen
+      kilometres 69%, past sixteen 71%, and all three reach 100% and stay there
+      once you stop covering new ground. So the far field is not being served
+      *instead* of the near one — the whole pyramid converges together.
+
+      The request priority does look wrong. It is distance / 2^(20-z), which
+      reads as "biggest on screen first", and sampling the live queue in flight
+      the next twelve to be served were z12@132 z14@132 z12@132 z15@134 z14@134
+      z16@134 z16@135 z17@135 — a z12 square thirty kilometres off and a z21
+      square underfoot inside a band of a quarter. It carries almost no
+      information, because the split rule already equalises apparent size:
+      that is what a screen-space-error quadtree *is*.
+
+      Two principled replacements were built and both measured worse, on the
+      same steady glide, sampled every twelve seconds for two minutes:
+
+                                    within 1 km   1-16 km   past 16 km
+        as it is                        64%         69%        71%
+        holes first, then by distance   72%         34%         0%
+        holes first, then by pixels
+          put right (area x stretch)    15%         12%        26%
+
+      The distance rule does what C2 asks for and the horizon never recovers:
+      near ground churns continuously in flight, so under a strict near-first
+      order there is always near work outstanding and the far field is never
+      reached. Eight points nearer for a permanently soft horizon is not the
+      trade — see B10 and M9, blur is the complaint on the other side of this.
+      Ranking by visible error thrashes: it promotes whatever is most stretched,
+      which is always the newest coarse square, and nothing finishes.
+
+      So the near-uniform ordering is left alone. It looks degenerate and it is
+      what makes the pyramid converge together. Left partly done rather than
+      done because the ask is not satisfied — near is not favoured — and the
+      honest reason is that the two ways of favouring it both cost more than
+      they bought. Both are recorded here so the next attempt starts past them.
 - [x] C3. Ground loading is super slow but the minimap is already loaded
       Cause found: the per-frame streaming budget was spare time only, so any
       machine missing its target pinned to the 1.5 ms floor — 45 ms of terrain
