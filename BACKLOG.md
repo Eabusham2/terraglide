@@ -174,7 +174,19 @@ what is left · `[?]` needs a decision from you.
       browser with HTTP/2 to Esri. Asking ahead is unproven here rather than
       disproven — it wants measuring on a real connection before being tried
       again.
-- [ ] B11. Random times when looking, everything becomes a solid colour
+- [?] B11. Random times when looking, everything becomes a solid colour
+      A solid colour is a tile with no texture at all — not even a coarser one
+      stretched over it — because the shader then has only the relief to colour
+      by. It is counted now, per frame, alongside the stretching, and over
+      settled flight, a 180 and standing still it came back 0.0 per cent every
+      time. So it does not reproduce here.
+
+      Where it can still happen: a provider that refuses a square outright
+      (which is drawn bare deliberately and honestly, rather than invented),
+      and the first moments after a teleport before any cover tile has landed.
+      If it is still being seen, the thing worth knowing is where and with
+      which provider — the counter will say whether it is that or something
+      else.
 - [ ] B12. Randomly blurring depending on where I look
 - [x] B13. In freecam I see the ground behind me as invisible
       Cause: in freecam the terrain is built for the player's camera on purpose —
@@ -772,7 +784,14 @@ what is left · `[?]` needs a decision from you.
       used to be" is gone.
 - [x] M15. "with gaps left as gaps" — I said NO GAPS
       — line removed.
-- [ ] M16. One branch, with gh-pages as the only other
+- [~] M16. One branch, with gh-pages as the only other
+      Two dead branches remain: online-singlefile, which holds nothing main
+      does not (136 files changed, 231,358 deletions against 70 insertions —
+      it is a strict subset), and claude/world-exploration-game-962wpo, which
+      is an old snapshot and the only place the deleted terrain generator still
+      exists. Deleting a remote branch is refused by the permission gate here,
+      and the second one is also the branch this session was told to develop
+      on, so neither is something to delete unilaterally. Both want a word.
 - [ ] M17. Stop patching with bandaids — fix the system
 - [x] M18. Barrel roll, implemented like the mod, not as a keybind
       Was a key: X ran a canned 360 over 0.8 s whatever you were doing. Now it is

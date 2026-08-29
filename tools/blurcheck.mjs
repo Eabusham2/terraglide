@@ -217,19 +217,21 @@ const sample = async (label, ms) => {
     await page.waitForTimeout(250);
     rows.push(await page.evaluate(() => {
       const s = window.terraglide.terrain.streamer.stats;
-      return { exact: s.exact, stretched: s.stretched, steps: s.steps, pending: s.pending };
+      return { exact: s.exact, stretched: s.stretched, steps: s.steps,
+        bare: s.bare, pending: s.pending };
     }));
   }
-  let exact = 0; let stretched = 0; let steps = 0; let worst = 0;
+  let exact = 0; let stretched = 0; let steps = 0; let worst = 0; let bare = 0;
   for (const r of rows) {
-    exact += r.exact; stretched += r.stretched; steps += r.steps;
+    exact += r.exact; stretched += r.stretched; steps += r.steps; bare += r.bare;
     const share = r.stretched / Math.max(1, r.exact + r.stretched);
     worst = Math.max(worst, share);
   }
   const total = exact + stretched;
   console.log(`${label.padEnd(22)} stretched ${((stretched / Math.max(1, total)) * 100).toFixed(1).padStart(5)}%`
     + `   worst frame ${(worst * 100).toFixed(0).padStart(3)}%`
-    + `   mean stretch ${(steps / Math.max(1, stretched)).toFixed(2)} levels`);
+    + `   mean stretch ${(steps / Math.max(1, stretched)).toFixed(2)} levels`
+    + `   bare ${((bare / Math.max(1, total + bare)) * 100).toFixed(1)}%`);
 };
 
 await sample('settled, flying', 10000);

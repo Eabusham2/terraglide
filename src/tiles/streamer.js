@@ -83,7 +83,14 @@ export class ImageryStreamer extends Emitter {
     this.nextId = 1;
     this.jobs = new Map();
     this.frame = 0;
-    this.stats = { loaded: 0, pending: 0, failed: 0, bytes: 0, exact: 0, stretched: 0, steps: 0 };
+    this.stats = {
+      loaded: 0, pending: 0, failed: 0, bytes: 0,
+      // What the ground you are looking at is actually drawn from: its own
+      // photograph, a coarser one stretched over it, or nothing at all. The
+      // last is "everything becomes a solid colour" — no texture means the
+      // shader has only the relief to colour by, which is flat grey.
+      exact: 0, stretched: 0, steps: 0, bare: 0,
+    };
     this.tileSizeHint = 256;
     this.consecutiveFailures = 0;
     /** Set when a provider is unreachable. */
@@ -349,6 +356,7 @@ export class ImageryStreamer extends Emitter {
     this.stats.exact = 0;
     this.stats.stretched = 0;
     this.stats.steps = 0;
+    this.stats.bare = 0;
     // Requests are collected fresh each frame; stale ones simply never re-queue.
     this.queue.length = 0;
   }
@@ -496,6 +504,7 @@ export class ImageryStreamer extends Emitter {
       y >>= 1;
       z -= 1;
     }
+    this.stats.bare++;
     return null;
   }
 
