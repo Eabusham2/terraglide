@@ -83620,6 +83620,38 @@ const GIBS_LAG_DAYS = 3;
  * not valid", "Referer restrictions" — and it is far more use than the status
  * code on its own.
  */
+/**
+ * Fetch, and say something useful when the request never arrives at all.
+ *
+ * A refusal is easy to report: there is a status and usually a body saying why.
+ * A *transport* failure is the one that reads as the game being broken, because
+ * all the browser hands over is "Failed to fetch" — no status, no body, no
+ * origin — and it is thrown for three quite different things:
+ *
+ *   nothing is reaching the network at all;
+ *   the service would not answer this page's origin, and a page opened from a
+ *     file:// URL sends `Origin: null`, which several metered APIs refuse
+ *     before the request is ever made;
+ *   an extension or a corporate proxy blocked it.
+ *
+ * "Photorealistic 3D failed to fetch" was that message arriving with none of
+ * this attached. Naming the three turns a dead end into somewhere to look.
+ */
+async function reach(url, options, what) {
+  try {
+    return await fetch(url, options);
+  } catch (err) {
+    const detail = String(err?.message ?? err);
+    throw new Error(
+      `${what} could not be reached (${detail}). That is the request never arriving `
+      + 'rather than being refused, so the token is not what is wrong: check the network, '
+      + 'whether an extension is blocking it, and whether this page is running from a '
+      + 'file:// URL \u2014 that sends no origin, and some metered services will not answer it. '
+      + 'The online single file and the hosted page both have a real origin.',
+    );
+  }
+}
+
 async function googleReason(res) {
   try {
     const body = await res.json();
@@ -83785,9 +83817,11 @@ class TileSource {
    */
   async prepareIon() {
     const asset = this.keys.cesiumImageryAsset || 2;
-    const res = await fetch(
+    const res = await reach(
       `https://api.cesium.com/v1/assets/${encodeURIComponent(asset)}/endpoint` +
         `?access_token=${encodeURIComponent(this.key)}`,
+      undefined,
+      `Cesium ion asset ${asset}`,
     );
     if (!res.ok) throw new Error(`Cesium ion asset ${asset} refused the token (${res.status})`);
     const data = await res.json();
@@ -83795,9 +83829,11 @@ class TileSource {
     if (data.externalType === 'BING' || data.options?.mapStyle) {
       const base = (data.options?.url ?? 'https://dev.virtualearth.net').replace(/\/$/, '');
       const key = data.options?.key ?? '';
-      const meta = await fetch(
+      const meta = await reach(
         `${base}/REST/v1/Imagery/Metadata/Aerial?output=json&include=ImageryProviders` +
           `&uriScheme=https&key=${encodeURIComponent(key)}`,
+        undefined,
+        'Bing imagery metadata, via ion',
       );
       if (!meta.ok) throw new Error(`Bing metadata via ion failed (${meta.status})`);
       const resource = (await meta.json())?.resourceSets?.[0]?.resources?.[0];
@@ -83836,13 +83872,14 @@ class TileSource {
     const region = localeRegion() ?? 'US';
     const language =
       (typeof navigator !== 'undefined' && navigator.language) || 'en-US';
-    const res = await fetch(
+    const res = await reach(
       `https://tile.googleapis.com/v1/createSession?key=${encodeURIComponent(this.key)}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mapType: 'satellite', language, region }),
       },
+      'Google Map Tiles',
     );
     if (!res.ok) {
       // Google says exactly what is wrong in the body and this used to throw
@@ -100733,12 +100770,12 @@ const SECTIONS = [
         ],
         help: 'How deep to walk the tile tree, and so how many triangles arrive. Photogrammetry is far heavier than the ordinary world, so drop this before turning 3D off entirely.',
       },
-      { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Photorealistic 3D Tiles, Street View Static and Geocoding APIs.' },
+      { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Photorealistic 3D Tiles, Street View Static and Geocoding APIs \u2014 each has to be enabled on the project separately, and a key restricted to some of them refuses the rest with a 403. If the key has HTTP-referrer restrictions, list this page\u2019s address in them; a page opened from a file:// URL sends no referrer at all and a restricted key can never work there.' },
       { key: 'bingKey', label: 'Bing Maps key', type: 'secret', help: 'Bing aerial imagery. Microsoft is retiring this into Azure Maps, but the coverage is not identical yet.' },
       { key: 'azureKey', label: 'Azure Maps key', type: 'secret', help: 'Azure Maps subscription key, for Microsoft satellite imagery. Azure serves no 3D data.' },
-      { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation.' },
+      { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation. If the token has URL restrictions, add this page\u2019s address; a file:// page sends no referrer and will be refused.' },
       { key: 'appleMapsToken', label: 'Apple Maps token', type: 'secret', help: 'A MapKit JS token from your Apple Developer account. Used for addresses and place search.' },
-      { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'One token, two uses: the Cesium route into photorealistic 3D, and ion imagery below.' },
+      { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'One token, two uses: the Cesium route into photorealistic 3D, and ion imagery below. It needs the assets:read scope and the asset itself has to be in your account \u2014 the sample ones are not, until you add them. \u201cCould not be reached\u201d rather than a refusal means the request never arrived, which is the network or the page\u2019s origin rather than the token.' },
       { key: 'cesiumImageryAsset', label: 'Cesium ion imagery asset', type: 'range', min: 1, max: 10000, step: 1, showWhen: () => settings.get('imageryProvider') === 'cesium-ion', help: 'The number ion gives a raster layer in your account — open My Assets on'
         + ' the ion dashboard and it is the ID column, also the last part of the asset\'s own URL.'
         + ' It must be an *imagery* asset: terrain and 3D Tiles have IDs too and will simply'
@@ -111621,7 +111658,21 @@ async function fetchWithin(url, options = {}, timeout = CONNECT_TIMEOUT_MS) {
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (error) {
     if (controller.signal.aborted) throw new Error('timed out');
-    throw error;
+    // "failed to fetch" on its own is what this reported, and it is the least
+    // useful thing a browser says: no status, no body, no origin. It is thrown
+    // when the request never arrives at all, which happens for three quite
+    // different reasons — nothing is reaching the network; the service would
+    // not answer this page's origin, and a page opened from a file:// URL
+    // sends `Origin: null`, which several metered APIs refuse before the
+    // request is made; or an extension or proxy blocked it. None of those is
+    // the token being wrong, which is what the bare message reads as.
+    throw new Error(
+      `could not be reached (${error?.message ?? error}) \u2014 the request never `
+      + 'arrived rather than being refused, so the token is probably not what is wrong. '
+      + 'Check the network, whether an extension is blocking it, and whether this page '
+      + 'is on a file:// URL, which sends no origin. The online single file and the '
+      + 'hosted page both have a real one.',
+    );
   } finally {
     clearTimeout(timer);
   }

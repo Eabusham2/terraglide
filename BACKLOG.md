@@ -847,9 +847,54 @@ what is left · `[?]` needs a decision from you.
 
 ## G. Providers and 3D
 
-- [ ] G1. Google session failed (403) — maps_api.tas.BootstrapService.Bootstrap blocked
-- [ ] G2. Fix broken Google generally
-- [ ] G3. Photorealistic Cesium ion key broken — "failed to fetch"
+- [~] G1. Google session failed (403) — maps_api.tas.BootstrapService.Bootstrap blocked
+      That message is Google's own and it is about a *project*, not about this
+      game: `BootstrapService.Bootstrap` is the Maps JavaScript API's startup
+      call, which nothing here makes — the game talks to the Map Tiles API and
+      nothing else. So the 403 is the key or the project refusing, and it says
+      which in the body.
+
+      One cause was ours and is fixed: createSession left out the required
+      `region` field, so the call never returned a session at all. See the note
+      in prepareGoogle.
+
+      The rest are three specific and fixable things, and the game now passes
+      Google's own explanation through instead of swallowing it:
+
+        the Map Tiles API is not enabled on the project — each API is enabled
+          separately, and a key that works for one is refused by another;
+        the key is restricted to a set of APIs that does not include Map Tiles;
+        the key has HTTP-referrer restrictions that do not list this page.
+
+      The third has a trap worth naming and the settings panel now names it: a
+      page opened from a file:// URL sends no referrer at all, so a
+      referrer-restricted key can never work in the offline single file, however
+      correct it is. Use the online single file or the hosted page with one.
+
+      Open until you say what the message reads now, because it will be Google's
+      sentence rather than a status code.
+- [~] G2. Fix broken Google generally
+      Same as G1, which has the detail. The one thing that was broken on this
+      side — the missing `region` on createSession, which meant no session was
+      ever issued — is fixed. Everything after that is the key's own
+      configuration, and the game now reports Google's explanation of it rather
+      than a bare 403.
+- [x] G3. Photorealistic Cesium ion key broken — "failed to fetch"
+      "Failed to fetch" is not a refusal. It is the browser saying the request
+      never arrived — no status, no body, no origin — and it is the one case
+      where the token is probably *not* what is wrong. It was being passed
+      straight through, which reads as a broken key.
+
+      It now says what it is. Three causes, all named in the message: nothing is
+      reaching the network; the service would not answer this page's origin,
+      and a page opened from a file:// URL sends `Origin: null` which several
+      metered APIs refuse before the request is made; or an extension or proxy
+      blocked it. Both routes into ion say it — the imagery provider and the 3D
+      tileset — and so do Google's and Bing's calls, which had the same hole.
+
+      The settings help for the token also now says the two things that make ion
+      refuse a *good* token: it needs the assets:read scope, and the asset has
+      to be in your account — the sample assets are not until you add them.
 - [x] G4. 3D not working at all, including OSM buildings
       Not a bug in the buildings. A fallback that never engaged.
 
@@ -874,12 +919,82 @@ what is left · `[?]` needs a decision from you.
       or fails several hosts outright, so a provider that "does not work" here
       may work perfectly for you. That is what made this one look environmental
       until the rotation was read.
-- [ ] G5. No 3D terrain for buildings, infrastructure or vegetation
-- [ ] G6. Why can I see 3D houses in MSFS (Azure) but not here
-- [ ] G7. Mapbox supports 3D buildings + terrain — why is there none here
-- [ ] G8. Bing has satellite and a 3D mode — add the 3D
-- [ ] G9. Add Azure aerial
-- [ ] G10. Add more Cesium; Bing via Cesium
+- [~] G5. No 3D terrain for buildings, infrastructure or vegetation
+      Buildings: there already are, and with no account at all. Every
+      OpenStreetMap footprint near you is extruded to its surveyed height, and
+      infrastructure comes with it — masts, pylons and turbines are asked for by
+      name. That is on by default.
+
+      Vegetation and the rest: not without a key, and not because of anything
+      here. Trees as geometry come from aerial photogrammetry, and there are
+      exactly two ways to get that in a browser — Google's Photorealistic 3D
+      Tiles, or the same dataset through a Cesium ion token. Both are metered
+      and neither has a keyless door. Everything keyless in the world of
+      published tiles is imagery, elevation and vector features; none of it is
+      a scanned mesh.
+
+      Open, because the honest state is "half of it works with no key and the
+      other half needs one of two accounts", and which of those you want to set
+      up is your call.
+- [x] G6. Why can I see 3D houses in MSFS (Azure) but not here
+      Because that data is not published. Microsoft Flight Simulator's cities
+      are Bing's aerial photogrammetry, delivered through a private pipeline
+      built for that title; Azure Maps — the API you can actually buy — serves
+      raster imagery, roads and elevation, and no mesh at all. There is no
+      endpoint to point at, with or without a key. Azure's own provider note
+      here says so.
+
+      What you *can* have is the same shape of thing from Google's
+      Photorealistic 3D Tiles or from Cesium ion, both of which are already
+      wired up and both of which need an account. See G5.
+- [~] G7. Mapbox supports 3D buildings + terrain — why is there none here
+      There is, and it is the same data — the difference is how it arrives.
+
+      Terrain: Mapbox Terrain-RGB is already one of the elevation providers, on
+      your Mapbox token. Turn it on in Settings and the relief you fly over is
+      Mapbox's.
+
+      Buildings: Mapbox's 3D buildings are the `building` layer of Mapbox
+      Streets, and that layer is OpenStreetMap. The footprints and the heights
+      are the same survey this game already extrudes — so what you see in a
+      Mapbox demo and what you see here is the same building, from the same
+      source, fetched a different way.
+
+      There is one real advantage to their way and it is worth doing: vector
+      tiles are far steadier than Overpass, which is a handful of volunteer
+      mirrors that go down (see G4, where two of them returned 500 and 503 at
+      once and took every building in the world with them). Fetching the
+      building layer from Mapbox Streets for anyone holding a token would make
+      buildings reliable rather than best-effort. Left open rather than built
+      because it cannot be tested from here without your token, and shipping an
+      untested provider is how "fixed" turns into "still broken".
+- [x] G8. Bing has satellite and a 3D mode — add the 3D
+      Bing's satellite is here — the `bing` provider, on a Bing Maps key, and
+      also reachable through Cesium ion as asset 2. Its 3D is not, and cannot
+      be: Bing Maps' 3D cities were a Silverlight-era viewer feature and were
+      never exposed as a tile API; what survives of that data is what MSFS uses
+      privately (see G6). There is nothing to add — no endpoint exists to point
+      at. Microsoft is retiring Bing Maps into Azure Maps, and Azure serves no
+      mesh either.
+- [x] G9. Add Azure aerial
+      Already there: the `azure` provider, "Azure Maps (satellite)", is
+      Microsoft's `microsoft.imagery` tileset on an Azure Maps subscription key,
+      to zoom 19, credited to Microsoft, Airbus DS and Maxar. It sits alongside
+      Bing rather than replacing it, because Bing still has coverage and zoom
+      levels Azure has not inherited yet.
+- [x] G10. Add more Cesium; Bing via Cesium
+      Both, already. "Cesium ion imagery" serves *any* raster asset in your ion
+      account — the asset number is a setting, and G11 explains where to find it
+      — so "more Cesium" is a number rather than a code change. And Bing via
+      Cesium is the default: asset 2 is Bing Aerial, which is on almost every
+      ion account, and the code handles ion's two shapes of answer separately
+      because a Bing asset comes back as Bing's own quadkey URL rather than as
+      an ion template.
+
+      On the 3D side the same token drives two datasets, chosen in Settings:
+      Google's photogrammetry, and Cesium OSM Buildings — every OpenStreetMap
+      building on Earth extruded, which covers ground the photogrammetry has
+      never been flown over.
 - [x] G11. Explain the "Cesium ion imagery asset / 2" setting properly
       It said "which raster asset in your ion account to fly over", which tells
       you what the number is for and nothing about where to get it or what
@@ -889,7 +1004,17 @@ what is left · `[?]` needs a decision from you.
       tile and looks like a broken key rather than a wrong number, why 2 is the
       default, and that getting it wrong invents nothing: the ground falls back
       through the other providers and says so.
-- [ ] G12. Ensure the latest Cesium data is used
+- [x] G12. Ensure the latest Cesium data is used
+      It is, and by construction rather than by care: nothing here pins a
+      version. Every session asks ion for the asset's *endpoint* — a fresh
+      short-lived token and wherever the tiles currently live — and follows
+      whatever it is given, so an asset that ion updates is served updated the
+      next time you fly. There is no cached manifest, no recorded URL and no
+      version number anywhere in the request.
+
+      The only staleness that can happen is the ordinary tile cache, which holds
+      a picture for twenty seconds after you last looked at it and then asks
+      again.
 - [x] G13. Auto-change provider via an auto option in the dropdown
       There was a "find the best one here" button that ran once and wrote its
       answer into the setting. Now there is a standing choice: "Auto — the best
@@ -1491,7 +1616,13 @@ what is left · `[?]` needs a decision from you.
       never in `drawn` — and meshHeightAt reads `drawn`, so the game did not
       know where the floor was. Looking down brought the real relief in all at
       once. Ground within 250 m is now built whichever way you face.
-- [ ] M12. Photorealistic 3D "failed to fetch"
+- [x] M12. Photorealistic 3D "failed to fetch"
+      Same as G3, which has the detail. In short: that message means the request
+      never arrived rather than being refused, which is the one case where the
+      token is not what is wrong — and it was being passed through with none of
+      that attached. It now names the three causes, including the non-obvious
+      one, that a page opened from a file:// URL sends `Origin: null` and
+      several metered APIs will not answer it.
 - [x] M13. Not everything fake has been removed
       Right at the time, and swept again now rather than assumed. See J1 for the
       full enumeration: every remaining source of an unmeasured number in the

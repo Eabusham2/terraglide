@@ -106,12 +106,12 @@ const SECTIONS = [
         ],
         help: 'How deep to walk the tile tree, and so how many triangles arrive. Photogrammetry is far heavier than the ordinary world, so drop this before turning 3D off entirely.',
       },
-      { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Photorealistic 3D Tiles, Street View Static and Geocoding APIs.' },
+      { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Photorealistic 3D Tiles, Street View Static and Geocoding APIs \u2014 each has to be enabled on the project separately, and a key restricted to some of them refuses the rest with a 403. If the key has HTTP-referrer restrictions, list this page\u2019s address in them; a page opened from a file:// URL sends no referrer at all and a restricted key can never work there.' },
       { key: 'bingKey', label: 'Bing Maps key', type: 'secret', help: 'Bing aerial imagery. Microsoft is retiring this into Azure Maps, but the coverage is not identical yet.' },
       { key: 'azureKey', label: 'Azure Maps key', type: 'secret', help: 'Azure Maps subscription key, for Microsoft satellite imagery. Azure serves no 3D data.' },
-      { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation.' },
+      { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation. If the token has URL restrictions, add this page\u2019s address; a file:// page sends no referrer and will be refused.' },
       { key: 'appleMapsToken', label: 'Apple Maps token', type: 'secret', help: 'A MapKit JS token from your Apple Developer account. Used for addresses and place search.' },
-      { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'One token, two uses: the Cesium route into photorealistic 3D, and ion imagery below.' },
+      { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'One token, two uses: the Cesium route into photorealistic 3D, and ion imagery below. It needs the assets:read scope and the asset itself has to be in your account \u2014 the sample ones are not, until you add them. \u201cCould not be reached\u201d rather than a refusal means the request never arrived, which is the network or the page\u2019s origin rather than the token.' },
       { key: 'cesiumImageryAsset', label: 'Cesium ion imagery asset', type: 'range', min: 1, max: 10000, step: 1, showWhen: () => settings.get('imageryProvider') === 'cesium-ion', help: 'The number ion gives a raster layer in your account — open My Assets on'
         + ' the ion dashboard and it is the ID column, also the last part of the asset\'s own URL.'
         + ' It must be an *imagery* asset: terrain and 3D Tiles have IDs too and will simply'

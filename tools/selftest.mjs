@@ -2234,6 +2234,35 @@ console.log('\nThe map opens where you were reading it');
   // 46.56523, 7.93801 — east and south, one waypoint still, and a press on
   // empty map still panned.
 
+  // A request that never arrived says so, rather than passing the browser's
+  // two-word message through.
+  //
+  // "Photorealistic 3D — failed to fetch" was that: no status, no body, no
+  // origin, and it reads as the token being wrong when it is the one case where
+  // the token is *not* what is wrong. A transport failure has three usual
+  // causes and none of them is the credential: nothing reaching the network,
+  // the service refusing this page's origin — a file:// page sends
+  // `Origin: null`, which several metered APIs will not answer — or an
+  // extension blocking it.
+  {
+    const providers = readFileSync(new URL('../src/tiles/providers.js', import.meta.url), 'utf8');
+    const tiles3d = readFileSync(new URL('../src/world/tiles3d.js', import.meta.url), 'utf8');
+    ok('a credentialed call that never arrives is reported as that',
+      /async function reach\(url, options, what\)/.test(providers)
+      && /could not be reached/.test(providers));
+    ok('and every credentialed call goes through it',
+      (providers.match(/await reach\(/g) ?? []).length === 3
+      && !/const res = await fetch\(\n {6}`https:\/\/tile\.googleapis/.test(providers));
+    ok('the 3D route says the same rather than "failed to fetch"',
+      /the request never `\n {6}\+ 'arrived rather than being refused/.test(tiles3d));
+    ok('and all three name the file:// origin, which is the non-obvious one',
+      /file:\/\/ URL/.test(providers) && /file:\/\/ URL/.test(tiles3d));
+    // The settings panel says the same thing where the key is actually typed.
+    const panel = readFileSync(new URL('../src/ui/settingsPanel.js', import.meta.url), 'utf8');
+    ok('and the key fields warn about referrer restrictions before you paste one',
+      /HTTP-referrer restrictions/.test(panel) && /URL restrictions/.test(panel));
+  }
+
   // Nothing a font can fail to draw is the whole content of a control.
   //
   // The zoom pair used to be "+" and U+2212 MINUS SIGN, typed as text. A glyph

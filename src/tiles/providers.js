@@ -390,6 +390,38 @@ const GIBS_LAG_DAYS = 3;
  * not valid", "Referer restrictions" — and it is far more use than the status
  * code on its own.
  */
+/**
+ * Fetch, and say something useful when the request never arrives at all.
+ *
+ * A refusal is easy to report: there is a status and usually a body saying why.
+ * A *transport* failure is the one that reads as the game being broken, because
+ * all the browser hands over is "Failed to fetch" — no status, no body, no
+ * origin — and it is thrown for three quite different things:
+ *
+ *   nothing is reaching the network at all;
+ *   the service would not answer this page's origin, and a page opened from a
+ *     file:// URL sends `Origin: null`, which several metered APIs refuse
+ *     before the request is ever made;
+ *   an extension or a corporate proxy blocked it.
+ *
+ * "Photorealistic 3D failed to fetch" was that message arriving with none of
+ * this attached. Naming the three turns a dead end into somewhere to look.
+ */
+async function reach(url, options, what) {
+  try {
+    return await fetch(url, options);
+  } catch (err) {
+    const detail = String(err?.message ?? err);
+    throw new Error(
+      `${what} could not be reached (${detail}). That is the request never arriving `
+      + 'rather than being refused, so the token is not what is wrong: check the network, '
+      + 'whether an extension is blocking it, and whether this page is running from a '
+      + 'file:// URL \u2014 that sends no origin, and some metered services will not answer it. '
+      + 'The online single file and the hosted page both have a real origin.',
+    );
+  }
+}
+
 async function googleReason(res) {
   try {
     const body = await res.json();
@@ -555,9 +587,11 @@ export class TileSource {
    */
   async prepareIon() {
     const asset = this.keys.cesiumImageryAsset || 2;
-    const res = await fetch(
+    const res = await reach(
       `https://api.cesium.com/v1/assets/${encodeURIComponent(asset)}/endpoint` +
         `?access_token=${encodeURIComponent(this.key)}`,
+      undefined,
+      `Cesium ion asset ${asset}`,
     );
     if (!res.ok) throw new Error(`Cesium ion asset ${asset} refused the token (${res.status})`);
     const data = await res.json();
@@ -565,9 +599,11 @@ export class TileSource {
     if (data.externalType === 'BING' || data.options?.mapStyle) {
       const base = (data.options?.url ?? 'https://dev.virtualearth.net').replace(/\/$/, '');
       const key = data.options?.key ?? '';
-      const meta = await fetch(
+      const meta = await reach(
         `${base}/REST/v1/Imagery/Metadata/Aerial?output=json&include=ImageryProviders` +
           `&uriScheme=https&key=${encodeURIComponent(key)}`,
+        undefined,
+        'Bing imagery metadata, via ion',
       );
       if (!meta.ok) throw new Error(`Bing metadata via ion failed (${meta.status})`);
       const resource = (await meta.json())?.resourceSets?.[0]?.resources?.[0];
@@ -606,13 +642,14 @@ export class TileSource {
     const region = localeRegion() ?? 'US';
     const language =
       (typeof navigator !== 'undefined' && navigator.language) || 'en-US';
-    const res = await fetch(
+    const res = await reach(
       `https://tile.googleapis.com/v1/createSession?key=${encodeURIComponent(this.key)}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mapType: 'satellite', language, region }),
       },
+      'Google Map Tiles',
     );
     if (!res.ok) {
       // Google says exactly what is wrong in the body and this used to throw

@@ -99,7 +99,21 @@ async function fetchWithin(url, options = {}, timeout = CONNECT_TIMEOUT_MS) {
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (error) {
     if (controller.signal.aborted) throw new Error('timed out');
-    throw error;
+    // "failed to fetch" on its own is what this reported, and it is the least
+    // useful thing a browser says: no status, no body, no origin. It is thrown
+    // when the request never arrives at all, which happens for three quite
+    // different reasons — nothing is reaching the network; the service would
+    // not answer this page's origin, and a page opened from a file:// URL
+    // sends `Origin: null`, which several metered APIs refuse before the
+    // request is made; or an extension or proxy blocked it. None of those is
+    // the token being wrong, which is what the bare message reads as.
+    throw new Error(
+      `could not be reached (${error?.message ?? error}) \u2014 the request never `
+      + 'arrived rather than being refused, so the token is probably not what is wrong. '
+      + 'Check the network, whether an extension is blocking it, and whether this page '
+      + 'is on a file:// URL, which sends no origin. The online single file and the '
+      + 'hosted page both have a real one.',
+    );
   } finally {
     clearTimeout(timer);
   }
