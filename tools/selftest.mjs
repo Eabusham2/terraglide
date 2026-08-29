@@ -350,6 +350,50 @@ console.log('\nelytra flight model');
   }
 }
 
+console.log('\na written-off depth can be un-written-off');
+{
+  const { ImageryStreamer } = await import('../src/tiles/streamer.js');
+  const streamer = new ImageryStreamer(
+    { postMessage() {}, addEventListener() {} },
+    { capabilities: { getMaxAnisotropy: () => 1 } },
+  );
+  streamer.source = { maxZoom: 23, ready: true, urlFor: () => 'x' };
+
+  // Write zoom 22 off the way the provider does: six refusals there, with 21
+  // succeeding, which is the test reviewDepth applies.
+  streamer.zoomRecord(21).loaded = 4;
+  for (let i = 0; i < 6; i += 1) streamer.zoomRecord(22).failed += 1;
+  streamer.reviewDepth(22);
+  ok(`a provider that refuses a level is written off there  (${streamer.depthLimit})`,
+    streamer.depthLimit === 21);
+  ok('and the quadtree stops splitting at it', streamer.maxUsefulZoom === 21);
+
+  // The latch: the limit caps how deep anything is asked for, so no tile can
+  // arrive above it, so the limit can never lift. It says of itself that "one
+  // tile arriving at a written-off level puts it back" — true, and impossible.
+  streamer.request({ z: 21, x: 1000, y: 700 }, 1);
+  streamer._probedAt = -Infinity;
+  const before = streamer.queue.length;
+  streamer.probeDeeper();
+  const probed = streamer.queue.slice(before).map((e) => e.tile.z);
+  ok(`it asks again above the limit  (zoom ${probed.join(', ') || 'nothing'})`,
+    probed.includes(22));
+
+  // And only now and then, or it is a request every frame against a cap that
+  // is usually correct.
+  const again = streamer.queue.length;
+  streamer.probeDeeper();
+  ok('but not every frame', streamer.queue.length === again);
+
+  // One that lands lifts the limit, which is what makes the probe worth making.
+  // Through reviewDepth's own recovery clause rather than by assignment: a
+  // check that sets the value it then asserts is not a check.
+  streamer.zoomRecord(22).loaded = 1;
+  streamer.reviewDepth(22);
+  ok(`and a tile that lands puts the depth back  (${streamer.depthLimit})`,
+    !Number.isFinite(streamer.depthLimit));
+}
+
 console.log('\nthe chase camera comes in rather than climbing the hill');
 {
   const rig = readFileSync(new URL('../src/camera/cameraRig.js', import.meta.url), 'utf8');

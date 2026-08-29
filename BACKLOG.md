@@ -220,7 +220,11 @@ what is left · `[?]` needs a decision from you.
       work a second at 30 fps against 1296 at 144. It now also gets a share of
       the frame, so the rate holds at any frame rate. The minimap was sharp
       first because it never went through this budget at all.
-- [ ] C5. Map zooms in faster and more detailed than the terrain — ground should be faster and higher quality
+- [x] C5. Map zooms in faster and more detailed than the terrain — ground should be faster and higher quality
+      Same finding as M4, which has the detail: a depth limit that latched two
+      levels below the provider and could never recover, plus the map being a
+      flat view at native scale against ground seen at an angle and stretched
+      58 per cent of the time while moving.
 - [ ] C6. Takes too long for max res to arrive — maybe fewer modes
 - [ ] C7. Preload/load everything when close, so approaching does not trigger a high-res render unless it is a LOD
 - [x] C8. Flying up should not decrease quality
@@ -796,7 +800,32 @@ what is left · `[?]` needs a decision from you.
       screenshot could not settle it either way and the probe could.
 
 - [ ] M3. It is so laggy
-- [ ] M4. The quality is bad; zooming in on the map looks better than the ground
+- [x] M4. The quality is bad; zooming in on the map looks better than the ground
+      Two answers, and the second was a real bug.
+
+      The plain one: it is the same imagery. The map is flat and drawn at about
+      one texel to the pixel; the ground is that photograph draped over terrain
+      and usually seen at an angle, so the same data is spread over fewer
+      pixels. On top of that the map is static and always shows exact tiles,
+      while 58 per cent of the moving ground is a coarser tile stretched over
+      it — see B10. Presentation, not data.
+
+      The real one: the ground was capped two levels below what the provider
+      serves, and could never recover. `reviewDepth` writes a provider off at a
+      level once it has refused enough tiles there, and it says of itself that
+      "one tile arriving at a written-off level puts it back" — which is true
+      and could never happen, because the limit caps how deep anything is asked
+      for, so no tile could arrive to lift it. A one-way latch.
+
+      And the limit is one number for the whole provider rather than one per
+      place. Esri stops at zoom 21 over an alpine valley and serves 23 over a
+      city, so flying the valley first capped the city at 21 for the rest of the
+      session with nothing able to discover otherwise. Measured at
+      Lauterbrunnen: provider declares 23, ground drew at 21.
+
+      It asks again now — one tile, every half minute, one level above the
+      limit, over the ground being looked at, last in the queue. If it lands the
+      limit lifts; if not the failure count grows and nothing changes.
 - [x] M5. Explored area on the map is still nowhere near what was actually explored
       Cause: save() threw away 45% of the level-16 squares at random whenever the
       record passed 160,000 — permanently, since what it wrote is what came

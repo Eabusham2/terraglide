@@ -90542,6 +90542,14 @@ const COVER_BUDGET = 160;
  * seconds was never going to cover.
  */
 const KEEP_SECONDS = 20;
+/**
+ * How often to ask whether a provider's written-off depth is still written off.
+ *
+ * Half a minute: often enough that flying from a valley to a city sharpens
+ * within a few seconds of arriving, rare enough that it is one request in
+ * thousands.
+ */
+const DEPTH_PROBE_MS = 30000;
 
 /**
  * How long "nobody has a photograph of this" is believed for.
@@ -90858,6 +90866,37 @@ class ImageryStreamer extends Emitter {
     return Math.min(published, this.depthLimit);
   }
 
+  /**
+   * Ask, occasionally, whether the depth limit is still true.
+   *
+   * `reviewDepth` writes a provider off at a level when it has refused enough
+   * tiles there, and says of itself that "one tile arriving at a written-off
+   * level puts it back" — which is true, and could never happen. The limit
+   * caps how deep the quadtree splits, so nothing is ever asked for above it,
+   * so no tile can arrive to lift it. A one-way latch.
+   *
+   * It matters because the limit is one number for the whole provider, not one
+   * per place. Esri stops at zoom 21 over an alpine valley and serves 23 over a
+   * city; fly the valley first and the city is capped at 21 for the rest of the
+   * session, with nothing able to discover otherwise.
+   *
+   * So one tile, every half minute, one level above the limit, over the ground
+   * being looked at. If it lands, `finish` lifts the limit; if it does not, the
+   * failure count grows and nothing changes. That is a request every two
+   * thousand frames against a cap that would otherwise last for ever.
+   */
+  probeDeeper() {
+    if (!Number.isFinite(this.depthLimit)) return;
+    const deepest = this._deepestAsked;
+    if (!deepest || deepest.z !== this.depthLimit) return;
+    const moment = now();
+    if (moment - (this._probedAt ?? -Infinity) < DEPTH_PROBE_MS) return;
+    this._probedAt = moment;
+    // Last in the queue: this is curiosity, and everything on screen comes
+    // first.
+    this.request({ z: deepest.z + 1, x: deepest.x * 2, y: deepest.y * 2 }, Number.MAX_SAFE_INTEGER);
+  }
+
   beginFrame() {
     this.frame++;
     // Per frame, because the question is "how much of what I am looking at
@@ -90868,6 +90907,8 @@ class ImageryStreamer extends Emitter {
     this.stats.bare = 0;
     // Requests are collected fresh each frame; stale ones simply never re-queue.
     this.queue.length = 0;
+    this._deepest = 0;
+    this.probeDeeper();
   }
 
   /**
@@ -90884,6 +90925,12 @@ class ImageryStreamer extends Emitter {
     entry.used = this.frame;
     entry.seen = now();
     entry.priority = priority;
+    // The deepest square anyone wanted this frame, so the depth probe knows
+    // where to look. See probeDeeper.
+    if (tile.z > (this._deepest ?? 0)) {
+      this._deepest = tile.z;
+      this._deepestAsked = tile;
+    }
     if (entry.state === STATE_BARE) return entry;
     if (entry.state !== STATE_READY && this.underBarren(tile)) {
       entry.state = STATE_BARE;
