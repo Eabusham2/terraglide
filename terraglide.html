@@ -90558,7 +90558,7 @@ class ImageryStreamer extends Emitter {
     this.nextId = 1;
     this.jobs = new Map();
     this.frame = 0;
-    this.stats = { loaded: 0, pending: 0, failed: 0, bytes: 0 };
+    this.stats = { loaded: 0, pending: 0, failed: 0, bytes: 0, exact: 0, stretched: 0, steps: 0 };
     this.tileSizeHint = 256;
     this.consecutiveFailures = 0;
     /** Set when a provider is unreachable. */
@@ -90819,6 +90819,11 @@ class ImageryStreamer extends Emitter {
 
   beginFrame() {
     this.frame++;
+    // Per frame, because the question is "how much of what I am looking at
+    // right now is stretched", not "how much has ever been".
+    this.stats.exact = 0;
+    this.stats.stretched = 0;
+    this.stats.steps = 0;
     // Requests are collected fresh each frame; stale ones simply never re-queue.
     this.queue.length = 0;
   }
@@ -90947,6 +90952,13 @@ class ImageryStreamer extends Emitter {
       if (entry && entry.state === STATE_READY && entry.texture) {
         entry.used = this.frame;
         entry.seen = now();
+        // Counted, because "everything goes blurry for a second" is this and
+        // nothing else: a tile with no photograph of its own is drawn from a
+        // coarser one stretched over it, and each step up halves the detail.
+        // A number for it is the difference between guessing at the cause and
+        // knowing how often it happens and how far it goes.
+        if (step === 0) this.stats.exact++;
+        else { this.stats.stretched++; this.stats.steps += step; }
         return { texture: entry.texture, scale, offsetX, offsetY, exact: step === 0 };
       }
       // Walk to the parent; track which quadrant we came from.

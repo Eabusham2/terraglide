@@ -146,7 +146,34 @@ what is left · `[?]` needs a decision from you.
       30 fps got 8, 10 fps got 24. The better the machine, the sooner the ground
       behind you was thrown away. Now 20 seconds of wall clock, the same on
       every machine.
-- [ ] B10. Sometimes everything becomes super blurry when I do something, comes back after 1 s
+- [~] B10. Sometimes everything becomes super blurry when I do something, comes back after 1 s
+      Measured rather than guessed, and it is not auto-quality — that averages
+      over four seconds and will not move more often than every six, so it
+      cannot produce a one-second blur. It is stretching: a tile with no
+      photograph of its own is drawn from a coarser one stretched over it, and
+      every step up halves the detail. tools/blurcheck.mjs counts it.
+
+      In settled flight at 55 m/s, 58 per cent of the ground is stretched, 1.42
+      levels on average. Just after a 180 it is 73 per cent. Standing still it
+      converges to 8 per cent in about ten seconds and stays there with an
+      empty queue — and that 8 is ground the provider has nothing deeper for,
+      which is honest rather than broken.
+
+      So the flying blur is throughput: at 55 m/s you cross six of the deepest
+      tiles in the time one comes back. Asking ahead was the obvious answer and
+      it was tried — a lead point two seconds along the velocity, three levels,
+      a ring of nine — and it measured *worse*: 58.1 per cent became 61.7, and
+      gating it to an empty queue still gave 61.5. The pipeline is limited by
+      how fast tiles return rather than by knowing which to ask for, and a
+      dispatched request cannot be recalled, so a speculative tile holds one of
+      the dozen-odd slots for its whole round trip while a tile you are looking
+      at waits behind it. Reverted rather than shipped.
+
+      Caveat worth keeping: these measurements come through a proxy that
+      serialises every tile, so the sandbox is more throughput-bound than a real
+      browser with HTTP/2 to Esri. Asking ahead is unproven here rather than
+      disproven — it wants measuring on a real connection before being tried
+      again.
 - [ ] B11. Random times when looking, everything becomes a solid colour
 - [ ] B12. Randomly blurring depending on where I look
 - [x] B13. In freecam I see the ground behind me as invisible
@@ -160,7 +187,14 @@ what is left · `[?]` needs a decision from you.
 
 ## C. Loading order and speed
 
-- [ ] C1. Load high res where I am and where I am looking, more chunks in parallel
+- [?] C1. Load high res where I am and where I am looking, more chunks in parallel
+      Half of it is already so and the other half measured worse. Requests are
+      priority-ordered by distance over 2^(20-z), so the nearest and deepest go
+      first — "where I am and where I am looking" is what the queue already
+      does. Parallelism is 12 to 34 by preset.
+
+      Asking ahead of where you are going was tried and reverted; see B10 for
+      the numbers and the caveat about the sandbox's proxy.
 - [ ] C2. Load high res more, long-range low res less
 - [x] C3. Ground loading is super slow but the minimap is already loaded
       Cause found: the per-frame streaming budget was spare time only, so any

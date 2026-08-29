@@ -1766,8 +1766,11 @@ console.log('\nTurning your head does not lose the ground');
   ok('but the freecam looking back at it sees it', drawnWith(facing(Math.PI)));
 
   const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  // The third argument is the camera the frustum culls against, and it has to
+  // be the one actually drawn. Written to allow a fourth — the prefetch lead —
+  // because the check is about which camera, not about how many arguments.
   ok('and the game passes the camera it actually draws through',
-    /terrain\.update\([\s\S]{0,240}?this\.camera,\s*\n\s*\);/.test(game));
+    /terrain\.update\(\s*\n[\s\S]{0,300}?budget,\s*\n\s*this\.camera,/.test(game));
   // And the frustum still does its job everywhere else, which is most of what
   // makes the quadtree affordable.
   ok('ground you cannot see and are not on is still skipped', !visits(away));
