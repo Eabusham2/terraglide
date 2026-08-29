@@ -350,6 +350,27 @@ console.log('\nelytra flight model');
   }
 }
 
+console.log('\nthe map is drawn where you are drawn');
+{
+  const player = readFileSync(new URL('../src/player/player.js', import.meta.url), 'utf8');
+  const controller = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');
+  // Physics runs on a fixed twentieth of a second and the world is drawn
+  // between the last two ticks, so reading the physics position for the
+  // minimap put the marker ahead of the ground under it by up to a full tick:
+  // 5.35 m on a Rocket V, six or seven pixels of map sliding out from under
+  // you the faster you go.
+  ok('the coordinates come from the drawn position',
+    /toGeo\(this\.renderPosition\.x, this\.renderPosition\.z\)/.test(player));
+  // Which is only true if the drawn position is settled first.
+  const lerp = controller.indexOf('renderPosition.lerpVectors');
+  const sync = controller.indexOf('player.syncGeo()');
+  ok(`and the drawn position is worked out before they are read  (${lerp} then ${sync})`,
+    lerp > 0 && sync > lerp);
+  // A teleport snaps the two together, or the first frame after one reads a
+  // position from before it.
+  ok('a teleport snaps them together', /snapRender\(\)/.test(controller) || /snapRender\(\)/.test(player));
+}
+
 console.log('\nauto picks the best provider you can actually use');
 {
   const prov = await import('../src/tiles/providers.js');

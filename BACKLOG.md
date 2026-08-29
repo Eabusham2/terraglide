@@ -855,7 +855,23 @@ what is left · `[?]` needs a decision from you.
       every time. The cap was real at ~3 MB of key strings; explored ground is
       discs along a path, so rows compress 14x and 2.7M squares now fit. Over
       the ceiling the oldest fine detail goes, in order, never at random.
-- [ ] M6. Player position is still off on the minimap
+- [x] M6. Player position is still off on the minimap
+      The marker is dead centre by construction and the tile maths is right —
+      the player's own point lands at exactly the canvas centre. What was off
+      was the number being handed in.
+
+      Physics runs on a fixed twentieth of a second and the world is drawn
+      somewhere between the last two ticks, so the drawn position trails the
+      physics one by up to a whole tick. The coordinates were read from the
+      physics position, so the marker sat ahead of the ground under it by
+      exactly that: nothing at walking pace, 1.5 m gliding, and 5.35 m on a
+      Rocket V — six or seven pixels of map sliding out from under you, and
+      more the faster you go, which is what makes it look like the map rather
+      than the clock.
+
+      They come from the drawn position now. It is settled before they are
+      read, and a teleport snaps the two together, so there is no moment where
+      the answer is from before the jump.
 - [ ] M7. Ground still has holes, still reloads, still moves up and down
 - [x] M8. Unloading while the player is still inside the render distance
       Cause: the texture cache held a tile for 240 *frames*, commented as "about

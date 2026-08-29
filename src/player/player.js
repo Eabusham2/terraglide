@@ -327,8 +327,23 @@ export class Player extends Emitter {
     this.renderPosition.copy(this.position);
   }
 
+  /**
+   * Where you are, in degrees — from where you are *drawn*, not from where the
+   * physics has got to.
+   *
+   * They are not the same place. Physics runs on a fixed twentieth of a second
+   * and the world is drawn somewhere between the last two ticks, so the drawn
+   * position trails the physics one by up to a whole tick. Reading the physics
+   * position and handing it to the minimap put the marker ahead of the ground
+   * under it by exactly that much: nothing at walking pace, but 5.35 m on a
+   * Rocket V, which at the minimap's own scale is six or seven pixels of the
+   * map sliding out from under you the faster you go.
+   *
+   * renderPosition is set before this is called, and a teleport snaps them
+   * together, so this is the drawn answer at every moment there is one.
+   */
   syncGeo() {
-    const geo = this.frame.toGeo(this.position.x, this.position.z);
+    const geo = this.frame.toGeo(this.renderPosition.x, this.renderPosition.z);
     this.lat = geo.lat;
     this.lon = geo.lon;
     return geo;
