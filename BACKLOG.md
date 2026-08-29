@@ -1098,8 +1098,49 @@ what is left · `[?]` needs a decision from you.
       ice), which is the provider's data, not ours. Nothing done yet about how
       it *looks*.
 - [ ] H4. Improve above the clouds
-- [ ] H5. Weather should follow the imagery's own weather state
-- [ ] H6. Match the sun angle to the imagery's time, maybe
+- [x] H5. Weather should follow the imagery's own weather state
+      It follows something better, and the thing you asked for turns out to be
+      empty.
+
+      Better: the sky is driven by the weather actually happening where you are
+      standing, right now. Open-Meteo publishes current conditions for anywhere
+      on Earth, keyless and CORS-open, and the game asks it once per place you
+      arrive at and caches it for ten minutes. Cloud cover, rain, snow and the
+      readout all come from that; when it cannot be reached it falls back to the
+      climatology and the HUD says "seasonal average" so the two are never
+      confused. `this.weather.setState(this.weatherState)` is the same object
+      the readout prints.
+
+      Empty: satellite basemap imagery has no weather in it to follow. Providers
+      composite a basemap from many passes and pick the clearest pixels, on
+      purpose — that is what makes a basemap usable. So "the imagery's own
+      weather state" is "clear" everywhere, always, and matching it would mean
+      permanently clear skies over a world where it is actually raining on you.
+- [?] H6. Match the sun angle to the imagery's time, maybe
+      The "maybe" is right, and the answer is probably no — but it is your call,
+      so here is what it would actually mean.
+
+      Where the metadata exists the capture time is already known and shown: see
+      imageryAge, which prints things like "Sep 2018 · 0.5 m · WorldView-2".
+
+      Three reasons matching the sun to it would be worse than what happens now.
+      A basemap is a mosaic of many captures with different dates and times, so
+      there is no single time to match — the sun would jump as you flew from one
+      source scene to the next. Pinning it means no dawn, no dusk and no night,
+      anywhere, for ever. And most providers publish a date rather than a time
+      of day, so for most ground there is nothing precise to match to.
+
+      What it would buy is the one real thing on the other side: the shadows
+      baked into the photograph point one way, the game's sun moves, and at some
+      hours the two disagree. That is already kept small deliberately — the
+      ground shader does not re-light the photograph, because grading a finished
+      photograph is the thing this project refuses to do everywhere else — so
+      the disagreement is in the relief shading and the cloud shadow, not in the
+      picture.
+
+      Left as a question. If you want it, the shape that makes sense is a
+      setting: "hold the sun where the photograph was taken", off by default,
+      using the mean capture time of whatever is on screen.
 
 ## I. Player, HUD and controls
 
@@ -1129,7 +1170,38 @@ what is left · `[?]` needs a decision from you.
       a thousand feet and was asked for no decimals — so 305 m AGL printed "0 mi".
       A thousand feet up, reported as zero. It reads 1,001 ft now, and stays in
       feet all the way to 29,528.
-- [ ] I5. Make speed accurate, and size
+- [x] I5. Make speed accurate, and size
+      Both measured against reality rather than against the code.
+
+      Speed: flown level at 3 km and sampled over a forty-second window, with
+      the path length accumulated frame by frame rather than the straight line
+      between the ends, so a curving flight cannot be mistaken for a wrong
+      readout:
+
+        level glide          readout 30.3 m/s   covered 29.8   error  1.8%
+        surge, settled       readout 72.8       covered 73.2   error -0.5%
+        rockets held         readout 107.9      covered 109.0  error -1.0%
+
+      Within one per cent wherever the speed is steady. The first row is the
+      only one over one per cent and it is the one that had not finished
+      settling — its readout drifted 24% across the window.
+
+      Worth recording how that measurement went wrong twice first, because it is
+      the same trap both times: a six-second window at the one frame a second
+      this sandbox renders at is seven frames, so the window's own length is
+      uncertain by about fifteen per cent. It read +11% one run and -8% the
+      next for the identical condition. Forty seconds makes that ±2%. And an
+      earlier version compared an instantaneous readout against a six-second
+      average *during* a transient, which is not a comparison at all.
+
+      The two things that genuinely made it wrong are fixed and have their own
+      measurements: the frame clock throwing away catch-up below four frames a
+      second (D9) and `speed` returning the bare velocity while the controller
+      moves you by velocity times the multiplier (D10).
+
+      Size: the setting is 1.8288 m, the scale 1.00, and player.height reads
+      1.829 — 0.00% off. And I1/I2/I3 have the anthropometry, which is where
+      the model went from 1.68 to 2.09 times too wide down to 1.00 to 1.17.
 - [x] I6. Number on the compass
       The strip had letters at the four cardinals and blank ticks everywhere else,
       so it never said a number at all. Degrees on the intercardinals now, and a
