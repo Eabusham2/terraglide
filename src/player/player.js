@@ -126,6 +126,8 @@ export class Player extends Emitter {
      * hillside rather than as level ground that happens to be moving.
      */
     this.groundSlope = 0;
+    /** The grade across you, positive when the ground rises to your right. */
+    this.groundBank = 0;
     this.lat = 0;
     this.lon = 0;
 

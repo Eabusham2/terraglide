@@ -1041,14 +1041,13 @@ export class Avatar {
     // left the figure flying serenely level while the horizon spun, which
     // reads as a broken camera rather than as a manoeuvre.
     const roll = this.rollSource ? this.rollSource() : 0;
-    this.body.rotation.z = roll
-      ? roll
-      : damp(
-          this.body.rotation.z,
-          gliding || flying ? 0 : clamp(sideSpeed * 0.05, -0.25, 0.25),
-          8,
-          dt,
-        );
+    // On foot the body also banks with the grade across it. Standing along a
+    // contour is what anyone does on a steep hillside, and standing upright out
+    // of one is what a flagpole does.
+    const bank = gliding || flying
+      ? 0
+      : clamp(sideSpeed * 0.05, -0.25, 0.25) - (player.groundBank ?? 0) * 0.45;
+    this.body.rotation.z = roll ? roll : damp(this.body.rotation.z, bank, 8, dt);
     // Turn the pose about the base of the neck rather than about the origin
     // under the feet, so that whatever the body does the head stays where the
     // eyes are and the spine trails out behind it. See POSE_PIVOT. The lift

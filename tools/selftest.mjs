@@ -350,6 +350,52 @@ console.log('\nelytra flight model');
   }
 }
 
+console.log('\nstanding on a hillside');
+{
+  const { PlayerController } = await import('../src/player/controller.js');
+  // A hill that rises to the east: height depends on x alone.
+  const hill = { heightAt: (x) => x * 0.5, bedAt: () => -100 };
+  const stand = (yaw) => {
+    const rig = Object.create(PlayerController.prototype);
+    rig.terrain = hill;
+    const who = { onGround: true, height: 1.83, yaw, groundSlope: 0, groundBank: 0,
+      position: { x: 0, y: 0, z: 0 } };
+    // Damped, so let it settle.
+    for (let i = 0; i < 200; i += 1) rig.readGroundSlope(who);
+    return who;
+  };
+
+  // Facing straight up the hill: all grade, no bank.
+  const up = stand(Math.PI / 2);
+  ok(`facing up the slope reads as slope  (${up.groundSlope.toFixed(2)} rad)`, up.groundSlope > 0.35);
+  ok(`and not as bank  (${up.groundBank.toFixed(2)})`, Math.abs(up.groundBank) < 0.05);
+
+  // Facing along the contour: all bank, no grade. This is the case that read
+  // as flat ground — and walking a contour is what anyone does on a steep
+  // hill, because it is the only way up one.
+  const across = stand(0);
+  ok(`facing along the contour reads as bank  (${across.groundBank.toFixed(2)} rad)`,
+    Math.abs(across.groundBank) > 0.35);
+  ok(`and not as slope  (${across.groundSlope.toFixed(2)})`, Math.abs(across.groundSlope) < 0.05);
+
+  // Turning round swaps which shoulder is uphill.
+  const other = stand(Math.PI);
+  ok('and turning about puts the hill on the other shoulder',
+    Math.sign(other.groundBank) === -Math.sign(across.groundBank));
+
+  // In the air there is no ground to stand on, so both fade out.
+  const flying = stand(0);
+  flying.onGround = false;
+  const rig = Object.create(PlayerController.prototype);
+  rig.terrain = hill;
+  for (let i = 0; i < 400; i += 1) rig.readGroundSlope(flying);
+  ok(`airborne, both fade to nothing  (${flying.groundBank.toFixed(3)})`,
+    Math.abs(flying.groundBank) < 0.02 && Math.abs(flying.groundSlope) < 0.02);
+
+  const avatar = readFileSync(new URL('../src/player/avatar.js', import.meta.url), 'utf8');
+  ok('and the body actually banks with it', /player\.groundBank \?\? 0\) \* 0\.45/.test(avatar));
+}
+
 console.log('\nsettings that explain themselves');
 {
   const panel = readFileSync(new URL('../src/ui/settingsPanel.js', import.meta.url), 'utf8');

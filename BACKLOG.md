@@ -337,7 +337,28 @@ what is left · `[?]` needs a decision from you.
       the readout was right and the world was slow. The second: `speed` returned
       the bare velocity while the controller moves you by velocity x multiplier,
       so with speed mode on it read half, not double. Both now agree.
-- [ ] D11. Improve walking speed and being flat on the ground
+- [x] D11. Improve walking speed and being flat on the ground
+      The speed was already right: 4.32 m/s walking and 5.61 sprinting are
+      Minecraft's own 4.317 and 5.612, and the fixed clock hands them out
+      whole. Nothing to improve there.
+
+      Standing on the ground was half done. The grade was measured *along* the
+      way you face and the body leant with it — but not the grade *across* you,
+      so walking a contour read as flat ground and the figure stood bolt
+      upright out of the hillside with one boot in the air and the other
+      buried. Which is the case that matters, because walking along a contour
+      is what anyone does on a steep slope: it is the only way up one.
+
+      Both grades are measured now, over a couple of metres either side rather
+      than from a polygon normal — what a walker feels, not the tilt under one
+      boot — and the body banks with the cross-slope as it already leant with
+      the grade. The same 0.45 of it either way, because a walker takes up some
+      of a hill in their ankles rather than all of it in their spine.
+
+      Checked on a synthetic hillside: facing up it reads 0.46 rad of slope and
+      no bank, facing along the contour reads 0.46 of bank and no slope,
+      turning about puts the hill on the other shoulder, and in the air both
+      fade to nothing.
 
 ## E. Speed mode
 

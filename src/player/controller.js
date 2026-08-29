@@ -164,6 +164,7 @@ export class PlayerController {
   readGroundSlope(player) {
     if (!player.onGround) {
       player.groundSlope = damp(player.groundSlope, 0, 6, 1 / 60);
+      player.groundBank = damp(player.groundBank, 0, 6, 1 / 60);
       return;
     }
     const reach = Math.max(1, player.height * 0.8);
@@ -173,6 +174,23 @@ export class PlayerController {
     const behind = this.terrain.heightAt(player.position.x - fx, player.position.z - fz);
     const target = clamp(Math.atan2(ahead - behind, reach * 2), -0.7, 0.7);
     player.groundSlope = damp(player.groundSlope, target, 8, 1 / 60);
+
+    // And the grade *across* you, which is the other half of standing on a
+    // hillside and the half that was missing.
+    //
+    // Only the fore-and-aft grade was measured, so walking along a contour —
+    // which is what anyone does on a steep slope, because it is the only way
+    // up one — read as flat: the figure stood bolt upright out of the hill
+    // with one boot in the air and the other buried. A person standing across
+    // a slope tilts, and one foot is higher than the other. Same fraction as
+    // the lean, for the same reason: a walker takes up some of the grade in
+    // their ankles rather than all of it in their spine.
+    const rx = Math.cos(player.yaw) * reach;
+    const rz = Math.sin(player.yaw) * reach;
+    const right = this.terrain.heightAt(player.position.x + rx, player.position.z + rz);
+    const left = this.terrain.heightAt(player.position.x - rx, player.position.z - rz);
+    const bank = clamp(Math.atan2(right - left, reach * 2), -0.7, 0.7);
+    player.groundBank = damp(player.groundBank, bank, 8, 1 / 60);
   }
 
   tick(step, input) {
