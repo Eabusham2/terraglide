@@ -29,7 +29,6 @@ import { zoomCeiling } from '../tiles/providers.js';
  * numbers are high enough that a normal view never reaches them and low enough
  * that a pathological one cannot lock the machine up.
  */
-const MAX_DRAWN_TILES = { low: 520, medium: 760, high: 1100, ultra: 1500 };
 const SEA_LEVEL = 0;
 /** Mean Earth radius, for the geometric horizon. */
 const EARTH_RADIUS_M = 6371000;
@@ -321,7 +320,12 @@ export class Terrain {
         ? Math.max(renderDistance, settings.get('distantDistanceKm') * 1000)
         : renderDistance;
     this.keepDistance = this.farDistance * KEEP_FACTOR;
-    this.maxDrawn = MAX_DRAWN_TILES[settings.get('graphics')] ?? MAX_DRAWN_TILES.high;
+    // From the preset, which resolves 'auto' to the tier actually chosen. It
+    // used to be a table here keyed on the raw setting, and 'auto' — which is
+    // what everybody who has not picked by hand reads — was not one of its
+    // keys, so every machine silently took the high figure. See
+    // GRAPHICS_PRESETS.maxDrawnTiles.
+    this.maxDrawn = settings.preset().maxDrawnTiles;
     // Which way you are facing, flattened. Ground in front of you is what you
     // are about to look at, so it is what gets built first and sharpened
     // furthest.

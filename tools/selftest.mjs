@@ -1606,6 +1606,44 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
   ok('and the quadtree reads it through that, not raw',
     /zoomCeiling\(settings\.get\('maxTileZoom'\)\)/.test(terrainSrc));
 
+  // Every tier setting is resolved the same way, or two of them disagree.
+  //
+  // The drawn cap used to be a table of its own in terrain.js, keyed on
+  // settings.get('graphics'). That reads 'auto' for everybody who has not
+  // picked a tier by hand — which is everybody by default — and 'auto' was not
+  // one of its keys, so the lookup missed and fell through to the high figure.
+  // A Chromebook on Low drew up to 1100 squares instead of 520 and an Ultra
+  // machine drew 1100 instead of 1500, and nothing said so, because the *other*
+  // tier settings were read through settings.preset(), which resolves 'auto'
+  // properly. Measured in the running game: graphics 'auto', preset cache 320
+  // (Low), maxDrawn 1100 (High).
+  //
+  // What goes undrawn when the cap bites is whatever the walk had not reached,
+  // which is the far half of the view — so this is not only frame rate, it is
+  // ground disappearing.
+  ok('the drawn cap is a preset field like the rest of the tier',
+    Object.values(GRAPHICS_PRESETS).every((g) => typeof g.maxDrawnTiles === 'number'));
+  ok('and the quadtree reads it from the preset, never from the raw setting',
+    /settings\.preset\(\)\.maxDrawnTiles/.test(terrainSrc)
+    && !/MAX_DRAWN_TILES/.test(terrainSrc));
+  {
+    // The thing that actually broke: ask for it while the setting says 'auto'
+    // and it must be the chosen tier's number, not a fallback.
+    const { settings: S } = await import('../src/core/settings.js');
+    const before = S.get('graphics');
+    const seen = [];
+    for (const tier of ['low', 'medium', 'high', 'ultra']) {
+      S.set('graphics', tier);
+      seen.push(S.preset().maxDrawnTiles);
+    }
+    S.set('graphics', 'auto');
+    const auto = S.preset().maxDrawnTiles;
+    S.set('graphics', before);
+    ok(`each tier has its own  (${seen.join(', ')})`, new Set(seen).size === 4);
+    ok(`and 'auto' resolves to one of them rather than a fallback  (${auto})`,
+      seen.includes(auto));
+  }
+
   // Because the depth is measured per square instead.
   ok('a resample is told from a real level by how much contrast it keeps',
     SHARPNESS_RATIO > 0.35 && SHARPNESS_RATIO < 0.55);

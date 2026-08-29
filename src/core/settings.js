@@ -234,6 +234,25 @@ export const GRAPHICS_PRESETS = {
   low: {
     sseThreshold: 2.1,
     tileGridSize: 25,
+    /**
+     * How many squares of ground may be drawn in one frame.
+     *
+     * It lives here, with the rest of the tier, because it used to live in a
+     * table of its own in terrain.js keyed on settings.get('graphics') — and
+     * that setting reads 'auto' for everybody who has not picked a tier by
+     * hand, which is everybody by default. 'auto' was not a key in the table,
+     * so the lookup missed and fell through to the high figure: a Chromebook
+     * on Low drew up to 1100 squares instead of 520, and a machine on Ultra
+     * drew 1100 instead of 1500. Two tables, two ways of resolving the tier,
+     * and they could not agree. There is one now, and it resolves like
+     * everything else here.
+     *
+     * When the walk runs out of this, what goes undrawn is whatever the walk
+     * had not reached yet — which is the far half of the view, not the near
+     * one. So this being too high on a slow machine does not merely cost frame
+     * rate; it is ground disappearing.
+     */
+    maxDrawnTiles: 520,
     maxConcurrentRequests: 12,
     textureCacheSize: 320,
     anisotropy: 8,
@@ -262,6 +281,7 @@ export const GRAPHICS_PRESETS = {
   medium: {
     sseThreshold: 1.55,
     tileGridSize: 29,
+    maxDrawnTiles: 760,
     maxConcurrentRequests: 18,
     textureCacheSize: 560,
     anisotropy: 16,
@@ -283,6 +303,7 @@ export const GRAPHICS_PRESETS = {
   high: {
     sseThreshold: 1.25,
     tileGridSize: 33,
+    maxDrawnTiles: 1100,
     maxConcurrentRequests: 26,
     textureCacheSize: 900,
     anisotropy: 16,
@@ -308,6 +329,7 @@ export const GRAPHICS_PRESETS = {
   ultra: {
     sseThreshold: 0.85,
     tileGridSize: 41,
+    maxDrawnTiles: 1500,
     maxConcurrentRequests: 34,
     textureCacheSize: 1400,
     anisotropy: 16,
