@@ -769,6 +769,11 @@ what is left · `[?]` needs a decision from you.
       woodland mask nor the texture filtering. Pixel-to-pixel step is 2.02 over
       a mean of 27.8: smooth, not sparkling, so it is not aliasing either.
 
+      Third elimination: the tile skirts. A skirt is a curtain hung off a tile
+      edge with the edge row of texels stretched down it, which is exactly the
+      shape of smear being complained about — so they were zeroed and the same
+      view re-shot. The band is pixel-for-pixel unchanged. Not the skirts.
+
       What is left is a shadowed slope seen at a grazing angle, showing the
       source photograph's own chroma noise stretched along the surface — the
       colour spread is 11.8 against a mean of 27.8, which is high in relative
@@ -776,6 +781,13 @@ what is left · `[?]` needs a decision from you.
       displayed honestly. It could be made to look better by lifting or
       desaturating deep shadow, which is a display choice rather than an
       invention, but it is a choice worth asking about rather than making.
+
+      One thing that would help and is not a display choice: the chase camera
+      clamps itself to the ground plus a third of your height, so standing on a
+      steep slope it ends up about sixty centimetres above the hillside looking
+      straight along it. Pushing it *out* from the slope rather than only *up*
+      would stop the grazing view arising in the first place. That is a camera
+      change rather than an imagery one and has not been made.
 
 - [ ] M3. It is so laggy
 - [ ] M4. The quality is bad; zooming in on the map looks better than the ground
