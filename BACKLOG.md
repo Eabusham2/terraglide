@@ -727,7 +727,23 @@ what is left · `[?]` needs a decision from you.
       STREET_BLANK over everything. That colour is #eceae3, near-white. It now
       draws the finer squares it already has, and paints paper only where
       nothing at all is known.
-- [ ] F5. Stretched map
+- [x] F5. Stretched map
+      A two-dimensional size checked in one dimension. The map canvas lives in a
+      flex panel, so its box changes for reasons the window knows nothing about
+      — the sidebar rewrapping on a narrow screen, the waypoint list growing, a
+      phone's toolbar sliding away — and the only two checks were a window
+      resize listener and, inside update, `clientWidth !== this.width`. Get
+      taller or shorter without getting wider and the backing store kept its old
+      height while the CSS stretched it over the new one.
+
+      Reproduced in the browser rather than argued: shrink the box from 642x502
+      to 642x301 without touching its width, and the store stayed 642x502 — the
+      picture squashed to 0.60 of its height. With the fix it followed to
+      642x301 exactly, factor 1.00.
+
+      Fixed at the cause: a ResizeObserver on the canvas's own box, which is
+      told whatever moved it, with the width-and-height check underneath as the
+      fallback for anything that has no ResizeObserver.
 - [x] F6. Explored area must look the same and stay visible at every zoom
       Cause: save() threw away 45% of the level-16 squares at random whenever the
       record passed 160,000 — permanently, since what it wrote is what came

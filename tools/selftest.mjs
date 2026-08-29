@@ -2195,6 +2195,21 @@ console.log('\nThe map opens where you were reading it');
   ok('and saves it when you zoom', /settings\.set\('worldMapZoom', next\)/.test(worldmap));
   ok('clamped to zooms the map actually has', /clamp\(Math\.round\(settings\.get\('worldMapZoom'\)\), 2, 19\)/.test(worldmap));
 
+  // A two-dimensional size has to be checked in two dimensions.
+  //
+  // The canvas is inside a flex panel, so its box changes for reasons the
+  // window knows nothing about — the sidebar rewrapping, the waypoint list
+  // growing, a phone toolbar sliding away. The only checks were a window resize
+  // listener and `clientWidth !== this.width`, so getting taller without getting
+  // wider left the backing store at its old height while the CSS stretched it
+  // to the new one. Measured in the browser: shrink the box from 642x502 to
+  // 642x301 and the store stayed 642x502, a stretch factor of 0.60. With the
+  // observer it followed exactly.
+  ok('the map watches its own box, not just the window',
+    /new ResizeObserver\(/.test(worldmap) && /observe\(this\.canvas\.parentElement\)/.test(worldmap));
+  ok('and the fallback check asks about height as well as width',
+    /wrap\.clientWidth !== this\.width \|\| wrap\.clientHeight !== this\.height/.test(worldmap));
+
   // What the old and new defaults actually show, in ground per pixel at a
   // middling latitude — the number that decides whether a map is useful.
   const across = (zoom) => (metresPerPixel(48, zoom) * 900) / 1000;

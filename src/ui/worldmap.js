@@ -318,9 +318,33 @@ export class WorldMap {
     });
   }
 
+  /**
+   * Watch the canvas's own box, rather than guessing from the window.
+   *
+   * The map is a canvas inside a flex panel, so its box changes for reasons the
+   * window knows nothing about: the sidebar rewrapping on a narrow screen, the
+   * waypoint list growing, a phone's toolbar sliding away. The only checks were
+   * a window resize listener and, inside update, `clientWidth !== this.width` —
+   * a two-dimensional size tested in one dimension. Get taller without getting
+   * wider and the backing store kept its old height while the CSS stretched it
+   * to the new one, which is a stretched map.
+   *
+   * A ResizeObserver is told about the box itself, whatever moved it. The width
+   * and height check stays underneath as the fallback for anything without one,
+   * and it asks about both now.
+   */
+  watchSize() {
+    if (this.sizeWatch || typeof ResizeObserver === 'undefined') return;
+    this.sizeWatch = new ResizeObserver(() => {
+      if (this.open) this.resize();
+    });
+    this.sizeWatch.observe(this.canvas.parentElement);
+  }
+
   show(player) {
     this.open = true;
     this.element.hidden = false;
+    this.watchSize();
     // Where you left it. It opened at six every time — most of a continent —
     // so the first thing anybody did on opening the map was zoom in.
     this.zoom = clamp(Math.round(settings.get('worldMapZoom')), 2, 19);
@@ -363,7 +387,8 @@ export class WorldMap {
   update(player) {
     if (!this.open) return;
     this.player = player;
-    if (this.canvas.parentElement.clientWidth !== this.width) this.resize();
+    const wrap = this.canvas.parentElement;
+    if (wrap.clientWidth !== this.width || wrap.clientHeight !== this.height) this.resize();
     if (!this.dirty) return;
     this.dirty = false;
 
