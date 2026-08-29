@@ -88787,6 +88787,31 @@ class Avatar {
     this.wingL = this.makeWing(wingMat, wingEdge, -1);
     this.wingR = this.makeWing(wingMat, wingEdge, 1);
     this.wings.add(this.wingL, this.wingR);
+
+    // The spine the two shells are hinged to.
+    //
+    // Without it the pair met at the centreline with nothing between them, and
+    // from the chase camera — which is where you look at this from — the whole
+    // thing read as one continuous sheet with a notch cut out of the top,
+    // rather than as two wings worn on a back. A hang-glider, not an elytra.
+    //
+    // Sized off the roots rather than picked: the outline starts at WING_ROOT_X
+    // either side, so the gap between the shells is exactly twice that, and the
+    // spine fills it with a millimetre of daylight left at each edge so the
+    // seam still reads. It spans the root chord, which is the outline's own
+    // first and last y, and it stands a little proud of the shells so it
+    // catches the light as a separate surface instead of disappearing into
+    // them.
+    const rootTop = 0.090;
+    const rootBottom = -0.137;
+    const spine = new THREE.Mesh(
+      new THREE.BoxGeometry(WING_ROOT_X * 2 - 0.004, rootTop - rootBottom, 0.036),
+      wingEdge,
+    );
+    spine.position.set(0, (rootTop + rootBottom) / 2, 0.012);
+    this.wings.add(spine);
+    this.spine = spine;
+
     this.cloth.wing.push(wingMat);
 
     // The selected rocket, in your right hand — the way Minecraft shows the

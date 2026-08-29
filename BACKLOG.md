@@ -1344,7 +1344,39 @@ what is left · `[?]` needs a decision from you.
       on the wrong side of the body, because the glide pose crossed both arms
       over the chest. See M2. The self-test checks the hand and the firework
       against the near plane and both frame half-angles.
-- [ ] I12. Improve the freecam model
+- [~] I12. Improve the freecam model
+      Asked what you meant and you said the model itself. So: photographed it
+      alone, from the nine angles that matter, rather than judging it against a
+      hillside at forty pixels tall.
+
+      What is already right, and left alone: standing, the figure reads as a
+      person — head with hair and eyes, shoulders, arms at the sides with hands,
+      legs, boots, and the proportions are the measured ones from I1/I2/I3. And
+      the freecam draws it correctly out there: full body, wings out, gliding
+      pose, at the right place.
+
+      What was wrong, and is fixed: the wings had nothing between them. The two
+      shells met at the centreline with no spine, so from the chase camera — the
+      angle you actually spend your time looking at this from — the pair read as
+      one continuous sheet with a notch cut out of the top. A hang-glider rather
+      than an elytra. There is a spine now, sized off the wing roots rather than
+      typed: the outline starts at WING_ROOT_X either side, so the gap is
+      exactly twice that and the spine fills it leaving a seam of daylight at
+      each edge, spans the root chord, stands a little proud so it takes light
+      as its own surface, and is the darker rim colour rather than the membrane
+      colour. Photographed before and after from behind and from above: the
+      notch is filled and the shells read as two wings on a back.
+
+      What I looked at and did not change, because it was measured into its
+      current shape and changing it on taste is how this goes backwards: the
+      leg pose in a glide (apart at the ankle rather than crossed, which was
+      arrived at by measuring what crossing them did), and the 49-degree arm
+      spread. From directly astern the legs are the largest thing in frame, and
+      that is perspective rather than a defect — they are nearest the camera.
+
+      Left partly done: if the arms reaching out toward the wings is what you
+      meant, say so and I will bring them in along the body, which is the
+      Minecraft pose. That is one number and a measurement.
 - [x] I13. Freecam that does not pause the game
       Already so: the freecam is deliberately not in the pause list, and there is a
       comment saying why. Confirmed by a check that the word does not appear in the

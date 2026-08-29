@@ -924,6 +924,34 @@ console.log('\nThe body you can see');
     elytraDeployed: false, horizontalSpeed: 0,
     ...over,
   });
+  // The two shells are hinged to something.
+  //
+  // Without a spine they met at the centreline with nothing between them, and
+  // from the chase camera — which is the angle you actually look at this from —
+  // the pair read as one continuous sheet with a notch cut out of the top. A
+  // hang-glider, not an elytra. Photographed before and after from behind and
+  // from above: the notch is filled and the shells now read as two.
+  {
+    const spine = avatar.spine;
+    ok('the wings are hinged to a spine', !!spine && spine.parent === avatar.wings);
+    if (spine) {
+      spine.geometry.computeBoundingBox();
+      const box = spine.geometry.boundingBox;
+      const width = box.max.x - box.min.x;
+      // Sized off the wing roots rather than typed: the outline starts at
+      // WING_ROOT_X either side, so the gap is exactly twice that, and the
+      // spine fills it leaving a seam either side.
+      const gap = 0.045 * 2;
+      ok(`and it fills the gap between them without covering the seam  (${width.toFixed(3)} in ${gap.toFixed(3)})`,
+        width < gap && width > gap - 0.01);
+      ok('it spans the root chord rather than a fraction of it',
+        box.max.y - box.min.y > 0.2);
+      // Darker than the membrane, or it is a lighter stripe rather than a hinge.
+      ok('and it is the rim colour, not the membrane colour',
+        spine.material.color.getHex() === 0x3f4739);
+    }
+  }
+
   /** Run the avatar to a steady state. */
   const settle = (player, frames = 240) => {
     for (let i = 0; i < frames; i++) avatar.update(player, 1 / 60);
