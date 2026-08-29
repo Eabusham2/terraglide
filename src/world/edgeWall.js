@@ -32,8 +32,17 @@ const WALL_DEPTH_M = 40000;
 /** Sectors around the circle. Also the number of sides in the silhouette. */
 export const EDGE_SECTORS = 96;
 
+// Same four includes, for the same reason. See the note above CLOUD_VERT in
+// weather.js: with a logarithmic depth buffer a hand-written shader that leaves
+// these out is depth-testing on a different scale from everything it is drawn
+// against, and the wall that closes the world is drawn against the furthest
+// ground there is.
 const WALL_VERT = /* glsl */ `
   precision highp float;
+
+  #include <common>
+  #include <logdepthbuf_pars_vertex>
+
   uniform float uEarthRadius;
   uniform float uCurvature;
   attribute float aRadius;
@@ -53,6 +62,7 @@ const WALL_VERT = /* glsl */ `
     // sky is in that direction rather than one colour all the way round.
     vDir = normalize(world.xyz - cameraPosition);
     gl_Position = projectionMatrix * viewMatrix * world;
+    #include <logdepthbuf_vertex>
   }
 `;
 
@@ -60,6 +70,7 @@ const WALL_FRAG = /* glsl */ `
   precision highp float;
 
   #include <common>
+  #include <logdepthbuf_pars_fragment>
 
   uniform vec3 uFogColor;
   uniform vec3 uSunDir;
@@ -69,6 +80,7 @@ const WALL_FRAG = /* glsl */ `
   varying vec3 vDir;
 
   void main() {
+    #include <logdepthbuf_fragment>
     // Darkening with depth, the way a cliff face does.
     vec3 base = mix(vec3(0.30, 0.31, 0.33), vec3(0.12, 0.125, 0.135), clamp(vDepth * 4.0, 0.0, 1.0));
     base *= mix(1.0, 0.3, uNight);

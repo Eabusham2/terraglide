@@ -95315,8 +95315,17 @@ const WALL_DEPTH_M = 40000;
 /** Sectors around the circle. Also the number of sides in the silhouette. */
 const EDGE_SECTORS = 96;
 
+// Same four includes, for the same reason. See the note above CLOUD_VERT in
+// weather.js: with a logarithmic depth buffer a hand-written shader that leaves
+// these out is depth-testing on a different scale from everything it is drawn
+// against, and the wall that closes the world is drawn against the furthest
+// ground there is.
 const WALL_VERT = /* glsl */ `
   precision highp float;
+
+  #include <common>
+  #include <logdepthbuf_pars_vertex>
+
   uniform float uEarthRadius;
   uniform float uCurvature;
   attribute float aRadius;
@@ -95336,6 +95345,7 @@ const WALL_VERT = /* glsl */ `
     // sky is in that direction rather than one colour all the way round.
     vDir = normalize(world.xyz - cameraPosition);
     gl_Position = projectionMatrix * viewMatrix * world;
+    #include <logdepthbuf_vertex>
   }
 `;
 
@@ -95343,6 +95353,7 @@ const WALL_FRAG = /* glsl */ `
   precision highp float;
 
   #include <common>
+  #include <logdepthbuf_pars_fragment>
 
   uniform vec3 uFogColor;
   uniform vec3 uSunDir;
@@ -95352,6 +95363,7 @@ const WALL_FRAG = /* glsl */ `
   varying vec3 vDir;
 
   void main() {
+    #include <logdepthbuf_fragment>
     // Darkening with depth, the way a cliff face does.
     vec3 base = mix(vec3(0.30, 0.31, 0.33), vec3(0.12, 0.125, 0.135), clamp(vDepth * 4.0, 0.0, 1.0));
     base *= mix(1.0, 0.3, uNight);
@@ -97967,7 +97979,18 @@ const DECK_SIZE = 60000;
 const DROPS = 1800;
 const BOX = 34;
 
+// The renderer runs with a logarithmic depth buffer, so a hand-written shader
+// has to write and test depth on that scale like everything else does. Without
+// these four includes the depth this material produces is on a different scale
+// from the one in the buffer, and the comparison is meaningless: the deck was
+// hidden by ground four kilometres behind it, so from above the clouds there
+// was nothing there at all. Measured with the cover forced to 0.85 and the
+// deck confirmed visible — and still no cloud between the camera at 5,000 m
+// and the valley floor at 1,000.
 const CLOUD_VERT = `
+#include <common>
+#include <logdepthbuf_pars_vertex>
+
 varying vec2 vUv;
 varying vec3 vWorld;
 void main() {
@@ -97975,12 +97998,14 @@ void main() {
   vec4 world = modelMatrix * vec4(position, 1.0);
   vWorld = world.xyz;
   gl_Position = projectionMatrix * viewMatrix * world;
+  #include <logdepthbuf_vertex>
 }`;
 
 const CLOUD_FRAG = `
 precision highp float;
 
 #include <common>
+#include <logdepthbuf_pars_fragment>
 
 varying vec2 vUv;
 varying vec3 vWorld;
@@ -98014,6 +98039,7 @@ float fbm(vec2 p) {
 }
 
 void main() {
+  #include <logdepthbuf_fragment>
   vec2 p = vWorld.xz * 0.00042 + vec2(uTime * 0.0035, uTime * 0.0018);
   float n = fbm(p);
   // Cover pushes the threshold down: overcast fills in, clear leaves wisps.

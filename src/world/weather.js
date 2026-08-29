@@ -18,7 +18,18 @@ const DECK_SIZE = 60000;
 const DROPS = 1800;
 const BOX = 34;
 
+// The renderer runs with a logarithmic depth buffer, so a hand-written shader
+// has to write and test depth on that scale like everything else does. Without
+// these four includes the depth this material produces is on a different scale
+// from the one in the buffer, and the comparison is meaningless: the deck was
+// hidden by ground four kilometres behind it, so from above the clouds there
+// was nothing there at all. Measured with the cover forced to 0.85 and the
+// deck confirmed visible — and still no cloud between the camera at 5,000 m
+// and the valley floor at 1,000.
 const CLOUD_VERT = `
+#include <common>
+#include <logdepthbuf_pars_vertex>
+
 varying vec2 vUv;
 varying vec3 vWorld;
 void main() {
@@ -26,12 +37,14 @@ void main() {
   vec4 world = modelMatrix * vec4(position, 1.0);
   vWorld = world.xyz;
   gl_Position = projectionMatrix * viewMatrix * world;
+  #include <logdepthbuf_vertex>
 }`;
 
 const CLOUD_FRAG = `
 precision highp float;
 
 #include <common>
+#include <logdepthbuf_pars_fragment>
 
 varying vec2 vUv;
 varying vec3 vWorld;
@@ -65,6 +78,7 @@ float fbm(vec2 p) {
 }
 
 void main() {
+  #include <logdepthbuf_fragment>
   vec2 p = vWorld.xz * 0.00042 + vec2(uTime * 0.0035, uTime * 0.0018);
   float n = fbm(p);
   // Cover pushes the threshold down: overcast fills in, clear leaves wisps.

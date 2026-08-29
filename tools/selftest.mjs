@@ -5544,5 +5544,56 @@ console.log('\nThe trail thins rather than forgetting');
   }
 }
 
+console.log('\nEvery hand-written shader writes depth on the same scale');
+{
+  // The renderer runs with logarithmicDepthBuffer, which means depth is not the
+  // rasteriser's interpolated value: every material has to compute it, and
+  // three.js does that for its built-in materials through four shader chunks.
+  // A ShaderMaterial that leaves them out is testing against a buffer written
+  // on a different scale, so the comparison is meaningless — and it fails
+  // silently, as a thing that is there but never drawn.
+  //
+  // Two had it. The cloud deck was hidden by ground four kilometres behind it,
+  // so from above the clouds there was simply no cloud — measured with the
+  // cover forced to 0.85 and the deck confirmed visible, and still nothing
+  // between a camera at 5,000 m and a valley floor at 1,000. The edge wall,
+  // which closes the world, had the same omission and is drawn against the
+  // furthest ground there is.
+  //
+  // Checked across every file rather than those two, because the next
+  // hand-written shader will have the same hole unless something asks.
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  ok('the renderer really is on a logarithmic depth buffer',
+    /logarithmicDepthBuffer: true/.test(game));
+  const needed = [
+    'logdepthbuf_pars_vertex',
+    'logdepthbuf_vertex',
+    'logdepthbuf_pars_fragment',
+    'logdepthbuf_fragment',
+  ];
+  const files = [
+    'src/world/shaders.js', 'src/world/weather.js', 'src/world/edgeWall.js',
+    'src/world/seaFloor.js', 'src/world/beacons.js', 'src/world/sky.js',
+    'src/world/panorama.js', 'src/world/buildings.js', 'src/world/woodland.js',
+  ];
+  for (const file of files) {
+    let source;
+    try {
+      source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+    } catch {
+      continue;
+    }
+    if (!/new THREE\.(Raw)?ShaderMaterial/.test(source)) continue;
+    // The sky is the one honest exception and it says so itself: depthTest is
+    // off and it is drawn behind everything, so it neither reads nor writes.
+    const exempt = /depthTest: false/.test(source) && /depthWrite: false/.test(source);
+    const missing = needed.filter((chunk) => !source.includes(chunk));
+    ok(`${file.replace('src/world/', '')} writes depth like everything else`
+      + (exempt && missing.length ? '  (exempt: depth off entirely)' : ''),
+      missing.length === 0 || exempt,
+      missing.length ? `missing ${missing.join(', ')}` : '');
+  }
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);

@@ -1097,7 +1097,38 @@ what is left · `[?]` needs a decision from you.
       is genuinely 2.7 km wrong (zoom 6/8/10 all read ~944 m for 3,656 m of
       ice), which is the provider's data, not ours. Nothing done yet about how
       it *looks*.
-- [ ] H4. Improve above the clouds
+- [x] H4. Improve above the clouds
+      There was nothing above the clouds, because there were no clouds. Flying
+      at 5,000 m over a valley floor at 1,000 with the cover forced to 0.85 and
+      the deck confirmed on and visible, the frame had no cloud in it at all —
+      the deck was being hidden by ground four kilometres behind it.
+
+      The cause is one omission and it is a class of bug rather than a one-off.
+      The renderer runs with a logarithmic depth buffer, which means depth is
+      not the rasteriser's interpolated value: every material has to compute it,
+      and three.js does that for its own materials through four shader chunks.
+      The cloud deck's hand-written shaders had none of the four, so it was
+      depth-testing against a buffer written on a completely different scale.
+      That fails silently — as a thing that exists, is visible, is in the scene,
+      and is simply never drawn.
+
+      The wall that closes the world had the same omission, and it is drawn
+      against the furthest ground there is. Both fixed.
+
+      Photographed after: from 5,000 m the deck is an overcast sheet at 2,100 m
+      with the peaks standing out of it and the valleys covered, which is what
+      being above a cloud layer over the Alps looks like — and from 900 m
+      underneath, the layer still reads correctly against the sky, so nothing
+      below it regressed.
+
+      Guarded across every file that writes a shader rather than across the two
+      that were wrong, since the next hand-written shader would have the same
+      hole. The sky is the one exemption and it earns it: depth testing and
+      writing are both off, so it neither reads the buffer nor writes it.
+      Removing one include makes the check fail by name.
+
+      Worth knowing separately: the Low graphics tier turns weather off
+      entirely, so on the tier a Chromebook runs there is no deck at all.
 - [x] H5. Weather should follow the imagery's own weather state
       It follows something better, and the thing you asked for turns out to be
       empty.
