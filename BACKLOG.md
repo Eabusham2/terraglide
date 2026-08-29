@@ -102,7 +102,26 @@ what is left · `[?]` needs a decision from you.
 
 ## B. The ground falls apart
 
-- [ ] B1. When flying, the ground glitches / blurs briefly / gets holes / moves up and down in sections — it needs to lock
+- [~] B1. When flying, the ground glitches / blurs briefly / gets holes / moves up and down in sections — it needs to lock
+      The moving up and down is fixed, and it was not LOD popping. Every tile
+      samples the same height field whatever level it is drawn at, so a split
+      does not change a vertex's height. What changes it is *fresh elevation
+      landing*: a tile is drawn from the finest data that has arrived, so when
+      finer data arrives the answer changes and the tile is rebuilt with it —
+      in one frame, several metres, across the whole square. The sections are
+      elevation tiles and the moment is the moment their data landed.
+
+      A tile now remembers where it stood and walks to where it now stands over
+      a third of a second: one float a vertex, a uniform, and a mix in the
+      vertex shader. Verified in the running game rather than by the shader
+      compiling, which proves nothing — a morph left finished renders exactly
+      like one that never started. tools/morphcheck.mjs teleports somewhere
+      empty and watches every tile: 21 of 40 half-second samples caught tiles
+      mid-walk, 116 walking at once at the peak, and all 320 settled at the end.
+
+      Holes: measured at 0.00 to 0.10 per cent across every view once the
+      character is excluded from the measurement — see the note under M7. The
+      brief blur is still open (B10, B12).
 - [~] B2. Random times a patch below appears, then the player glitches down
       — same cause as A1 and improved by the same change, but only measured on
       arrival. A correction arriving mid-flight is still unhandled.
@@ -110,7 +129,9 @@ what is left · `[?]` needs a decision from you.
 - [~] B4. Floating on invisible ground above the imagery
       — you are no longer *set down* on ground the game has not measured.
       Whether it still happens after a mid-flight correction is untested.
-- [ ] B5. Ground becomes griddy and comes back — moves up or down and shows a grid
+- [~] B5. Ground becomes griddy and comes back — moves up or down and shows a grid
+      The moving up and down is fixed — see B1, it is fresh elevation landing
+      and the tile now walks rather than steps. The grid itself is still open.
 - [ ] B6. Randomly starts disappearing, getting patchy, falling apart, coming back in chunks
 - [ ] B7. Random refresh of textures
 - [x] B8. High res unloads from behind me
@@ -227,7 +248,19 @@ what is left · `[?]` needs a decision from you.
 
       Measured: a Rocket I now settles at 33.5 m/s where vanilla settles at
       33.5, and spamming reaches 33 m/s in 4 ticks against 6 and holds 33.7.
-- [ ] D6. Rocket times do not match Minecraft — fix, and use the same scale for speed; the light-duration one has MC default speed
+- [x] D6. Rocket times do not match Minecraft — fix, and use the same scale for speed; the light-duration one has MC default speed
+      They do. Minecraft's firework lifetime is 10 * duration + rand(6) +
+      rand(7), so 10 to 21 ticks for a duration of one, mean 15.5. Ours is
+      10 * duration + 6, which is inside that range and half a tick off its
+      mean — a deterministic stand-in for a die roll rather than a different
+      number. And the scale holds: rocketPowerFor(1) is exactly 1, so a Rocket I
+      is vanilla's own push, and every heavier slot's power is its burn length
+      over Rocket I's. Both checked in the self-test.
+
+      What was wrong was the cruise those times produced, not the times. See
+      D5: the push was capping at the rocket's target instead of vanilla's
+      target-plus-two-tenths, so a Rocket I settled at 30 m/s against
+      vanilla's 33.5. Fixed there.
 - [x] D7. Using the slot of a slower rocket slows you down
       Measured: cruising at 106 m/s on a Rocket V, firing a Rocket I took you to
       33.5 — 69% of your speed for pressing the wrong hotbar key. Minecraft's

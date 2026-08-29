@@ -1699,6 +1699,43 @@ console.log('\nTurning your head does not lose the ground');
   };
   ok('the ground under you is built even facing away', visits(here));
 
+  // Fresh relief walks the ground to its new height instead of stepping it.
+  //
+  // A tile is drawn from the finest elevation that has arrived, so when finer
+  // elevation arrives the answer changes — that part cannot be helped. What can
+  // is the whole tile stepping several metres between two frames, which is what
+  // "the ground moves up and down in sections" is: the sections are elevation
+  // tiles and the moment is the moment their data landed.
+  {
+    const node = [...terrain.nodes.values()].find((n) => n.mesh && n.geometry);
+    ok('a built tile remembers where it stood', !!node?.geometry.attributes.prevY);
+    if (node) {
+      const morph = node.material.uniforms.uMorph;
+      ok('and starts settled, having nowhere to walk from', morph.value === 1);
+
+      // Move the ground under it and rebuild: it should set off walking.
+      const position = node.geometry.attributes.position.array;
+      for (let v = 1; v < position.length; v += 3) position[v] += 12;
+      node.dirty = true;
+      terrain.budget = { ms: 1e6, start: performance.now(), built: 0, refreshed: 0 };
+      // build(tile, x0, z0, size, existing) — rebuilding the node in place is
+      // what an elevation refresh does, and it is the path that morphs.
+      terrain.build(node.tile, node.mesh.position.x, node.mesh.position.z,
+        frame.worldTileSize(node.tile.z), node);
+      ok(`ground that moved sets off walking  (uMorph ${morph.value})`, morph.value === 0);
+
+      // And it gets there, in about the time it says.
+      let elapsed = 0;
+      for (let frame = 0; frame < 200 && morph.value < 1; frame += 1) {
+        terrain._settledAt = performance.now() - 16;
+        terrain.settleHeights();
+        elapsed += 0.016;
+      }
+      ok(`and finishes in about a third of a second  (${elapsed.toFixed(2)} s)`,
+        morph.value >= 1 && elapsed > 0.2 && elapsed < 0.6);
+    }
+  }
+
   // The freecam renders from somewhere else while the ground stays built for
   // the player — that split is deliberate, so flying the camera across a
   // country does not re-cut the whole quadtree. But the frustum came from the
