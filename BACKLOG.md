@@ -1087,7 +1087,28 @@ what is left · `[?]` needs a decision from you.
       same boost twice: 22 degrees where 16 was meant. One input now.
       0 standing, 0.8 walking, 5.3 gliding, 16 at a rocket, and it stops there.
 - [ ] I20. Seed hacks, custom rockets, custom size and more in the cheat panel
-- [ ] I21. Remember the trail
+- [x] I21. Remember the trail
+      It was already saved and reloaded — every six seconds and again on the way
+      out — so the trail survived a reload. What it did not survive was its own
+      budget.
+
+      A leg is one continuous flight; only a teleport starts a new one. So a leg
+      can be very nearly the whole record, and the rule for staying inside 4,000
+      points was to drop the oldest *leg*. Measured on the old code: five
+      flights of 1,200 steps kept three of them — 480 km of an 801 km journey,
+      with two whole flights simply gone at a moment with no visible cause. And
+      a single unbroken flight was never trimmed at all, because the loop
+      stopped while `legs.length > 1` was false: 6,000 points against a budget
+      of 4,000 and rising.
+
+      The oldest leg is halved instead, both ends kept, so it covers the same
+      ground with half the points; each halving doubles the distance the budget
+      buys. Now: one long flight holds at 4,000 points and still covers all
+      801 km, and the same five flights are all five still on the map, covering
+      all 801 km, at 2 / 301 / 1200 / 1200 / 1200 points — history fading in
+      detail from the oldest end while the line you are drawing now keeps its
+      full ninety-metre spacing. Which is the same rule the exploration record
+      already follows: the oldest fine detail goes, in order, never at random.
 
 ## J. How the work is done
 

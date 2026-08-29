@@ -101674,12 +101674,48 @@ class Trail {
     this.last = null;
   }
 
+  /**
+   * Keep the trail inside its budget by thinning history, not deleting it.
+   *
+   * It used to drop the oldest whole leg, and a leg can be very nearly the
+   * entire record — one continuous flight is one leg, and only a teleport
+   * starts a new one. So going a single point over budget could erase almost
+   * everything you had, all at once, at a moment with no visible cause. That is
+   * the trail forgetting, and it is the same mistake the exploration record
+   * used to make: losing a lot at unpredictable moments instead of a little,
+   * predictably.
+   *
+   * The oldest leg is halved instead — every other point goes, both ends stay —
+   * so the line keeps its shape and covers the same ground with half as many
+   * points. Each halving doubles the distance the budget buys, so an old flight
+   * gets coarser over hours rather than vanishing, and the leg you are drawing
+   * now keeps its full ninety-metre spacing until everything older has been
+   * thinned to its ends. Only then, and only if it is still short, is a leg
+   * dropped.
+   */
   trim() {
     let total = this.pointCount;
+    let index = 0;
+    while (total > MAX_POINTS && index < this.legs.length) {
+      const leg = this.legs[index];
+      if (leg.length <= 2) {
+        index++;
+        continue;
+      }
+      const kept = [];
+      for (let i = 0; i < leg.length; i++) {
+        if (i % 2 === 0 || i === leg.length - 1) kept.push(leg[i]);
+      }
+      total -= leg.length - kept.length;
+      this.legs[index] = kept;
+      // Back to the oldest, so the oldest is always the coarsest.
+      index = 0;
+    }
     while (total > MAX_POINTS && this.legs.length > 1) {
       total -= this.legs[0].length;
       this.legs.shift();
     }
+    this.last = this.legs.length ? this.legs[this.legs.length - 1].at(-1) : null;
   }
 
   tick(dt) {

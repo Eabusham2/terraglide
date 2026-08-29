@@ -5396,5 +5396,66 @@ console.log('\nthe world ends on a squircle');
   // Checked in the browser over the Strait: the recorded reach per sector came
   // back 91.4 km along the axes and 117.6 km on the diagonals.
 }
+console.log('\nThe trail thins rather than forgetting');
+{
+  const { Trail } = await import('../src/ui/trail.js');
+  const fresh = () => {
+    const t = new Trail();
+    // Constructed from storage; this is a test, so start it empty.
+    t.legs = [];
+    t.last = null;
+    return t;
+  };
+  const fly = (t, steps, from) => {
+    let lat = from;
+    t.break();
+    for (let i = 0; i < steps; i++) {
+      lat += 0.0012;
+      t.record(lat, 7.9);
+    }
+  };
+
+  // A leg is a continuous flight, and only a teleport starts a new one — so a
+  // leg can be very nearly the whole record. Dropping the oldest *leg* to stay
+  // inside the budget therefore erased almost everything at a moment with no
+  // visible cause, and on a single unbroken flight it did not run at all,
+  // because it stopped while `legs.length > 1` was false. Measured on the old
+  // code: 6000 recorded steps in one leg kept all 6000, half again over a
+  // budget of 4000; five flights of 1200 kept three of them, so 480 km of an
+  // 801 km journey and two whole flights were simply gone.
+  {
+    const t = fresh();
+    fly(t, 6000, 46.5);
+    ok(`one long flight is held to the budget  (${t.pointCount} points)`,
+      t.pointCount <= 4000);
+    ok(`and still covers the ground it flew  (${(t.length / 1000).toFixed(0)} km)`,
+      t.length / 1000 > 780);
+  }
+  {
+    const t = fresh();
+    for (let leg = 0; leg < 5; leg++) fly(t, 1200, 40 + leg * 5);
+    ok(`five flights are all still on the map  (${t.legs.length} legs)`, t.legs.length === 5);
+    ok(`covering all of the ground rather than three fifths of it  (${(t.length / 1000).toFixed(0)} km)`,
+      t.length / 1000 > 780);
+    // Oldest coarsest: history fades in detail, the line you are drawing now
+    // keeps its full ninety-metre spacing.
+    const sizes = t.legs.map((leg) => leg.length);
+    ok(`and the oldest is the thinnest, not the newest  (${sizes.join(', ')})`,
+      sizes[0] <= sizes[sizes.length - 1]);
+  }
+  {
+    // Thinning keeps both ends, so a leg never loses where it started or where
+    // it stopped — which is what would make the line jump on the map.
+    const t = fresh();
+    fly(t, 3000, 20);
+    const first = t.legs[0][0];
+    fly(t, 3000, 60);
+    ok('thinning keeps the first point of a leg',
+      t.legs[0][0].lat === first.lat && t.legs[0][0].lon === first.lon);
+    ok('and leaves the live end where the player actually is',
+      t.last === t.legs[t.legs.length - 1].at(-1));
+  }
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);
