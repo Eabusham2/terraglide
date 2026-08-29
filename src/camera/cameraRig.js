@@ -40,6 +40,18 @@ const EYE_FORWARD = 0.1;
  * is quick enough to feel like an aircraft and slow enough to stop halfway and
  * hold a bank.
  */
+/**
+ * How many points along the way out to check for ground, and how far in the
+ * camera may be pulled.
+ *
+ * Six is enough to catch a hillside without costing anything — heightAt is a
+ * lookup into a field that is already in memory. A third of the way out is
+ * close, but closer than that and you are inside your own shoulders, which is
+ * worse than a grazing view of a hill.
+ */
+const CHASE_PROBES = 6;
+const CHASE_MIN_REACH = 0.34;
+
 const ROLL_RATE = 3.4;
 /**
  * How fast the wings come back level when you stop asking.
@@ -60,6 +72,8 @@ export class CameraRig {
     this.thirdPersonDistance = 1;
     /** How far into a prone glide you are, for the eye lean. */
     this.prone = 0;
+    /** How far out the chase camera is allowed this frame, 0 to 1. */
+    this._reach = NaN;
     this.shake = 0;
     this.shakeTime = 0;
     /** Damped ground clamp for the chase camera. */
@@ -258,10 +272,45 @@ export class CameraRig {
         Math.cos(player.yaw) * cosPitch * behind,
       );
       this._offset.normalize().multiplyScalar(distance);
-      const desired = this._target.clone().add(this._offset);
-      // Damp the ground clamp rather than applying it raw: heightAt steps as
-      // terrain LOD swaps under the camera, and a raw clamp turns every one of
-      // those steps into a visible jolt.
+
+      // Come in closer when the hill is in the way, rather than climbing it.
+      //
+      // The camera used to be pushed straight up out of any ground it landed
+      // in. On flat country that is right and invisible. On a slope it is
+      // neither: standing on a hillside puts the camera a couple of metres
+      // back and, once raised, about sixty centimetres above the slope looking
+      // straight along it — and a photograph seen at a grazing angle is
+      // stretched to hundreds of texels a pixel. That is the smeared dark band
+      // across half the frame whenever you stand on anything steep, and no
+      // amount of filtering fixes it because the geometry is what is wrong.
+      //
+      // So the line from you to where the camera wants to be is walked, and it
+      // stops short of whatever gets in the way. Which is what a chase camera
+      // in anything else does: it comes closer, it does not climb the scenery.
+      let reach = 1;
+      if (terrain) {
+        const clearance = player.height * 0.35;
+        for (let step = 1; step <= CHASE_PROBES; step += 1) {
+          const t = step / CHASE_PROBES;
+          const ground = terrain.heightAt(
+            this._target.x + this._offset.x * t,
+            this._target.z + this._offset.z * t,
+          );
+          if (this._target.y + this._offset.y * t < ground + clearance) {
+            reach = (step - 1) / CHASE_PROBES;
+            break;
+          }
+        }
+      }
+      // Never all the way in: inside your own head is worse than a grazing
+      // hillside. Damped for the same reason the floor was — heightAt steps as
+      // the terrain LOD swaps under it, and a raw value turns every step into
+      // a jolt.
+      reach = Math.max(CHASE_MIN_REACH, reach);
+      this._reach = Number.isFinite(this._reach) ? damp(this._reach, reach, 8, dt) : reach;
+      const desired = this._target.clone().addScaledVector(this._offset, this._reach);
+      // And a floor underneath all of it, for the case the probe cannot see:
+      // ground that rose after the camera was already there.
       const floor = terrain ? terrain.heightAt(desired.x, desired.z) + player.height * 0.35 : -Infinity;
       this._floor = Number.isFinite(this._floor) ? damp(this._floor, floor, 6, dt) : floor;
       desired.y = Math.max(desired.y, this._floor);

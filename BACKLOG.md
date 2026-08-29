@@ -782,12 +782,18 @@ what is left · `[?]` needs a decision from you.
       desaturating deep shadow, which is a display choice rather than an
       invention, but it is a choice worth asking about rather than making.
 
-      One thing that would help and is not a display choice: the chase camera
-      clamps itself to the ground plus a third of your height, so standing on a
-      steep slope it ends up about sixty centimetres above the hillside looking
-      straight along it. Pushing it *out* from the slope rather than only *up*
-      would stop the grazing view arising in the first place. That is a camera
-      change rather than an imagery one and has not been made.
+      One thing that helped and is not a display choice: the chase camera used
+      to be pushed straight up out of any ground it landed in, so standing on a
+      steep slope it ended up about sixty centimetres above the hillside
+      looking straight along it. It walks the line out to where it wants to be
+      now and stops short of whatever is in the way — closer, not higher, which
+      is what a chase camera in anything else does. Measured at Lauterbrunnen:
+      facing the west wall it comes in to 1.51 m from 4.44, and every other
+      direction is unchanged. tools/chasecheck.mjs is that measurement kept.
+
+      It does not fix the band in the obvious screenshot, because there the
+      cliff is beside the player rather than under the camera — which is why a
+      screenshot could not settle it either way and the probe could.
 
 - [ ] M3. It is so laggy
 - [ ] M4. The quality is bad; zooming in on the map looks better than the ground

@@ -350,6 +350,26 @@ console.log('\nelytra flight model');
   }
 }
 
+console.log('\nthe chase camera comes in rather than climbing the hill');
+{
+  const rig = readFileSync(new URL('../src/camera/cameraRig.js', import.meta.url), 'utf8');
+  // The line from you to where the camera wants to be is walked, and it stops
+  // short of whatever gets in the way — which is what a chase camera in
+  // anything else does. Pushing it straight up instead left it a couple of
+  // feet above a hillside looking along it, and a photograph at a grazing
+  // angle is stretched to hundreds of texels a pixel.
+  ok('it walks the way out looking for ground', /for \(let step = 1; step <= CHASE_PROBES/.test(rig));
+  ok('and stops short of what it finds', /reach = \(step - 1\) \/ CHASE_PROBES;/.test(rig));
+  // Never all the way in: inside your own head is worse than a grazing hill.
+  const floor = Number(/const CHASE_MIN_REACH = ([\d.]+);/.exec(rig)?.[1]);
+  ok(`and never comes closer than a third of the way  (${floor})`, floor >= 0.25 && floor <= 0.5);
+  ok('damped, because heightAt steps as the terrain swaps under it',
+    /this\._reach = Number\.isFinite\(this\._reach\) \? damp\(/.test(rig));
+  // Behaviour is checked in the running game by tools/chasecheck.mjs: facing
+  // the west wall at Lauterbrunnen the camera comes in to 1.51 m from 4.44,
+  // and every other direction stays at 4.44.
+}
+
 console.log('\nwhen a map server is unwell, ask a different one');
 {
   const src = readFileSync(new URL('../src/world/overpass.js', import.meta.url), 'utf8');
