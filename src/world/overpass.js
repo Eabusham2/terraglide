@@ -9,9 +9,20 @@
  * them invent data to fill the gap.
  */
 
+/**
+ * Public Overpass mirrors, tried in turn.
+ *
+ * Two was not enough. Measured from here, the main instance answers 503 and
+ * kumi answers 500 — both down at once is not unusual for a free service that
+ * anyone may query, and with a list of two that is every building in the world
+ * gone. Four is enough that they have to fail together to matter, and they are
+ * all the standard public instances the OSM wiki lists.
+ */
 const ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
+  'https://overpass.osm.ch/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
 ];
 /** Minimum spacing between requests, milliseconds. */
 const MIN_GAP_MS = 2400;
@@ -70,9 +81,20 @@ class OverpassClient {
         body: 'data=' + encodeURIComponent(job.text),
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       });
-      if (response.status === 429 || response.status === 504) {
+      // Move to the next mirror whenever the failure is the mirror's rather
+      // than the query's.
+      //
+      // This moved on for 429 and 504 only, so a 500 or a 503 — which is what
+      // an instance actually returns when it is unwell — threw without
+      // advancing, and every retry went back to the same dead endpoint. The
+      // second instance in the list was never reached. With both of them down,
+      // which is what was happening, that is "3D not working at all, including
+      // OSM buildings": not a bug in the buildings, a fallback that never
+      // engaged. A 4xx that is not 429 is the query being wrong and no other
+      // mirror will like it better, so those stay put.
+      if (response.status === 429 || response.status >= 500) {
         this.endpointIndex++;
-        throw new Error(`overpass busy (${response.status})`);
+        throw new Error(`overpass ${response.status}, moving to the next mirror`);
       }
       if (!response.ok) throw new Error(`overpass ${response.status}`);
       const data = await response.json();
@@ -80,6 +102,10 @@ class OverpassClient {
       job.resolve(data);
     } catch (error) {
       this.stats.failed++;
+      // A thrown fetch is the endpoint too — DNS, a reset, a blocked host —
+      // and it deserves the same move on as a 503. Without this a mirror the
+      // network cannot reach at all is retried for ever.
+      if (!/overpass \d/.test(String(error?.message ?? ''))) this.endpointIndex++;
       this.backoffUntil = performance.now() + BACKOFF_MS;
       job.reject(error);
       // Anything still waiting is not going to fare better right now.

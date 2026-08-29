@@ -68,8 +68,24 @@ function serve() {
     // asks for that is not ours comes back through here.
     if (url.pathname === '/__fetch') {
       try {
+        // Method and body come through too.
+        //
+        // This relayed everything as a GET with the target in the query
+        // string, which is fine for a tile and silently wrong for anything
+        // else: Overpass is asked for buildings with a POST carrying the query
+        // in its body, and a GET with no body gets a refusal. Nine of nine
+        // requests failed and it looked exactly like the game being unable to
+        // load OSM buildings. It was the harness.
+        const body = req.method === 'POST' ? await readBody(req) : null;
         const upstream = await fetch(url.searchParams.get('u'), {
-          headers: { 'user-agent': 'terraglide-shots' },
+          method: req.method === 'POST' ? 'POST' : 'GET',
+          body,
+          headers: {
+            'user-agent': 'terraglide-shots',
+            ...(req.headers['content-type']
+              ? { 'content-type': req.headers['content-type'] }
+              : {}),
+          },
         });
         res.writeHead(upstream.status, {
           'content-type': upstream.headers.get('content-type') ?? 'application/octet-stream',
@@ -156,6 +172,16 @@ function measure(png) {
   return { holes: holes / counted, detail: steps ? sum / steps : 0 };
 }
 
+/** Read a request body into a Buffer. */
+function readBody(req) {
+  return new Promise((done, fail) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => done(Buffer.concat(chunks)));
+    req.on('error', fail);
+  });
+}
+
 const server = serve();
 await new Promise((done) => server.listen(0, '127.0.0.1', done));
 PORT = server.address().port;
@@ -179,7 +205,15 @@ await page.route('**/*', async (route) => {
   const url = route.request().url();
   if (url.startsWith(`http://127.0.0.1:${PORT}`)) return route.continue();
   try {
-    const relayed = await fetch(`http://127.0.0.1:${PORT}/__fetch?u=${encodeURIComponent(url)}`);
+    const request = route.request();
+    const method = request.method();
+    const relayed = await fetch(`http://127.0.0.1:${PORT}/__fetch?u=${encodeURIComponent(url)}`, {
+      method: method === 'POST' ? 'POST' : 'GET',
+      body: method === 'POST' ? request.postData() : undefined,
+      headers: method === 'POST'
+        ? { 'content-type': request.headers()['content-type'] ?? 'text/plain' }
+        : undefined,
+    });
     return route.fulfill({
       status: relayed.status,
       body: Buffer.from(await relayed.arrayBuffer()),

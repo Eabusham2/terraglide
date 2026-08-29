@@ -350,6 +350,31 @@ console.log('\nelytra flight model');
   }
 }
 
+console.log('\nwhen a map server is unwell, ask a different one');
+{
+  const src = readFileSync(new URL('../src/world/overpass.js', import.meta.url), 'utf8');
+  const list = /const ENDPOINTS = \[([\s\S]*?)\];/.exec(src)?.[1] ?? '';
+  const mirrors = [...list.matchAll(/'https:\/\/[^']+'/g)].length;
+  // Two was not enough: measured from here the main instance answered 503 and
+  // kumi answered 500, both at once, which with a list of two is every
+  // building in the world gone.
+  ok(`there is more than one mirror to fall back to  (${mirrors})`, mirrors >= 3);
+
+  // And the fallback has to engage on the failures that actually happen. It
+  // moved on for 429 and 504 only, so a 500 or a 503 threw without advancing
+  // and every retry went back to the same dead endpoint — the second mirror
+  // was never reached. That is "3D not working at all, including OSM
+  // buildings": not a bug in the buildings, a fallback that never engaged.
+  ok('a server error moves to the next mirror',
+    /status === 429 \|\| response\.status >= 500/.test(src));
+  ok('and so does a request that never arrives',
+    /if \(!\/overpass \\d\/\.test\([\s\S]{0,60}?endpointIndex\+\+;/.test(src));
+  // A 4xx that is not 429 is the query being wrong, and no other mirror will
+  // like it better, so those must not rotate.
+  ok('but a bad query does not walk the whole list',
+    !/status >= 400\)\s*\{\s*this\.endpointIndex/.test(src));
+}
+
 console.log('\nevery key the game binds is written down');
 {
   const help = readFileSync(new URL('../src/ui/help.js', import.meta.url), 'utf8');

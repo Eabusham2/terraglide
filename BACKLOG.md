@@ -426,7 +426,30 @@ what is left · `[?]` needs a decision from you.
 - [ ] G1. Google session failed (403) — maps_api.tas.BootstrapService.Bootstrap blocked
 - [ ] G2. Fix broken Google generally
 - [ ] G3. Photorealistic Cesium ion key broken — "failed to fetch"
-- [ ] G4. 3D not working at all, including OSM buildings
+- [x] G4. 3D not working at all, including OSM buildings
+      Not a bug in the buildings. A fallback that never engaged.
+
+      Overpass is asked for buildings over a list of public mirrors, and the
+      client moved to the next one on a 429 or a 504 and nothing else. A 500 or
+      a 503 — which is what an instance actually returns when it is unwell —
+      threw without advancing, so every retry went back to the same dead
+      endpoint and the second mirror in the list was never reached. Measured
+      from here: the main instance answers 503 and kumi answers 500, both at
+      once. With a list of two and no rotation, that is every building in the
+      world gone, for ever, with nine of nine tile requests failing.
+
+      It moves on for any 429 or 5xx now, and for a request that never arrives
+      at all — DNS, a reset, a blocked host — while leaving a 4xx alone, since
+      that is the query being wrong and no other mirror will like it better.
+      The list is four mirrors rather than two.
+
+      Measured after: nine tiles, zero failed, six buildings measured from the
+      survey and 182 estimated, twelve bridge segments, four meshes.
+
+      Worth knowing for the rest of the G group: this sandbox's egress blocks
+      or fails several hosts outright, so a provider that "does not work" here
+      may work perfectly for you. That is what made this one look environmental
+      until the rotation was read.
 - [ ] G5. No 3D terrain for buildings, infrastructure or vegetation
 - [ ] G6. Why can I see 3D houses in MSFS (Azure) but not here
 - [ ] G7. Mapbox supports 3D buildings + terrain — why is there none here
