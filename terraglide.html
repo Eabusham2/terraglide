@@ -82504,6 +82504,12 @@ const LIMITS = {
   playerScale: [0.25, 40],
 };
 
+/**
+ * The dials the HUD flag counts. See `active`: the player's size is deliberately
+ * not one of them.
+ */
+const FLAGGED = Object.keys(CHEAT_DEFAULTS).filter((key) => key !== 'playerScale');
+
 class Cheats extends Emitter {
   constructor() {
     super();
@@ -82514,12 +82520,21 @@ class Cheats extends Emitter {
     Object.assign(this, CHEAT_DEFAULTS);
   }
 
-  /** Is anything actually turned on? Drives the HUD flag. */
+  /**
+   * Is anything actually turned on? Drives the HUD flag.
+   *
+   * Read off FLAGGED rather than "anything that is not its default", because
+   * one of these is not a cheat. The player's size is a designed feature with
+   * its own keybind and a permanent row in the HUD — being tall is not
+   * cheating, and counting it would light the indicator the first time anyone
+   * pressed the size key. It lives in this store because this is where the
+   * player reads it from, and because locking ought to put it back.
+   */
   get active() {
-    return Object.keys(CHEAT_DEFAULTS).some((key) => this[key] !== CHEAT_DEFAULTS[key]);
+    return FLAGGED.some((key) => this[key] !== CHEAT_DEFAULTS[key]);
   }
 
-  /** Short labels for whatever is currently on. */
+  /** Short labels for whatever is currently on. Size is left out, as above. */
   get labels() {
     const list = [];
     if (this.fly) list.push('fly');
@@ -98317,6 +98332,17 @@ const DIALS = [
     step: 0.1,
     help: 'Multiplies firework thrust. Past about 4x a Rocket V leaves the troposphere.',
   },
+  {
+    key: 'playerScale',
+    label: 'Size',
+    min: 0.25,
+    max: 40,
+    step: 0.05,
+    help: 'How big you are, as a multiple of your height setting. The size keys move'
+      + ' this too; the slider goes the whole range in one drag. Everything follows it'
+      + ' \u2014 stride, eye height, reach and the collision capsule \u2014 so a quarter-size'
+      + ' player really does fit where a full-size one does not.',
+  },
 ];
 
 const SWITCHES = [
@@ -103539,10 +103565,19 @@ class Game {
         break;
       case 'scaleUp':
       case 'scaleDown': {
+        // Written to the store the player reads.
+        //
+        // `player.scale` has read cheats.playerScale ever since size moved
+        // there, and this key was left behind pointing at settings — where
+        // there is no `playerScale` at all. So it read undefined, multiplied
+        // it, and clamp passed NaN straight through, because NaN < lo and
+        // NaN > hi are both false. That was written to a setting nothing reads,
+        // the toast said "Size NaNx . NaN m", and you stayed exactly the size
+        // you were. Both size keys did nothing, in every build.
         const factor = id === 'scaleUp' ? 1.12 : 1 / 1.12;
-        const next = clamp(settings.get('playerScale') * factor, 0.25, 40);
-        settings.set('playerScale', Number(next.toFixed(3)));
-        this.toast(`Size ${next.toFixed(2)}x · ${(settings.get('playerHeightM') * next).toFixed(2)} m`);
+        cheats.set('playerScale', this.player.scale * factor);
+        const next = this.player.scale;
+        this.toast(`Size ${next.toFixed(2)}x · ${this.player.height.toFixed(2)} m`);
         break;
       }
       case 'mouseMode': {

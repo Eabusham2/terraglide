@@ -1361,7 +1361,36 @@ what is left · `[?]` needs a decision from you.
       ran, and since horizontalSpeed now includes the multiplier that counted the
       same boost twice: 22 degrees where 16 was meant. One input now.
       0 standing, 0.8 walking, 5.3 gliding, 16 at a rocket, and it stops there.
-- [ ] I20. Seed hacks, custom rockets, custom size and more in the cheat panel
+- [~] I20. Seed hacks, custom rockets, custom size and more in the cheat panel
+      Custom size found a real bug rather than needing a new control. Both size
+      keys did nothing, in every build, and did it quietly: `player.scale` reads
+      cheats.playerScale — size moved there deliberately — and the keybind was
+      left behind pointing at settings, where there is no `playerScale` at all.
+      So it read undefined, multiplied it by 1.12, and clamp passed the NaN
+      straight through, because `NaN < lo` and `NaN > hi` are both false. That
+      went into a setting nothing reads, and the toast said "Size NaNx · NaN m"
+      while you stayed exactly the size you were.
+
+      Fixed at the store: the key writes cheats.playerScale, which is what the
+      player reads. Checked in the running game — five presses of `]` take you
+      from 1.00 to 1.76 (1.12^5) and nine of `[` bring you back to 0.64, with
+      height and eye height following, and the toast reads real numbers.
+
+      And it is a slider in the cheat panel now, 0.25x to 40x, which is the
+      whole range in one drag rather than eleven presses.
+
+      One thing worth doing while there: being tall is not cheating. The HUD's
+      cheat flag was "anything that is not its default", so the first press of
+      a documented key with a permanent HUD row would have lit it. It reads off
+      a list now, and size is deliberately not on it — it lives in that store
+      because that is where the player reads it and because locking should put
+      it back, not because it is a cheat.
+
+      Custom rockets: the Rocket strength dial is already there, 0.1x to 12x.
+
+      Seed hacks: there is no seed. This is the Earth, from photographs — there
+      is nothing to reseed and nothing a seed would change. Left open in case
+      you meant something else by it, and if you did, say which.
 - [x] I21. Remember the trail
       It was already saved and reloaded — every six seconds and again on the way
       out — so the trail survived a reload. What it did not survive was its own

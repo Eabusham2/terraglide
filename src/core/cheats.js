@@ -64,6 +64,12 @@ const LIMITS = {
   playerScale: [0.25, 40],
 };
 
+/**
+ * The dials the HUD flag counts. See `active`: the player's size is deliberately
+ * not one of them.
+ */
+const FLAGGED = Object.keys(CHEAT_DEFAULTS).filter((key) => key !== 'playerScale');
+
 class Cheats extends Emitter {
   constructor() {
     super();
@@ -74,12 +80,21 @@ class Cheats extends Emitter {
     Object.assign(this, CHEAT_DEFAULTS);
   }
 
-  /** Is anything actually turned on? Drives the HUD flag. */
+  /**
+   * Is anything actually turned on? Drives the HUD flag.
+   *
+   * Read off FLAGGED rather than "anything that is not its default", because
+   * one of these is not a cheat. The player's size is a designed feature with
+   * its own keybind and a permanent row in the HUD — being tall is not
+   * cheating, and counting it would light the indicator the first time anyone
+   * pressed the size key. It lives in this store because this is where the
+   * player reads it from, and because locking ought to put it back.
+   */
   get active() {
-    return Object.keys(CHEAT_DEFAULTS).some((key) => this[key] !== CHEAT_DEFAULTS[key]);
+    return FLAGGED.some((key) => this[key] !== CHEAT_DEFAULTS[key]);
   }
 
-  /** Short labels for whatever is currently on. */
+  /** Short labels for whatever is currently on. Size is left out, as above. */
   get labels() {
     const list = [];
     if (this.fly) list.push('fly');

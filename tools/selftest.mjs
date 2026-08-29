@@ -5483,6 +5483,65 @@ console.log('\nthe world ends on a squircle');
   // Checked in the browser over the Strait: the recorded reach per sector came
   // back 91.4 km along the axes and 117.6 km on the diagonals.
 }
+console.log('\nThe size keys change your size');
+{
+  const { cheats } = await import('../src/core/cheats.js');
+  const { settings: S } = await import('../src/core/settings.js');
+  const { clamp: clampM } = await import('../src/core/math.js');
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+
+  // Both size keys did nothing, in every build, and said so in a way nobody
+  // would read as a bug: `player.scale` reads cheats.playerScale, and the
+  // keybind was left behind pointing at settings, where there is no
+  // `playerScale` at all. undefined * 1.12 is NaN, and clamp passes NaN
+  // straight through because NaN < lo and NaN > hi are both false. The result
+  // was written to a setting nothing reads and the toast said "Size NaNx".
+  ok('there is still no playerScale setting to point at',
+    S.get('playerScale') === undefined);
+  ok('and clamp really does pass NaN through, which is how it got this far',
+    Number.isNaN(clampM(NaN, 0.25, 40)));
+  ok('so the key writes the store the player reads',
+    /cheats\.set\('playerScale', this\.player\.scale \* factor\)/.test(game)
+    && !/settings\.get\('playerScale'\)/.test(game));
+
+  {
+    const before = cheats.playerScale;
+    cheats.set('playerScale', 1);
+    cheats.set('playerScale', 1 * 1.12 * 1.12);
+    ok(`two steps up is 1.12 squared  (${cheats.playerScale.toFixed(4)})`,
+      Math.abs(cheats.playerScale - 1.2544) < 1e-6);
+    // The store refuses what the old path produced, which is the second reason
+    // this never blew up loudly.
+    const kept = cheats.playerScale;
+    cheats.set('playerScale', NaN);
+    ok('and a NaN is refused rather than stored', cheats.playerScale === kept);
+    cheats.set('playerScale', 500);
+    ok(`clamped at the top  (${cheats.playerScale})`, cheats.playerScale === 40);
+    cheats.set('playerScale', before);
+  }
+
+  // Being tall is not cheating: it is a designed feature with its own keybind
+  // and a permanent row in the HUD, so it must not light the cheat indicator.
+  {
+    const before = cheats.playerScale;
+    cheats.lock();
+    ok('nothing is flagged to start with', cheats.active === false);
+    cheats.set('playerScale', 3);
+    ok('resizing does not turn the cheat flag on', cheats.active === false);
+    ok('and does not appear in the label list', !cheats.labels.some((l) => /size/i.test(l)));
+    cheats.set('playerSpeed', 4);
+    ok('while an actual cheat does', cheats.active === true);
+    cheats.lock();
+    ok('and locking puts the size back with everything else', cheats.playerScale === 1);
+    cheats.set('playerScale', before);
+  }
+
+  // I20 asked for it in the cheat panel as well as on the keys.
+  const panel = readFileSync(new URL('../src/ui/cheatPanel.js', import.meta.url), 'utf8');
+  ok('the cheat panel has a size dial too',
+    /key: 'playerScale'/.test(panel) && /label: 'Size'/.test(panel));
+}
+
 console.log('\nThe trail thins rather than forgetting');
 {
   const { Trail } = await import('../src/ui/trail.js');

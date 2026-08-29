@@ -1588,10 +1588,19 @@ export class Game {
         break;
       case 'scaleUp':
       case 'scaleDown': {
+        // Written to the store the player reads.
+        //
+        // `player.scale` has read cheats.playerScale ever since size moved
+        // there, and this key was left behind pointing at settings — where
+        // there is no `playerScale` at all. So it read undefined, multiplied
+        // it, and clamp passed NaN straight through, because NaN < lo and
+        // NaN > hi are both false. That was written to a setting nothing reads,
+        // the toast said "Size NaNx . NaN m", and you stayed exactly the size
+        // you were. Both size keys did nothing, in every build.
         const factor = id === 'scaleUp' ? 1.12 : 1 / 1.12;
-        const next = clamp(settings.get('playerScale') * factor, 0.25, 40);
-        settings.set('playerScale', Number(next.toFixed(3)));
-        this.toast(`Size ${next.toFixed(2)}x · ${(settings.get('playerHeightM') * next).toFixed(2)} m`);
+        cheats.set('playerScale', this.player.scale * factor);
+        const next = this.player.scale;
+        this.toast(`Size ${next.toFixed(2)}x · ${this.player.height.toFixed(2)} m`);
         break;
       }
       case 'mouseMode': {

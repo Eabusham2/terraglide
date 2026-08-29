@@ -35,6 +35,17 @@ const DIALS = [
     step: 0.1,
     help: 'Multiplies firework thrust. Past about 4x a Rocket V leaves the troposphere.',
   },
+  {
+    key: 'playerScale',
+    label: 'Size',
+    min: 0.25,
+    max: 40,
+    step: 0.05,
+    help: 'How big you are, as a multiple of your height setting. The size keys move'
+      + ' this too; the slider goes the whole range in one drag. Everything follows it'
+      + ' \u2014 stride, eye height, reach and the collision capsule \u2014 so a quarter-size'
+      + ' player really does fit where a full-size one does not.',
+  },
 ];
 
 const SWITCHES = [
