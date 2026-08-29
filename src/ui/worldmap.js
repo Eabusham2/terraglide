@@ -391,7 +391,6 @@ export class WorldMap {
           trail: settings.get('showTrail'),
           waypoints: true,
           labels: true,
-          grid: this.zoom >= 12,
           playerSize: 9,
           pathWidth: 1.6,
           compass: true,

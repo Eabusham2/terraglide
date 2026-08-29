@@ -744,8 +744,44 @@ what is left · `[?]` needs a decision from you.
       every time. The cap was real at ~3 MB of key strings; explored ground is
       discs along a path, so rows compress 14x and 2.7M squares now fit. Over
       the ceiling the oldest fine detail goes, in order, never at random.
-- [ ] F8. Map does not show only what I saw, and changes size with zoom
-- [ ] F9. Remove grids from places like the example map
+- [x] F8. Map does not show only what I saw, and changes size with zoom
+      Both halves were the same line. The fog subdivided every map tile sixteen
+      ways whatever the zoom, which sounds like a resolution and is not: it
+      makes the mask level `tileZoom + 4`, which is coarser than the record
+      everywhere below map zoom 12 and lands *between* recorded levels on the
+      odd ones. isExplored answers a level it does not keep by shifting down to
+      the nearest one it does, and a coarse cell counts as explored if any part
+      of it is — deliberately, so a continent you crossed does not read as
+      unvisited. Put together, the ground you had seen grew as you zoomed out.
+
+      The level is chosen now, and always one the record actually keeps, which
+      is what stops both the shifting and the growth. The finest worth drawing
+      is about four pixels a cell — below that it is a lookup per pixel for an
+      edge that is blurred anyway — and a level-L cell is 256 * 2^(zoom - L)
+      pixels across, so four pixels is L = zoom + 6, capped at the record's own
+      finest. Area claimed per cell you actually saw:
+
+        map zoom      was            now
+          4        65,536x         4,096x
+          6         4,096x           256x
+          8           256x            16x
+          9           256x            16x
+         10            16x             1x
+         11            16x             1x
+         12+            1x             1x
+
+      Sixteen times tighter at every zoom, and exact from map zoom 10 up, which
+      is where the map is actually read. Photographed at z16, z12, z10 and z7:
+      a 0.4 mile flight over Lauterbrunnen shows as a patch you can cover with a
+      thumbnail at z7, where before it was read at level 10 whose cells are
+      about forty kilometres across.
+- [x] F9. Remove grids from places like the example map
+      Gone. The world map drew white hairlines on every map-tile boundary from
+      zoom 12 up — the seams of the fetching machinery, drawn over a photograph
+      of somewhere real. A developer wants to see those and a player never does,
+      and it is most of why the map read as a screenshot of a tool rather than
+      as a map. Removed at both ends, the drawing and the flag that asked for
+      it, and the self-test holds it shut.
 - [x] F10. Improve the starting map zoom
       It opened at zoom 6 every time — 1,473 km across at a middling latitude,
       most of a continent — so the first thing anybody did was zoom in. It opens

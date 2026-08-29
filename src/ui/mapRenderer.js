@@ -1,4 +1,5 @@
 import { latToNormY, lonToNormX, wrapTileX } from '../geo/mercator.js';
+import { LEVELS } from './exploration.js';
 
 /**
  * Shared 2D map painter for the minimap and the world map.
@@ -209,11 +210,36 @@ export function drawMap(ctx, view, layers) {
     // Unexplored first, over everything: the drawn map is the ground state.
     paint(ctx, layers.street, STREET_BLANK);
 
-    // One exploration cell per this many map-tile subdivisions. Sixteen is the
-    // finest the record goes; below that the cells would be smaller than the
-    // record can answer for, and above it they would be coarser than the
-    // screen, so it is clamped at both ends.
-    const sub = Math.max(1, Math.min(16, Math.pow(2, 16 - tileZoom)));
+    // Which recorded level the fog is read at.
+    //
+    // It used to be sixteen subdivisions of a map tile, always, which sounds
+    // like a resolution and is not: it made the mask level `tileZoom + 4`, and
+    // that is coarser than the record everywhere below map zoom 12 and lands
+    // between recorded levels on the odd ones. isExplored resolves a level it
+    // does not have by shifting *down* to the nearest one it does, and a
+    // coarser cell counts as explored if any part of it is — so the ground you
+    // had seen grew as you zoomed out. At map zoom 11 it was read at level 14,
+    // four times the area per side it should be; at map zoom 6 at level 10,
+    // whose cells are about forty kilometres across. Flying through one point
+    // uncovered the lot. That is the whole of "does not show only what I saw,
+    // and changes size with zoom".
+    //
+    // So the level is chosen instead, and it is always one the record actually
+    // keeps, which is what stops the shifting and the growth. The finest that
+    // is worth drawing is about four pixels a cell — finer than that is a
+    // lookup per pixel for an edge that is feathered anyway — and a level-L
+    // cell is 256 * 2^(zoom - L) pixels across, so four pixels is L = zoom + 6.
+    // Capped at the finest level the record keeps, since there is nothing
+    // beyond it to ask for.
+    const wanted = Math.min(LEVELS[LEVELS.length - 1], tileZoom + 6);
+    let level = LEVELS[0];
+    for (const candidate of LEVELS) {
+      if (candidate <= wanted) level = candidate;
+    }
+    // Below map zoom 2 even the coarsest recorded level is finer than a tile,
+    // and there is nothing to subdivide; isExplored falls through to its own
+    // folded answer there, which is what that fold is for.
+    const sub = Math.max(1, Math.pow(2, level - tileZoom));
     const maskZoom = tileZoom + Math.round(Math.log2(sub));
     const cellPx = drawSize / sub;
 
@@ -269,24 +295,11 @@ export function drawMap(ctx, view, layers) {
     ctx.restore();
   }
 
-  if (options.grid) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-    ctx.lineWidth = 1;
-    for (let tx = minX; tx <= maxX; tx++) {
-      const x = (tx * TILE_PX - tileCentre.x) * tileScale;
-      ctx.beginPath();
-      ctx.moveTo(x, (minY * TILE_PX - tileCentre.y) * tileScale);
-      ctx.lineTo(x, ((maxY + 1) * TILE_PX - tileCentre.y) * tileScale);
-      ctx.stroke();
-    }
-    for (let ty = minY; ty <= maxY; ty++) {
-      const y = (ty * TILE_PX - tileCentre.y) * tileScale;
-      ctx.beginPath();
-      ctx.moveTo((minX * TILE_PX - tileCentre.x) * tileScale, y);
-      ctx.lineTo(((maxX + 1) * TILE_PX - tileCentre.x) * tileScale, y);
-      ctx.stroke();
-    }
-  }
+  // There used to be a tile grid drawn here — white hairlines on every map-tile
+  // boundary from zoom 12 up. It is gone: it is the seams of the fetching
+  // machinery drawn over a photograph of somewhere real, which is a thing a
+  // developer wants to see and a thing a player never does. It also made the
+  // map read as a screenshot of a tool rather than a map.
 
   const toScreen = (lat, lon) => {
     const p = project(lat, lon, zoom);

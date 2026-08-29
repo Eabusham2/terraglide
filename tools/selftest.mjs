@@ -4729,6 +4729,51 @@ console.log('\nphotograph where you have been, drawn map where you have not');
     && /target\.setTransform\(pixelRatio, 0, 0, pixelRatio, 0, 0\)/.test(renderer));
   ok('with the photograph simply drawn everywhere when there is no fog to draw',
     /if \(!pair\) \{\n    paint\(ctx, layers\.tiles, '#161a1f'\);/.test(renderer));
+
+  // And the fog is read at a level the record actually keeps, or it grows.
+  //
+  // It used to subdivide every map tile sixteen ways whatever the zoom, which
+  // makes the mask level `tileZoom + 4`. That is coarser than the record
+  // everywhere below map zoom 12, and on the odd zooms it lands between
+  // recorded levels — where isExplored shifts *down* to the nearest one it has,
+  // and a coarser cell counts as explored if any part of it is. So ground you
+  // had seen grew as you zoomed out: sixteen times the area at map zoom 10 and
+  // 11, two hundred and fifty-six at 8, four thousand at 6.
+  {
+    const { LEVELS } = await import('../src/ui/exploration.js');
+    const finest = LEVELS[LEVELS.length - 1];
+    const chosen = (tileZoom) => {
+      const wanted = Math.min(finest, tileZoom + 6);
+      let level = LEVELS[0];
+      for (const candidate of LEVELS) if (candidate <= wanted) level = candidate;
+      return level;
+    };
+    ok('the fog level is always one the record keeps',
+      [2, 4, 6, 8, 9, 10, 11, 12, 14, 16, 18].every((z) => LEVELS.includes(chosen(z))));
+    ok('and it is the finest one from map zoom 10 up, where the map is read',
+      [10, 11, 12, 14, 16, 18].every((z) => chosen(z) === finest));
+    // The old rule, kept here so the regression is named rather than described.
+    const before = (tileZoom) => {
+      const sub = Math.max(1, Math.min(16, Math.pow(2, 16 - tileZoom)));
+      const maskZoom = tileZoom + Math.round(Math.log2(sub));
+      let level = LEVELS[0];
+      for (const candidate of LEVELS) if (candidate <= maskZoom) level = candidate;
+      return level;
+    };
+    const tighter = [4, 6, 8, 9, 10, 11].map((z) => Math.pow(4, chosen(z) - before(z)));
+    ok(`and every zoom claims less ground than it did  (${tighter.join('x, ')}x tighter)`,
+      tighter.every((t) => t >= 16));
+    ok('the renderer picks the level rather than a fixed sixteen subdivisions',
+      /const wanted = Math\.min\(LEVELS\[LEVELS\.length - 1\], tileZoom \+ 6\)/.test(renderer)
+      && !/Math\.min\(16, Math\.pow\(2, 16 - tileZoom\)\)/.test(renderer));
+  }
+
+  // No tile grid over the photograph. It is the seams of the fetching machinery
+  // drawn on a picture of somewhere real — a thing a developer wants to see and
+  // a player never does, and it made the map read as a screenshot of a tool.
+  ok('no tile grid is drawn over the map',
+    !/options\.grid/.test(renderer)
+    && !/grid:/.test(readFileSync(new URL('../src/ui/worldmap.js', import.meta.url), 'utf8')));
 }
 
 console.log('\nphotogrammetry that stays put');
