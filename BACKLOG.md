@@ -586,7 +586,17 @@ what is left · `[?]` needs a decision from you.
       Already so: the freecam is deliberately not in the pause list, and there is a
       comment saying why. Confirmed by a check that the word does not appear in the
       expression `paused` returns.
-- [ ] I14. Keybinds — "wtf is f"
+- [x] I14. Keybinds — "wtf is f"
+      F was in fact on the help card — "open or stow the wings". Four other keys
+      were not: M for the minimap, F1 for the display, F2 for the card itself
+      and F3 for the engine readout. Which is the same problem for four keys,
+      and the same problem waiting for the next one added.
+
+      So they are listed, and the list is now checked against the bindings
+      themselves. A binding with no line on the card fails the build rather
+      than reaching somebody's keyboard undocumented, and a line naming an
+      action the game does not bind fails it too — the card cannot promise a
+      key that does nothing. Thirty-two bindings, all of them written down.
 - [x] I15. Touchscreen controls do not go away when returning to keyboard
       watchForTouch only ever called setEnabled(true) — nothing turned them off.
       On anything with both a finger and a keyboard, one tap pinned the sticks

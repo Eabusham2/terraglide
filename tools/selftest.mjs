@@ -350,6 +350,39 @@ console.log('\nelytra flight model');
   }
 }
 
+console.log('\nevery key the game binds is written down');
+{
+  const help = readFileSync(new URL('../src/ui/help.js', import.meta.url), 'utf8');
+  const binds = readFileSync(new URL('../src/core/keybinds.js', import.meta.url), 'utf8');
+  const defaults = binds.slice(binds.indexOf('export const DEFAULT_BINDS'),
+    binds.indexOf('const NAMED_KEYS'));
+  const bound = [...defaults.matchAll(/^\s{2}([a-zA-Z0-9]+):\s*'/gm)].map((m) => m[1]);
+  // Only the action arrays, not the labels beside them: a row is
+  // ['Some words', ['action', 'action']] and the words are not bindings.
+  const rows = help.slice(help.indexOf('export const ROWS'), help.indexOf('DOCUMENTED_BY_RANGE'));
+  const listed = new Set(
+    [...rows.matchAll(/\[([^[\]]*)\]\]/g)]
+      .flatMap((m) => [...m[1].matchAll(/'([a-zA-Z0-9]+)'/g)].map((a) => a[1])),
+  );
+  const byRange = new Set(
+    (/DOCUMENTED_BY_RANGE = \[([^\]]*)\]/.exec(help)?.[1] ?? '')
+      .split(',').map((t) => t.trim().replace(/'/g, '')).filter(Boolean),
+  );
+  ok(`the game binds a sensible number of keys  (${bound.length})`, bound.length > 20);
+  // "wtf is f" is what an incomplete list of keys feels like from the other
+  // side: you press something, it does something, and nowhere says what. F was
+  // in fact listed. M, F1, F2 and F3 were not — the same problem for four other
+  // keys, and the same problem waiting for the next one added.
+  const missing = bound.filter((a) => !listed.has(a) && !byRange.has(a));
+  ok(`every binding has a line on the help card  (${missing.length ? missing.join(', ') : 'all of them'})`,
+    missing.length === 0);
+  // And nothing listed that is not bound, or the card promises a key that does
+  // nothing.
+  const phantom = [...listed].filter((a) => !bound.includes(a));
+  ok(`and the card promises nothing the game does not bind  (${phantom.length ? phantom.join(', ') : 'none'})`,
+    phantom.length === 0);
+}
+
 console.log('\nclimate and sun');
 {
   ok('equator annual mean is tropical', near(annualMeanC(0), 27.5, 1), `${annualMeanC(0).toFixed(1)} C`);

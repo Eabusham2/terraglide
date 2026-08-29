@@ -7,7 +7,7 @@ import { escapeHtml } from './worldmap.js';
 
 const SEEN_KEY = 'seen-intro';
 
-const ROWS = [
+export const ROWS = [
   ['Move', ['forward', 'left', 'back', 'right']],
   ['Sprint / crouch', ['sprint', 'crouch']],
   ['Jump \u2014 press again once airborne to open the wings', ['jump']],
@@ -27,8 +27,28 @@ const ROWS = [
   ['Swap mouse mode', ['mouseMode']],
   ['Rockets I to V', ['hotbar1', 'hotbar5']],
   ['Pause the world where it is', ['pause']],
+  ['Show or hide the minimap', ['minimapToggle']],
+  ['Show or hide the whole display', ['toggleHud']],
+  ['This card', ['help']],
+  ['What the engine is doing — tiles, memory, frame time', ['debug']],
   ['Settings', ['settings']],
 ];
+
+/**
+ * Every key the game binds appears above.
+ *
+ * "wtf is f" is what an incomplete list of keys feels like from the other side:
+ * you press something, it does something, and there is nowhere that says what.
+ * F was in fact listed; M, F1, F2 and F3 were not, which is the same problem
+ * for four other keys and would have been the same problem for the next one
+ * added. The self-test compares this list against the bindings themselves, so
+ * the card cannot drift from the game again — a new binding with no line here
+ * fails the build rather than reaching somebody's keyboard undocumented.
+ *
+ * Only the hotbar is exempt, and only because it is written as a range: the row
+ * says "Rockets I to V" and names the two ends.
+ */
+export const DOCUMENTED_BY_RANGE = ['hotbar2', 'hotbar3', 'hotbar4'];
 
 export class HelpCard {
   constructor(root) {
