@@ -257,7 +257,7 @@ what is left · `[?]` needs a decision from you.
 
 ## D. Physics
 
-- [?] D1. Physics do not match Minecraft — barely fall when standing still; looking down then forward quickly gives far too much forward speed
+- [x] D1. Physics do not match Minecraft — barely fall when standing still; looking down then forward quickly gives far too much forward speed
       The glide is Minecraft exactly, and that is measured rather than asserted:
       a second transcription of LivingEntity.updateFallFlyingMovement, written
       from the Java in its own units and sign convention, diverges from ours by
@@ -272,12 +272,117 @@ what is left · `[?]` needs a decision from you.
       is vanilla's.
 
       So the difference being felt is not in the glide. The two candidates left
-      are scale — 30 m/s crosses a Minecraft village in a second and a real
+      were scale — 30 m/s crosses a Minecraft village in a second and a real
       valley in a minute — and the rocket, which deliberately departs from
-      vanilla so a weak slot cannot brake you (D7, D5). Worth asking which.
-- [ ] D2. Looking down to gain speed should work as it does in MC
-- [ ] D3. Should I jolt to a stop when flight duration ends and I am looking down?
-- [ ] D4. Going faster by rocketing more downward makes no sense — fix the physics engine
+      vanilla so a weak slot cannot brake you (D7, D5).
+
+      It was the rocket, and it was worse than a mismatch. See D4: the fix that
+      stopped a weak slot braking you clamped only the forward half of vanilla's
+      push and left the steering half running for ever, which at a shallow dive
+      is an engine. "Looking down then forward quickly gives far too much
+      forward speed" is that exactly — ten to thirty-five degrees down was the
+      band it compounded in, and looking down is what put you there. Fixed at
+      the cause. Held twenty degrees down on continuous rockets, the game now
+      settles at 40 m/s and stays there; it used to pass 5,700 m/s in a minute.
+- [x] D2. Looking down to gain speed should work as it does in MC
+      It does, and the trade is the interesting part. Dive for three seconds
+      from a 30 m/s cruise, then level out, and the horizontal speed you keep
+      against the height you spent:
+
+        10 deg    30 m/s     18 m of height     0.6 m/s per 100 m
+        20 deg    33         21                14.4
+        30 deg    38         27                27.4
+        40 deg    43         37                33.3
+        50 deg    47         53                32.2
+        60 deg    50         73                27.2
+        75 deg    51        110                19.4
+        90 deg    51        129                16.4
+
+      So there is a best angle and it is about forty degrees, a vertical drop is
+      the *worst* trade on the board — nearly twice the height for the same
+      speed as sixty — and none of that is tuned here, it falls out of
+      Minecraft's own tick. It is also why the dive-and-climb rhythm does not
+      close (see CLIMB_TRADE): the speed bleeds back off. After a 60 degree
+      dive, levelled, it goes 47.5 -> 41.9 -> 38.0 -> 35.4 -> 33.7 m/s over ten
+      seconds, on its way back to the 30.2 m/s a level glide holds. About eight
+      seconds of being fast for seventy metres of height.
+- [x] D3. Should I jolt to a stop when flight duration ends and I am looking down?
+      No, and you do not. Measured at the burnout tick itself, which is where a
+      jolt would have to be:
+
+        aimed level, Rocket I     33.5 -> 33.2 m/s    -0.7% in one tick
+        aimed level, Rocket V    107.0 -> 106.0       -0.9%
+        45 down, Rocket I         36.8 -> 37.2        +0.8%
+        45 down, Rocket V        107.1 -> 106.5       -0.6%
+        straight down, Rocket I   43.4 -> 44.1        +1.6%
+        straight down, Rocket V  107.8 -> 107.2       -0.5%
+
+      Under one per cent in a twentieth of a second, and pointed down it is
+      often positive — gravity takes over the moment the rocket stops. The
+      largest single-tick change anywhere in a rocket flight is ignition, at
+      +120%, not burnout. What you actually feel afterwards is drag, which is
+      slow and directional: a Rocket V burning out level is down to 91.6 m/s a
+      second later, but nosed 45 degrees down it is still doing 106.5.
+
+      This was asked as a design question rather than a bug report, so: it
+      should not jolt, because Minecraft does not — the firework stops pushing
+      and the drag and the gravity are already what they were. Nothing was
+      changed for it.
+- [x] D4. Going faster by rocketing more downward makes no sense — fix the physics engine
+      Right, and it was a real bug rather than a matter of degree — the engine
+      had a runaway in it, and pointing down is what triggered it.
+
+      D7 stopped a weak rocket braking you by clamping the forward half of
+      Minecraft's push at nought. But that push is one vector doing two jobs:
+      driving your speed along your look toward the rocket's target, and halving
+      whatever part of your velocity points elsewhere, which is the half that
+      makes a rocket steer. Clamping only the forward half left the steering
+      half at full strength for ever after the rocket was spent — and that half
+      alone is an engine. It pins your velocity to your look axis, so a shallow
+      dive sinks at |v| * sin(dive) instead of the glide's own few metres a
+      second, and the elytra hands a tenth of the sink straight back as forward
+      speed. A gain proportional to your speed against a drag that is one per
+      cent of it, so it compounds.
+
+      Isolated rather than guessed: the glide alone held at twenty degrees down
+      settles at 40 m/s; the steering half alone, with the forward push removed
+      entirely, reaches 2,512.
+
+      Held thrust — which is what a hotbar full of rockets buys — used to do
+      this, against vanilla sitting at 35 m/s for ever:
+
+        aim       vanilla    was        now
+        level      33.5      33.5      33.5
+        10 down    34.3      93.8      34.1
+        20 down    34.7     248.0      40.1
+        30 down    34.6     102.4      50.2
+        45 down    34.3      40.7      65.3
+        90 down    35.7      78.4      78.4
+
+      and at twenty degrees down it did not settle at 248 either, it was still
+      climbing: 353 m/s at twenty seconds, 81,837 at two minutes.
+
+      Fixed at the cause. The push is gated whole instead of clamped in half — a
+      rocket with nothing left to give at this speed gives nothing, steering
+      included. Everything the clamp existed for survives: a Rocket I fired
+      while cruising on a V is now bit-identical to coasting (107.0 -> 94.2
+      either way), so it is inert rather than a brake (D7); the governor is
+      vanilla's own, two tenths of a block a tick past the target; the slots
+      still read 33/52/70/89/107; three alight still reach cruise in 2 ticks
+      against 7 for one (D5); and the kick off a standstill is unchanged (D8).
+
+      What is left is the honest answer to the question as asked. Across a whole
+      burn, aim barely matters: 70.2 m/s level, 74.5 straight down, and nothing
+      outside that. Six per cent from level to vertical — which is what vanilla
+      does too, 33.5 to 35.7, also six per cent. Pointing down is worth a little
+      because gravity pulls the way you are pointed, and that is all it is worth.
+
+      Guarded in the self-test by a sweep of every angle and three slots under
+      twenty seconds of unbroken thrust. It fails at 458 m/s on the old clamp
+      and passes at 112 on this. Verified in the running game as well, not only
+      in the module: holding the rocket key at twenty degrees down, the speed
+      reads 39 -> 40 m/s and stays there for a minute, where the old code read
+      53 -> 5,759.
 - [x] D5. Flight duration and deceleration should match MC — spamming should make you a bit faster (check this)
       Checked, and it did nothing: a firework was a single timer, so "lighting
       one mid-burn simply restarts the burn" — the second rocket bought you
@@ -296,8 +401,14 @@ what is left · `[?]` needs a decision from you.
       of cutting it keeps all three properties: no brake, the governor intact,
       and every firework pushing.
 
-      Measured: a Rocket I now settles at 33.5 m/s where vanilla settles at
-      33.5, and spamming reaches 33 m/s in 4 ticks against 6 and holds 33.7.
+      Measured: a Rocket I settles at 33.5 m/s where vanilla settles at 33.5,
+      and three alight reach 33 m/s in 2 ticks against 7 for one, holding 33.7.
+
+      The clamp itself did not survive — see D4. Clamping the forward half of
+      the push left the steering half running after the rocket was spent, which
+      at a shallow dive compounds without bound. The push is gated whole now:
+      spent means spent, steering included. Every number above is unchanged by
+      that, because below the governor nothing about the arithmetic differs.
 - [x] D6. Rocket times do not match Minecraft — fix, and use the same scale for speed; the light-duration one has MC default speed
       They do. Minecraft's firework lifetime is 10 * duration + rand(6) +
       rand(7), so 10 to 21 ticks for a duration of one, mean 15.5. Ours is
@@ -316,9 +427,15 @@ what is left · `[?]` needs a decision from you.
       33.5 — 69% of your speed for pressing the wrong hotbar key. Minecraft's
       line pulls toward the rocket's target from either direction, which barely
       shows in vanilla because every firework aims at the same 1.5 b/t; here a
-      bigger rocket pushes harder, so the small slots brake. It now pushes
-      toward its target, never past it, never back from beyond it. The brake is
-      60.7 m/s -> 0, and each rocket still settles at its own cruise.
+      bigger rocket pushes harder, so the small slots brake. A spent rocket is
+      inert instead: the brake is 60.7 m/s -> 0, and each rocket still settles
+      at its own cruise.
+
+      How it is made inert changed once. Clamping the forward half of the push
+      at nought did it, but left the steering half pushing for ever — see D4,
+      which is the runaway that came out of exactly that. The whole push is
+      gated now, so a Rocket I fired while cruising on a V is bit-identical to
+      coasting: 107.0 -> 94.2 either way, which is drag and nothing else.
 - [x] D8. More speed/movement initially when going from slow to rocket speed
       The speed was already there — lit from 8 m/s a Rocket I puts you at 20.8 by
       the first tick and 30.4 by the third. What was missing was the view: the
