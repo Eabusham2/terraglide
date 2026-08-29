@@ -133,7 +133,41 @@ what is left · `[?]` needs a decision from you.
       The moving up and down is fixed — see B1, it is fresh elevation landing
       and the tile now walks rather than steps. The grid itself is still open.
 - [ ] B6. Randomly starts disappearing, getting patchy, falling apart, coming back in chunks
-- [ ] B7. Random refresh of textures
+- [~] B7. Random refresh of textures
+      Not random — it is ground you looked away from for more than twenty
+      seconds, and the trigger is exactly that.
+
+      Measured. Standing still, settled facing north at 100% of the drawn ground
+      at its own resolution rather than stretched. Turn right round, wait ninety
+      seconds until south is settled too, turn back: north comes home at 70% and
+      takes about sixteen seconds to recover. Do the same round trip inside
+      twenty seconds and it comes home at 100%. Twenty seconds is KEEP_SECONDS,
+      which protects a tile from eviction after it was last drawn — so what you
+      are seeing is the protection expiring, not a cache too small to hold it.
+
+      Half of it is fixed already and this is the other half. B8/B9 was the
+      timer being counted in frames, so a fast machine threw the ground away
+      after 1.7 seconds; that is gone. What is left is that there is no history
+      *behind* the twenty seconds at all, and there is a reason: the texture
+      cache is smaller than the number of squares the same tier will draw, on
+      every tier — Low caches 320 against 520 drawn, Medium 560 against 760,
+      High 900 against 1100, Ultra 1400 against 1500. A cache smaller than the
+      view is not a smaller cache, it is no history, because drawn tiles are
+      stamped every frame and may never be evicted whatever the cap says.
+
+      Raising the cap to the drawn cap was tried and is not the answer: the
+      same ninety-second round trip came home at 73% instead of 70% and reached
+      100% one sample sooner, which is inside the noise, while costing about
+      forty megabytes on the tier a Chromebook runs. It also quietly broke the
+      tile-size scaling — the cap is divided by (size/256)^2 so that 512-pixel
+      tiles cost the same memory as 256-pixel ones, and a floor that ignores
+      size quadruples it. Reverted.
+
+      What the measurement actually says is that the recovery is throughput-
+      bound, not cache-bound: sixteen seconds to re-fetch a view is the wire,
+      not the eviction. So the fix worth having is fewer round trips, which is
+      the same open question as C7. Left partly done, with the cause named and
+      the wrong fix recorded so it is not tried twice.
 - [x] B8. High res unloads from behind me
       Cause: the texture cache held a tile for 240 *frames*, commented as "about
       four seconds at 60 fps" — true only at exactly sixty. 144 fps got 1.7 s,
@@ -187,7 +221,28 @@ what is left · `[?]` needs a decision from you.
       If it is still being seen, the thing worth knowing is where and with
       which provider — the counter will say whether it is that or something
       else.
-- [ ] B12. Randomly blurring depending on where I look
+- [x] B12. Randomly blurring depending on where I look
+      Real, not random, and proportional to how far you turn. The ground behind
+      you is outside the frustum, so it is never drawn and never asked for;
+      turning is the first time it is wanted.
+
+      Measured from settled, as the share of drawn ground at its own resolution
+      rather than stretched from a coarser tile:
+
+        turn 45 degrees    100% -> 88%, back to 100% within five seconds
+        turn 90 degrees    100% -> 80%, back to 100% within five seconds
+        turn 180 degrees   100% -> 63%, then 77, 92, and 100 after fifteen
+
+      So a glance costs nothing you would notice and an about-face costs a
+      third of the frame for a few seconds. Nothing goes *bare* — the coarse
+      cover is already there and gets stretched over it, which is why this is
+      blur and not holes.
+
+      It is not fixable by fetching more: asking for ground you cannot see is
+      the prefetch that measured worse twice, under C1/B10 and again under C2,
+      and it loses for the same reason both times — throughput is the
+      constraint, and a speculative request is one a certain request did not
+      get. What is fixable is how long the recovery takes, and that is B7.
 - [x] B13. In freecam I see the ground behind me as invisible
       Cause: in freecam the terrain is built for the player's camera on purpose —
       so flying the camera across a country does not re-cut the quadtree — but
