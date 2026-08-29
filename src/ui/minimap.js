@@ -39,9 +39,9 @@ export class Minimap {
     this.overlay.className = 'minimap-overlay';
     this.overlay.innerHTML = `
       <div class="minimap-scale"><i></i><span>—</span></div>
-      <div class="minimap-zoom">
-        <button type="button" data-zoom="1" title="Zoom in">+</button>
-        <button type="button" data-zoom="-1" title="Zoom out">−</button>
+      <div class="minimap-zoom map-zoom-glyph">
+        <button type="button" data-zoom="1" title="Zoom in" aria-label="Zoom in"></button>
+        <button type="button" data-zoom="-1" title="Zoom out" aria-label="Zoom out"></button>
       </div>
       <div class="minimap-readout"><span class="minimap-z">z14</span></div>
       <div class="minimap-hint"><kbd data-key="worldMap"></kbd>map</div>

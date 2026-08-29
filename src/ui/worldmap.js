@@ -60,9 +60,9 @@ export class WorldMap {
             <span class="worldmap-centre">—</span>
             <span class="worldmap-scale"><i></i><em>—</em></span>
           </div>
-          <div class="worldmap-zoom">
-            <button type="button" data-zoom="1">+</button>
-            <button type="button" data-zoom="-1">−</button>
+          <div class="worldmap-zoom map-zoom-glyph">
+            <button type="button" data-zoom="1" title="Zoom in" aria-label="Zoom in"></button>
+            <button type="button" data-zoom="-1" title="Zoom out" aria-label="Zoom out"></button>
           </div>
           <ul class="worldmap-results" hidden></ul>
         </div>

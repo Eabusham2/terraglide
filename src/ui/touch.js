@@ -22,7 +22,7 @@ const BUTTONS = [
   { id: 'speedMode', label: 'Surge' },
   { id: 'rtp', label: 'Teleport' },
   { id: 'worldMap', label: 'Map' },
-  { id: 'cheats', label: '•••', cheat: true },
+  { id: 'cheats', label: '···', cheat: true },
 ];
 
 export class TouchControls {

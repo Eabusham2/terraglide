@@ -798,6 +798,41 @@ input[type='checkbox'] {
   font-size: 13px;
 }
 
+/* The plus and minus are drawn, not typed.
+   They used to be the characters "+" and U+2212 MINUS SIGN, and a glyph that is
+   the entire content of a small button is the most visible thing there is to
+   get wrong: a font set without U+2212 — which some Android and embedded
+   configurations are — draws an empty box where the zoom-out control should be.
+   Two rectangles need no font at all and are identical on every device. The
+   accessible name is on the button itself, so nothing is lost by the label
+   being empty. */
+.map-zoom-glyph button {
+  position: relative;
+}
+
+.map-zoom-glyph button::before,
+.map-zoom-glyph button::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: currentColor;
+  transform: translate(-50%, -50%);
+}
+
+.map-zoom-glyph button::before {
+  width: 52%;
+  height: 2px;
+  border-radius: 1px;
+}
+
+/* The upright bar of the plus. The minus button has none. */
+.map-zoom-glyph button[data-zoom='1']::after {
+  width: 2px;
+  height: 52%;
+  border-radius: 1px;
+}
+
 .minimap-hint {
   position: absolute;
   left: 0;

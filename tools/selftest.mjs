@@ -2234,6 +2234,35 @@ console.log('\nThe map opens where you were reading it');
   // 46.56523, 7.93801 — east and south, one waypoint still, and a press on
   // empty map still panned.
 
+  // Nothing a font can fail to draw is the whole content of a control.
+  //
+  // The zoom pair used to be "+" and U+2212 MINUS SIGN, typed as text. A glyph
+  // that is the entire content of a small button is the most visible thing
+  // there is to get wrong — a font set without U+2212, which some Android and
+  // embedded configurations are, draws an empty box where the zoom-out control
+  // should be, and an empty box is exactly what "broken letters" looks like.
+  // Two CSS rectangles need no font and are identical everywhere.
+  {
+    const minimapSrc = readFileSync(new URL('../src/ui/minimap.js', import.meta.url), 'utf8');
+    const css = readFileSync(new URL('../styles/main.css', import.meta.url), 'utf8');
+    const buttons = [...worldmap.matchAll(/<button[^>]*data-zoom[^>]*>([^<]*)<\/button>/g)]
+      .concat([...minimapSrc.matchAll(/<button[^>]*data-zoom[^>]*>([^<]*)<\/button>/g)]);
+    ok(`both maps have their zoom pair  (${buttons.length} buttons)`, buttons.length === 4);
+    ok('and none of them is a typed glyph', buttons.every((m) => m[1].trim() === ''));
+    ok('each still says what it does, for a screen reader and a tooltip',
+      buttons.length === 4
+      && /data-zoom="1" title="Zoom in" aria-label="Zoom in"/.test(worldmap)
+      && /data-zoom="-1" title="Zoom out" aria-label="Zoom out"/.test(minimapSrc));
+    ok('the plus and minus are drawn in CSS instead',
+      /\.map-zoom-glyph button::before/.test(css)
+      && /\.map-zoom-glyph button\[data-zoom='1'\]::after/.test(css));
+    ok('and both maps ask for that drawing', /map-zoom-glyph/.test(worldmap) && /map-zoom-glyph/.test(minimapSrc));
+    // U+2022 BULLET was the whole label of the touch cheats button for the same
+    // reason; U+00B7 MIDDLE DOT is Latin-1 and in everything.
+    const touch = readFileSync(new URL('../src/ui/touch.js', import.meta.url), 'utf8');
+    ok('no control is labelled with a bullet either', !touch.includes('\u2022'));
+  }
+
   ok('the map watches its own box, not just the window',
     /new ResizeObserver\(/.test(worldmap) && /observe\(this\.canvas\.parentElement\)/.test(worldmap));
   ok('and the fallback check asks about height as well as width',

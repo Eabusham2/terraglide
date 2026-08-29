@@ -1091,7 +1091,32 @@ what is left · `[?]` needs a decision from you.
       On anything with both a finger and a keyboard, one tap pinned the sticks
       over the game for the session. A game key or a real mouse press now puts
       them away; a coarse pointer still starts them on, for a phone.
-- [ ] I16. Broken letters on certain devices
+- [~] I16. Broken letters on certain devices
+      Could not reproduce it here, so this is the audit and the hardening rather
+      than a confirmed cause. Two things were ruled out first: every build
+      declares UTF-8 and does it inside the first kilobyte, where the browser
+      still looks — index.html at byte 52, terraglide.html at 46, the online one
+      at 481 — so it is not mojibake from a missed charset. And the whole of
+      src/ uses exactly thirteen non-ASCII characters, all counted: em dash,
+      middle dot, ellipsis, minus sign, copyright, degree, en dash, right arrow,
+      bullet, multiplication, sharp s, o-circumflex, e-acute.
+
+      Of those, one was a real risk and it is fixed. The map zoom controls were
+      the characters "+" and U+2212 MINUS SIGN, typed as the *entire* content of
+      a twenty-pixel button — and U+2212 is missing from some Android and
+      embedded font sets, where it draws as an empty box. A blank square where
+      the zoom-out control should be is exactly what a broken letter looks like,
+      and it is the most visible possible place to lose a glyph. Both pairs are
+      drawn in CSS now, two rectangles, no font involved, with the name kept on
+      the button for a screen reader and a tooltip. Photographed and clicked:
+      they render as a proper + and − and still step the zoom one level a press.
+
+      The touch cheats button had U+2022 BULLET for its label for the same
+      reason; it is U+00B7 MIDDLE DOT now, which is Latin-1 and in everything.
+
+      Left open because it is your device, not this one. If it is still
+      happening, the useful thing is which screen it is on and roughly what the
+      broken text says — that names the character.
 - [x] I17. Favicon as an elytra
       A pair of folded wings with the spine between them, five paths, inline SVG.
       Rendered at 16, 32 and 128 px and looked at, not just written.
