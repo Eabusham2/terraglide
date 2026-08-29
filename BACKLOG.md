@@ -725,7 +725,27 @@ what is left · `[?]` needs a decision from you.
       Already so, and now checked: a paused frame is update(0), so every timer is
       stepped by nothing. Ten seconds of paused frames spend no surge and no
       cooldown; a second of real time spends one second.
-- [ ] E5. Streamline the speed mode panel
+- [x] E5. Streamline the speed mode panel
+      Asked what you meant and you said: less gliding stuff always visible, and
+      a timer. Both, and by the same rule — a readout is on screen while it has
+      something to say and gone when it has not.
+
+      The Surge box used to sit there permanently reading "Ready": a title, a
+      keycap, a bar and a word, all spent saying that nothing is happening. It
+      now appears only while the burst is running, while you are still coasting
+      on it, and while it recharges — all three of which are a number counting
+      down, which is the timer — and is gone the rest of the time. The key still
+      works when the box is not there.
+
+      The two numbers you fly by went the same way. The flight-path angle and
+      the pitch are what a glider pilot reads, and standing on the ground they
+      say "+0.0 degrees" and whatever you last looked at. They are there while
+      you are in the air and gone while you are walking.
+
+      Checked in the browser across four states in one flight: on the ground the
+      surge box, the glide angle and the pitch are all gone; gliding brings the
+      angle and the pitch back; lighting the surge shows the box reading
+      "2x · 10.9s"; once spent it stays, counting the recharge down from 21s.
 - [x] E6. Where is speed mode on touchscreen
       It was there all along, labelled "2x" — a value rather than a thing. It says
       Surge now, like everywhere else.

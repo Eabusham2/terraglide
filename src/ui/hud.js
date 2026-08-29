@@ -193,6 +193,22 @@ export class HUD {
   }
 
   /**
+   * Show or hide one readout, cached like the text is.
+   *
+   * Written through `hidden` rather than a display style so it obeys whatever
+   * the stylesheet says the element is when it is shown, and so a row that is
+   * hidden takes no space instead of leaving a gap where it used to be.
+   */
+  setHidden(id, hide) {
+    const node = this.refs[id];
+    if (!node) return;
+    const key = `${id}:hidden`;
+    if (this.cache.get(key) === hide) return;
+    this.cache.set(key, hide);
+    node.hidden = hide;
+  }
+
+  /**
    * @param {object} state everything the HUD needs for one frame
    */
   update(state) {
@@ -238,6 +254,13 @@ export class HUD {
     const angle = horizontal > 0.6 || Math.abs(player.velocity.y) > 0.6
       ? (Math.atan2(player.velocity.y, horizontal) * 180) / Math.PI
       : 0;
+    // The flight-path angle and the pitch are numbers you fly by, and numbers
+    // you are not flying are clutter: on the ground they read +0.0 degrees and
+    // whatever you last looked at. Shown while you are in the air, gone while
+    // you are walking.
+    const flying = player.mode === 'glide' || player.mode === 'fall' || player.mode === 'fly';
+    this.setHidden('glide', !flying);
+    this.setHidden('pitch', !flying);
     this.setText('glide', `${angle >= 0 ? '+' : '\u2212'}${Math.abs(angle).toFixed(1)}\u00b0`);
     this.setText('heading', formatBearing(player.yaw));
     // The compass says where you are pointed on the ground and said nothing
@@ -281,6 +304,16 @@ export class HUD {
     // gauge keeps reading out what the boost is still worth until it is gone,
     // rather than claiming "ready" while you are still coasting on it.
     const coasting = !player.speedActive && player.speedBlend > 1.02;
+    // Only on screen when it is doing something.
+    //
+    // It used to sit there permanently reading "Ready", which is a box, a
+    // title, a keycap and a bar spent saying that nothing is happening. Now it
+    // is there while the burst is running, while you are still coasting on it,
+    // and while it recharges — all three of which are a number counting down —
+    // and gone the rest of the time. The key still works when it is not shown;
+    // the help card is where you learn it exists.
+    const surgeBusy = player.speedActive || coasting || player.speedCooldown > 0;
+    this.setHidden('speed-gauge', !surgeBusy);
     this.setText(
       'speed-text',
       player.speedActive

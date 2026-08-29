@@ -5483,6 +5483,30 @@ console.log('\nthe world ends on a squircle');
   // Checked in the browser over the Strait: the recorded reach per sector came
   // back 91.4 km along the axes and 117.6 km on the diagonals.
 }
+console.log('\nThe HUD only shows what is happening');
+{
+  const hud = readFileSync(new URL('../src/ui/hud.js', import.meta.url), 'utf8');
+  // The surge gauge sat there permanently reading "Ready" — a box, a title, a
+  // keycap and a bar spent saying that nothing is happening. It appears while
+  // the burst runs, while you are still coasting on it, and while it recharges,
+  // all three of which are a number counting down, and is gone otherwise.
+  ok('the surge gauge is hidden unless it has something to count',
+    /const surgeBusy = player\.speedActive \|\| coasting \|\| player\.speedCooldown > 0;/.test(hud)
+    && /this\.setHidden\('speed-gauge', !surgeBusy\)/.test(hud));
+  ok('and the numbers you fly by are only there while you are flying',
+    /player\.mode === 'glide' \|\| player\.mode === 'fall' \|\| player\.mode === 'fly'/.test(hud)
+    && /this\.setHidden\('glide', !flying\)/.test(hud)
+    && /this\.setHidden\('pitch', !flying\)/.test(hud));
+  ok('hiding goes through `hidden`, so a hidden row takes no space',
+    /node\.hidden = hide;/.test(hud) && /setHidden\(id, hide\)/.test(hud));
+  ok('and it is cached like the text, so it is not written every frame',
+    /const key = `\$\{id\}:hidden`;/.test(hud));
+  // Checked in the browser, four states in one flight: on the ground the surge
+  // box, the glide angle and the pitch are all gone; gliding brings the angle
+  // and the pitch back; lighting the surge shows the box reading "2x . 10.9s";
+  // once spent it stays, counting the recharge down from 21s.
+}
+
 console.log('\nThe size keys change your size');
 {
   const { cheats } = await import('../src/core/cheats.js');
