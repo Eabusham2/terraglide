@@ -8,6 +8,16 @@ import { haversine } from '../geo/mercator.js';
 import { drawMap, metresPerPixel, project, unproject, worldPixelSize } from './mapRenderer.js';
 
 /**
+ * How close a press has to be to a waypoint to pick it up, in pixels.
+ *
+ * The marker is drawn as a seven-pixel square, so half of it is 3.5 — too small
+ * to hit reliably with a touchpad, and much too small for a finger. Nine is
+ * about a fingertip's worth of slack without swallowing presses meant for the
+ * map underneath.
+ */
+const WAYPOINT_GRAB_PX = 9;
+
+/**
  * The full-screen map: everything the minimap shows, at any zoom, plus the
  * places you have saved and the routes you have drawn. Drag to pan, wheel to
  * zoom, double-click to travel there.
@@ -25,6 +35,7 @@ export class WorldMap {
     this.centre = { lat: 0, lon: 0 };
     this.player = { lat: 0, lon: 0, heading: 0 };
     this.dragging = false;
+    this.draggingWaypoint = null;
     this.dirty = true;
     this.onTeleport = null;
     this.onRandomTeleport = null;
@@ -125,12 +136,28 @@ export class WorldMap {
 
     const canvas = this.canvas;
     canvas.addEventListener('mousedown', (event) => {
+      // A press on a waypoint picks the waypoint up; anywhere else pans the map.
+      const hit = this.waypointAt(event);
+      if (hit) {
+        this.draggingWaypoint = hit.id;
+        canvas.classList.add('dragging-waypoint');
+        return;
+      }
       this.dragging = true;
       this.dragStart = { x: event.clientX, y: event.clientY, centre: { ...this.centre } };
       canvas.classList.add('dragging');
     });
     window.addEventListener('mousemove', (event) => {
-      if (!this.dragging || !this.open) return;
+      if (!this.open) return;
+      if (this.draggingWaypoint !== null && this.draggingWaypoint !== undefined) {
+        const where = this.pointToLatLon(event);
+        if (where) {
+          this.waypointStore.move(this.draggingWaypoint, where.lat, where.lon);
+          this.dirty = true;
+        }
+        return;
+      }
+      if (!this.dragging) return;
       const size = worldPixelSize(this.zoom);
       const origin = project(this.dragStart.centre.lat, this.dragStart.centre.lon, this.zoom);
       const moved = unproject(
@@ -143,7 +170,15 @@ export class WorldMap {
     });
     window.addEventListener('mouseup', () => {
       this.dragging = false;
+      this.draggingWaypoint = null;
       canvas.classList.remove('dragging');
+      canvas.classList.remove('dragging-waypoint');
+    });
+    // Which one the pointer is over, so the cursor says it can be picked up
+    // before you try.
+    canvas.addEventListener('mousemove', (event) => {
+      if (this.dragging || this.draggingWaypoint) return;
+      canvas.classList.toggle('over-waypoint', !!this.waypointAt(event));
     });
     // Two notches of wheel per half level. The step used to be a quarter of a
     // level while setZoom rounded to halves, so zooming *out* from any settled
@@ -367,6 +402,57 @@ export class WorldMap {
   toggle(player) {
     if (this.open) this.close();
     else this.show(player);
+  }
+
+  /**
+   * Where on the world a pointer is, from a mouse event over the canvas.
+   *
+   * The renderer draws everything relative to the canvas centre — it translates
+   * there and then works in offsets — so this is that same transform read
+   * backwards: pixels from the middle of the canvas, added to the centre's own
+   * projected position, unprojected.
+   */
+  pointToLatLon(event) {
+    const rect = this.canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const dx = event.clientX - rect.left - rect.width / 2;
+    const dy = event.clientY - rect.top - rect.height / 2;
+    const origin = project(this.centre.lat, this.centre.lon, this.zoom);
+    const size = worldPixelSize(this.zoom);
+    return unproject(origin.x + dx, clamp(origin.y + dy, 0, size), this.zoom);
+  }
+
+  /**
+   * The waypoint under the pointer, if any.
+   *
+   * Tested in pixels rather than in metres, because that is what a hand is
+   * aiming with: the marker is a seven-pixel square, and the grab area is a
+   * little wider than it is drawn so it can be picked up on a touchpad. The
+   * nearest is taken when two overlap, or the one drawn underneath would be
+   * unreachable wherever they sit on top of each other.
+   */
+  waypointAt(event) {
+    const rect = this.canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const px = event.clientX - rect.left - rect.width / 2;
+    const py = event.clientY - rect.top - rect.height / 2;
+    const origin = project(this.centre.lat, this.centre.lon, this.zoom);
+    const size = worldPixelSize(this.zoom);
+    let best = null;
+    let bestDistance = WAYPOINT_GRAB_PX;
+    for (const waypoint of this.waypointStore.waypoints) {
+      const p = project(waypoint.lat, waypoint.lon, this.zoom);
+      let ox = p.x - origin.x;
+      // The short way round the antimeridian, exactly as the renderer takes it.
+      if (ox > size / 2) ox -= size;
+      if (ox < -size / 2) ox += size;
+      const d = Math.hypot(ox - px, p.y - origin.y - py);
+      if (d < bestDistance) {
+        bestDistance = d;
+        best = waypoint;
+      }
+    }
+    return best;
   }
 
   resize() {

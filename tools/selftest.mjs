@@ -2205,6 +2205,35 @@ console.log('\nThe map opens where you were reading it');
   // to the new one. Measured in the browser: shrink the box from 642x502 to
   // 642x301 and the store stayed 642x502, a stretch factor of 0.60. With the
   // observer it followed exactly.
+  // Waypoints can be picked up and put down on the map.
+  //
+  // Moving rather than re-adding matters: dropping a new one and deleting the
+  // old would renumber it and give it the next colour in the palette, so a drag
+  // would look like a different waypoint arriving somewhere else.
+  {
+    const { WaypointStore } = await import('../src/ui/waypoints.js');
+    const store = new WaypointStore();
+    store.waypoints = [];
+    const wp = store.add(10, 20, 'Here');
+    const before = { id: wp.id, colour: wp.colour, name: wp.name };
+    store.move(wp.id, 11, 21);
+    const after = store.waypoints[0];
+    ok('a waypoint can be moved without becoming a different waypoint',
+      store.waypoints.length === 1 && after.id === before.id
+      && after.colour === before.colour && after.name === before.name);
+    ok('and it is actually somewhere else', after.lat === 11 && after.lon === 21);
+    ok('moving one that is not there is not an error', store.move(9999, 0, 0) === null);
+  }
+  ok('the map picks a waypoint up before it starts panning',
+    /const hit = this\.waypointAt\(event\);/.test(worldmap)
+    && /this\.draggingWaypoint = hit\.id;/.test(worldmap));
+  ok('and the hit test takes the antimeridian the short way, like the drawing does',
+    /if \(ox > size \/ 2\) ox -= size;/.test(worldmap));
+  // Checked in the browser: a waypoint at the map centre plus a hundredth of a
+  // degree, dragged 90 px east and 60 px south, moved from 46.57230, 7.92260 to
+  // 46.56523, 7.93801 — east and south, one waypoint still, and a press on
+  // empty map still panned.
+
   ok('the map watches its own box, not just the window',
     /new ResizeObserver\(/.test(worldmap) && /observe\(this\.canvas\.parentElement\)/.test(worldmap));
   ok('and the fallback check asks about height as well as width',

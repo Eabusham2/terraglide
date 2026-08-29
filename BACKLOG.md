@@ -808,7 +808,29 @@ what is left · `[?]` needs a decision from you.
       to stop W flying you into a mountain while you typed a place name. Those
       are two questions: `paused` stops the clock, `takingKeys` stops the
       keyboard. The map now does only the second.
-- [ ] F12. Waypoint dragger in the map
+- [x] F12. Waypoint dragger in the map
+      Press a waypoint on the world map and it comes with the pointer; press
+      anywhere else and the map pans as before. The cursor changes over one, so
+      you can tell it is draggable before you try.
+
+      Moved rather than re-added, which is the part worth doing carefully:
+      dropping a new waypoint and deleting the old one would renumber it and
+      give it the next colour in the palette, so a drag would look like a
+      different waypoint appearing somewhere else. WaypointStore.move keeps the
+      id, the name and the colour.
+
+      The hit test is in pixels, not metres, because that is what a hand aims
+      with — the marker is a seven-pixel square and the grab area is nine
+      pixels, a little wider than it is drawn so a touchpad can catch it — and
+      it takes the antimeridian the short way round exactly as the drawing does,
+      or a waypoint just past the date line would be unreachable.
+
+      Checked in the browser: a waypoint dragged 90 px east and 60 px south went
+      from 46.57230, 7.92260 to 46.56523, 7.93801 — east and south, still one
+      waypoint with the same id — and a press on empty map still panned.
+
+      One honest limit: this is mouse and trackpad, because the map's panning is
+      too. Neither listens for touch.
 - [x] F13. Waypoints appear on the map
       Already so on both maps — minimap behind the minimapShowWaypoints setting,
       world map always.

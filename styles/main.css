@@ -1050,6 +1050,16 @@ input[type='checkbox'] {
   cursor: grabbing;
 }
 
+/* A waypoint under the pointer can be picked up and moved, so say so before
+   the press rather than after it. */
+.worldmap-canvas-wrap canvas.over-waypoint {
+  cursor: move;
+}
+
+.worldmap-canvas-wrap canvas.dragging-waypoint {
+  cursor: grabbing;
+}
+
 .worldmap-hud {
   position: absolute;
   left: 8px;

@@ -39,6 +39,21 @@ export class WaypointStore extends Emitter {
     this.emit('change', this);
   }
 
+  /**
+   * Put a waypoint somewhere else. Dropping one and deleting the old one would
+   * renumber it and give it a new colour, so a drag on the map would look like
+   * a different waypoint arriving.
+   */
+  move(id, lat, lon) {
+    const waypoint = this.waypoints.find((w) => w.id === id);
+    if (!waypoint) return null;
+    waypoint.lat = lat;
+    waypoint.lon = lon;
+    this.persist();
+    this.emit('change', this);
+    return waypoint;
+  }
+
   remove(id) {
     this.waypoints = this.waypoints.filter((w) => w.id !== id);
     this.persist();
