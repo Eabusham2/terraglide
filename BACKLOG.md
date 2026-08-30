@@ -2217,6 +2217,38 @@ what is left · `[?]` needs a decision from you.
       default binding does not resolve to its own action when pressed. Thirty
       three keys, all of them reachable.
 
+- [x] J7. "land ~0 mi" — a patch on one caller, pinned in place by its own test
+      Found by looking at a screenshot: the minimap's scale legend read "0 mi"
+      under a five-hundred-metre bar.
+
+      `formatDistance` switches to miles past a thousand feet, and a mile is
+      5,280 — so at zero decimal places everything from a thousand feet to half
+      a mile printed "0 mi". Four callers ask for zero places: the minimap's
+      scale bar, the world map's scale bar, the altitude readout, and the
+      nearest-land readout. That last one is not a cosmetic problem. Flying
+      eight hundred metres off a coast it said "land ~0 mi", which reads as
+      "you are over land" when you are not.
+
+      The interesting part is the history. This exact fault was found once
+      before, for the altitude readout — "three hundred metres above the ground
+      read 0 mi AGL" — and the fix was to give altitude a formatter of its own
+      and leave `formatDistance` as it was. That is a patch on the one caller
+      that was noticed; the other three still had it. And the self test then
+      pinned the broken behaviour in place, asserting
+
+        formatDistance(305, 'imperial', 0) === '0 mi'
+
+      as though it were the requirement. So the bug had a test protecting it.
+
+      Fixed at the cause: the unit threshold and the number of decimal places
+      were decided in different places and had no way to agree, and now they
+      do — a unit that would round the number away is the wrong unit, and the
+      smaller one is used instead. 305 m reads "1,001 ft", 500 m reads
+      "1,640 ft", 800 m reads "2,625 ft", and everything that already worked is
+      unchanged. Checked across every whole metre from 1 to 20,000 in both unit
+      systems at nought, one and two decimal places — 120,000 readings, none of
+      which prints a zero. The old check now asks what it should have asked.
+
 
 ## L. Standing instructions
 
@@ -2411,6 +2443,23 @@ what is left · `[?]` needs a decision from you.
       That is real imagery displayed honestly. It could be made to look better by
       lifting or desaturating deep shadow, which is a display choice rather than
       an invention, but it is a choice worth asking about rather than making.
+
+      Looked at again rather than measured again, because this entry has been
+      wrong about its evidence once already. The same view rendered four ways —
+      as is, anisotropy forced to 1, forced to 16, and with the photograph
+      switched off — and photographed each time. Anisotropy 1 and 16 are
+      indistinguishable by eye, which agrees with the numbers above. The band
+      is exactly where the slope runs closest to the camera and steepest away
+      from it, and nowhere else in the frame.
+
+      So the conclusion stands, and it is worth saying plainly that the first
+      impression on seeing the screenshots was that it looked far too regular
+      and saturated to be photograph noise. It is not: near-black is where
+      eight-bit colour has the least room, so the imagery's own chroma noise is
+      at its largest in relative terms exactly there, and a grazing surface
+      stretches each texel across many pixels so that noise becomes bands. The
+      remaining question is unchanged and is yours: lift or desaturate deep
+      shadow, or leave the photograph alone.
 
       One thing that helped and is not a display choice: the chase camera used
       to be pushed straight up out of any ground it landed in, so standing on a

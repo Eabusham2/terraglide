@@ -892,6 +892,39 @@ console.log('\nthe elevation queue fills the slots it frees');
     && !/postMessage\(\{[\s\S]{0,400}\}\);\s*\}\s*this\.evict\(\);/.test(elevSrc));
 }
 
+console.log('\na distance never rounds away to nothing');
+{
+  // formatDistance switched to miles at a thousand feet, and a mile is 5,280 —
+  // so at zero decimals everything from a thousand feet to half a mile printed
+  // "0 mi". Both scale bars ask for zero decimals, so the minimap's legend read
+  // "0 mi" under a five-hundred-metre bar; and so does the nearest-land
+  // readout, so eight hundred metres off a coast it said "land ~0 mi", which is
+  // the wrong answer rather than an ugly one. Found by looking at a screenshot.
+  const { formatDistance } = await import('../src/core/units.js');
+  const zeros = [];
+  for (const units of ['imperial', 'metric']) {
+    for (const digits of [0, 1, 2]) {
+      for (let m = 1; m <= 20000; m += 1) {
+        const out = formatDistance(m, units, digits);
+        // The number in front of the unit must not be zero for a real distance.
+        if (/^-?0(\.0*)? /.test(out)) { zeros.push(`${m} m ${units}(${digits}) -> ${out}`); break; }
+      }
+    }
+  }
+  ok(`no real distance prints as zero  (${zeros.slice(0, 3).join('; ') || '120,000 cases'})`,
+    zeros.length === 0);
+  // And the specific readings that were wrong.
+  ok(`500 m imperial at no decimals  (${formatDistance(500, 'imperial', 0)})`,
+    !/^0 /.test(formatDistance(500, 'imperial', 0)));
+  ok(`800 m imperial at no decimals  (${formatDistance(800, 'imperial', 0)})`,
+    !/^0 /.test(formatDistance(800, 'imperial', 0)));
+  // Without breaking what already worked.
+  ok(`50 m is still feet  (${formatDistance(50, 'imperial', 0)})`, /ft$/.test(formatDistance(50, 'imperial', 0)));
+  ok(`5 km is still miles  (${formatDistance(5000, 'imperial', 0)})`, /mi$/.test(formatDistance(5000, 'imperial', 0)));
+  ok(`5 km metric is still km  (${formatDistance(5000, 'metric', 0)})`, /km$/.test(formatDistance(5000, 'metric', 0)));
+  ok(`and a metre is still a metre  (${formatDistance(1, 'metric', 0)})`, /m$/.test(formatDistance(1, 'metric', 0)));
+}
+
 console.log('\nnothing reads a setting that does not exist');
 {
   // The size keys wrote to `settings.playerScale`, which does not exist —
@@ -3214,11 +3247,23 @@ console.log('\nHeight above the ground is a height');
   const { DEFAULT_SETTINGS } = await import('../src/core/settings.js');
   const hud = readFileSync(new URL('../src/ui/hud.js', import.meta.url), 'utf8');
 
-  // AGL went through formatDistance, which switches to miles past a thousand
+  // AGL went through formatDistance, which switched to miles past a thousand
   // feet and was asked for no decimal places. Three hundred metres above the
   // ground therefore read "0 mi AGL" — a thousand feet up, reported as zero.
-  ok(`the old rule said nothing at 305 m  (${formatDistance(305, 'imperial', 0)})`,
-    formatDistance(305, 'imperial', 0) === '0 mi');
+  //
+  // The fix at the time was to give altitude its own formatter and leave
+  // formatDistance alone. That is a patch on one caller: the same fault was
+  // still under the minimap's scale bar, the world map's scale bar, and the
+  // nearest-land readout, where "land ~0 mi" is the wrong answer rather than an
+  // ugly one. And this check pinned it there, by asserting the broken string as
+  // though it were the requirement.
+  //
+  // formatDistance is fixed at the cause now — a unit that rounds the number
+  // away is the wrong unit; see "a distance never rounds away to nothing". This
+  // asks what it should have asked in the first place.
+  ok(`no reading of 305 m rounds away  (${formatDistance(305, 'imperial', 0)} / ${formatAltitude(305, 'imperial')})`,
+    !/^0 /.test(formatDistance(305, 'imperial', 0))
+    && !/^0 /.test(formatAltitude(305, 'imperial')));
   ok(`the new one says the height  (${formatAltitude(305, 'imperial')})`,
     /1,001 ft/.test(formatAltitude(305, 'imperial')));
   ok('and the readout uses it',

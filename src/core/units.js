@@ -55,10 +55,28 @@ export function formatDistance(metres, units, digits = 1) {
   if (units === 'imperial') {
     const feet = metres / M_PER_FT;
     if (Math.abs(feet) < 1000) return `${feet.toFixed(feet < 10 ? 1 : 0)} ft`;
-    return `${(metres / M_PER_MI).toFixed(digits)} mi`;
+    const miles = metres / M_PER_MI;
+    // A bigger unit is only worth switching to if the number survives the
+    // switch. This changed to miles at a thousand feet, and a mile is 5,280 —
+    // so at zero decimals, which is what both scale bars and the nearest-land
+    // readout ask for, everything from a thousand feet to half a mile printed
+    // "0 mi". The minimap's legend read "0 mi" under a five-hundred-metre bar,
+    // and flying eight hundred metres off a coast the readout said "land
+    // ~0 mi", which is not an ugly label, it is the wrong answer.
+    //
+    // The threshold and the precision were decided in different places and had
+    // no way to agree. Now they do: if the value would round away, the smaller
+    // unit is used instead.
+    if (Number(miles.toFixed(digits)) === 0) return `${Math.round(feet).toLocaleString()} ft`;
+    return `${miles.toFixed(digits)} mi`;
   }
   if (Math.abs(metres) < 1000) return `${metres.toFixed(metres < 10 ? 1 : 0)} m`;
-  return `${(metres / 1000).toFixed(digits)} km`;
+  const km = metres / 1000;
+  // Metric switches at exactly one kilometre so it cannot round to zero today,
+  // but the rule is the rule: a unit that rounds the number away is the wrong
+  // unit whatever the thresholds happen to be.
+  if (Number(km.toFixed(digits)) === 0) return `${Math.round(metres).toLocaleString()} m`;
+  return `${km.toFixed(digits)} km`;
 }
 
 /**
