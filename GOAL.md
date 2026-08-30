@@ -1,6 +1,7 @@
 # GOAL: every item in BACKLOG.md done properly and fully — nothing failing, everything addressed
 
-Status: IN PROGRESS | sweeps 4-7 | 10 commits pushed | backlog 131 done / 23 partial / 4 questions
+Status: PASS 1 AND SWEEPS COMPLETE — 21 commits pushed, 1116 checks green, three consecutive clean sweeps.
+        What remains is blocked on you: a machine, a credential, or a one-line decision.
 Started: 2026-08-30
 Base: cb1b26e, self test 1060/1060, exit 0
 
@@ -133,8 +134,19 @@ The right treatment is to keep obeying them and to keep the record current.
   seen-radius, 101 cells of 1,681 m, 285 km²). A first attempt to measure this by classifying
   dark pixels was worthless and was thrown away rather than reported — inside the explored
   patch the imagery has pale fields, so it could not tell explored-and-bright from unexplored.
-- The recurring shape across sweeps 2-10 is one thing: a guard written against the instances
-  that were wrong rather than against the rule.
+- Sweep 12 (security): the keyless promise's second half — that nobody's key is committed —
+  was not checked at all. Clean, and guarded now across 76 files including both artefacts.
+- Sweep 13 (documents): THIRD-PARTY.md, the file stating this project's data position, still
+  said the game "falls back to locally generated terrain". Corrected and guarded.
+- Sweep 14 (documents): the README listed 5 imagery providers of 12 and omitted three keyless
+  ones. Corrected and guarded.
+- Sweep 15 (verification): CLEAN. Suite green, tree clean, single file boots from file:// and
+  draws 92.8% at own resolution with no leaked slots.
+- Sweep 16 (constraints): CLEAN. All seven rule-shaped guards present and passing.
+- Sweep 17 (flight model): CLEAN. Every numeric claim the README makes about the glide matches
+  the code — gravity level*0.75, sink credit vy*-0.1*level, drag 0.99/0.98/0.99.
+- Three consecutive clean sweeps. The recurring shape across sweeps 2-14 was one thing: a guard
+  written against the instances that were wrong rather than against the rule.
 
 ## Notes for resume
 - Container resets wipe the tree: `git fetch origin main && git reset --hard origin/main && npm install`.
