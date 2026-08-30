@@ -3349,11 +3349,38 @@ console.log('\nBoth systems of units, everywhere and not only in places');
     formatArea(NaN, 'metric') === '\u2014' && formatWind(undefined, 'metric') === '\u2014');
 
   // Nowhere left printing a unit straight through.
-  for (const file of ['../src/ui/hud.js', '../src/ui/worldmap.js']) {
-    const text = readFileSync(new URL(file, import.meta.url), 'utf8');
-    const literal = /\$\{[^}]*\}\s*(km\/h|km²)/.test(text);
-    ok(`${file.split('/').pop()} does not hard-code a unit`, !literal);
+  //
+  // This checked two files and two unit strings. The ask was "both systems
+  // everywhere, not only in some places", so it is checked everywhere now — and
+  // widening it found four readouts still hard-coded to metric: the autopilot's
+  // distance in the cheat panel, the sea-distance slider's label, the freecam
+  // speed toast, and the size toast, which printed "1.83 m" from the same
+  // keypress that leaves the HUD's own height row reading 6' 0".
+  //
+  // core/units.js is where units are allowed to be spelled out — that is the
+  // whole point of it — and the engine readout on F3 is deliberately metric,
+  // being an engineering readout rather than a player-facing one.
+  const UNIT_OK = new Set(['core/units.js']);
+  const UNIT_LITERAL = /\$\{[^}]*\}\s*(km\/h|km²|mph|km\b|mi\b|ft\b|m\/s|°C|°F)/;
+  const uiFiles = readdirSync(new URL('../src/', import.meta.url), { recursive: true })
+    .map(String)
+    .filter((f) => f.endsWith('.js') && !UNIT_OK.has(f));
+  ok(`the unit scan reaches the whole of src  (${uiFiles.length} files)`, uiFiles.length > 60);
+  // A line may opt out by saying so, which is a claim in the source that can be
+  // read and argued with — rather than the checker guessing which function it
+  // is inside, which was the first version of this and got it wrong.
+  const hard = [];
+  let exempted = 0;
+  for (const f of uiFiles) {
+    const text = readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8');
+    text.split('\n').forEach((line, i) => {
+      if (!UNIT_LITERAL.test(line)) return;
+      if (/units-exempt/.test(line)) { exempted++; return; }
+      hard.push(`${f}:${i + 1}`);
+    });
   }
+  ok(`the exemptions are declared in the source  (${exempted} lines)`, exempted > 0 && exempted < 8);
+  ok(`no player-facing readout spells its own unit  (${hard.join(', ') || 'none'})`, hard.length === 0);
 }
 
 // ---------------------------------------------------------------------------

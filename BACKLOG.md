@@ -1858,8 +1858,27 @@ what is left · `[?]` needs a decision from you.
       Two readouts printed one system whatever the setting said: the explored area
       on the world map (always km²) and the wind on the weather line (always
       km/h — beside a temperature on the same line that did convert). Both go
-      through formatters now, and a check refuses a hard-coded unit in either
-      file.
+      through formatters now.
+
+      And the check written for it refused a hard-coded unit "in either file",
+      which is the same mistake as the rest of this pass: the ask is
+      *everywhere*, and a check scoped to the two places that were wrong cannot
+      see a third. Widened to the whole of src, and it found five more:
+
+        the autopilot's distance in the cheat panel, always km and m;
+        the sea-distance slider's label, always km;
+        the freecam speed toast, always m/s;
+        the size toast, which printed "1.83 m" from the same keypress that
+          leaves the HUD's own height row reading 6' 0";
+        and the help card's height, which built feet and inches by hand and
+          never looked at the setting at all — so a metric player was told
+          they were 6 ft 0 in while the HUD beside it said 1.83 m.
+
+      All five go through the formatters now. The two engineering readouts that
+      are deliberately metric — the F3 engine line and the F4 diagnostics
+      report, both of which end up in a bug report where SI cannot be misread —
+      say so on the line, so the exemption is a claim in the source that can be
+      read and argued with rather than something the checker infers.
 - [x] I11. Seeing hand, rocket and body while gliding
       Looked at first person in the running game. The body was there but
       unreadable — the chest was Minecraft-wide and the cloth texture had its

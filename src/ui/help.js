@@ -1,5 +1,6 @@
 import { keybinds } from '../core/keybinds.js';
 import { settings } from '../core/settings.js';
+import { formatHeight } from '../core/units.js';
 import { readJSON, writeJSON } from '../core/storage.js';
 import { escapeHtml } from './worldmap.js';
 
@@ -140,7 +141,9 @@ export class HelpCard {
 }
 
 function heightLabel() {
-  const metres = settings.get('playerHeightM');
-  const inches = Math.round((metres / 0.3048) * 12);
-  return `${Math.floor(inches / 12)} ft ${inches % 12} in`;
+  // Through the formatter, and in the reader's own units. This built feet and
+  // inches by hand and never looked at the units setting at all, so the help
+  // card told a metric player they were 6 ft 0 in — while the HUD row two
+  // panels away said 1.83 m.
+  return formatHeight(settings.get('playerHeightM'), settings.get('units'));
 }

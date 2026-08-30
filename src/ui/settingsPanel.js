@@ -1,6 +1,6 @@
 import { ACTIONS, keyLabel, keybinds } from '../core/keybinds.js';
 import { settings } from '../core/settings.js';
-import { formatHeight } from '../core/units.js';
+import { formatDistance, formatHeight } from '../core/units.js';
 import {
   NO_ZOOM_CEILING,
   ZOOM_SLIDER_MAX,
@@ -270,7 +270,7 @@ const SECTIONS = [
         min: 1,
         max: 501,
         step: 10,
-        format: (v) => (v > 500 ? 'unlimited' : `${Math.round(v)} km`),
+        format: (v) => (v > 500 ? 'unlimited' : formatDistance(v * 1000, settings.get('units'), 0)),
         help: 'Unlimited by default, so mid-ocean is fair game; wind it down to stay within reach of a coast.',
       },
       { key: 'rtpSkySpawn', label: 'Teleport keeps you doing what you were doing', type: 'toggle', help: 'On: teleport while flying and you arrive high with the wings out; teleport from the ground and you arrive on your feet. Off: you always arrive standing.' },

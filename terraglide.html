@@ -87272,6 +87272,8 @@ __tg_exports["weatherAt"] = weatherAt;
 };
 __tg_modules["src/player/autopilot.js"] = function (__tg_exports) {
 const { cheats } = __tg_require("src/core/cheats.js");
+const { settings } = __tg_require("src/core/settings.js");
+const { formatDistance } = __tg_require("src/core/units.js");
 const { clamp } = __tg_require("src/core/math.js");
 const { bearing, haversine } = __tg_require("src/geo/mercator.js");
 
@@ -87483,8 +87485,11 @@ class Autopilot {
   /** One-line readout for the cheat panel. */
   status() {
     if (!this.active) return '';
-    const km = this.distance / 1000;
-    const away = km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(this.distance)} m`;
+    // Through the formatter, like every other distance. This printed
+    // kilometres and metres whatever the units setting said — one of the
+    // places "both systems everywhere, not only in some places" was pointing
+    // at, and it sat in the cheat panel next to readouts that did honour it.
+    const away = formatDistance(this.distance, settings.get('units'), 1);
     return `${this.phase} · ${away} to ${this.label}`;
   }
 }
@@ -100449,6 +100454,7 @@ __tg_exports["escapeHtml"] = escapeHtml;
 __tg_modules["src/ui/help.js"] = function (__tg_exports) {
 const { keybinds } = __tg_require("src/core/keybinds.js");
 const { settings } = __tg_require("src/core/settings.js");
+const { formatHeight } = __tg_require("src/core/units.js");
 const { readJSON, writeJSON } = __tg_require("src/core/storage.js");
 const { escapeHtml } = __tg_require("src/ui/worldmap.js");
 
@@ -100589,9 +100595,11 @@ class HelpCard {
 }
 
 function heightLabel() {
-  const metres = settings.get('playerHeightM');
-  const inches = Math.round((metres / 0.3048) * 12);
-  return `${Math.floor(inches / 12)} ft ${inches % 12} in`;
+  // Through the formatter, and in the reader's own units. This built feet and
+  // inches by hand and never looked at the units setting at all, so the help
+  // card told a metric player they were 6 ft 0 in — while the HUD row two
+  // panels away said 1.83 m.
+  return formatHeight(settings.get('playerHeightM'), settings.get('units'));
 }
 
 __tg_exports["ROWS"] = ROWS;
@@ -101276,7 +101284,7 @@ __tg_exports["Minimap"] = Minimap;
 __tg_modules["src/ui/settingsPanel.js"] = function (__tg_exports) {
 const { ACTIONS, keyLabel, keybinds } = __tg_require("src/core/keybinds.js");
 const { settings } = __tg_require("src/core/settings.js");
-const { formatHeight } = __tg_require("src/core/units.js");
+const { formatDistance, formatHeight } = __tg_require("src/core/units.js");
 const { NO_ZOOM_CEILING, ZOOM_SLIDER_MAX, ELEVATION_PROVIDERS, IMAGERY_PROVIDERS, PANORAMA_PROVIDERS, AUTO_PROVIDER, bestProviderFor, findProvider, providerLabel, resolveAuto, testProviders } = __tg_require("src/tiles/providers.js");
 const { escapeHtml } = __tg_require("src/ui/worldmap.js");
 
@@ -101534,7 +101542,7 @@ const SECTIONS = [
         min: 1,
         max: 501,
         step: 10,
-        format: (v) => (v > 500 ? 'unlimited' : `${Math.round(v)} km`),
+        format: (v) => (v > 500 ? 'unlimited' : formatDistance(v * 1000, settings.get('units'), 0)),
         help: 'Unlimited by default, so mid-ocean is fair game; wind it down to stay within reach of a coast.',
       },
       { key: 'rtpSkySpawn', label: 'Teleport keeps you doing what you were doing', type: 'toggle', help: 'On: teleport while flying and you arrive high with the wings out; teleport from the ground and you arrive on your feet. Off: you always arrive standing.' },
@@ -102538,7 +102546,7 @@ const { settings } = __tg_require("src/core/settings.js");
 const { detectTier, gpuName } = __tg_require("src/core/deviceTier.js");
 const { AutoQuality } = __tg_require("src/core/autoQuality.js");
 const { readJSON, writeJSON } = __tg_require("src/core/storage.js");
-const { formatDistance, formatLatLon } = __tg_require("src/core/units.js");
+const { formatDistance, formatHeight, formatLatLon, formatSpeed } = __tg_require("src/core/units.js");
 const { InputManager } = __tg_require("src/camera/input.js");
 const { CameraRig } = __tg_require("src/camera/cameraRig.js");
 const { LocalFrame } = __tg_require("src/geo/frame.js");
@@ -102797,7 +102805,7 @@ class Game {
     this.input.on('wheel', ({ delta }) => {
       if (this.rig.isFreecam) {
         const speed = this.rig.adjustFreecamSpeed(delta);
-        this.toast(`Freecam ${Math.round(speed)} m/s`);
+        this.toast(`Freecam ${formatSpeed(speed, settings.get('units'), 'second')}`);
       } else {
         this.player.cycleSlot(delta);
       }
@@ -104168,7 +104176,9 @@ class Game {
         const factor = id === 'scaleUp' ? 1.12 : 1 / 1.12;
         cheats.set('playerScale', this.player.scale * factor);
         const next = this.player.scale;
-        this.toast(`Size ${next.toFixed(2)}x · ${this.player.height.toFixed(2)} m`);
+        // The HUD's own height row reads 6' 0" in imperial; this printed metres
+        // beside it, from the same keypress.
+        this.toast(`Size ${next.toFixed(2)}x · ${formatHeight(this.player.height, settings.get('units'))}`);
         break;
       }
       case 'mouseMode': {
@@ -104345,8 +104355,10 @@ class Game {
       `buildings     ${this.buildings.stats.buildings} built, ${this.buildings.stats.failed} squares failed`,
       '',
       '[where]',
-      `geo           ${this.player.lat.toFixed(5)}, ${this.player.lon.toFixed(5)}  ground ${this.player.groundHeight.toFixed(1)} m`,
-      `mode          ${this.player.mode}, ${this.player.velocity.length().toFixed(1)} m/s`,
+      // units-exempt: an engineering readout, metric on purpose — it goes into
+      // a bug report, where SI is the unit that cannot be misread.
+      `geo           ${this.player.lat.toFixed(5)}, ${this.player.lon.toFixed(5)}  ground ${this.player.groundHeight.toFixed(1)} m`, // units-exempt
+      `mode          ${this.player.mode}, ${this.player.velocity.length().toFixed(1)} m/s`, // units-exempt
       '',
       '[recent errors]',
       ...(this.recentErrors?.length ? this.recentErrors.slice(-8) : ['none']),
@@ -104509,8 +104521,9 @@ class Game {
       `elevation tiles ${this.elevation.tiles.size}  buildings ${this.buildings.stats.buildings}`,
       this.tiles3d ? `3d tiles ${this.tiles3d.stats.drawn} drawn / ${this.tiles3d.stats.loaded} loaded / ${this.tiles3d.stats.failed} failed` : '3d tiles off',
       `pos ${player.position.x.toFixed(1)}, ${player.position.y.toFixed(1)}, ${player.position.z.toFixed(1)}`,
-      `geo ${player.lat.toFixed(5)}, ${player.lon.toFixed(5)}  ground ${player.groundHeight.toFixed(1)}m`,
-      `mode ${player.mode}  vel ${player.velocity.length().toFixed(1)} m/s  land ${(this.landFraction * 100).toFixed(0)}%`,
+      // units-exempt: the F3 engine readout, metric on purpose for the same reason.
+      `geo ${player.lat.toFixed(5)}, ${player.lon.toFixed(5)}  ground ${player.groundHeight.toFixed(1)}m`, // units-exempt
+      `mode ${player.mode}  vel ${player.velocity.length().toFixed(1)} m/s  land ${(this.landFraction * 100).toFixed(0)}%`, // units-exempt
     ].join('\n');
   }
 }

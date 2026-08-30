@@ -7,7 +7,7 @@ import { settings } from './core/settings.js';
 import { detectTier, gpuName } from './core/deviceTier.js';
 import { AutoQuality } from './core/autoQuality.js';
 import { readJSON, writeJSON } from './core/storage.js';
-import { formatDistance, formatLatLon } from './core/units.js';
+import { formatDistance, formatHeight, formatLatLon, formatSpeed } from './core/units.js';
 import { InputManager } from './camera/input.js';
 import { CameraRig } from './camera/cameraRig.js';
 import { LocalFrame } from './geo/frame.js';
@@ -272,7 +272,7 @@ export class Game {
     this.input.on('wheel', ({ delta }) => {
       if (this.rig.isFreecam) {
         const speed = this.rig.adjustFreecamSpeed(delta);
-        this.toast(`Freecam ${Math.round(speed)} m/s`);
+        this.toast(`Freecam ${formatSpeed(speed, settings.get('units'), 'second')}`);
       } else {
         this.player.cycleSlot(delta);
       }
@@ -1643,7 +1643,9 @@ export class Game {
         const factor = id === 'scaleUp' ? 1.12 : 1 / 1.12;
         cheats.set('playerScale', this.player.scale * factor);
         const next = this.player.scale;
-        this.toast(`Size ${next.toFixed(2)}x · ${this.player.height.toFixed(2)} m`);
+        // The HUD's own height row reads 6' 0" in imperial; this printed metres
+        // beside it, from the same keypress.
+        this.toast(`Size ${next.toFixed(2)}x · ${formatHeight(this.player.height, settings.get('units'))}`);
         break;
       }
       case 'mouseMode': {
@@ -1820,8 +1822,10 @@ export class Game {
       `buildings     ${this.buildings.stats.buildings} built, ${this.buildings.stats.failed} squares failed`,
       '',
       '[where]',
-      `geo           ${this.player.lat.toFixed(5)}, ${this.player.lon.toFixed(5)}  ground ${this.player.groundHeight.toFixed(1)} m`,
-      `mode          ${this.player.mode}, ${this.player.velocity.length().toFixed(1)} m/s`,
+      // units-exempt: an engineering readout, metric on purpose — it goes into
+      // a bug report, where SI is the unit that cannot be misread.
+      `geo           ${this.player.lat.toFixed(5)}, ${this.player.lon.toFixed(5)}  ground ${this.player.groundHeight.toFixed(1)} m`, // units-exempt
+      `mode          ${this.player.mode}, ${this.player.velocity.length().toFixed(1)} m/s`, // units-exempt
       '',
       '[recent errors]',
       ...(this.recentErrors?.length ? this.recentErrors.slice(-8) : ['none']),
@@ -1984,8 +1988,9 @@ export class Game {
       `elevation tiles ${this.elevation.tiles.size}  buildings ${this.buildings.stats.buildings}`,
       this.tiles3d ? `3d tiles ${this.tiles3d.stats.drawn} drawn / ${this.tiles3d.stats.loaded} loaded / ${this.tiles3d.stats.failed} failed` : '3d tiles off',
       `pos ${player.position.x.toFixed(1)}, ${player.position.y.toFixed(1)}, ${player.position.z.toFixed(1)}`,
-      `geo ${player.lat.toFixed(5)}, ${player.lon.toFixed(5)}  ground ${player.groundHeight.toFixed(1)}m`,
-      `mode ${player.mode}  vel ${player.velocity.length().toFixed(1)} m/s  land ${(this.landFraction * 100).toFixed(0)}%`,
+      // units-exempt: the F3 engine readout, metric on purpose for the same reason.
+      `geo ${player.lat.toFixed(5)}, ${player.lon.toFixed(5)}  ground ${player.groundHeight.toFixed(1)}m`, // units-exempt
+      `mode ${player.mode}  vel ${player.velocity.length().toFixed(1)} m/s  land ${(this.landFraction * 100).toFixed(0)}%`, // units-exempt
     ].join('\n');
   }
 }

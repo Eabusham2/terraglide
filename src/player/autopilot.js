@@ -1,4 +1,6 @@
 import { cheats } from '../core/cheats.js';
+import { settings } from '../core/settings.js';
+import { formatDistance } from '../core/units.js';
 import { clamp } from '../core/math.js';
 import { bearing, haversine } from '../geo/mercator.js';
 
@@ -210,8 +212,11 @@ export class Autopilot {
   /** One-line readout for the cheat panel. */
   status() {
     if (!this.active) return '';
-    const km = this.distance / 1000;
-    const away = km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(this.distance)} m`;
+    // Through the formatter, like every other distance. This printed
+    // kilometres and metres whatever the units setting said — one of the
+    // places "both systems everywhere, not only in some places" was pointing
+    // at, and it sat in the cheat panel next to readouts that did honour it.
+    const away = formatDistance(this.distance, settings.get('units'), 1);
     return `${this.phase} · ${away} to ${this.label}`;
   }
 }
