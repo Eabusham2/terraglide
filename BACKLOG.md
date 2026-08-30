@@ -1402,6 +1402,31 @@ what is left · `[?]` needs a decision from you.
 
       Open until you say what the message reads now, because it will be Google's
       sentence rather than a status code.
+
+      Verified since, without a key, by serving the refusals instead of the
+      success. Google's createSession was stubbed with the three bodies their
+      API actually returns for this — the Map Tiles API not enabled on the
+      project, a referrer restriction, and an invalid key — and the game was
+      watched from the outside:
+
+        API not enabled   "Google session failed (403) — Map Tiles API has not
+                          been used in project 123456 before or it is disabled.
+                          Enable it by visiting https://console.developers.
+                          google.com/apis/api/tile.googleapis.com/overview
+                          ?project=123456 then retry."
+        referrer blocked  "Google session failed (403) — Requests from referer
+                          http://127.0.0.1/ are blocked."
+        invalid key       "Google session failed (400) — API key not valid.
+                          Please pass a valid API key."
+
+      Google's own words, including the link that fixes it, on the status line.
+      And in all three the ground kept being drawn — 314, 339 and 345 squares,
+      degraded never tripped — because the keyless provider carries on while
+      Google refuses. So a bad key says what is wrong and costs you nothing
+      else, which is what this item asked for.
+
+      What is still open is the half no stub can reach: whether *your* key works
+      once the project is right. That needs the key.
 - [~] G2. Fix broken Google generally
       Same as G1, which has the detail. The one thing that was broken on this
       side — the missing `region` on createSession, which meant no session was
