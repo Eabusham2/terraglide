@@ -256,7 +256,6 @@ export const GRAPHICS_PRESETS = {
     maxConcurrentRequests: 12,
     textureCacheSize: 320,
     anisotropy: 8,
-    buildingRadiusM: 420,
     // Never below one and a half. A phone reports three device pixels per CSS
     // pixel, so a cap of one renders the world at a third of the screen's
     // resolution and lets the browser stretch it back — which is most of what
@@ -285,7 +284,6 @@ export const GRAPHICS_PRESETS = {
     maxConcurrentRequests: 18,
     textureCacheSize: 560,
     anisotropy: 16,
-    buildingRadiusM: 750,
     pixelRatioCap: 2,
     applies: {
       renderDistanceKm: 16,
@@ -307,7 +305,6 @@ export const GRAPHICS_PRESETS = {
     maxConcurrentRequests: 26,
     textureCacheSize: 900,
     anisotropy: 16,
-    buildingRadiusM: 1200,
     applies: {
       renderDistanceKm: 24,
       distantMode: true,
@@ -333,7 +330,6 @@ export const GRAPHICS_PRESETS = {
     maxConcurrentRequests: 34,
     textureCacheSize: 1400,
     anisotropy: 16,
-    buildingRadiusM: 1800,
     pixelRatioCap: 3,
     applies: {
       renderDistanceKm: 64,

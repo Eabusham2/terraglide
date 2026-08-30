@@ -123,7 +123,12 @@ export class Woodland {
         const y = cy + dy;
         if (y < 0 || y >= n) continue;
         const key = tileKey(DATA_ZOOM, x, y);
-        if (this.tiles.has(key)) continue;
+        const held = this.tiles.get(key);
+        // An empty square is kept — most ground has no wood on it. It is only
+        // asked again once the mirror that said so has been abandoned, and not
+        // while the client is resting; see the same test in buildings.update.
+        if (held && (overpass.resting || !overpass.emptyIsStale(held))) continue;
+        if (held) this.tiles.delete(key);
         // The tile you are in goes first; the ring waits, so walking about
         // never fires a burst of queries at a donated service.
         if ((dx !== 0 || dy !== 0) && overpass.inflight) continue;
@@ -163,6 +168,8 @@ export class Woodland {
     try {
       const data = await overpass.query(query);
       record.rings = ringsFrom(data);
+      // Which mirror said there was no wood here — see overpass.emptyIsStale.
+      if (!(data?.elements?.length > 0)) record.emptyFrom = overpass.mirror;
       record.state = 'ready';
       this.stats.polygons += record.rings.length;
       this.dirty = true;

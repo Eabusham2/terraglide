@@ -221,13 +221,44 @@ export class Buildings {
     const cx = Math.floor(lonToNormX(lon) * n);
     const cy = Math.floor(latToNormY(lat) * n);
 
+    /**
+     * One square either side, on every machine.
+     *
+     * The graphics tiers each carried a `buildingRadiusM` — 420 on Low up to
+     * 1800 on Ultra — and nothing has ever read one of them; they were dead
+     * from the first commit. They are gone rather than wired up, because the
+     * grain here is a zoom-15 square, which is about 800 m across at Paris and
+     * 1220 m at the equator: 420, 750 and 1200 metres all round to the same
+     * single ring, so three of the four numbers could not have meant anything
+     * different even if something had read them. The one that could — Ultra's
+     * 1800 — buys a second ring, and a second ring is twenty-five Overpass
+     * queries per position instead of nine, asked of donated hardware, for one
+     * more row of rooftops on the skyline. A tier setting the data cannot
+     * express is not a setting.
+     */
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         const x = ((cx + dx) % n + n) % n;
         const y = cy + dy;
         if (y < 0 || y >= n) continue;
         const key = tileKey(DATA_ZOOM, x, y);
-        if (this.tiles.has(key)) continue;
+        const held = this.tiles.get(key);
+        // A square that came back with nothing in it is kept — most of the
+        // planet has no buildings on it. It is only asked again once the mirror
+        // that said so has been abandoned; see overpass.emptyIsStale.
+        //
+        // And not while the client is resting. Giving up an answer is only
+        // worth it if a better one can be fetched, and the client rests for
+        // forty-five seconds after the very refusal that moved it on — so
+        // dropping the squares the moment the mirror changes throws all of
+        // them straight into a rejection and a further minute of holding
+        // nothing. Measured: nine squares dropped, nine refused, ground bare
+        // for a minute longer than it needed to be.
+        if (held && (overpass.resting || !overpass.emptyIsStale(held))) continue;
+        if (held) {
+          this.disposeTile(held);
+          this.tiles.delete(key);
+        }
         // Only the tile you are standing in loads immediately; neighbours wait
         // until it is done so a walk never fires a burst of Overpass queries.
         if ((dx !== 0 || dy !== 0) && overpass.inflight) continue;
@@ -279,6 +310,10 @@ export class Buildings {
     try {
       const data = await overpass.query(query);
       record.data = data;
+      // Nothing at all in this square. Remember which mirror said so, because
+      // "no buildings here" from an instance that only holds one country is
+      // not the same statement — see overpass.emptyIsStale.
+      if (!(data?.elements?.length > 0)) record.emptyFrom = overpass.mirror;
       this.buildTile(record, data);
       record.state = 'ready';
     } catch {

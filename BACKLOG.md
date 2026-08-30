@@ -1176,6 +1176,15 @@ what is left · `[?]` needs a decision from you.
       buildings reliable rather than best-effort. Left open rather than built
       because it cannot be tested from here without your token, and shipping an
       untested provider is how "fixed" turns into "still broken".
+
+      The keyless version of that idea was checked and does not work.
+      OpenStreetMap's own vector tiles — vector.openstreetmap.org, the
+      Shortbread schema, no account, served and reachable — do carry a
+      `buildings` layer, and its field list is empty: footprints and nothing
+      else. No height, no storey count. Since a building here is only drawn at
+      a height somebody surveyed, that layer would extrude nothing at all. So
+      Overpass stays the keyless route for buildings, and G21 is what made it
+      hold up.
 - [x] G8. Bing has satellite and a 3D mode — add the 3D
       Bing's satellite is here — the `bing` provider, on a Bing Maps key, and
       also reachable through Cesium ion as asset 2. Its 3D is not, and cannot
@@ -1308,6 +1317,43 @@ what is left · `[?]` needs a decision from you.
       Every fixed number here was wrong in turn: 19, then 20, then the deepest
       a provider declared. What stops it now is the provider refusing and the
       photographs themselves stopping getting sharper, both measured.
+- [x] G21. No buildings anywhere, and nothing said so
+      Found by measuring, not by report: flying over central Paris with
+      buildings on, twelve OpenStreetMap squares all reading `ready` and every
+      one of them holding zero buildings, zero bridges, zero masts. Paris.
+
+      The cause was in the fallback list. `overpass.osm.ch` was the second of
+      four Overpass mirrors, so it was the *first* thing tried whenever the
+      main instance was unwell — and it holds Switzerland and nothing else. It
+      does not fail when you ask it about Paris. It answers 200, in half a
+      second, with an empty element list, which is indistinguishable from open
+      sea. Measured against the live service: 1,928 building ways inside one
+      Zurich square, zero in the same size of square over central Paris, zero
+      over Manhattan. So a single 503 from the main instance and every
+      building, wood, bridge, mast and bridge deck on Earth outside Switzerland
+      quietly stopped existing — nothing logged, nothing retried, no failure
+      recorded, every tile `ready`. A mirror that succeeds with nothing is
+      worse than one that is down.
+
+      Two fixes. The list now holds only planet-wide instances, and a regional
+      extract is not allowed back into it. And an empty answer is remembered
+      against the mirror that gave it: "nothing here" is kept rather than
+      re-asked, because most of the planet really has no buildings on it and
+      re-asking would query every square of the Atlantic for ever — but it does
+      not outlive the mirror. The moment the client gives up on an instance,
+      the squares that instance called empty are asked once more on the new
+      one. Buildings and woodland both.
+- [x] G22. A graphics tier that set a number nothing read
+      `buildingRadiusM` sat in all four presets — 420 m on Low up to 1800 m on
+      Ultra — and nothing has read one of them since the first commit. Removed
+      rather than wired up, and the reason is worth keeping: the grain is a
+      zoom-15 square, about 800 m across at Paris and 1220 m at the equator, so
+      420, 750 and 1200 all round to the same single ring of squares and could
+      not have differed even if something had read them. The one that could,
+      Ultra's 1800, buys a second ring — twenty-five Overpass queries per
+      position instead of nine, asked of donated hardware, for one more row of
+      rooftops. A tier setting the data cannot express is not a setting. The
+      self test now fails on any tier number that nothing reads.
 
 ## H. World and atmosphere
 

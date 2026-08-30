@@ -84637,7 +84637,6 @@ const GRAPHICS_PRESETS = {
     maxConcurrentRequests: 12,
     textureCacheSize: 320,
     anisotropy: 8,
-    buildingRadiusM: 420,
     // Never below one and a half. A phone reports three device pixels per CSS
     // pixel, so a cap of one renders the world at a third of the screen's
     // resolution and lets the browser stretch it back — which is most of what
@@ -84666,7 +84665,6 @@ const GRAPHICS_PRESETS = {
     maxConcurrentRequests: 18,
     textureCacheSize: 560,
     anisotropy: 16,
-    buildingRadiusM: 750,
     pixelRatioCap: 2,
     applies: {
       renderDistanceKm: 16,
@@ -84688,7 +84686,6 @@ const GRAPHICS_PRESETS = {
     maxConcurrentRequests: 26,
     textureCacheSize: 900,
     anisotropy: 16,
-    buildingRadiusM: 1200,
     applies: {
       renderDistanceKm: 24,
       distantMode: true,
@@ -84714,7 +84711,6 @@ const GRAPHICS_PRESETS = {
     maxConcurrentRequests: 34,
     textureCacheSize: 1400,
     anisotropy: 16,
-    buildingRadiusM: 1800,
     pixelRatioCap: 3,
     applies: {
       renderDistanceKm: 64,
@@ -93145,12 +93141,24 @@ __tg_modules["src/world/overpass.js"] = function (__tg_exports) {
  * Two was not enough. Measured from here, the main instance answers 503 and
  * kumi answers 500 — both down at once is not unusual for a free service that
  * anyone may query, and with a list of two that is every building in the world
- * gone. Four is enough that they have to fail together to matter, and they are
- * all the standard public instances the OSM wiki lists.
+ * gone. These are the standard public instances the OSM wiki lists, and every
+ * one of them holds the whole planet.
+ *
+ * That last clause is the point. `overpass.osm.ch` was in this list, second,
+ * so it was the *first* thing tried whenever the main instance was unwell —
+ * and it holds Switzerland and nothing else. It does not fail when you ask it
+ * about Paris. It answers 200, in half a second, with an empty element list,
+ * and the caller has no way to tell that apart from open sea. Measured: 1,928
+ * building ways inside one Zurich square, zero in the same size of square over
+ * central Paris, zero over Manhattan. So one 503 from the main instance and
+ * every building, wood, bridge and mast on Earth outside Switzerland quietly
+ * stopped existing, with nothing logged, nothing retried and no failure
+ * recorded anywhere — the tiles all read `ready`. A mirror that answers
+ * successfully with nothing is worse than one that is down, and a regional
+ * extract does not belong in a global fallback list.
  */
 const ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
-  'https://overpass.osm.ch/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
   'https://overpass.private.coffee/api/interpreter',
 ];
@@ -93176,6 +93184,35 @@ class OverpassClient {
 
   get inflight() {
     return this.busy;
+  }
+
+  /**
+   * Which mirror the answers you are holding came from.
+   *
+   * Answers are only comparable within one of these. It is the endpoint index
+   * itself, which only ever moves when the client gives up on an instance.
+   */
+  get mirror() {
+    return this.endpointIndex;
+  }
+
+  /**
+   * Is a held empty answer worth asking again?
+   *
+   * "Nothing here" is a perfectly ordinary thing for Overpass to say — over
+   * open sea, over desert, over most of Siberia — so an empty answer is kept
+   * and not re-asked, or a flight over the Atlantic would re-query every
+   * square of it for ever. But it is also what a mirror says about ground it
+   * does not hold, and one response cannot tell those apart.
+   *
+   * So nothing here guesses at which it was. It only notices that the mirror
+   * which gave that answer is not the one being used now — the client only
+   * moves on when an instance has actually failed — and lets the tile be asked
+   * once more on the new one. Ground that really is empty comes back empty and
+   * is not asked a third time until the mirror changes again.
+   */
+  emptyIsStale(record) {
+    return record?.emptyFrom !== undefined && record.emptyFrom !== this.endpointIndex;
   }
 
   /**
@@ -93478,13 +93515,44 @@ class Buildings {
     const cx = Math.floor(lonToNormX(lon) * n);
     const cy = Math.floor(latToNormY(lat) * n);
 
+    /**
+     * One square either side, on every machine.
+     *
+     * The graphics tiers each carried a `buildingRadiusM` — 420 on Low up to
+     * 1800 on Ultra — and nothing has ever read one of them; they were dead
+     * from the first commit. They are gone rather than wired up, because the
+     * grain here is a zoom-15 square, which is about 800 m across at Paris and
+     * 1220 m at the equator: 420, 750 and 1200 metres all round to the same
+     * single ring, so three of the four numbers could not have meant anything
+     * different even if something had read them. The one that could — Ultra's
+     * 1800 — buys a second ring, and a second ring is twenty-five Overpass
+     * queries per position instead of nine, asked of donated hardware, for one
+     * more row of rooftops on the skyline. A tier setting the data cannot
+     * express is not a setting.
+     */
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         const x = ((cx + dx) % n + n) % n;
         const y = cy + dy;
         if (y < 0 || y >= n) continue;
         const key = tileKey(DATA_ZOOM, x, y);
-        if (this.tiles.has(key)) continue;
+        const held = this.tiles.get(key);
+        // A square that came back with nothing in it is kept — most of the
+        // planet has no buildings on it. It is only asked again once the mirror
+        // that said so has been abandoned; see overpass.emptyIsStale.
+        //
+        // And not while the client is resting. Giving up an answer is only
+        // worth it if a better one can be fetched, and the client rests for
+        // forty-five seconds after the very refusal that moved it on — so
+        // dropping the squares the moment the mirror changes throws all of
+        // them straight into a rejection and a further minute of holding
+        // nothing. Measured: nine squares dropped, nine refused, ground bare
+        // for a minute longer than it needed to be.
+        if (held && (overpass.resting || !overpass.emptyIsStale(held))) continue;
+        if (held) {
+          this.disposeTile(held);
+          this.tiles.delete(key);
+        }
         // Only the tile you are standing in loads immediately; neighbours wait
         // until it is done so a walk never fires a burst of Overpass queries.
         if ((dx !== 0 || dy !== 0) && overpass.inflight) continue;
@@ -93536,6 +93604,10 @@ class Buildings {
     try {
       const data = await overpass.query(query);
       record.data = data;
+      // Nothing at all in this square. Remember which mirror said so, because
+      // "no buildings here" from an instance that only holds one country is
+      // not the same statement — see overpass.emptyIsStale.
+      if (!(data?.elements?.length > 0)) record.emptyFrom = overpass.mirror;
       this.buildTile(record, data);
       record.state = 'ready';
     } catch {
@@ -96275,7 +96347,12 @@ class Woodland {
         const y = cy + dy;
         if (y < 0 || y >= n) continue;
         const key = tileKey(DATA_ZOOM, x, y);
-        if (this.tiles.has(key)) continue;
+        const held = this.tiles.get(key);
+        // An empty square is kept — most ground has no wood on it. It is only
+        // asked again once the mirror that said so has been abandoned, and not
+        // while the client is resting; see the same test in buildings.update.
+        if (held && (overpass.resting || !overpass.emptyIsStale(held))) continue;
+        if (held) this.tiles.delete(key);
         // The tile you are in goes first; the ring waits, so walking about
         // never fires a burst of queries at a donated service.
         if ((dx !== 0 || dy !== 0) && overpass.inflight) continue;
@@ -96315,6 +96392,8 @@ class Woodland {
     try {
       const data = await overpass.query(query);
       record.rings = ringsFrom(data);
+      // Which mirror said there was no wood here — see overpass.emptyIsStale.
+      if (!(data?.elements?.length > 0)) record.emptyFrom = overpass.mirror;
       record.state = 'ready';
       this.stats.polygons += record.rings.length;
       this.dirty = true;

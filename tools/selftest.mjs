@@ -7,7 +7,7 @@
  *   node tools/selftest.mjs
  */
 
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { LocalFrame } from '../src/geo/frame.js';
 import {
   bearing,
@@ -698,6 +698,75 @@ console.log('\nwhen a map server is unwell, ask a different one');
   // like it better, so those must not rotate.
   ok('but a bad query does not walk the whole list',
     !/status >= 400\)\s*\{\s*this\.endpointIndex/.test(src));
+
+  // Every mirror in the list has to hold the whole planet.
+  //
+  // overpass.osm.ch was in it, second, so it was the first thing tried
+  // whenever the main instance was unwell — and it holds Switzerland and
+  // nothing else. It does not fail when you ask it about Paris: it answers
+  // 200, in half a second, with an empty element list, which the caller cannot
+  // tell apart from open sea. Measured against the live service: 1,928
+  // building ways in one Zurich square, zero in the same square over central
+  // Paris, zero over Manhattan. One 503 from the main instance and every
+  // building, wood, bridge and mast on Earth outside Switzerland silently
+  // stopped existing, with every tile reading `ready` and nothing logged.
+  const REGIONAL = ['overpass.osm.ch', 'overpass.osm.jp', 'overpass.nchc.org.tw'];
+  ok('and none of the mirrors holds only one country',
+    REGIONAL.every((host) => !list.includes(host)));
+
+  // An empty answer is ordinary — most of the planet has no buildings on it —
+  // so it is kept rather than re-asked, or a flight over the Atlantic would
+  // re-query every square of it. But it must not outlive the mirror that gave
+  // it, which is the whole of the trap above: nothing failed, so nothing was
+  // ever asked again.
+  ok('an empty answer is remembered against the mirror that gave it',
+    /emptyIsStale\(record\)/.test(src)
+    && /record\?\.emptyFrom !== undefined && record\.emptyFrom !== this\.endpointIndex/.test(src));
+
+  for (const [what, file] of [['buildings', '../src/world/buildings.js'], ['woodland', '../src/world/woodland.js']]) {
+    const mod = readFileSync(new URL(file, import.meta.url), 'utf8');
+    ok(`${what} records which mirror said the square was empty`,
+      /if \(!\(data\?\.elements\?\.length > 0\)\) record\.emptyFrom = overpass\.mirror;/.test(mod));
+    ok(`${what} asks an empty square again once that mirror is abandoned`,
+      /overpass\.emptyIsStale\(held\)/.test(mod));
+    // But not the instant it changes. The client rests for 45 s after the
+    // refusal that moved it on, so dropping every empty square right then
+    // throws all of them into a rejection and a further minute of holding
+    // nothing — measured as nine squares bare for a minute longer than needed.
+    ok(`${what} does not give up an answer it cannot replace yet`,
+      /overpass\.resting \|\| !overpass\.emptyIsStale\(held\)/.test(mod));
+    // ...and only then. A blanket retry of every empty square is a query storm
+    // over every ocean and desert in the world.
+    ok(`${what} does not re-ask a square that is simply empty`,
+      !/state === 'ready'[\s\S]{0,80}this\.tiles\.delete\(key\)/.test(mod));
+  }
+}
+
+console.log('\na graphics tier only carries settings that do something');
+{
+  // buildingRadiusM sat in all four presets — 420 on Low up to 1800 on Ultra —
+  // and nothing read one of them, from the first commit onwards. It is gone
+  // rather than wired up: the grain is a zoom-15 square, about 800 m across at
+  // Paris, so 420, 750 and 1200 all round to the same single ring and could
+  // never have differed. See the note in buildings.update.
+  const conf = readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8');
+  const high = /  high: \{([\s\S]*?)\n    applies:/.exec(conf)?.[1] ?? '';
+  const tierKeys = [...high.matchAll(/^\s{4}([A-Za-z][A-Za-z0-9]*):/gm)].map((m) => m[1]);
+  ok(`the high tier still lists its numbers  (${tierKeys.length})`, tierKeys.length >= 6);
+
+  const sources = readdirSync(new URL('../src/', import.meta.url), { recursive: true })
+    .map(String)
+    .filter((f) => f.endsWith('.js') && f !== 'core/settings.js')
+    .map((f) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8'))
+    .join('\n');
+  // Every one of them is reached through settings.preset(), so the name has to
+  // turn up as a property read outside the table that declares it. A mention
+  // in prose is not a read — the first draft of this check counted one, and a
+  // comment explaining why buildingRadiusM had been removed was enough to make
+  // buildingRadiusM look alive.
+  const dead = tierKeys.filter((k) => !new RegExp(`(?:preset\\(\\)|preset)\\.${k}\\b`).test(sources));
+  ok(`no tier number that nothing reads  (${dead.join(', ') || 'none'})`, dead.length === 0);
+  ok('and buildingRadiusM in particular is gone', !/buildingRadiusM/.test(conf));
 }
 
 console.log('\nevery key the game binds is written down');

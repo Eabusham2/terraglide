@@ -15,12 +15,24 @@
  * Two was not enough. Measured from here, the main instance answers 503 and
  * kumi answers 500 — both down at once is not unusual for a free service that
  * anyone may query, and with a list of two that is every building in the world
- * gone. Four is enough that they have to fail together to matter, and they are
- * all the standard public instances the OSM wiki lists.
+ * gone. These are the standard public instances the OSM wiki lists, and every
+ * one of them holds the whole planet.
+ *
+ * That last clause is the point. `overpass.osm.ch` was in this list, second,
+ * so it was the *first* thing tried whenever the main instance was unwell —
+ * and it holds Switzerland and nothing else. It does not fail when you ask it
+ * about Paris. It answers 200, in half a second, with an empty element list,
+ * and the caller has no way to tell that apart from open sea. Measured: 1,928
+ * building ways inside one Zurich square, zero in the same size of square over
+ * central Paris, zero over Manhattan. So one 503 from the main instance and
+ * every building, wood, bridge and mast on Earth outside Switzerland quietly
+ * stopped existing, with nothing logged, nothing retried and no failure
+ * recorded anywhere — the tiles all read `ready`. A mirror that answers
+ * successfully with nothing is worse than one that is down, and a regional
+ * extract does not belong in a global fallback list.
  */
 const ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
-  'https://overpass.osm.ch/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
   'https://overpass.private.coffee/api/interpreter',
 ];
@@ -46,6 +58,35 @@ class OverpassClient {
 
   get inflight() {
     return this.busy;
+  }
+
+  /**
+   * Which mirror the answers you are holding came from.
+   *
+   * Answers are only comparable within one of these. It is the endpoint index
+   * itself, which only ever moves when the client gives up on an instance.
+   */
+  get mirror() {
+    return this.endpointIndex;
+  }
+
+  /**
+   * Is a held empty answer worth asking again?
+   *
+   * "Nothing here" is a perfectly ordinary thing for Overpass to say — over
+   * open sea, over desert, over most of Siberia — so an empty answer is kept
+   * and not re-asked, or a flight over the Atlantic would re-query every
+   * square of it for ever. But it is also what a mirror says about ground it
+   * does not hold, and one response cannot tell those apart.
+   *
+   * So nothing here guesses at which it was. It only notices that the mirror
+   * which gave that answer is not the one being used now — the client only
+   * moves on when an instance has actually failed — and lets the tile be asked
+   * once more on the new one. Ground that really is empty comes back empty and
+   * is not asked a third time until the mirror changes again.
+   */
+  emptyIsStale(record) {
+    return record?.emptyFrom !== undefined && record.emptyFrom !== this.endpointIndex;
   }
 
   /**
