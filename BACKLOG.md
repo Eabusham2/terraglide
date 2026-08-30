@@ -2100,6 +2100,31 @@ what is left · `[?]` needs a decision from you.
       OpenStreetMap woodland polygon, or a canopy score measured off the
       photograph's own greenness and roughness. Nothing there decides that a
       wood exists.
+- [x] J1b. The no-generator rule was guarded on five files, not on the rule
+      "Nothing is generated" is the rule this project is judged on, and the
+      check for it named five files. A generator added to a sixth would have
+      passed every part of it — which is the shape M17 forbids: guard the
+      system, not the places that happened to be wrong once.
+
+      The whole of src is scanned now, all seventy-two files, for noise and for
+      any seeded generator. It comes back clean, and the two deliberate uses
+      are named in the check rather than left to be rediscovered:
+
+        world/weather.js  the cloud deck. There is no per-frame photograph of
+                          the sky to draw instead, and the weather state
+                          driving it is real, from Open-Meteo — see H5.
+        world/shaders.js  the same value noise, for cloud shadow and for
+                          crown-scale relief over woodland. Shading only:
+                          nothing is built, the ground you walk on does not
+                          move, and it is off wherever OpenStreetMap has no
+                          wood mapped — see H1.
+
+      Anything else reaching for noise now fails the build and has to come and
+      say why. The exemptions are checked in both directions, so one that stops
+      using noise comes off the list rather than sitting there licensing a
+      future use. Verified by sneaking a generator into a sixth file and a
+      seeded PRNG into core/math.js: both fail by name.
+
 - [x] J2. A test on every mode
       The individual behaviours were already tested — a fall reaches 78.4, a
       walk is 4.32, a glide is Minecraft's tick — but nothing went through the

@@ -1,6 +1,6 @@
 # GOAL: every item in BACKLOG.md done properly and fully — nothing failing, everything addressed
 
-Status: IN PROGRESS | Pass 1 done, entering sweeps | 5 commits pushed
+Status: IN PROGRESS | sweeps | 8 commits pushed
 Started: 2026-08-30
 Base: cb1b26e, self test 1060/1060, exit 0
 
@@ -89,11 +89,27 @@ The right treatment is to keep obeying them and to keep the record current.
 - [x] N4  C15 — the elevation queue had the identical starvation. Queue 9.57 -> 0.69 mean, idle-with-work-waiting 20/113 -> 0/112.
 - [x] N5  C16 — the in-page worker host (the double-clickable build) ran one job at a time, serialising the network wait. Stretched 41.8% -> 14.6%, against a real worker's 14.1%.
 - [x] N6  All five standing instructions (B14, J3, L1, L2, M17) brought up to date with this pass.
+- [x] N7  Eviction moved back to the frame boundary — a regression my own pump change introduced.
+- [x] N8  Guard: every settings/cheat key read must exist. First version was vacuous; now asserts its own match count.
+- [x] N9  J7 — formatDistance printed "0 mi" from 305 m to 805 m at zero decimals. Four callers, one of them
+      the nearest-land readout, where "land ~0 mi" is the wrong answer. Previously patched on one caller only,
+      and the broken string was pinned in the self test as if it were the requirement. Fixed at the cause.
+- [x] N10 Every other formatter swept for the same class: clean (the four hits are genuinely near-zero values).
 
 ## Sweep log
-- Pass 1 complete. 5 commits: Overpass mirror, water probe, 3D refusal storm + imagery date,
+- Pass 1 complete. Commits: Overpass mirror, water probe, 3D refusal storm + imagery date,
   imagery queue pump + F4 diagnostics, dead keybind guard, elevation queue pump, in-page host.
-- Sweep 1 (coverage): next
+- Sweep 1 (coverage): all 27 remaining items re-read; every one is blocked on the user
+  (machine, credential, or a one-line decision) or is a standing instruction. None actionable here.
+- Sweep 2 (correctness): eviction cadence regression I introduced, found and fixed.
+  Stray settings/cheat key guard added (the check was vacuous first time; caught by counting).
+  Formatter sweep: formatDistance printed "0 mi" for 305-805 m at zero decimals — found by
+  looking at a screenshot, and it was a patch-on-one-caller pinned by its own test. Fixed at
+  the cause; every other formatter swept and clean.
+- Sweep 3 (integration): screenshots taken and looked at. Minimap correct (the dark frame is
+  a genuinely shadowed valley). Attribution not clipped at 360-1920 px. M2c re-examined
+  visually across four renders; its conclusion holds.
+- Next: re-shoot the suite and compare against the pre-change set.
 
 ## Notes for resume
 - Container resets wipe the tree: `git fetch origin main && git reset --hard origin/main && npm install`.

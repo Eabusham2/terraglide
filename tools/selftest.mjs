@@ -1131,6 +1131,40 @@ console.log('\nNothing is generated');
 
   ok('a tile job with no URL is an error rather than an invitation',
     /no imagery URL for this tile/.test(jobs) && /no elevation URL for this tile/.test(jobs));
+
+  // The checks above name five files. A generator added to a sixth would pass
+  // every one of them — which is the shape M17 exists to forbid: guard the
+  // system, not the places that were wrong once.
+  //
+  // So the whole of src is scanned, and the two deliberate uses are named here
+  // rather than left to be rediscovered. Both are rendering, neither invents
+  // ground or content:
+  //
+  //   world/weather.js  the cloud deck. There is no per-frame photograph of
+  //                     the sky to draw instead; the weather *state* driving
+  //                     it is real, from Open-Meteo (see H5).
+  //   world/shaders.js  the same value noise, for cloud shadow and for
+  //                     crown-scale relief over woodland — shading only,
+  //                     nothing is built, the ground does not move, and it is
+  //                     off wherever OpenStreetMap has no wood mapped (H1).
+  //
+  // Anything else using noise has to come here and say why.
+  const NOISE_ALLOWED = new Set(['world/shaders.js', 'world/weather.js']);
+  const NOISE = /\bsimplex\b|\bperlin\b|\bfbm\b|value ?noise|\bprocedural\b/i;
+  const PRNG = /\bmakeRng\b|\bmulberry32\b|\bxorshift\b|\bsfc32\b|\bhash3\b|\brand3\b/;
+  const all = readdirSync(new URL('../src/', import.meta.url), { recursive: true })
+    .map(String).filter((f) => f.endsWith('.js'));
+  ok(`the scan reaches the whole of src  (${all.length} files)`, all.length > 60);
+  const noisy = all.filter((f) => !NOISE_ALLOWED.has(f) && NOISE.test(read(f)));
+  ok(`nothing outside the two rendering files reaches for noise  (${noisy.join(', ') || 'none'})`,
+    noisy.length === 0);
+  const seeded = all.filter((f) => PRNG.test(read(f)));
+  ok(`and no file carries a seeded generator  (${seeded.join(', ') || 'none'})`,
+    seeded.length === 0);
+  // The exemptions have to stay honest: if one of them stops using noise, it
+  // should come off the list rather than sit there licensing a future use.
+  const unused = [...NOISE_ALLOWED].filter((f) => !NOISE.test(read(f)));
+  ok(`and every exemption is still using it  (${unused.join(', ') || 'both'})`, unused.length === 0);
 }
 
 console.log('\ncheats');
