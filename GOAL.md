@@ -1,6 +1,6 @@
 # GOAL: every item in BACKLOG.md done properly and fully — nothing failing, everything addressed
 
-Status: IN PROGRESS | sweeps | 8 commits pushed
+Status: IN PROGRESS | sweeps 4-7 | 10 commits pushed | backlog 131 done / 23 partial / 4 questions
 Started: 2026-08-30
 Base: cb1b26e, self test 1060/1060, exit 0
 
@@ -109,7 +109,18 @@ The right treatment is to keep obeying them and to keep the record current.
 - Sweep 3 (integration): screenshots taken and looked at. Minimap correct (the dark frame is
   a genuinely shadowed valley). Attribution not clipped at 360-1920 px. M2c re-examined
   visually across four renders; its conclusion holds.
-- Next: re-shoot the suite and compare against the pre-change set.
+- Sweep 4 (correctness, the no-generator rule): the guard named five files; a generator in a
+  sixth would have passed. Widened to all 72; clean, with the two deliberate rendering uses
+  named. Verified by sneaking a generator in.
+- Sweep 5 (units): "everywhere" was guarded on two files. Widened; found five readouts still
+  hard-coded to metric, including the help card telling a metric player they are 6 ft 0 in.
+- Sweep 6 (shaders): "across every file" was a hard-coded list of nine that had already
+  drifted — four no longer build a shader at all. Files are found now, not listed.
+- Sweep 7 (integration): the single file boots from file://, uses the in-page host, and draws
+  92.8% of the ground at its own resolution. The minimap scale bar reads "1,207 ft" where it
+  read "0 mi". Both fixes visible in the shipped artefact.
+- Every sweep so far has found something, so more are needed. The recurring shape is one
+  thing: a guard written against the instances that were wrong rather than against the rule.
 
 ## Notes for resume
 - Container resets wipe the tree: `git fetch origin main && git reset --hard origin/main && npm install`.
