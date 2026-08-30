@@ -91382,18 +91382,24 @@ class ImageryStreamer extends Emitter {
     const tile = { z: entry.tile.z, x: wrapTileX(entry.tile.x, entry.tile.z), y: entry.tile.y };
     // While degraded, one request at a time rather than none at all.
     //
-    // This used to be `this.degraded ? null : ...`, which is a latch with no
-    // key: degraded means "nothing is reaching any provider", it was set after
-    // ten consecutive failures, and from that moment urlFor was never called
-    // again — so nothing could succeed, so nothing could clear it. A tab that
-    // booted while the network was down, or that arrived somewhere with no
-    // imagery before anything had loaded, drew grey for the rest of the
-    // session and only a change of provider brought it back.
+    // This used to be `this.degraded ? null : urlFor(...)`, which is a latch
+    // with no key: degraded means "nothing is reaching any provider", it is set
+    // after ten consecutive failures, and from that moment urlFor was never
+    // called again — so nothing could succeed, so nothing could clear it. A tab
+    // that booted while the network was down, or whose graphics context was
+    // lost and restored (which resets the counters, so the latch re-arms), drew
+    // grey for the rest of the session and only a change of provider brought it
+    // back.
     //
-    // Letting a single probe through keeps the thing degraded is for — not
-    // hammering a dead network with hundreds of requests a second — while
-    // leaving a way back. One in flight is a request every round trip.
-    const url = this.degraded && this.active > 0 ? null : source.urlFor(tile);
+    // Throttled, not refused. The first version of this returned null here and
+    // fell into the branch below, which marks the square BARE — and bare is
+    // terminal, so the first pump after the latch wrote off the entire view
+    // permanently and only a trickle of newly-created tiles ever got a probe.
+    // Measured: 477 squares bare, still bare forty-five seconds later, no
+    // recovery. Leaving the entry untouched puts it back in the queue on the
+    // next frame, because the terrain asks again for everything it draws.
+    if (this.degraded && this.active > 0) return;
+    const url = source.urlFor(tile);
     // No URL means the provider has not handshaken (no key, metadata call
     // unanswered) or does not serve this tile. Either way there is nothing to
     // draw and nothing to invent: the tile stays bare and the ground under it

@@ -611,8 +611,16 @@ console.log('\na written-off depth can be un-written-off');
     ok('a degraded streamer still sends one probe', asked === 1);
     s4.active = 3;
     const before = asked;
-    s4.dispatch({ key: '10/1/2', tile: { z: 10, x: 2, y: 1 }, state: 0 });
+    const throttled = { key: '10/1/2', tile: { z: 10, x: 2, y: 1 }, state: 0 };
+    s4.dispatch(throttled);
     ok('but only one at a time, so a dead network is not hammered', asked === before);
+    // Throttled is not refused. The first version of this returned a null URL,
+    // which falls into the branch that marks a square BARE — and bare is
+    // terminal, so the first pump after the latch wrote off the whole view and
+    // only newly created tiles ever got a probe. Measured in the browser: 477
+    // squares bare, still bare forty-five seconds later, no recovery at all.
+    ok('and a square held back is left to be asked again, not written off',
+      throttled.state === 0);
     let recovered = 0;
     s4.on('recovered', () => { recovered += 1; });
     s4.jobs.set(7, { key: '10/1/1', tile: { z: 10, x: 1, y: 1 }, state: 1 });

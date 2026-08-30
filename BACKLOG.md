@@ -304,12 +304,41 @@ what is left · `[?]` needs a decision from you.
       settled flight, a 180 and standing still it came back 0.0 per cent every
       time. So it does not reproduce here.
 
-      Where it can still happen: a provider that refuses a square outright
-      (which is drawn bare deliberately and honestly, rather than invented),
-      and the first moments after a teleport before any cover tile has landed.
-      If it is still being seen, the thing worth knowing is where and with
-      which provider — the counter will say whether it is that or something
-      else.
+      But there was a way for it to happen that the counter could not see,
+      because it is not about any one square: the `degraded` latch.
+
+      It means "nothing is reaching any provider". It trips after ten
+      consecutive failures with nothing yet loaded, and it stopped the streamer
+      asking for a URL at all — so nothing could arrive, so nothing could clear
+      it, and every square in the world drew from the relief alone. Which is
+      exactly "everything becomes a solid colour".
+
+      What makes it a mid-session event rather than a boot-time one: the
+      counters it keys on are reset by `clear()`, and `clear()` runs when the
+      graphics context is lost and restored. On a machine short of memory that
+      happens at unpredictable moments — a turn that uploads a burst of
+      textures will do it — and the refetch storm immediately afterwards is
+      exactly the run of failures the latch is looking for. So: a stutter, and
+      then a flat-coloured world for the rest of the session. That also ties
+      this to A9.
+
+      Fixed, and verified end to end rather than by reading. Forcing the latch
+      in the running game left 330 squares drawing from relief alone; fifteen
+      seconds later it was 369 squares all carrying photographs, the flag
+      cleared, one "recovered" toast, and the loaded count climbing 120, 282,
+      413. Before the fix the same test sat at 477 bare, unchanged after
+      forty-five seconds.
+
+      The fix took two goes and the first one is worth recording: letting a
+      probe through by returning a null URL fell into the branch that marks a
+      square BARE, and bare is terminal — so the first pump after the latch
+      wrote off the entire view permanently and only newly created tiles ever
+      got a probe. Throttled and refused are different answers.
+
+      Still marked as a question because the *other* candidates in the original
+      note remain: a provider refusing one square, and the first moments after a
+      teleport. If it happens again, whether it clears by itself within a few
+      seconds now tells the two apart.
 - [x] B12. Randomly blurring depending on where I look
       Real, not random, and proportional to how far you turn. The ground behind
       you is outside the frustum, so it is never drawn and never asked for;
