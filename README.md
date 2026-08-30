@@ -208,9 +208,10 @@ Open **Settings → Providers** to change any of it:
 | Slot | Options |
 | --- | --- |
 | Photorealistic 3D | Google Photorealistic 3D Tiles (needs a key), the same via Cesium ion (needs a token), or off — with a four-step detail dial |
-| Imagery | Esri World Imagery (keyless, the default), Google Maps, Bing Maps, Azure Maps, Mapbox Satellite |
-| Elevation | AWS Terrain Tiles (keyless, the default), Mapbox Terrain-RGB, Bing Elevation |
+| Imagery | Keyless: Esri World Imagery (the default), Sentinel-2 cloudless, USGS imagery (United States), NASA GIBS (this week's Earth). On a key: Google Maps, Bing Maps, Azure Maps, Maxar SecureWatch, Cesium ion imagery, Mapbox Satellite |
+| Elevation | AWS Terrain Tiles (Terrarium — keyless, the default), Mapbox Terrain-RGB, Bing Maps elevation |
 | Street level | Google Street View, Mapillary, or off |
+| Reference map | Esri World Street Map or OpenFreeMap (OpenMapTiles vector schema), both keyless |
 | Buildings | OpenStreetMap footprints, infrastructure and bridge decks via Overpass, on by default |
 | Addresses | Apple Maps if a token is set, Google Geocoding if a key is set, otherwise Nominatim |
 

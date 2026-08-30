@@ -1000,6 +1000,32 @@ console.log('\na key that is bound is a key that does something');
     unreachable.length === 0);
 }
 
+console.log('\nthe README lists the providers that exist');
+{
+  // The README's provider table listed five imagery providers. There are
+  // twelve, and the three it omitted from the keyless half — Sentinel-2, USGS,
+  // NASA GIBS — are the ones that matter most to somebody deciding whether
+  // this needs an account. THIRD-PARTY.md had them all; the README did not.
+  const { IMAGERY_PROVIDERS, ELEVATION_PROVIDERS } = await import('../src/tiles/providers.js');
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  const all = [...IMAGERY_PROVIDERS, ...ELEVATION_PROVIDERS];
+  ok(`there are providers to document  (${all.length})`, all.length >= 12);
+  // Matched on the part of the label that identifies the provider — the stem
+  // before any parenthetical — because the README shortens "Google Maps
+  // (satellite)" to "Google Maps" and reasonably so. The rule is that every
+  // provider is named, not that its label is quoted verbatim. The first
+  // version demanded the whole string and failed on six providers that were
+  // all present, which would have been a check nobody could keep green.
+  const stem = (label) => label.split(' (')[0].trim();
+  const unnamed = all.filter((p) => !readme.includes(stem(p.label))).map((p) => p.label);
+  ok(`every provider is named in the README  (${unnamed.join(' | ') || 'all of them'})`,
+    unnamed.length === 0);
+  // And the keyless ones are marked as such, since that is the promise.
+  const keyless = all.filter((p) => !p.needsKey);
+  ok(`the keyless ones are called keyless  (${keyless.length})`,
+    keyless.length >= 5 && /Keyless:/.test(readme));
+}
+
 console.log('\nthe documents do not promise a generator');
 {
   // J1 removed the generator, and the self test has guarded the code against

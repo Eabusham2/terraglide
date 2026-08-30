@@ -2183,6 +2183,26 @@ what is left · `[?]` needs a decision from you.
       credited, which is a licence obligation rather than a courtesy — both of
       them checked by doing the wrong thing and watching the check fail.
 
+- [x] J1d. The README's provider table listed five of twelve, and hid three keyless ones
+      Found by the same sweep as J1c. The provider table said the imagery slot
+      offers "Esri World Imagery (keyless, the default), Google Maps, Bing Maps,
+      Azure Maps, Mapbox Satellite". There are twelve, and the three it left out
+      of the keyless half — Sentinel-2 cloudless, USGS imagery, NASA GIBS — are
+      exactly the ones that matter to somebody deciding whether this needs an
+      account. THIRD-PARTY.md had them all; the README, which is what anybody
+      reads first, did not. The elevation row and the reference-map row were
+      short too.
+
+      Corrected, split into keyless and on-a-key so the promise is legible, and
+      guarded: every provider in the code must be named in the README, and the
+      keyless ones must be marked as such.
+
+      The first version of that guard demanded the label verbatim and failed on
+      six providers that were all present — the README shortens "Google Maps
+      (satellite)" to "Google Maps", reasonably. A check nobody can keep green
+      is worse than none, so it matches the part of the label that identifies
+      the provider. Verified by dropping one keyless provider from the table.
+
 - [x] J2. A test on every mode
       The individual behaviours were already tested — a fall reaches 78.4, a
       walk is 4.32, a glide is Minecraft's tick — but nothing went through the
