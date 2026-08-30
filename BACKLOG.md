@@ -153,9 +153,22 @@ what is left · `[?]` needs a decision from you.
       empty and watches every tile: 21 of 40 half-second samples caught tiles
       mid-walk, 116 walking at once at the peak, and all 320 settled at the end.
 
+      "It needs to lock" was the other half of that, and it is done now too. The
+      walk was only ever in the vertex shader, so everything standing on the
+      ground — the collision, the camera, the chase rig — carried on reading the
+      tile's *destination* height while the surface was still on its way there.
+      The picture locked; you did not. See B2 and B4: 55 corrections of more
+      than a metre in two and a half minutes of flight, the biggest 82.8 m, and
+      the floor now blends exactly as the shader does.
+
       Holes: measured at 0.00 to 0.10 per cent across every view once the
-      character is excluded from the measurement — see the note under M7. The
-      brief blur is still open (B10, B12).
+      character is excluded from the measurement — see the note under M7.
+
+      The brief blur is the one part still open, and it is throughput rather
+      than a bug: at 55 m/s you cross six of the deepest tiles in the time one
+      comes back. See B10 for the numbers and for the prefetch that measured
+      worse, B12 for the same thing when you turn, and B11 for the flat-colour
+      case, which turned out to be the degraded latch and is fixed.
 - [x] B2. Random times a patch below appears, then the player glitches down
       The mid-flight correction is handled now, and it had a cause worth naming.
 
