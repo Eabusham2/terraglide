@@ -1504,6 +1504,27 @@ what is left · `[?]` needs a decision from you.
       Open, because the honest state is "half of it works with no key and the
       other half needs one of two accounts", and which of those you want to set
       up is your call.
+
+      The pipeline itself has now been verified without an account, which is
+      the half of this that was never really about the key. A stub was stood up
+      that speaks Cesium ion's handshake, hands back a real 3D Tiles tileset,
+      and serves genuinely valid GLB content — a proper binary glTF, header,
+      JSON chunk and BIN chunk — and the game's own loader was driven against
+      it. End to end:
+
+        ion endpoint asked            1, token accepted, bearer applied
+        tileset fetched and parsed    1
+        GLB content loaded            5, drawn 4, failed 0
+        terrain coverage engaged      1 square, so the ground steps aside
+        attribution carried through   "Stub Imagery Co" from ion's own
+                                      attributions, and the copyright out of
+                                      the GLB's asset block — both routes
+        status line                   "photorealistic 3D: 4 tiles"
+
+      So the handshake, the bearer header, the tileset walk, the Draco-capable
+      loader, the scene insertion, both attribution paths and the handshake with
+      the quadtree all work. What a real token adds is their servers, their
+      data and their quota — not any of this.
 - [x] G6. Why can I see 3D houses in MSFS (Azure) but not here
       Because that data is not published. Microsoft Flight Simulator's cities
       are Bing's aerial photogrammetry, delivered through a private pipeline
@@ -1545,6 +1566,27 @@ what is left · `[?]` needs a decision from you.
       a height somebody surveyed, that layer would extrude nothing at all. So
       Overpass stays the keyless route for buildings, and G21 is what made it
       hold up.
+
+      The pipeline itself has now been verified without an account, which is
+      the half of this that was never really about the key. A stub was stood up
+      that speaks Cesium ion's handshake, hands back a real 3D Tiles tileset,
+      and serves genuinely valid GLB content — a proper binary glTF, header,
+      JSON chunk and BIN chunk — and the game's own loader was driven against
+      it. End to end:
+
+        ion endpoint asked            1, token accepted, bearer applied
+        tileset fetched and parsed    1
+        GLB content loaded            5, drawn 4, failed 0
+        terrain coverage engaged      1 square, so the ground steps aside
+        attribution carried through   "Stub Imagery Co" from ion's own
+                                      attributions, and the copyright out of
+                                      the GLB's asset block — both routes
+        status line                   "photorealistic 3D: 4 tiles"
+
+      So the handshake, the bearer header, the tileset walk, the Draco-capable
+      loader, the scene insertion, both attribution paths and the handshake with
+      the quadtree all work. What a real token adds is their servers, their
+      data and their quota — not any of this.
 - [x] G8. Bing has satellite and a 3D mode — add the 3D
       Bing's satellite is here — the `bing` provider, on a Bing Maps key, and
       also reachable through Cesium ion as asset 2. Its 3D is not, and cannot
