@@ -2166,6 +2166,23 @@ what is left · `[?]` needs a decision from you.
       future use. Verified by sneaking a generator into a sixth file and a
       seeded PRNG into core/math.js: both fail by name.
 
+- [x] J1c. The document stating the data position was the last place promising a generator
+      J1 removed the generator, and the self test has guarded the code against
+      its return ever since. It did not guard the prose. THIRD-PARTY.md — the
+      document that sets out what data this project ships, what it fetches and
+      under whose terms — still said the game "falls back to locally generated
+      terrain so it runs with no account and no network".
+
+      True once. It stopped being true when the generator went, and it is the
+      opposite of the rule everything else here is judged on, sitting in the
+      one file somebody would read to find out what the project's position is.
+
+      Corrected, with the old wording kept in a parenthesis that says why it is
+      wrong rather than quietly rewritten. Guarded: no document may promise
+      generated terrain, and separately every vendored dependency must be
+      credited, which is a licence obligation rather than a courtesy — both of
+      them checked by doing the wrong thing and watching the check fail.
+
 - [x] J2. A test on every mode
       The individual behaviours were already tested — a fall reaches 78.4, a
       walk is 4.32, a glide is Minecraft's tick — but nothing went through the

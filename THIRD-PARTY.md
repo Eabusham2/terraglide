@@ -18,10 +18,17 @@ for this project.
 ## Map data providers (none bundled, all optional)
 
 TerraGlide ships with **no** map data and with every provider slot empty. It
-falls back to locally generated terrain so it runs with no account and no
-network. If you enter a key in Settings → Providers you are using that
-provider's service directly from your browser, under that provider's terms, on
-your own quota. Read them before you turn a provider on.
+runs with no account because several of the providers below need no key, not
+because it makes anything up: there is no generator, and ground nobody has
+photographed is drawn from the relief and left honest about it. (This paragraph
+used to say it "falls back to locally generated terrain", which was true once
+and stopped being true when the generator was removed — see J1 in BACKLOG.md.
+A document that states this project's data position should not have been the
+last place still claiming the opposite.)
+
+If you enter a key in Settings → Providers you are using that provider's
+service directly from your browser, under that provider's terms, on your own
+quota. Read them before you turn a provider on.
 
 | Provider | Used for | Key required | Terms |
 | --- | --- | --- | --- |

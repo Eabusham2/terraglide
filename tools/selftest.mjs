@@ -1000,6 +1000,37 @@ console.log('\na key that is bound is a key that does something');
     unreachable.length === 0);
 }
 
+console.log('\nthe documents do not promise a generator');
+{
+  // J1 removed the generator, and the self test has guarded the code against
+  // its return ever since. It did not guard the prose — and THIRD-PARTY.md, the
+  // document that states this project's data position, still said the game
+  // "falls back to locally generated terrain". True once; the last place still
+  // claiming the opposite of the rule everything else is judged on.
+  const CLAIM = /locally generated terrain|generated terrain|procedurally generated|falls back to (a )?generat/i;
+  const docs = ['README.md', 'THIRD-PARTY.md', 'index.html'];
+  const claiming = docs.filter((d) => {
+    let text;
+    try { text = readFileSync(new URL(`../${d}`, import.meta.url), 'utf8'); } catch { return false; }
+    // The correction itself names the old wording, in a parenthesis that says
+    // it stopped being true. Only a claim outside that counts.
+    const withoutTheNote = text.replace(/\(This paragraph[\s\S]*?BACKLOG\.md\.[\s\S]*?\)/g, '');
+    return CLAIM.test(withoutTheNote);
+  });
+  ok(`no document promises generated terrain  (${claiming.join(', ') || `${docs.length} checked`})`,
+    claiming.length === 0);
+
+  // And every vendored dependency is credited, which is a licence obligation
+  // rather than a courtesy.
+  const third = readFileSync(new URL('../THIRD-PARTY.md', import.meta.url), 'utf8');
+  const vendored = readdirSync(new URL('../vendor/', import.meta.url), { withFileTypes: true })
+    .filter((e) => e.isDirectory()).map((e) => e.name);
+  ok(`there is something vendored to credit  (${vendored.join(', ')})`, vendored.length > 0);
+  const uncredited = vendored.filter((name) => !new RegExp(name, 'i').test(third));
+  ok(`every vendored dependency is credited  (${uncredited.join(', ') || 'all of them'})`,
+    uncredited.length === 0);
+}
+
 console.log('\nno credential is committed');
 {
   // Keyless by default is a promise this project makes, and the other half of
