@@ -90201,7 +90201,20 @@ class PlayerController {
     // gave up and dropped you through the world. The mesh is what exists.
     if (this.terrain.meshHeightAt) {
       const drawn = this.terrain.meshHeightAt(x, z);
-      if (drawn !== null && drawn > ground) ground = drawn;
+      // Normally the higher of the two, which is the rule that stops the field
+      // reading sea level and dropping you through a mountain.
+      //
+      // While the ground is settling, the drawn surface wins outright. Fresh
+      // elevation steps the field instantly and walks the surface over a third
+      // of a second, so taking the higher one means an upward correction lifts
+      // you the moment it lands while the hillside is still on its way up —
+      // you stand on nothing, above the imagery, until it catches up. Measured
+      // over two and a half minutes of flight: 55 corrections of more than a
+      // metre, 45 of more than five, the biggest 82.8 m. That is "floating on
+      // invisible ground" and, as the surface arrives under you, "the player
+      // glitches down".
+      const settling = this.terrain.settlingAt?.(x, z) ?? false;
+      if (drawn !== null && (settling || drawn > ground)) ground = drawn;
       // Nothing drawn here at all — the tile has not been built yet. Sea level
       // is a guess, and it is the one guess that drops you inside a mountain,
       // so carry the last floor we actually stood on instead until the ground
@@ -96840,6 +96853,12 @@ class Terrain {
     this.frustum = new THREE.Frustum();
     this.projScreenMatrix = new THREE.Matrix4();
     this.stats = { drawn: 0, built: 0, nodes: 0, baseZoom: 0, maxZoom: 0 };
+    // Scratch for drawnY, so reading the floor allocates nothing per frame.
+    this._triA = new THREE.Vector3();
+    this._triB = new THREE.Vector3();
+    this._triC = new THREE.Vector3();
+    this._bary = new THREE.Vector3();
+    this._hitLocal = new THREE.Vector3();
     this.wantedElevationZoom = 6;
 
     this._box = new THREE.Box3();
@@ -97962,7 +97981,8 @@ class Terrain {
    * field's height leaves you shin-deep in it. Asking the mesh directly is what
    * keeps your feet on the ground you are actually looking at.
    */
-  meshHeightAt(x, z) {
+  /** The most detailed drawn tile covering a point, or null. */
+  nodeAt(x, z) {
     let best = null;
     let bestSize = Infinity;
     for (const node of this.drawn) {
@@ -97976,11 +97996,78 @@ class Terrain {
         best = node;
       }
     }
+    return best;
+  }
+
+  /**
+   * True while the ground under a point is still walking to a new height.
+   *
+   * Anything standing on the ground needs this: for the third of a second a
+   * correction takes, the elevation field has already stepped and the surface
+   * has not, so the two are different answers and only one of them is the one
+   * you can see.
+   */
+  settlingAt(x, z) {
+    const node = this.nodeAt(x, z);
+    return !!node && (node.material?.uniforms?.uMorph?.value ?? 1) < 1;
+  }
+
+  meshHeightAt(x, z) {
+    const best = this.nodeAt(x, z);
     if (!best) return null;
 
     this._ray.set(this._rayOrigin.set(x, 60000, z), this._rayDown);
     const hit = this._ray.intersectObject(best.mesh, false);
-    return hit.length > 0 ? hit[0].point.y : null;
+    if (hit.length === 0) return null;
+    return this.drawnY(best, hit[0]);
+  }
+
+  /**
+   * Where the surface is being *drawn*, not where it is heading.
+   *
+   * When fresh elevation lands, a tile does not step to the new heights, it
+   * walks to them over MORPH_SECONDS — but the walk happens in the vertex
+   * shader, `mix(prevY, position.y, uMorph)`, and the geometry on this side
+   * holds only the destination. So a raycast lands on ground that is not there
+   * yet, and for a third of a second after every correction the floor the
+   * player stands on and the floor they can see are different surfaces.
+   *
+   * Measured over two and a half minutes of flight: the height under a fixed
+   * point took 55 steps of more than a metre, 45 of more than five, the biggest
+   * 82.8 m — every one of them instant on this side and a third of a second
+   * long on the other. That is "a patch below appears, then the player glitches
+   * down" and "floating on invisible ground above the imagery", which are the
+   * same disagreement in its two signs.
+   *
+   * So blend the same way the shader does, from the same attribute, at the
+   * point the ray actually hit. The delta is identical in local and world
+   * space — the tile is axis-aligned and unscaled — so it can be applied
+   * straight to the world hit.
+   */
+  drawnY(node, hit) {
+    const y = hit.point.y;
+    const morph = node.material?.uniforms?.uMorph?.value ?? 1;
+    if (morph >= 1 || !hit.face) return y;
+    const geometry = node.mesh.geometry;
+    const prev = geometry.getAttribute('prevY');
+    const position = geometry.getAttribute('position');
+    if (!prev || !position) return y;
+    this._triA.fromBufferAttribute(position, hit.face.a);
+    this._triB.fromBufferAttribute(position, hit.face.b);
+    this._triC.fromBufferAttribute(position, hit.face.c);
+    node.mesh.worldToLocal(this._hitLocal.copy(hit.point));
+    if (!THREE.Triangle.getBarycoord(this._hitLocal, this._triA, this._triB, this._triC, this._bary)) {
+      return y;
+    }
+    const destY =
+      this._triA.y * this._bary.x + this._triB.y * this._bary.y + this._triC.y * this._bary.z;
+    const prevAt =
+      prev.getX(hit.face.a) * this._bary.x
+      + prev.getX(hit.face.b) * this._bary.y
+      + prev.getX(hit.face.c) * this._bary.z;
+    // Same blend, same direction: where the shader has got to, not where it is
+    // going.
+    return y + (prevAt - destY) * (1 - morph);
   }
 
   /**

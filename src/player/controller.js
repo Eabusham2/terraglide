@@ -557,7 +557,20 @@ export class PlayerController {
     // gave up and dropped you through the world. The mesh is what exists.
     if (this.terrain.meshHeightAt) {
       const drawn = this.terrain.meshHeightAt(x, z);
-      if (drawn !== null && drawn > ground) ground = drawn;
+      // Normally the higher of the two, which is the rule that stops the field
+      // reading sea level and dropping you through a mountain.
+      //
+      // While the ground is settling, the drawn surface wins outright. Fresh
+      // elevation steps the field instantly and walks the surface over a third
+      // of a second, so taking the higher one means an upward correction lifts
+      // you the moment it lands while the hillside is still on its way up —
+      // you stand on nothing, above the imagery, until it catches up. Measured
+      // over two and a half minutes of flight: 55 corrections of more than a
+      // metre, 45 of more than five, the biggest 82.8 m. That is "floating on
+      // invisible ground" and, as the surface arrives under you, "the player
+      // glitches down".
+      const settling = this.terrain.settlingAt?.(x, z) ?? false;
+      if (drawn !== null && (settling || drawn > ground)) ground = drawn;
       // Nothing drawn here at all — the tile has not been built yet. Sea level
       // is a guess, and it is the one guess that drops you inside a mountain,
       // so carry the last floor we actually stood on instead until the ground

@@ -5752,6 +5752,68 @@ console.log('\nThe trail thins rather than forgetting');
   }
 }
 
+console.log('\nThe floor is the ground you can see, while it is still moving');
+{
+  const THREE = await import('../vendor/three/three.module.js');
+  const { Terrain } = await import('../src/world/terrain.js');
+
+  // A tile does not step to fresh elevation, it walks — but the walk happens in
+  // the vertex shader, mix(prevY, position.y, uMorph), and the geometry on this
+  // side holds only the destination. So a raycast lands on ground that is not
+  // there yet, and for the third of a second the walk takes, the floor the
+  // player stands on and the floor they can see are different surfaces.
+  //
+  // Measured in flight before the fix: the height under a fixed point took 55
+  // steps of more than a metre in two and a half minutes, 45 of more than five,
+  // the biggest 82.8 m — instant on this side, a third of a second on the
+  // other. It cannot be observed in the headless harness, which renders at
+  // about 1.4 frames a second, so the morph is over before the next frame; the
+  // arithmetic is checked here instead.
+  const terrain = Object.create(Terrain.prototype);
+  terrain._triA = new THREE.Vector3();
+  terrain._triB = new THREE.Vector3();
+  terrain._triC = new THREE.Vector3();
+  terrain._bary = new THREE.Vector3();
+  terrain._hitLocal = new THREE.Vector3();
+
+  // One flat triangle at y = 100, which used to be at y = 20.
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+    0, 100, 0, 10, 100, 0, 0, 100, 10,
+  ]), 3));
+  geometry.setAttribute('prevY', new THREE.BufferAttribute(new Float32Array([20, 20, 20]), 1));
+  const mesh = new THREE.Mesh(geometry);
+  mesh.position.set(0, 0, 0);
+  mesh.updateMatrixWorld(true);
+  const node = { mesh, material: { uniforms: { uMorph: { value: 0 } } } };
+  const hit = { point: new THREE.Vector3(2, 100, 2), face: { a: 0, b: 1, c: 2 } };
+
+  node.material.uniforms.uMorph.value = 0;
+  ok(`at the start of the walk the floor is where the ground was  (${terrain.drawnY(node, hit)})`,
+    Math.abs(terrain.drawnY(node, hit) - 20) < 1e-6);
+  node.material.uniforms.uMorph.value = 0.5;
+  ok(`halfway it is halfway  (${terrain.drawnY(node, hit)})`,
+    Math.abs(terrain.drawnY(node, hit) - 60) < 1e-6);
+  node.material.uniforms.uMorph.value = 1;
+  ok(`and at the end it is the new height  (${terrain.drawnY(node, hit)})`,
+    Math.abs(terrain.drawnY(node, hit) - 100) < 1e-6);
+
+  // A tile with no morph running is left exactly alone, so the ordinary case
+  // costs nothing and cannot be shifted by this.
+  const plain = { mesh, material: { uniforms: {} } };
+  ok('a tile that is not settling is untouched',
+    terrain.drawnY(plain, hit) === 100);
+
+  // And the controller has to prefer the drawn surface while it moves, or the
+  // "take the higher of the two" rule lifts you to the new height the instant
+  // it lands and leaves you above the hillside until it arrives.
+  const controllerSrc = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');
+  ok('the controller asks whether the ground is settling',
+    /const settling = this\.terrain\.settlingAt\?\.\(x, z\) \?\? false;/.test(controllerSrc));
+  ok('and lets the drawn surface win while it is',
+    /if \(drawn !== null && \(settling \|\| drawn > ground\)\) ground = drawn;/.test(controllerSrc));
+}
+
 console.log('\nEvery hand-written shader writes depth on the same scale');
 {
   // The renderer runs with logarithmicDepthBuffer, which means depth is not the

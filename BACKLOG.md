@@ -156,9 +156,35 @@ what is left · `[?]` needs a decision from you.
       Holes: measured at 0.00 to 0.10 per cent across every view once the
       character is excluded from the measurement — see the note under M7. The
       brief blur is still open (B10, B12).
-- [~] B2. Random times a patch below appears, then the player glitches down
-      — same cause as A1 and improved by the same change, but only measured on
-      arrival. A correction arriving mid-flight is still unhandled.
+- [x] B2. Random times a patch below appears, then the player glitches down
+      The mid-flight correction is handled now, and it had a cause worth naming.
+
+      When fresh elevation lands, a tile does not step to the new heights, it
+      walks to them over a third of a second — but the walk happens in the
+      vertex shader, `mix(prevY, position.y, uMorph)`, and the geometry on the
+      CPU side holds only the destination. So everything that stands on the
+      ground — the collision, the camera, the chase rig — was reading a surface
+      that is not there yet, while the surface you can see was somewhere else.
+
+      Measured over two and a half minutes of flight: the height under a fixed
+      point took 55 steps of more than a metre, 45 of more than five, the
+      biggest 82.8 m. Every one instant on the standing side and a third of a
+      second long on the drawn side.
+
+      Two changes. The floor now blends the same way the shader does, from the
+      same attribute, at the point the ray actually hit — so asking where the
+      ground is gets the answer you can see. And the controller prefers that
+      answer outright while the ground is settling, rather than taking the
+      higher of it and the field: taking the higher one is what lifted you to
+      the new height the moment it landed and left you there until the hillside
+      caught up.
+
+      Checked deterministically rather than in flight, and that is worth saying:
+      the headless harness renders at about 1.4 frames a second, so a third of a
+      second of morph is over before the next frame and the transient cannot be
+      observed here at all. The blend is unit-tested instead — 20 m at the start
+      of the walk, 60 halfway, 100 at the end, and a tile that is not settling
+      left exactly alone.
 - [~] B3. Sometimes most of the ground below me is missing and I stand on an invisible platform with patches
       An invisible platform is the elevation field still answering while the
       mesh over it is not drawn, so that is what was measured: over three
@@ -183,9 +209,23 @@ what is left · `[?]` needs a decision from you.
       this one, and the measurement above is a hard flight rather than every
       condition — a provider failing mid-flight, or a machine short of memory,
       are not in it.
-- [~] B4. Floating on invisible ground above the imagery
-      — you are no longer *set down* on ground the game has not measured.
-      Whether it still happens after a mid-flight correction is untested.
+- [x] B4. Floating on invisible ground above the imagery
+      Two causes, and this was the second one. You are no longer *set down* on
+      ground the game has not measured — that was the first.
+
+      The other is B2's, seen from the other side. A correction that raises the
+      ground steps the elevation field instantly and walks the surface up over a
+      third of a second, and the rule for standing was "take the higher of the
+      field and the drawn mesh" — a rule that exists to stop a missing field
+      reading sea level and dropping you through a mountain. So on the way up
+      the field won, and you were lifted to the new height while the hillside
+      was still on its way: standing on nothing, above the imagery, until it
+      arrived under you.
+
+      Fixed with B2, and the same measurement covers both: 55 corrections of
+      more than a metre in two and a half minutes, the biggest 82.8 m. The
+      no-falling-through rule is untouched everywhere else; it only steps aside
+      while the ground is actually moving.
 - [~] B5. Ground becomes griddy and comes back — moves up or down and shows a grid
       The moving up and down is fixed — see B1, it is fresh elevation landing
       and the tile now walks rather than steps.
