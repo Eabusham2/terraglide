@@ -145,7 +145,21 @@ what is left · `[?]` needs a decision from you.
       — and refuses to report anything if it does not. The first version of this
       check said "NO", which is how the fault was found.
 
-      Still open because it is your machine it happened on, not this one.
+      Tried again on a slow machine, because this is a report about a
+      three-second window and the first test ran at full speed — where that
+      window is two hundred frames. Throttled to an eighth, it is a handful,
+      which is exactly where a frame-ordering fault would live. The keypress
+      was again proved to reach the game first:
+
+        no press          landed 23.37434, 114.15322   moved 0.00000 deg   cells 100 -> 151
+        press at 1.0 s    landed -15.66336, -62.83765  moved 0.00000 deg   cells 151 -> 165
+        press at 2.5 s    landed 33.00387, -7.01450    moved 0.00000 deg   cells 165 -> 217
+
+      Nothing moved after landing and the record only ever grew, at both
+      timings, on a machine eight times slower than this one.
+
+      Still open because it is your machine it happened on, not this one — but
+      the condition most likely to produce it has now been tried and did not.
 - [~] A7. It randomly refreshes
       Nothing in the game reloads itself — no location.reload anywhere — so this
       is the browser killing the tab, and the likeliest reason is memory. The

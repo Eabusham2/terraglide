@@ -1,7 +1,8 @@
 # GOAL: every item in BACKLOG.md done properly and fully — nothing failing, everything addressed
 
-Status: PASS 1 AND SWEEPS COMPLETE — 21 commits pushed, 1116 checks green, three consecutive clean sweeps.
-        What remains is blocked on you: a machine, a credential, or a one-line decision.
+Status: PASS 2 — the "blocked on you" pile was not the boundary it looked like.
+        Reproducing the machines instead of waiting for one found A7's real cause.
+        26 commits pushed, 1125 checks green.
 Started: 2026-08-30
 Base: cb1b26e, self test 1060/1060, exit 0
 
@@ -36,9 +37,31 @@ one-line answer. They go in the closing message as a single batch of questions.
 - [ ] R-B5  M16 delete `online-singlefile` and `claude/world-exploration-game-962wpo`? (irreversible, needs a word)
 - [ ] R-B6  Task #18 "3D models via Glif / Hugging Face" — generated models conflict with the no-invented-data rule
 
-## R-C. Items blocked on the user's own machine
-Measured clean here; the report was from their device. Not closable by me.
-The work left is to keep hardening the causes that could produce them.
+## R-C. Items blocked on the user's own machine — RE-OPENED AND WORKED
+A Chromebook is a device class and a boot hang is a boot waiting on something.
+Both can be imposed here, and doing so found a real bug I had written off.
+
+- [x] A7  FOUND AND FIXED. Under CPU throttle + 2 GB the texture cache held 1,731
+      textures against its own budget of 160 — ~440 MB where the budget says 40, which
+      is a tab dying. Cause: the 20 s hold was absolute and bounded nothing. First fix
+      (let it yield) was WRONG — own-picture 71% -> 15%, queue 104 -> 1,165 — and was
+      thrown away. Real cause: the budget was smaller than the view, so the cache had to
+      either thrash or overshoot. Floored at the view; 534 held against 520, picture intact.
+- [x] A0  Mechanism reproduced both ways (module hangs; module rewritten by a portal).
+      Watchdog fires at 20 s with an accurate message and a working link. Dead network
+      boots in 388 ms and says what is unreachable.
+- [x] A9  Simulated: auto settles Low, context never lost, latch never tripped, nothing bare.
+- [x] A6  Retried at 8x throttle with a verified keypress: record only grew, nothing moved.
+- [x] B3, B6  Measured under low-end: nothing bare, drawn cap never bound.
+- [x] I16  Found and fixed a real one: U+2192 in the first-run toast shown to low-end
+      machines, exactly the font sets that drop arrows. Guarded system-wide.
+- [x] M3  Partly explained by A7's memory pressure.
+- [x] H3  Antarctica IS reachable now. Judged: correct, and it looks like Antarctica.
+- [x] G1, G2  Failure paths served and verified without a key; Google's own words reach
+      the status line and the game keeps drawing.
+
+Still needing the user: whether it still happens on their machine, and the success
+path for a key I do not have (G5, G7).
 
 - [ ] R-C1  A0  boot hang
 - [ ] R-C2  A9  Chromebook
