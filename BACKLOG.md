@@ -366,9 +366,16 @@ what is left · `[?]` needs a decision from you.
       the depth test can separate them, since over sea every vertex sits at
       exactly zero and nothing else can.
 
-      Left open rather than closed because one photograph of one place is not
-      the same as it never happening. If you see it again, where matters —
-      over water or over land tells the two candidate causes apart.
+      Re-shot since, at the same place and on a slow machine, because a grid
+      that only appears when the machine is struggling would have been missed
+      by the first photograph. From 1,500 m over the Strait looking straight
+      down, CPU throttled to a sixth: a clean gradient across the water, no
+      stipple, no seams, no tile edges, 96.3 per cent of the ground at its own
+      resolution and nothing bare.
+
+      Left open rather than closed because two photographs of one place are
+      still not the same as it never happening. If you see it again, where
+      matters — over water or over land tells the two candidate causes apart.
 - [~] B6. Randomly starts disappearing, getting patchy, falling apart, coming back in chunks
       Three separate things were behind this and two are now measured out.
 
@@ -3033,8 +3040,32 @@ what is left · `[?]` needs a decision from you.
       it is a strict subset), and claude/world-exploration-game-962wpo, which
       is an old snapshot and the only place the deleted terrain generator still
       exists. Deleting a remote branch is refused by the permission gate here,
-      and the second one is also the branch this session was told to develop
-      on, so neither is something to delete unilaterally. Both want a word.
+      it is irreversible, and it is outward-facing, so neither is something to
+      delete unilaterally. Both still want a word — but the facts behind that
+      word are exact now rather than approximate, which is most of what was
+      missing from it.
+
+      `online-singlefile`: two commits, and not one file that main does not
+      have. It differs only by older copies of README.md, index.html and
+      terraglide-online.html — 70 insertions against 238,766 deletions. It
+      holds nothing at all.
+
+      `claude/world-exploration-game-962wpo`: two commits, the second of them
+      called "Retire this branch: take main's tree wholesale". That retirement
+      took main's tree at a point before the generator was removed, so exactly
+      one file on it does not exist on main —
+
+          src/tiles/procedural.js, 7,990 bytes
+
+      — which is the terrain generator J1 deleted. It is the last living copy
+      of the thing this project is judged on not having, on a branch nobody
+      uses. That is a stronger reason to delete it than tidiness, and it is new
+      since this item was written.
+
+      One caution against acting on that alone: this session's own instructions
+      name that branch as the one to develop on, even though the work has all
+      gone to main at your direction. So it is not merely stale — it is named,
+      which is a second reason it is your word rather than mine.
 - [~] M17. Stop patching with bandaids — fix the system
       Same rule as J3, and the clearest example of it being obeyed is the one
       where it had previously been broken. D7 stopped a weak rocket braking you
