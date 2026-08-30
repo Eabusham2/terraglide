@@ -1186,10 +1186,57 @@ what is left · `[?]` needs a decision from you.
       rainforest 0.765, conifer 0.842, broadleaf 0.803, scrub with trees 0.403,
       uniform green fields 0.129, ploughed field 0.000, desert 0.000.
 - [~] H3. Improve Antarctica
-      — the launch-into-Antarctica throw is fixed. The coarse elevation there
-      is genuinely 2.7 km wrong (zoom 6/8/10 all read ~944 m for 3,656 m of
-      ice), which is the provider's data, not ours. Nothing done yet about how
-      it *looks*.
+      The launch-into-Antarctica throw is fixed. Going after how it *looks*
+      turned up three real bugs, none of them about Antarctica, and one honest
+      limit.
+
+      First, what is actually there. Esri answers every request over the East
+      Antarctic plateau with HTTP 200 — but from zoom 14 down it is their "map
+      data not yet available" card, not a photograph. Proved rather than
+      guessed: four neighbouring z14 tiles come back byte-identical to each
+      other *and* to four tiles from the mid-Pacific, all 2,521 bytes, the same
+      hash. Real imagery is never byte-identical between neighbours. Walking the
+      zooms, Esri has genuine pictures down to z13 and the card from z14.
+
+      So the ground should draw the z13 photograph stretched. It drew grey.
+      Three causes, all fixed:
+
+      The quadtree had no brake over unimaged ground. `finest`, the thing that
+      stops it subdividing, is fed only by tiles that *load*, from their
+      measured sharpness — a square nobody has photographed never loads, so it
+      never reports anything. The tree carried on splitting into squares that
+      cannot have a picture and drew every leaf bare. It now stops where the
+      squares below are known barren, read off the `barren` record so it expires
+      with it; as a set of its own, which is how it was first written, one
+      transient refusal capped the depth over a whole region for the session.
+
+      "This square has no picture" was being counted as "this provider stops at
+      this depth". reviewDepth's own comment says coverage is not a single depth
+      — Esri serves 19 over a town and stops at 17 over a glacier a valley away
+      — which is exactly why `barren` exists per square. Feeding the card
+      refusals into the global limit as well pulls it down over any ground where
+      the imagery genuinely ends. The two travel separately now.
+
+      And `degraded` had no way back. It means "nothing is reaching any
+      provider", it latches after ten consecutive failures with nothing loaded,
+      and it stopped urlFor being called at all — so nothing could succeed, so
+      nothing could clear it. A tab that booted while the network was down, or
+      that arrived somewhere with no imagery before anything had loaded, drew
+      grey for the rest of the session and only changing provider brought it
+      back. One probe still goes out now, and an arrival clears it and says so.
+
+      The honest limit: Antarctica cannot be judged from this sandbox. Its
+      outbound proxy fails most fetches there — the per-zoom tally after a
+      teleport reads 0 loaded and 5 to 30 failed at every level from 6 to 15,
+      while the same URLs fetched directly from the page return real imagery.
+      So the "372 tiles, all bare" I measured before the fixes is largely this
+      environment, and the "0 bare, but only zoom 5" after it is the depth
+      limiter correctly reacting to those same failures. What the fixes are
+      worth over Antarctica is for your machine to say.
+
+      The elevation is better than this file claimed: 2,895 m here against the
+      ~944 m recorded, so the coarse-elevation complaint may have been a
+      different spot or a since-updated tile.
 - [x] H4. Improve above the clouds
       There was nothing above the clouds, because there were no clouds. Flying
       at 5,000 m over a valley floor at 1,000 with the cover forced to 0.85 and

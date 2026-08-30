@@ -382,6 +382,16 @@ export class Game {
       this.toast('Imagery provider unreachable — the ground stays bare', 'warn');
     });
 
+    // And the way back. The warning above used to be the last word: degraded
+    // stopped the streamer asking for anything, so nothing could arrive to
+    // disprove it, and the map stayed in its bare state for the rest of the
+    // session. A probe still goes out now, and when one lands the world says so
+    // rather than quietly filling in.
+    this.streamer.on('recovered', () => {
+      mapTiles.setDegraded(false);
+      this.toast('Imagery is reaching us again', 'good');
+    });
+
     window.addEventListener('resize', () => this.resize());
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) this.lastTime = performance.now();

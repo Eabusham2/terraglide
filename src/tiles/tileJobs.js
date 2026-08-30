@@ -44,6 +44,10 @@ export async function runJob(msg, post) {
         ok: false,
         channel,
         id: msg.id,
+        // "This square has no picture" travels separately from "the request
+        // failed", because only the second is evidence about how deep the
+        // provider goes. See reviewDepth.
+        noImageryHere: err?.noImageryHere === true,
         error: String(err && err.message ? err.message : err),
       });
     }
@@ -83,7 +87,14 @@ async function handleImagery(msg, jobKey, post) {
     // Reported as a failure so the streamer moves down its standby list. A
     // provider saying "not available" is exactly what standbys are for, and
     // Sentinel-2 behind it has cover everywhere.
-    throw new Error('provider has no imagery here');
+    //
+    // Tagged, because the two kinds of failure mean different things and were
+    // being treated alike. A refused *connection* is evidence about the
+    // provider; a card is evidence about this one square. See NO_IMAGERY_HERE
+    // and reviewDepth.
+    const err = new Error('provider has no imagery here');
+    err.noImageryHere = true;
+    throw err;
   }
   // How much detail this one actually carries, so the streamer can tell a real
   // level of resolution from the level above it resampled bigger — and stop

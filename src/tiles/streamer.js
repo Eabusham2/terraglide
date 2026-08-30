@@ -40,6 +40,12 @@ const KEEP_SECONDS = 20;
  * within a few seconds of arriving, rare enough that it is one request in
  * thousands.
  */
+/**
+ * The shallowest zoom at which "nobody has this square" is allowed to stop the
+ * quadtree. Six is about a thousand kilometres across: below that a refusal is
+ * far more likely to be an outage than an absence.
+ */
+const NO_DEEPER_FROM_ZOOM = 6;
 const DEPTH_PROBE_MS = 30000;
 
 /**
@@ -275,6 +281,24 @@ export class ImageryStreamer extends Emitter {
    * this valley was a resample of 19, so is everything under it.
    */
   atFinest(tile) {
+    // Nobody has a picture of the ground under this square, so descending into
+    // it cannot find one — and that is the same question `finest` answers, from
+    // different evidence.
+    //
+    // `finest` was fed only by tiles that *loaded*, from their measured
+    // sharpness, so ground where the imagery simply stops had no brake at all:
+    // the tree carried on splitting into squares nobody has photographed and
+    // drew every leaf bare. Measured over the East Antarctic plateau, where
+    // Esri's imagery ends at zoom 13 and zoom 14 is their "map data not yet
+    // available" card: 372 drawn tiles across zooms 12 to 19, not one
+    // photograph among them, with the real zoom-13 picture never asked for.
+    //
+    // Read off `barren` rather than kept in a set of its own, which is what
+    // this was first written as and was wrong: a set has no expiry, so one
+    // transient refusal capped the depth over a whole region for the rest of
+    // the session — measured, it stopped Antarctica at zoom 5. `barren`
+    // already forgets after ninety seconds, for exactly that reason.
+    if (this.childrenBarren(tile)) return true;
     if (!this.finest.size || tile.z < SHARPNESS_FROM_ZOOM) return false;
     let { z, x, y } = tile;
     while (z >= SHARPNESS_FROM_ZOOM) {
@@ -470,6 +494,30 @@ export class ImageryStreamer extends Emitter {
   }
 
   /**
+   * True when the squares immediately below this one are known to have no
+   * photograph, so splitting would draw four blank children instead of this
+   * one's own picture stretched.
+   *
+   * Floored well above zero: a refusal for a square the size of a continent is
+   * far more likely to be an outage than an absence, and acting on it would
+   * stop the world subdividing across an ocean.
+   */
+  childrenBarren(tile) {
+    if (this.barren.size === 0 || tile.z < NO_DEEPER_FROM_ZOOM) return false;
+    const moment = now();
+    const z = tile.z + 1;
+    let found = false;
+    for (let i = 0; i < 4; i++) {
+      const key = tileKey(z, tile.x * 2 + (i & 1), tile.y * 2 + (i >> 1));
+      const at = this.barren.get(key);
+      if (at === undefined) continue;
+      if (moment - at < BARREN_TTL_MS) found = true;
+      else this.barren.delete(key);
+    }
+    return found;
+  }
+
+  /**
    * Ask for the coarse tiles above this one as well.
    *
    * Called when a tile has nothing to draw and no loaded ancestor to stretch
@@ -582,7 +630,20 @@ export class ImageryStreamer extends Emitter {
       return;
     }
     const tile = { z: entry.tile.z, x: wrapTileX(entry.tile.x, entry.tile.z), y: entry.tile.y };
-    const url = this.degraded ? null : source.urlFor(tile);
+    // While degraded, one request at a time rather than none at all.
+    //
+    // This used to be `this.degraded ? null : ...`, which is a latch with no
+    // key: degraded means "nothing is reaching any provider", it was set after
+    // ten consecutive failures, and from that moment urlFor was never called
+    // again — so nothing could succeed, so nothing could clear it. A tab that
+    // booted while the network was down, or that arrived somewhere with no
+    // imagery before anything had loaded, drew grey for the rest of the
+    // session and only a change of provider brought it back.
+    //
+    // Letting a single probe through keeps the thing degraded is for — not
+    // hammering a dead network with hundreds of requests a second — while
+    // leaving a way back. One in flight is a request every round trip.
+    const url = this.degraded && this.active > 0 ? null : source.urlFor(tile);
     // No URL means the provider has not handshaken (no key, metadata call
     // unanswered) or does not serve this tile. Either way there is nothing to
     // draw and nothing to invent: the tile stays bare and the ground under it
@@ -636,7 +697,22 @@ export class ImageryStreamer extends Emitter {
       this.stats.failed++;
       if (!msg.aborted) {
         this.zoomRecord(entry.tile.z).failed++;
-        this.reviewDepth(entry.tile.z);
+        // A square with no picture in it is not evidence about how deep this
+        // provider goes, and counting it as such is how a continent ended up
+        // drawn at zoom 5.
+        //
+        // reviewDepth's own comment says coverage is not a single depth —
+        // Esri serves 19 over a town and stops at 17 over a glacier a valley
+        // away — and `barren` is the per-square answer built for exactly that.
+        // But every refusal, including "here is my not-available card", was
+        // also being fed to the global depth limit. Over the East Antarctic
+        // plateau, where the imagery genuinely ends at zoom 13, a handful of
+        // those pulled the limit down to 5 and the latch then stopped anything
+        // deeper being asked, so nothing could arrive to lift it again.
+        //
+        // Transport failures still count: a run of 404s with the level above
+        // succeeding really is a provider saying how deep it goes.
+        if (!msg.noImageryHere) this.reviewDepth(entry.tile.z);
         this.consecutiveFailures++;
         // Every provider refusing is worth saying out loud. There is nothing
         // to fall back to any more — no generator — so the ground is coloured
@@ -650,6 +726,13 @@ export class ImageryStreamer extends Emitter {
       return;
     }
     this.consecutiveFailures = 0;
+    // Something arrived, so "nothing is reaching any provider" is no longer
+    // true. Said here rather than anywhere cleverer because that is exactly
+    // what the flag claims and exactly what has just been disproved.
+    if (this.degraded) {
+      this.degraded = false;
+      this.emit('recovered', {});
+    }
     if (!msg.bitmap) return;
 
     const texture = new THREE.Texture(msg.bitmap);

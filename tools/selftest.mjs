@@ -530,6 +530,95 @@ console.log('\na written-off depth can be un-written-off');
   streamer.reviewDepth(22);
   ok(`a provider that refuses a level is written off there  (${streamer.depthLimit})`,
     streamer.depthLimit === 21);
+
+  // But "this square has no picture in it" is not evidence about how deep the
+  // provider goes, and it was being counted as if it were.
+  //
+  // reviewDepth's own reasoning says coverage is not a single depth — Esri
+  // serves 19 over a town and stops at 17 over a glacier a valley away — which
+  // is why `barren` exists as the per-square answer. Feeding the card refusals
+  // into the global limit as well pulls it down over any ground where the
+  // imagery genuinely ends, and the limit then stops anything deeper being
+  // asked, so nothing can arrive to lift it.
+  {
+    const s2 = new ImageryStreamer({ postMessage() {}, addEventListener() {} },
+      { capabilities: { getMaxAnisotropy: () => 1 } });
+    s2.source = { maxZoom: 23, ready: true, urlFor: () => 'x' };
+    s2.standbys = [];
+    s2.zoomRecord(13).loaded = 4;
+    const fail = (z, noImageryHere) => {
+      const entry = { key: `${z}/1/1`, tile: { z, x: 1, y: 1 }, state: 1, attempt: 99 };
+      s2.jobs.set(1, entry);
+      s2.active = 1;
+      s2.onWorkerMessage({ channel: 'imagery', id: 1, ok: false, noImageryHere, error: 'x' });
+    };
+    for (let i = 0; i < 8; i += 1) fail(14, true);
+    ok(`eight squares with no picture do not cap the provider  (${s2.depthLimit})`,
+      s2.depthLimit === Infinity);
+    for (let i = 0; i < 8; i += 1) fail(14, false);
+    ok(`but eight refused requests do  (${s2.depthLimit})`, s2.depthLimit === 13);
+  }
+
+  // Nor should the quadtree keep splitting into ground nobody has imaged.
+  //
+  // `finest`, the brake on subdividing, is fed only by tiles that *load*, from
+  // their measured sharpness — so a square the provider has no picture of
+  // never reports anything and there was no brake at all. The tree carried on
+  // splitting and drew every leaf bare.
+  {
+    const s3 = new ImageryStreamer({ postMessage() {}, addEventListener() {} },
+      { capabilities: { getMaxAnisotropy: () => 1 } });
+    ok('a tile whose children are all unknown still splits',
+      s3.childrenBarren({ z: 12, x: 4, y: 4 }) === false);
+    // The same clock the streamer keeps these in — performance.now(), not
+    // Date.now(). Mixing the two makes every stale entry read as freshly
+    // recorded, because a wall-clock millisecond count is astronomically
+    // larger than a monotonic one, and the check that is supposed to expire
+    // things silently never fires.
+    const clock = () => performance.now();
+    s3.barren.set('13/8/8', clock());
+    ok('one child with no picture stops the split',
+      s3.childrenBarren({ z: 12, x: 4, y: 4 }) === true);
+    ok('and its neighbour is unaffected',
+      s3.childrenBarren({ z: 12, x: 5, y: 4 }) === false);
+    // Read off `barren` rather than a set of its own, so it expires with it.
+    // As a bare Set it had no expiry, and one transient refusal capped the
+    // depth over a whole region for the rest of the session.
+    s3.barren.set('13/8/8', clock() - 10 * 60 * 1000);
+    ok('a stale verdict is forgotten rather than obeyed for ever',
+      s3.childrenBarren({ z: 12, x: 4, y: 4 }) === false);
+    // Floored, or a refusal for a square the size of a continent stops the
+    // world subdividing across an ocean.
+    s3.barren.set('5/1/1', clock());
+    ok('and a verdict about half a hemisphere is not acted on',
+      s3.childrenBarren({ z: 4, x: 0, y: 0 }) === false);
+  }
+
+  // Degraded has to have a way back.
+  //
+  // It means "nothing is reaching any provider", and it used to stop urlFor
+  // being called at all — so nothing could succeed, so nothing could clear it.
+  // A tab that booted while the network was down drew grey for the rest of the
+  // session and only a change of provider brought it back.
+  {
+    const s4 = new ImageryStreamer({ postMessage() {}, addEventListener() {} },
+      { capabilities: { getMaxAnisotropy: () => 1 } });
+    let asked = 0;
+    s4.source = { maxZoom: 23, ready: true, urlFor: () => { asked += 1; return 'x'; } };
+    s4.degraded = true;
+    s4.active = 0;
+    s4.dispatch({ key: '10/1/1', tile: { z: 10, x: 1, y: 1 }, state: 0 });
+    ok('a degraded streamer still sends one probe', asked === 1);
+    s4.active = 3;
+    const before = asked;
+    s4.dispatch({ key: '10/1/2', tile: { z: 10, x: 2, y: 1 }, state: 0 });
+    ok('but only one at a time, so a dead network is not hammered', asked === before);
+    let recovered = 0;
+    s4.on('recovered', () => { recovered += 1; });
+    s4.jobs.set(7, { key: '10/1/1', tile: { z: 10, x: 1, y: 1 }, state: 1 });
+    s4.onWorkerMessage({ channel: 'imagery', id: 7, ok: true });
+    ok('and one arrival clears it', s4.degraded === false && recovered === 1);
+  }
   ok('and the quadtree stops splitting at it', streamer.maxUsefulZoom === 21);
 
   // The latch: the limit caps how deep anything is asked for, so no tile can
