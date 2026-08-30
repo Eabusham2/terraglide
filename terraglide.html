@@ -90371,6 +90371,8 @@ class ElevationField {
     this.nextId = 1;
     this.active = 0;
     this.maxActive = 4;
+    /** Set when something is queued, so pump only re-sorts when it must. */
+    this.queueDirty = false;
     this.queue = [];
     this.cacheLimit = 320;
     this.frame = 0;
@@ -90607,7 +90609,10 @@ class ElevationField {
     entry.used = this.frame;
     if (entry.state === 0 || (entry.state === STATE_FAILED && entry.retryAt < performance.now())) {
       entry.priority = priority;
-      if (!this.queue.includes(entry)) this.queue.push(entry);
+      if (!this.queue.includes(entry)) {
+        this.queue.push(entry);
+        this.queueDirty = true;
+      }
     }
   }
 
@@ -90617,7 +90622,13 @@ class ElevationField {
       this.source.prepare();
       return;
     }
-    this.queue.sort((a, b) => a.priority - b.priority);
+    // Only when something has been added since the last pump — a completion
+    // pumps too now, and re-sorting a seventy-deep queue on every one of them
+    // would be work for nothing.
+    if (this.queueDirty) {
+      this.queue.sort((a, b) => a.priority - b.priority);
+      this.queueDirty = false;
+    }
     while (this.active < this.maxActive && this.queue.length > 0) {
       const entry = this.queue.shift();
       if (!entry || entry.state === STATE_PENDING || entry.state === STATE_READY) continue;
@@ -90640,7 +90651,28 @@ class ElevationField {
     this.evict();
   }
 
+  /**
+   * A tile finished, so deal with it and then fill the slot it freed.
+   *
+   * The same starvation the imagery queue had, in the same shape: `pump` ran
+   * from one place — `ensureAround`, off the terrain's walk, once a frame —
+   * and a completing request freed its slot without refilling it. Measured in
+   * flight: a mean of 0.25 requests in the air against a cap of four, six per
+   * cent of its own allowance, while the queue averaged ten tiles and peaked
+   * at seventy-four.
+   *
+   * It matters more here than for imagery. Until a square's DEM tile arrives
+   * the ground under it reads as sea level, and when it lands the surface walks
+   * to its real height over a third of a second — which is what B1, B2 and B4
+   * are all about. Slower elevation is not a blurrier picture, it is longer
+   * spent standing on ground that is not there yet.
+   */
   onMessage(msg) {
+    this.receive(msg);
+    this.pump();
+  }
+
+  receive(msg) {
     if (!msg || msg.channel !== 'elevation' || msg.id === undefined) return;
     const entry = this.jobs.get(msg.id);
     if (!entry) return;

@@ -309,11 +309,24 @@ what is left · `[?]` needs a decision from you.
       tiles cost the same memory as 256-pixel ones, and a floor that ignores
       size quadruples it. Reverted.
 
-      What the measurement actually says is that the recovery is throughput-
-      bound, not cache-bound: sixteen seconds to re-fetch a view is the wire,
-      not the eviction. So the fix worth having is fewer round trips, which is
-      the same open question as C7. Left partly done, with the cause named and
-      the wrong fix recorded so it is not tried twice.
+      What the measurement said at the time was that the recovery is
+      throughput-bound rather than cache-bound: sixteen seconds to re-fetch a
+      view is the wire, not the eviction. Half right. It was not the eviction,
+      and it was not the wire either — see C14. The queue was pumped once a
+      frame and a slot freed by a finished request stayed empty until the next
+      frame, so the pipeline ran at eleven per cent of its own allowance.
+
+      Same round trip, re-measured after that fix: settled facing north at
+      98.9 per cent, turned about, ninety seconds, turned back. It comes home
+      at 74.8 per cent and is back to its settled plateau of 96.6 within six
+      seconds, where it used to take sixteen. The plateau is a few points below
+      a hundred because a handful of squares have nothing deeper published for
+      them, which blurcheck agrees with independently — four per cent standing
+      still.
+
+      So the answer was not fewer round trips. It was making the round trips
+      that were already queued actually happen. The cache floor experiment
+      recorded above is still a dead end and still worth not repeating.
 - [x] B8. High res unloads from behind me
       Cause: the texture cache held a tile for 240 *frames*, commented as "about
       four seconds at 60 fps" — true only at exactly sixty. 144 fps got 1.7 s,
@@ -735,6 +748,34 @@ what is left · `[?]` needs a decision from you.
       frame, the queue would have been re-sorted a dozen times a frame instead
       of once. It now sorts only when something has been added since the last
       pump.
+
+- [x] C15. The elevation queue starved the same way, and it matters more
+      Found by looking for the shape of C14 elsewhere rather than by a report.
+      `pump` ran from one place — `ensureAround`, off the terrain's walk, once
+      a frame — and `onMessage` freed a slot without refilling it. Identical.
+
+      It matters more than the imagery one. Until a square's DEM tile arrives
+      the ground under it reads as exactly sea level, and when it lands the
+      surface walks to its real height over a third of a second. That is what
+      B1, B2 and B4 are all about — the ground moving up and down in sections,
+      the patch that appears then drops you, standing on ground that is not
+      there yet. A slow elevation queue is not a blurrier picture; it is longer
+      spent standing on ground that has not arrived.
+
+      Measured in flight, same probe both arms:
+
+                                    before    after
+        queue depth, mean             9.57      0.69
+        queue depth, peak               74        27
+        idle while work waited      20/113     0/112
+        requests in flight, mean      0.25      0.21
+
+      Six per cent of a cap of four, with ten tiles waiting, and a fifth of all
+      samples with nothing in flight *and* work queued. That last figure is the
+      defect stated exactly, and it is zero now.
+
+      Guarded the same way, including the failure path: a request that fails
+      frees a slot too, and used to leave it empty just the same.
 
 
 ## D. Physics

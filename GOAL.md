@@ -21,8 +21,8 @@ dismissed with a wrong reason attached, and want re-running.
 - [x] R-A3  B10 — root found instead: the queue was pumped once a frame. Prefetch lost because the queue was already full of undispatched certain work. 23.7% -> 11.0% stretched.
 - [x] R-A4  C2 — reordering a queue drained at 11% was beside the point; recorded under C14.
 - [x] R-A5  C7 — settled: the prefetch really did lose, and now there is a reason. Recorded.
-- [~] R-A6  B7 — the throughput-bound claim is disproved at root; recovery time wants re-measuring (in progress)
-- [~] R-A7  B1 — same root, fixed; blurcheck A/B running for the apples-to-apples number
+- [x] R-A6  B7 — re-measured: home at 74.8%, settled plateau in 6 s where it took 16. Recorded.
+- [x] R-A7  B1 — blurcheck both arms: 63.9->28.9 flying, 78.5->23.5 after a 180, 33.9->4.0 standing. Recorded.
 
 ## R-B. Items whose remaining half is a decision only the user can make
 Each is finished as far as engineering goes. Not closable here; each needs a
@@ -85,6 +85,8 @@ The right treatment is to keep obeying them and to keep the record current.
 ## New work found and done this run (not in the original 32)
 - [x] N1  C14 — the request queue drained once a frame; 10 of 12 slots idle. Root cause of the whole R-A cluster.
 - [x] N2  J6 — F4 copies a diagnostics report, which is what makes the R-C cluster answerable.
+- [x] N3  A key can be bound, documented and wired and still do nothing — ACTIONS and DEFAULT_BINDS had no check that they agree. F4 shipped dead; guarded now.
+- [ ] N4  The elevation queue has the identical starvation (onMessage frees a slot and never refills it) — measuring
 
 ## Sweep log
 - (pass 1 still in progress)

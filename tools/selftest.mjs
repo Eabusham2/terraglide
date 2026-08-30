@@ -806,6 +806,40 @@ console.log('\na graphics tier only carries settings that do something');
   ok('and buildingRadiusM in particular is gone', !/buildingRadiusM/.test(conf));
 }
 
+console.log('\nthe elevation queue fills the slots it frees');
+{
+  // The same starvation the imagery queue had. `pump` ran from one place —
+  // ensureAround, off the terrain walk, once a frame — and a completing
+  // request freed its slot without refilling it. Measured in flight: a mean of
+  // 0.25 requests in the air against a cap of four, six per cent of its own
+  // allowance, with the queue averaging ten tiles and peaking at seventy-four.
+  //
+  // It matters more here than for imagery: until a square's DEM tile arrives
+  // the ground under it reads as sea level, so a slow elevation queue is time
+  // spent standing on ground that is not there yet.
+  const { ElevationField } = await import('../src/tiles/elevation.js');
+  const sent = [];
+  const field = new ElevationField({ postMessage(m) { sent.push(m); }, addEventListener() {} });
+  field.source = { ready: true, maxZoom: 15, urlFor: () => 'u', decode: 'terrarium' };
+  for (let i = 0; i < field.maxActive + 5; i++) field.request({ z: 12, x: 100 + i, y: 50 }, i);
+  field.pump();
+  const waiting = field.queue.length;
+  ok(`the cap is filled and the rest wait  (${field.active} in flight of ${field.maxActive}, ${waiting} queued)`,
+    field.active === field.maxActive && waiting > 0);
+  const job = [...field.jobs.keys()][0];
+  const before = sent.length;
+  field.onMessage({ channel: 'elevation', id: job, ok: true, heights: new Float32Array(4) });
+  ok(`a completion refills the slot it freed  (${sent.length - before} dispatched)`,
+    sent.length > before);
+  ok('and the cap is respected, not exceeded', field.active <= field.maxActive);
+  // A failure frees a slot too, and used to leave it empty just the same.
+  const job2 = [...field.jobs.keys()][0];
+  const before2 = sent.length;
+  field.onMessage({ channel: 'elevation', id: job2, ok: false });
+  ok(`a failure refills it as well  (${sent.length - before2} dispatched)`,
+    sent.length > before2);
+}
+
 console.log('\na key that is bound is a key that does something');
 {
   // ACTIONS and DEFAULT_BINDS are two lists that have to agree, and the
