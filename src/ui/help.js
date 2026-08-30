@@ -31,6 +31,7 @@ export const ROWS = [
   ['Show or hide the whole display', ['toggleHud']],
   ['This card', ['help']],
   ['What the engine is doing — tiles, memory, frame time', ['debug']],
+  ['Copy a full diagnostics report, to paste into a bug report', ['diagnostics']],
   ['Settings', ['settings']],
 ];
 

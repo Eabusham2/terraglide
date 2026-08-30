@@ -4,7 +4,7 @@ import { clamp, damp } from './core/math.js';
 import { MAX_FRAME_S, PerfGovernor } from './core/perf.js';
 import { Benchmark } from './core/benchmark.js';
 import { settings } from './core/settings.js';
-import { detectTier } from './core/deviceTier.js';
+import { detectTier, gpuName } from './core/deviceTier.js';
 import { AutoQuality } from './core/autoQuality.js';
 import { readJSON, writeJSON } from './core/storage.js';
 import { formatDistance, formatLatLon } from './core/units.js';
@@ -153,6 +153,7 @@ export class Game {
       logarithmicDepthBuffer: true,
     });
     this.watchContext(canvas);
+    this.watchErrors();
     this.pickFirstRunQuality();
     this.renderer.setClearColor(0x0d0f12, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -417,6 +418,10 @@ export class Game {
    * or auto-quality picks one — that is the answer and this never runs again.
    */
   pickFirstRunQuality() {
+    // Read whatever this machine calls its GPU, always. The diagnostics report
+    // needs it on every run, and the two early returns below mean the tier
+    // seeding itself usually does not happen at all.
+    this.gpuName = gpuName(this.renderer.getContext());
     // Seeds where auto *starts*; it measures from there.
     if (settings.wasChosen('autoTier') || settings.wasChosen('graphics')) return;
     const tier = detectTier(this.renderer.getContext());
@@ -443,12 +448,40 @@ export class Game {
    * everything uploaded to the old context is gone, so the world is rebuilt
    * from scratch rather than drawn with handles that point at nothing.
    */
+  /**
+   * Keep the last few errors, so the report can carry them.
+   *
+   * A boot that hangs or a tab that dies leaves its reason in the console and
+   * nowhere else, and nobody reporting a bug is going to have the console
+   * open. Eight is enough to see a pattern and short enough that it is not a
+   * leak.
+   */
+  watchErrors() {
+    this.recentErrors = [];
+    const note = (what) => {
+      const line = String(what).slice(0, 200);
+      if (this.recentErrors[this.recentErrors.length - 1] === line) return;
+      this.recentErrors.push(line);
+      if (this.recentErrors.length > 8) this.recentErrors.shift();
+    };
+    globalThis.addEventListener?.('error', (event) => {
+      note(event.message || event.error?.message || 'error');
+    });
+    globalThis.addEventListener?.('unhandledrejection', (event) => {
+      note(`unhandled: ${event.reason?.message ?? event.reason}`);
+    });
+  }
+
   watchContext(canvas) {
     canvas.addEventListener('webglcontextlost', (event) => {
       // Without this the context is gone for good.
       event.preventDefault();
       this.contextLost = true;
       this.running = false;
+      // Counted because it is the signal behind three separate reports — the
+      // tab dying, the world going flat-coloured, and the Chromebook — and
+      // none of them could be told apart without knowing it had happened.
+      this.contextLosses = (this.contextLosses ?? 0) + 1;
       this.onStatus('Graphics context lost — recovering');
       this.toast('The graphics driver dropped the world. Getting it back…', 'warn');
     });
@@ -1644,6 +1677,9 @@ export class Game {
       case 'debug':
         this.debugVisible = !this.debugVisible;
         break;
+      case 'diagnostics':
+        this.copyDiagnostics();
+        break;
       default:
         if (id.startsWith('hotbar')) {
           const index = Number(id.slice(6)) - 1;
@@ -1716,6 +1752,93 @@ export class Game {
       this.toast(`Copied ${text}`);
     } catch {
       this.toast(`Clipboard blocked — ${text}`, 'warn');
+    }
+  }
+
+  /**
+   * Everything needed to tell the open reports apart, on the clipboard.
+   *
+   * Nine items in the backlog are stuck at "it happened on your machine, not
+   * this one" — the boot hang, the Chromebook, the tab reloading, ground going
+   * missing, the griddy ground, chunks disappearing, broken letters, and the
+   * lag. Every one of them has two or three candidate causes that are already
+   * distinguishable *from inside the running game*, and no way to get that
+   * information off the machine it happened on. A screenshot of the frame-time
+   * readout is not it: the numbers that separate the candidates are the tier
+   * auto actually settled on, the texture budget in bytes rather than tiles,
+   * whether the graphics context has been lost, whether the degraded latch is
+   * set, and how much of the ground is stretched or bare.
+   *
+   * So: one key, one block of text, no screenshots.
+   */
+  diagnosticsReport() {
+    const s = this.streamer;
+    const t = this.terrain.stats;
+    const preset = settings.preset();
+    const mb = (bytes) => `${(bytes / 1048576).toFixed(0)} MB`;
+    const nav = globalThis.navigator ?? {};
+    const drawnShare = t.drawn && preset.maxDrawnTiles
+      ? ` (cap ${preset.maxDrawnTiles}${t.drawn >= preset.maxDrawnTiles ? ' — BITING' : ''})`
+      : '';
+    const exact = s.stats.exact ?? 0;
+    const stretched = s.stats.stretched ?? 0;
+    const bare = s.stats.bare ?? 0;
+    const shown = exact + stretched;
+    const pct = (n, of) => (of > 0 ? `${((n / of) * 100).toFixed(1)}%` : 'n/a');
+    return [
+      `TerraGlide diagnostics — ${new Date().toISOString()}`,
+      `up ${((performance.now()) / 1000).toFixed(0)}s`,
+      '',
+      '[machine]',
+      `gpu           ${this.gpuName || 'unknown'}`,
+      `memory        ${nav.deviceMemory ? `${nav.deviceMemory} GB (browser cap is 8)` : 'not reported'}`,
+      `cores         ${nav.hardwareConcurrency ?? 'not reported'}`,
+      `pointer       ${typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? 'coarse (touch)' : 'fine'}`,
+      `screen        ${globalThis.innerWidth}x${globalThis.innerHeight} @ ${globalThis.devicePixelRatio ?? 1}x`,
+      `agent         ${String(nav.userAgent ?? '').slice(0, 160)}`,
+      '',
+      '[graphics]',
+      `setting       ${settings.get('graphics')}`,
+      `tier in force ${settings.tier}${settings.get('graphics') === 'auto' ? ' (auto)' : ''}`,
+      `fps           ${this.perf.fps.toFixed(1)} now, frame ${this.perf.frameMs.toFixed(1)} ms, render scale ${this.perf.scale.toFixed(2)}`,
+      `context lost  ${this.contextLosses ?? 0} time(s)${this.contextLost ? ' — LOST RIGHT NOW' : ''}`,
+      `draws         ${this.renderer.info.render.calls}, ${(this.renderer.info.render.triangles / 1000).toFixed(0)}k triangles`,
+      '',
+      '[ground]',
+      `squares drawn ${t.drawn}${drawnShare}, nodes ${t.nodes}, z ${t.baseZoom}-${t.maxZoom}`,
+      `own picture   ${pct(exact, shown)}   stretched ${pct(stretched, shown)}   bare ${bare}`,
+      `queue         ${s.queue.length} waiting, ${s.active} in flight of ${preset.maxConcurrentRequests}`,
+      `texture cache ${s.entries.size} entries, budget ${s.textureLimit()} tiles at ${s.tileSizeHint || 256} px = ${mb((s.textureLimit() * (s.tileSizeHint || 256) ** 2 * 4))}`,
+      `loaded/failed ${s.stats.loaded} / ${s.stats.failed}`,
+      `degraded      ${s.degraded ? 'YES — nothing is reaching any provider' : 'no'}`,
+      `depth limit   ${Number.isFinite(s.depthLimit) ? `z${s.depthLimit}` : 'none'}`,
+      '',
+      '[providers]',
+      `imagery       ${this.imagerySource?.descriptor?.label ?? 'none'} — ${this.imagerySource?.state ?? 'n/a'}${this.imagerySource?.error ? ` (${this.imagerySource.error})` : ''}`,
+      `elevation     ${this.elevation.source?.descriptor?.label ?? 'none'}${this.elevation.unreachable ? ' — UNREACHABLE' : this.elevation.hasRelief ? '' : ' — still loading'}`,
+      `3d            ${this.tiles3d ? this.tiles3d.status() || 'on' : 'off'}`,
+      `buildings     ${this.buildings.stats.buildings} built, ${this.buildings.stats.failed} squares failed`,
+      '',
+      '[where]',
+      `geo           ${this.player.lat.toFixed(5)}, ${this.player.lon.toFixed(5)}  ground ${this.player.groundHeight.toFixed(1)} m`,
+      `mode          ${this.player.mode}, ${this.player.velocity.length().toFixed(1)} m/s`,
+      '',
+      '[recent errors]',
+      ...(this.recentErrors?.length ? this.recentErrors.slice(-8) : ['none']),
+    ].join('\n');
+  }
+
+  async copyDiagnostics() {
+    const text = this.diagnosticsReport();
+    try {
+      await navigator.clipboard.writeText(text);
+      this.toast('Diagnostics copied — paste them into the report');
+    } catch {
+      // A clipboard write needs a user gesture and a secure context, and a
+      // page opened from file:// has neither. Printing it is the fallback that
+      // always works, because it can be copied out of the console by hand.
+      console.log(text);
+      this.toast('Clipboard blocked — diagnostics printed to the console', 'warn');
     }
   }
 

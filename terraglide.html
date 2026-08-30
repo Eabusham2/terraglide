@@ -85421,6 +85421,7 @@ const DEFAULT_BINDS = {
   pause: 'KeyO',
   help: 'F2',
   debug: 'F3',
+  diagnostics: 'F4',
   hotbar1: 'Digit1',
   hotbar2: 'Digit2',
   hotbar3: 'Digit3',
@@ -90905,6 +90906,8 @@ class ImageryStreamer extends Emitter {
     this.source = null;
     this.entries = new Map();
     this.queue = [];
+    /** Set when something is queued, so pump only re-sorts when it must. */
+    this.queueDirty = false;
     this.active = 0;
     this.nextId = 1;
     this.jobs = new Map();
@@ -91298,11 +91301,13 @@ class ImageryStreamer extends Emitter {
       entry.stale = false;
       entry.refreshing = true;
       this.queue.push(entry);
+      this.queueDirty = true;
     } else if (
       entry.state === 0
       || (entry.state === STATE_FAILED && entry.retryAt < performance.now())
     ) {
       this.queue.push(entry);
+      this.queueDirty = true;
     }
     return entry;
   }
@@ -91449,7 +91454,14 @@ class ImageryStreamer extends Emitter {
     const limit = settings.preset().maxConcurrentRequests;
     if (this.active >= limit || this.queue.length === 0) return;
 
-    this.queue.sort((a, b) => a.priority - b.priority);
+    // Only re-sort when something has been added since the last pump. Now
+    // that a completion pumps as well as a frame does, sorting unconditionally
+    // would re-sort a queue five hundred deep a dozen times a frame for
+    // nothing.
+    if (this.queueDirty) {
+      this.queue.sort((a, b) => a.priority - b.priority);
+      this.queueDirty = false;
+    }
     while (this.active < limit && this.queue.length > 0) {
       const entry = this.queue.shift();
       if (!entry || entry.state === STATE_PENDING || entry.state === STATE_READY) continue;
@@ -91509,7 +91521,33 @@ class ImageryStreamer extends Emitter {
     this.worker.postMessage({ kind: 'imagery', channel: 'imagery', id, tile, url, size: 128 });
   }
 
+  /**
+   * A request finished, so deal with it and then fill the slot it just freed.
+   *
+   * `pump` was called from exactly one place — the terrain's walk, once a
+   * frame — and nothing refilled a slot when the request holding it completed.
+   * A slot freed just after a frame therefore stayed empty until the next one.
+   *
+   * At sixty frames a second that is a sixteen-millisecond gap and invisible.
+   * On the machines this is actually about, it is not. Measured in flight:
+   * a mean of 1.34 requests in flight against a cap of twelve, while the queue
+   * averaged sixty-six squares deep and peaked at five hundred and ten. The
+   * pipeline was running at eleven per cent of its own allowance with plenty
+   * of work waiting, and the gap widens as the frame rate falls — so the
+   * ground arrives slowest exactly where the frame rate is already low, which
+   * is the machine the complaint always comes from.
+   *
+   * This is the real answer to "throughput is the constraint", which several
+   * backlog entries concluded and none of them measured. The wire was never
+   * the limit; the refill cadence was. Every other queue here already pumps on
+   * completion — the map's tiles, Overpass, geocoding — and this one did not.
+   */
   onWorkerMessage(msg) {
+    this.receive(msg);
+    this.pump();
+  }
+
+  receive(msg) {
     if (!msg || msg.channel !== 'imagery' || msg.id === undefined) return;
     const entry = this.jobs.get(msg.id);
     if (!entry) {
@@ -91531,6 +91569,7 @@ class ImageryStreamer extends Emitter {
         entry.state = 0;
         entry.retryAt = 0;
         this.queue.push(entry);
+        this.queueDirty = true;
       } else if (msg.aborted) {
         entry.state = STATE_FAILED;
         entry.retryAt = 0;
@@ -100339,6 +100378,7 @@ const ROWS = [
   ['Show or hide the whole display', ['toggleHud']],
   ['This card', ['help']],
   ['What the engine is doing — tiles, memory, frame time', ['debug']],
+  ['Copy a full diagnostics report, to paste into a bug report', ['diagnostics']],
   ['Settings', ['settings']],
 ];
 
@@ -102393,7 +102433,7 @@ const { clamp, damp } = __tg_require("src/core/math.js");
 const { MAX_FRAME_S, PerfGovernor } = __tg_require("src/core/perf.js");
 const { Benchmark } = __tg_require("src/core/benchmark.js");
 const { settings } = __tg_require("src/core/settings.js");
-const { detectTier } = __tg_require("src/core/deviceTier.js");
+const { detectTier, gpuName } = __tg_require("src/core/deviceTier.js");
 const { AutoQuality } = __tg_require("src/core/autoQuality.js");
 const { readJSON, writeJSON } = __tg_require("src/core/storage.js");
 const { formatDistance, formatLatLon } = __tg_require("src/core/units.js");
@@ -102536,6 +102576,7 @@ class Game {
       logarithmicDepthBuffer: true,
     });
     this.watchContext(canvas);
+    this.watchErrors();
     this.pickFirstRunQuality();
     this.renderer.setClearColor(0x0d0f12, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -102800,6 +102841,10 @@ class Game {
    * or auto-quality picks one — that is the answer and this never runs again.
    */
   pickFirstRunQuality() {
+    // Read whatever this machine calls its GPU, always. The diagnostics report
+    // needs it on every run, and the two early returns below mean the tier
+    // seeding itself usually does not happen at all.
+    this.gpuName = gpuName(this.renderer.getContext());
     // Seeds where auto *starts*; it measures from there.
     if (settings.wasChosen('autoTier') || settings.wasChosen('graphics')) return;
     const tier = detectTier(this.renderer.getContext());
@@ -102826,12 +102871,40 @@ class Game {
    * everything uploaded to the old context is gone, so the world is rebuilt
    * from scratch rather than drawn with handles that point at nothing.
    */
+  /**
+   * Keep the last few errors, so the report can carry them.
+   *
+   * A boot that hangs or a tab that dies leaves its reason in the console and
+   * nowhere else, and nobody reporting a bug is going to have the console
+   * open. Eight is enough to see a pattern and short enough that it is not a
+   * leak.
+   */
+  watchErrors() {
+    this.recentErrors = [];
+    const note = (what) => {
+      const line = String(what).slice(0, 200);
+      if (this.recentErrors[this.recentErrors.length - 1] === line) return;
+      this.recentErrors.push(line);
+      if (this.recentErrors.length > 8) this.recentErrors.shift();
+    };
+    globalThis.addEventListener?.('error', (event) => {
+      note(event.message || event.error?.message || 'error');
+    });
+    globalThis.addEventListener?.('unhandledrejection', (event) => {
+      note(`unhandled: ${event.reason?.message ?? event.reason}`);
+    });
+  }
+
   watchContext(canvas) {
     canvas.addEventListener('webglcontextlost', (event) => {
       // Without this the context is gone for good.
       event.preventDefault();
       this.contextLost = true;
       this.running = false;
+      // Counted because it is the signal behind three separate reports — the
+      // tab dying, the world going flat-coloured, and the Chromebook — and
+      // none of them could be told apart without knowing it had happened.
+      this.contextLosses = (this.contextLosses ?? 0) + 1;
       this.onStatus('Graphics context lost — recovering');
       this.toast('The graphics driver dropped the world. Getting it back…', 'warn');
     });
@@ -104027,6 +104100,9 @@ class Game {
       case 'debug':
         this.debugVisible = !this.debugVisible;
         break;
+      case 'diagnostics':
+        this.copyDiagnostics();
+        break;
       default:
         if (id.startsWith('hotbar')) {
           const index = Number(id.slice(6)) - 1;
@@ -104099,6 +104175,93 @@ class Game {
       this.toast(`Copied ${text}`);
     } catch {
       this.toast(`Clipboard blocked — ${text}`, 'warn');
+    }
+  }
+
+  /**
+   * Everything needed to tell the open reports apart, on the clipboard.
+   *
+   * Nine items in the backlog are stuck at "it happened on your machine, not
+   * this one" — the boot hang, the Chromebook, the tab reloading, ground going
+   * missing, the griddy ground, chunks disappearing, broken letters, and the
+   * lag. Every one of them has two or three candidate causes that are already
+   * distinguishable *from inside the running game*, and no way to get that
+   * information off the machine it happened on. A screenshot of the frame-time
+   * readout is not it: the numbers that separate the candidates are the tier
+   * auto actually settled on, the texture budget in bytes rather than tiles,
+   * whether the graphics context has been lost, whether the degraded latch is
+   * set, and how much of the ground is stretched or bare.
+   *
+   * So: one key, one block of text, no screenshots.
+   */
+  diagnosticsReport() {
+    const s = this.streamer;
+    const t = this.terrain.stats;
+    const preset = settings.preset();
+    const mb = (bytes) => `${(bytes / 1048576).toFixed(0)} MB`;
+    const nav = globalThis.navigator ?? {};
+    const drawnShare = t.drawn && preset.maxDrawnTiles
+      ? ` (cap ${preset.maxDrawnTiles}${t.drawn >= preset.maxDrawnTiles ? ' — BITING' : ''})`
+      : '';
+    const exact = s.stats.exact ?? 0;
+    const stretched = s.stats.stretched ?? 0;
+    const bare = s.stats.bare ?? 0;
+    const shown = exact + stretched;
+    const pct = (n, of) => (of > 0 ? `${((n / of) * 100).toFixed(1)}%` : 'n/a');
+    return [
+      `TerraGlide diagnostics — ${new Date().toISOString()}`,
+      `up ${((performance.now()) / 1000).toFixed(0)}s`,
+      '',
+      '[machine]',
+      `gpu           ${this.gpuName || 'unknown'}`,
+      `memory        ${nav.deviceMemory ? `${nav.deviceMemory} GB (browser cap is 8)` : 'not reported'}`,
+      `cores         ${nav.hardwareConcurrency ?? 'not reported'}`,
+      `pointer       ${typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches ? 'coarse (touch)' : 'fine'}`,
+      `screen        ${globalThis.innerWidth}x${globalThis.innerHeight} @ ${globalThis.devicePixelRatio ?? 1}x`,
+      `agent         ${String(nav.userAgent ?? '').slice(0, 160)}`,
+      '',
+      '[graphics]',
+      `setting       ${settings.get('graphics')}`,
+      `tier in force ${settings.tier}${settings.get('graphics') === 'auto' ? ' (auto)' : ''}`,
+      `fps           ${this.perf.fps.toFixed(1)} now, frame ${this.perf.frameMs.toFixed(1)} ms, render scale ${this.perf.scale.toFixed(2)}`,
+      `context lost  ${this.contextLosses ?? 0} time(s)${this.contextLost ? ' — LOST RIGHT NOW' : ''}`,
+      `draws         ${this.renderer.info.render.calls}, ${(this.renderer.info.render.triangles / 1000).toFixed(0)}k triangles`,
+      '',
+      '[ground]',
+      `squares drawn ${t.drawn}${drawnShare}, nodes ${t.nodes}, z ${t.baseZoom}-${t.maxZoom}`,
+      `own picture   ${pct(exact, shown)}   stretched ${pct(stretched, shown)}   bare ${bare}`,
+      `queue         ${s.queue.length} waiting, ${s.active} in flight of ${preset.maxConcurrentRequests}`,
+      `texture cache ${s.entries.size} entries, budget ${s.textureLimit()} tiles at ${s.tileSizeHint || 256} px = ${mb((s.textureLimit() * (s.tileSizeHint || 256) ** 2 * 4))}`,
+      `loaded/failed ${s.stats.loaded} / ${s.stats.failed}`,
+      `degraded      ${s.degraded ? 'YES — nothing is reaching any provider' : 'no'}`,
+      `depth limit   ${Number.isFinite(s.depthLimit) ? `z${s.depthLimit}` : 'none'}`,
+      '',
+      '[providers]',
+      `imagery       ${this.imagerySource?.descriptor?.label ?? 'none'} — ${this.imagerySource?.state ?? 'n/a'}${this.imagerySource?.error ? ` (${this.imagerySource.error})` : ''}`,
+      `elevation     ${this.elevation.source?.descriptor?.label ?? 'none'}${this.elevation.unreachable ? ' — UNREACHABLE' : this.elevation.hasRelief ? '' : ' — still loading'}`,
+      `3d            ${this.tiles3d ? this.tiles3d.status() || 'on' : 'off'}`,
+      `buildings     ${this.buildings.stats.buildings} built, ${this.buildings.stats.failed} squares failed`,
+      '',
+      '[where]',
+      `geo           ${this.player.lat.toFixed(5)}, ${this.player.lon.toFixed(5)}  ground ${this.player.groundHeight.toFixed(1)} m`,
+      `mode          ${this.player.mode}, ${this.player.velocity.length().toFixed(1)} m/s`,
+      '',
+      '[recent errors]',
+      ...(this.recentErrors?.length ? this.recentErrors.slice(-8) : ['none']),
+    ].join('\n');
+  }
+
+  async copyDiagnostics() {
+    const text = this.diagnosticsReport();
+    try {
+      await navigator.clipboard.writeText(text);
+      this.toast('Diagnostics copied — paste them into the report');
+    } catch {
+      // A clipboard write needs a user gesture and a secure context, and a
+      // page opened from file:// has neither. Printing it is the fallback that
+      // always works, because it can be copied out of the console by hand.
+      console.log(text);
+      this.toast('Clipboard blocked — diagnostics printed to the console', 'warn');
     }
   }
 

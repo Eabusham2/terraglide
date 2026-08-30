@@ -68,6 +68,7 @@ export const DEFAULT_BINDS = {
   pause: 'KeyO',
   help: 'F2',
   debug: 'F3',
+  diagnostics: 'F4',
   hotbar1: 'Digit1',
   hotbar2: 'Digit2',
   hotbar3: 'Digit3',

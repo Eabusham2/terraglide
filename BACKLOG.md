@@ -348,11 +348,21 @@ what is left · `[?]` needs a decision from you.
       the dozen-odd slots for its whole round trip while a tile you are looking
       at waits behind it. Reverted rather than shipped.
 
-      Caveat worth keeping: these measurements come through a proxy that
-      serialises every tile, so the sandbox is more throughput-bound than a real
-      browser with HTTP/2 to Esri. Asking ahead is unproven here rather than
-      disproven — it wants measuring on a real connection before being tried
-      again.
+      That caveat was wrong and is worth correcting rather than deleting. It
+      read: "these measurements come through a proxy that serialises every
+      tile, so the sandbox is more throughput-bound than a real browser".
+      Measured since, first-hand: the relay runs 22 requests concurrently with
+      a median start-to-start gap of 0 ms and a p90 of 14 ms across 1,456
+      requests, none failed. It does not serialise anything.
+
+      And the thing that *was* limiting it turned out to be ours. See C14: the
+      request queue was pumped from exactly one place, the terrain walk, once a
+      frame, and nothing refilled a slot when the request holding it finished.
+      In flight that measured 1.34 requests in the air against a cap of twelve
+      while the queue averaged sixty-six squares deep. Throughput was never the
+      constraint; the refill cadence was. With the pump moved onto completion,
+      the same probe on the same course took the stretched share from 23.7 per
+      cent to 11.0.
 - [?] B11. Random times when looking, everything becomes a solid colour
       A solid colour is a tile with no texture at all — not even a coarser one
       stretched over it — because the shader then has only the relief to colour
@@ -461,7 +471,16 @@ what is left · `[?]` needs a decision from you.
       does. Parallelism is 12 to 34 by preset.
 
       Asking ahead of where you are going was tried and reverted; see B10 for
-      the numbers and the caveat about the sandbox's proxy.
+      the numbers. The reason given there for discounting them — that the
+      sandbox proxy serialises tiles — was wrong, and B10 now carries the
+      measurement that disproves it.
+
+      "More chunks in parallel" turned out to be the right instinct aimed at
+      the wrong number. The parallelism was already twelve to thirty-four; it
+      was simply never used, because the queue was pumped once a frame and a
+      slot freed by a finished request sat empty until the next one. Measured
+      at 1.34 requests in flight against a cap of twelve. Fixed in C14, and that
+      is what this item was asking for.
 - [~] C2. Load high res more, long-range low res less
       Measured first, and the picture is not what it looks like from the code.
 
@@ -548,9 +567,17 @@ what is left · `[?]` needs a decision from you.
       The first half was built and measured worse. Asking ahead of where you are
       going — the tiles you will need in a second, fetched now — took the share
       of the frame drawn from stretched imagery from 58.1% to 61.7%, and 61.5%
-      with the look-ahead gated on speed. It was reverted; see B10 for the
-      caveat about the sandbox proxy, which serialises tiles and so punishes any
-      extra request harder than a real browser would.
+      with the look-ahead gated on speed. It was reverted.
+
+      The reason offered for discounting that result — that the sandbox proxy
+      serialises tiles and so punishes an extra request harder than a real
+      browser would — was false, and is corrected under B10: the relay runs 22
+      concurrent with a median gap of 0 ms. So the prefetch really did lose,
+      and it lost for a reason that has since been found: the queue was drained
+      once a frame rather than on completion, so it was already full of certain
+      work that was not being dispatched. Adding speculative work to a queue
+      running at eleven per cent of its allowance could only make it worse. See
+      C14.
 
       The reason it loses is the same one that sank C2's reordering: throughput
       is the constraint, not ordering, and a speculative request is one a
@@ -650,6 +677,47 @@ what is left · `[?]` needs a decision from you.
       64 to 1024 km, so there is no "twice" anywhere in it. The toggle is now
       "Keep drawing past the horizon where you have been" with the distance as its
       own control underneath.
+- [x] C14. The request queue was drained once a frame, so ten of twelve slots sat idle
+      This is the cause behind "throughput is the constraint", which B1, B7,
+      B10, C1, C2 and C7 all concluded and none of them measured directly.
+
+      `pump` — the thing that turns queued squares into requests — was called
+      from exactly one place, the terrain's walk, once a frame. Nothing
+      refilled a slot when the request holding it completed. So a slot freed
+      just after a frame stayed empty until the next frame came round.
+
+      At sixty frames a second that is a sixteen-millisecond gap and invisible,
+      which is why it survived this long. On the machines the complaints
+      actually come from it is not. Measured in flight:
+
+        requests in flight    mean 1.34 of a cap of 12
+        queue depth           mean 66 squares, peak 510
+        saturated samples     10 of 177
+
+      Eleven per cent of its own allowance, with sixty-six squares waiting. And
+      the gap widens as the frame rate falls, so the ground arrives slowest
+      exactly where the frame rate is already low.
+
+      The fix is the one every other queue in this project already uses — the
+      map's own tiles, Overpass, geocoding all pump on completion — and this
+      one did not. Same probe, same course, before and after:
+
+                              before    after
+        ground stretched       23.7%     11.0%
+        queue depth, mean         66        16
+        queue depth, peak        510       294
+        requests in flight      1.34      2.23
+        tiles fetched          2,534     3,575
+
+      Stretched ground more than halved and the queue drained. The absolute
+      percentages are this probe's own course rather than blurcheck's, so they
+      are not comparable to the 58% quoted under B10 — the pair is.
+
+      One thing guarded alongside it: with a completion pumping as well as a
+      frame, the queue would have been re-sorted a dozen times a frame instead
+      of once. It now sorts only when something has been added since the last
+      pump.
+
 
 ## D. Physics
 
@@ -1929,6 +1997,33 @@ what is left · `[?]` needs a decision from you.
       the tier without ever moving the picture. It listens to the store now,
       coalesced to one pass a frame, and a preset change rebuilds the meshes
       because the mesh grid is read from the preset.
+- [x] J6. F4 copies a diagnostics report, so "it happened on my machine" is answerable
+      Nine items in this file are stuck at the same place: measured clean here,
+      reported from your machine, and no way to tell the candidate causes apart
+      without being sat at it. A0 the boot hang, A9 the Chromebook, A7 the tab
+      reloading, B3 ground missing, B5 the grid, B6 disappearing in chunks,
+      I16 broken letters, M3 the lag — and B11, which has two candidates left.
+
+      Every one of those is already distinguishable from inside the running
+      game. What was missing was a way to get the numbers off the machine. The
+      frame-time readout on F3 is not it: it shows tiles and frame time, and
+      none of the figures that actually separate the candidates.
+
+      F4 now puts the whole thing on the clipboard — the GPU string, memory and
+      cores as the browser reports them, the tier auto has actually settled on
+      (not the setting, which reads "auto" for everybody), the texture budget in
+      bytes rather than tiles, how many times the graphics context has been
+      lost, whether the degraded latch is set, the depth limit, the share of
+      ground drawn from its own photograph against stretched against bare, the
+      queue depth and requests in flight against the cap, every provider's
+      state, and the last eight errors. Where the clipboard is blocked — a page
+      opened from file:// has no secure context — it prints to the console
+      instead and says so.
+
+      It is on the help card, which the build enforces in both directions: a
+      binding with no line fails, and a line naming an action the game does not
+      bind fails too.
+
 
 ## L. Standing instructions
 

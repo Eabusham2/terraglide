@@ -627,6 +627,43 @@ console.log('\na written-off depth can be un-written-off');
     s4.onWorkerMessage({ channel: 'imagery', id: 7, ok: true });
     ok('and one arrival clears it', s4.degraded === false && recovered === 1);
   }
+  // A slot that frees is filled at once, not at the next frame.
+  //
+  // `pump` was called from exactly one place — the terrain walk, once a frame —
+  // and a request completing freed its slot without refilling it. At sixty
+  // frames a second that is a sixteen-millisecond gap and invisible; measured
+  // in flight at the frame rate a struggling machine actually runs, it was a
+  // mean of 1.34 requests in flight against a cap of twelve, with the queue
+  // averaging sixty-six deep. The pipeline ran at eleven per cent of its own
+  // allowance, and the slower the machine the wider the gap.
+  {
+    const sent = [];
+    const s5 = new ImageryStreamer(
+      { postMessage(m) { sent.push(m); }, addEventListener() {} },
+      { capabilities: { getMaxAnisotropy: () => 1 } },
+    );
+    s5.source = { maxZoom: 23, ready: true, urlFor: () => 'u' };
+    // Fill every slot, then queue more behind them. The cap is the preset's,
+    // not a number typed here — the first version of this hardcoded twelve
+    // and the default tier allows twenty-six, so nothing ever queued.
+    const { settings: store } = await import('../src/core/settings.js');
+    const cap = store.preset().maxConcurrentRequests;
+    for (let i = 0; i < cap + 6; i++) s5.request({ z: 12, x: 100 + i, y: 50 }, i);
+    s5.pump();
+    const inFlight = s5.active;
+    const waiting = s5.queue.length;
+    ok(`the cap is filled and the rest wait  (${inFlight} in flight, ${waiting} queued)`,
+      inFlight > 0 && waiting > 0);
+    // One completes. Without a pump on completion the freed slot stays empty
+    // until something else calls pump — which, in the game, is the next frame.
+    const anyJob = [...s5.jobs.keys()][0];
+    const before = sent.length;
+    s5.onWorkerMessage({ channel: 'imagery', id: anyJob, ok: true });
+    ok(`a completion refills the slot it freed  (${sent.length - before} dispatched)`,
+      sent.length > before);
+    ok('and the cap is respected, not exceeded', s5.active <= cap);
+  }
+
   ok('and the quadtree stops splitting at it', streamer.maxUsefulZoom === 21);
 
   // The latch: the limit caps how deep anything is asked for, so no tile can
