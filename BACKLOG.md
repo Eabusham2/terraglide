@@ -2214,6 +2214,13 @@ what is left · `[?]` needs a decision from you.
       On anything with both a finger and a keyboard, one tap pinned the sticks
       over the game for the session. A game key or a real mouse press now puts
       them away; a coarse pointer still starts them on, for a phone.
+
+      And the surface itself was driven, on an emulated phone with a real
+      coarse pointer and touch events rather than a mouse pretending: the
+      sticks appear once a finger is seen, dragging the movement stick moved
+      the player 19.26 m, and a look drag turned the view 0.43 radians. The
+      action row is all there — boost, jump, dive, surge, teleport, map — and
+      the cheats button draws its middle dot, which is the I16 fix rendering.
 - [~] I16. Broken letters on certain devices
       Could not reproduce it here, so this is the audit and the hardening rather
       than a confirmed cause. Two things were ruled out first: every build
@@ -2293,8 +2300,31 @@ what is left · `[?]` needs a decision from you.
       Custom rockets: the Rocket strength dial is already there, 0.1x to 12x.
 
       Seed hacks: there is no seed. This is the Earth, from photographs — there
-      is nothing to reseed and nothing a seed would change. Left open in case
-      you meant something else by it, and if you did, say which.
+      is nothing to reseed and nothing a seed would change. That is the short
+      answer and it has been left at that for too long, so here is every
+      reading of it and what each one already is:
+
+        a seed that changes the terrain — there is nothing to change. The
+          ground is somebody's photograph and somebody's elevation survey. A
+          seed cannot move a mountain that exists.
+        a seed that decides where you start — that is the random teleport, on
+          R. It can be aimed at populated places rather than anywhere, and held
+          within reach of a coast, both in Settings » World.
+        a seed you can give somebody so they see what you saw — that is the
+          coordinates, on P. Copy them, send them, they teleport to the same
+          spot on the same Earth. It is a better seed than a seed: it works
+          across versions, because the world is not generated from it.
+        a seed that makes a *sequence* of random teleports repeatable — this is
+          the one reading that does not exist. Two people entering the same
+          seed and pressing R five times would land in the same five places.
+
+      That last one is buildable and is the only version of "seed hacks" with
+      anything in it. Worth knowing before asking for it: it needs a seeded
+      pseudo-random generator, and the self test currently refuses one anywhere
+      in src — that guard exists because a PRNG lying about is how invented
+      terrain came back last time. So it would need a deliberate, named
+      exemption rather than being slipped in. Say if you want it and it gets
+      one.
 - [x] I21. Remember the trail
       It was already saved and reloaded — every six seconds and again on the way
       out — so the trail survived a reload. What it did not survive was its own
