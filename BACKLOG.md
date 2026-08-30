@@ -1803,6 +1803,41 @@ what is left · `[?]` needs a decision from you.
       The elevation is better than this file claimed: 2,895 m here against the
       ~944 m recorded, so the coarse-elevation complaint may have been a
       different spot or a since-updated tile.
+
+      That honest limit no longer holds, and Antarctica has now been judged.
+      Esri answers the East Antarctic plateau from here after all: fetched
+      directly, zoom 8, 10 and 13 come back as real imagery (2,573, 2,934 and
+      2,026 bytes, all different) and zoom 14 and 15 come back as the
+      "map data not yet available" card — 2,521 bytes, hash 9eafd300d613, the
+      same card recorded above. So the claim that coverage runs to 13 and stops
+      is confirmed from live data rather than inferred.
+
+      Flown at Dome C (-75.1, 123.4) for seventy-five seconds, the three fixes
+      do exactly what they were made to do:
+
+        squares drawn bare            0
+        degraded latch                never tripped
+        depth limit                   never pulled down
+        squares recorded barren       61
+        drawn                         22, all stretched from a coarser tile
+
+      Twenty-two squares and everything stretched is not a fault here, it is
+      the right answer: the imagery genuinely stops at 13, the tree correctly
+      refuses to split into squares that cannot have a picture, and what it
+      draws is the zoom-13 photograph stretched — which is what the fix was
+      for. Nothing is grey.
+
+      And it looks like Antarctica. Photographed: a featureless white plain to
+      the horizon, the winter sun sitting on it, the readout saying -57 F,
+      feels -72, wind 18 mph, overcast — the weather actually happening there —
+      "Unmapped location", and 10,728 ft, against Dome C's real 10,607. The ice
+      sheet is flat because the ice sheet is flat.
+
+      So what is left of "improve Antarctica" is not a defect list. It is that
+      Antarctica is a featureless white plain that nobody has photographed
+      below zoom 13, and the game now shows exactly that rather than grey. If
+      there is something specific you want it to look like instead, say which
+      and it becomes a real item again.
 - [x] H4. Improve above the clouds
       There was nothing above the clouds, because there were no clouds. Flying
       at 5,000 m over a valley floor at 1,000 with the cover forced to 0.85 and
