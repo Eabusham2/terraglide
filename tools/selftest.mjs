@@ -1441,7 +1441,7 @@ console.log('\nReal data first, invention last');
     !/proceduralElevation/.test(elevation));
   const streamer = read('tiles/streamer.js');
   ok('a tile no provider will serve stays bare rather than being painted',
-    /if \(url === null\) \{\s*\n\s*entry\.state = STATE_BARE;/.test(streamer));
+    /if \(url === null\) \{\s*\n\s*this\.markBare\(entry\);/.test(streamer));
   ok('and every provider is asked before it gives up',
     /attempt <= this\.standbys\.length/.test(streamer));
   ok('the terrain is never hidden wholesale for photogrammetry',
@@ -5309,9 +5309,49 @@ console.log('\nnot asking for photographs nobody has');
     /this\.barren = new Map\(\)/.test(streamer) && /this\.barren\.set\(entry\.key, now\(\)\)/.test(streamer));
   ok('and the memory of it expires', /const BARREN_TTL_MS/.test(streamer));
   ok('and the squares inside it are never asked at all',
-    /underBarren\(tile\)/.test(streamer) && /entry\.state = STATE_BARE;\n      return entry;/.test(streamer));
+    /underBarren\(tile\)/.test(streamer) && /return this\.markBare\(entry\);/.test(streamer));
   ok('but only four levels up, so one refusal cannot write off a continent',
     /i < 4 && z > 1/.test(streamer));
+
+  // And bare is not for ever either, which is the half that was missing.
+  //
+  // Every *reason* for going bare already expires — `barren` forgets after
+  // ninety seconds, because a refusal is far more often a network that dropped
+  // than ground nobody has photographed — but the entry itself did not, and
+  // `request` returns early on a bare entry before any of that is consulted. So
+  // one unlucky moment retired a square for the rest of the session.
+  //
+  // That stranded the depth probe and through it the whole world. probeDeeper
+  // asks for one tile a level below the limit every thirty seconds, and the
+  // limit lifts the moment anything arrives below it — but if the probe's
+  // square had gone bare in an earlier outage, `request` handed back the bare
+  // entry instead of asking. Measured over Antarctica: the limit sat at zoom 5
+  // for two full minutes, the probe skipped on every frame, two tiles drawn,
+  // and it followed the player back to the Alps and drew nothing there either.
+  {
+    const { ImageryStreamer: Streamer } = await import('../src/tiles/streamer.js');
+    const s5 = new Streamer({ postMessage() {}, addEventListener() {} },
+      { capabilities: { getMaxAnisotropy: () => 1 } });
+    s5.source = { maxZoom: 23, ready: true, urlFor: () => 'x' };
+    const tile = { z: 10, x: 3, y: 4 };
+    const entry = s5.markBare({ key: '10/3/4', tile, state: 0 });
+    s5.entries.set('10/3/4', entry);
+    ok('a square just marked bare is not asked again straight away',
+      s5.request(tile, 1).state === 4 && s5.queue.length === 0);
+    // Same clock the streamer keeps these in: performance.now(), not Date.now().
+    entry.bareAt = performance.now() - 91000;
+    const after = s5.request(tile, 1);
+    ok('but once the reason has expired it goes back in the queue',
+      after.state === 0 && s5.queue.length === 1);
+    // Unless the reason is still standing: an ancestor nobody has.
+    s5.queue.length = 0;
+    s5.barren.set('8/0/1', performance.now());
+    const under = s5.markBare({ key: '10/3/5', tile: { z: 10, x: 3, y: 5 }, state: 0 });
+    s5.entries.set('10/3/5', under);
+    under.bareAt = performance.now() - 91000;
+    ok('while a live refusal above it still keeps it bare',
+      s5.request({ z: 10, x: 3, y: 5 }, 1).state === 4 && s5.queue.length === 0);
+  }
   ok('and moving somewhere else forgets it', /this\.barren\.clear\(\);/.test(streamer));
 }
 console.log('\nthe ground is the photograph, at the brightness the photograph has');

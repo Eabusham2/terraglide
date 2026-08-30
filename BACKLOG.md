@@ -1259,6 +1259,26 @@ what is left · `[?]` needs a decision from you.
       the four squares beneath it and the sixteen beneath those — for the rest of
       the session, and it read as ground that simply had no imagery. It carries a
       time now and expires after 90 s.
+
+      The same bug one level up, found later and fixed the same way. Every
+      *reason* a square goes bare now expires — but the square itself did not.
+      `request` returns early on a bare entry, before the barren record or
+      anything else is consulted, so once bare it was retired for the session
+      however long ago the refusal was and however completely the network had
+      recovered.
+
+      What that strands, besides the square: the depth probe. probeDeeper asks
+      for one tile a level below the written-off depth every thirty seconds, and
+      the depth lifts the moment anything arrives below it — but if the probe's
+      square had gone bare during an earlier outage, `request` handed back the
+      bare entry instead of asking. Traced over Antarctica: the probe skipped on
+      every frame for two minutes with the entry reading state 4.
+
+      A bare entry now carries the time it went bare and is asked again once the
+      ninety seconds are up, unless a live refusal above it still stands.
+      Verified by behaviour rather than by regex: freshly bare is not re-asked,
+      expired goes back in the queue, and expired-under-a-live-refusal stays
+      bare.
 - [x] G17. Remember tokens
       Measured rather than assumed: localStorage works from file:// in Chromium
       (all file URLs share one origin), the store writes every token, and a fresh

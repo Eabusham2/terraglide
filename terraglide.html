@@ -91193,6 +91193,22 @@ class ImageryStreamer extends Emitter {
    * Ask for a tile. Returns the entry (possibly pending). `priority` is a
    * screen-space cost — smaller loads first.
    */
+  /**
+   * Mark a square as having nothing to draw, and remember when.
+   *
+   * The time is the whole point. Every *reason* for going bare is already kept
+   * with an expiry — `barren` forgets after ninety seconds, because a refusal is
+   * far more often a network that dropped than ground nobody has photographed —
+   * but the entry itself had none, and `request` returns early on a bare entry
+   * before any of that is consulted. So one unlucky moment retired a square for
+   * the rest of the session.
+   */
+  markBare(entry) {
+    entry.state = STATE_BARE;
+    entry.bareAt = now();
+    return entry;
+  }
+
   request(tile, priority) {
     const key = tileKey(tile.z, tile.x, tile.y);
     let entry = this.entries.get(key);
@@ -91209,10 +91225,23 @@ class ImageryStreamer extends Emitter {
       this._deepest = tile.z;
       this._deepestAsked = tile;
     }
-    if (entry.state === STATE_BARE) return entry;
+    if (entry.state === STATE_BARE) {
+      // Bare is not for ever. Ask again once the reason has had time to expire,
+      // on the same ninety-second clock the barren record keeps.
+      //
+      // This is what stranded the depth probe, and through it the whole world.
+      // probeDeeper asks for one tile a level below the limit every thirty
+      // seconds, and the limit lifts the moment any tile arrives below it — but
+      // if the probe's square had been marked bare during an earlier outage,
+      // `request` returned that bare entry instead of asking, every time.
+      // Measured over Antarctica: the limit sat at zoom 5 for two full minutes
+      // with the probe skipped on every frame, two tiles drawn — and it
+      // followed the player back to the Alps and drew nothing there either.
+      if (now() - (entry.bareAt ?? 0) < BARREN_TTL_MS) return entry;
+      entry.state = 0;
+    }
     if (entry.state !== STATE_READY && this.underBarren(tile)) {
-      entry.state = STATE_BARE;
-      return entry;
+      return this.markBare(entry);
     }
     // A square carrying the previous provider's picture asks again, once, and
     // keeps showing what it has until the answer arrives. See setSource.
@@ -91385,7 +91414,7 @@ class ImageryStreamer extends Emitter {
     if (!source) {
       // Every provider has been asked and none of them has this square. Bare
       // is the honest answer; the shader colours it from the relief.
-      entry.state = STATE_BARE;
+      this.markBare(entry);
       return;
     }
     if (!source.ready) {
@@ -91418,7 +91447,7 @@ class ImageryStreamer extends Emitter {
     // draw and nothing to invent: the tile stays bare and the ground under it
     // is whatever the relief says, which is honest about not knowing.
     if (url === null) {
-      entry.state = STATE_BARE;
+      this.markBare(entry);
       return;
     }
 
