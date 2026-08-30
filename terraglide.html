@@ -90544,6 +90544,14 @@ class ElevationField {
 
   beginFrame() {
     this.frame++;
+    // Housekeeping, once a frame.
+    //
+    // This used to live at the end of `pump`, which was fine while pump only
+    // ran once a frame. It does not any more — a completing request pumps too,
+    // so eviction would have run several times a frame, each time copying the
+    // whole tile map into an array and sorting it. Per frame is what it always
+    // meant; the call has just moved to somewhere that says so.
+    this.evict();
   }
 
   /**
@@ -90648,7 +90656,6 @@ class ElevationField {
         size: GRID,
       });
     }
-    this.evict();
   }
 
   /**

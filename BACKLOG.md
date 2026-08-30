@@ -2011,6 +2011,15 @@ what is left · `[?]` needs a decision from you.
       went into a setting nothing reads, and the toast said "Size NaNx · NaN m"
       while you stayed exactly the size you were.
 
+      Guarded at the class rather than at the key: every `settings.get`/`set`
+      name in the whole of src must exist in DEFAULT_SETTINGS, and every
+      `cheats.<name>` must exist in CHEAT_DEFAULTS. Typo either one and the
+      check names it. The first version of that guard was itself vacuous — it
+      looked for `cheats.get('...')`, which the code never writes, so it
+      matched nothing and passed on an empty set. It now asserts the number of
+      reads it found as well as the result: 150 settings reads and 19 cheat
+      reads, and a check that suddenly matches nothing fails.
+
       Fixed at the store: the key writes cheats.playerScale, which is what the
       player reads. Checked in the running game — five presses of `]` take you
       from 1.00 to 1.76 (1.12^5) and nine of `[` bring you back to 0.64, with

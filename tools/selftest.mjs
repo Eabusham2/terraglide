@@ -881,6 +881,59 @@ console.log('\nthe elevation queue fills the slots it frees');
   field.onMessage({ channel: 'elevation', id: job2, ok: false });
   ok(`a failure refills it as well  (${sent.length - before2} dispatched)`,
     sent.length > before2);
+
+  // Eviction is per-frame housekeeping and has to stay that way. It used to be
+  // the last line of `pump`, which was fine while pump ran once a frame — it
+  // does not any more, and leaving it there would have copied and sorted the
+  // whole tile map on every completing request.
+  const elevSrc = readFileSync(new URL('../src/tiles/elevation.js', import.meta.url), 'utf8');
+  ok('eviction runs once a frame, not once a request',
+    /beginFrame\(\) \{[\s\S]{0,600}this\.evict\(\);/.test(elevSrc)
+    && !/postMessage\(\{[\s\S]{0,400}\}\);\s*\}\s*this\.evict\(\);/.test(elevSrc));
+}
+
+console.log('\nnothing reads a setting that does not exist');
+{
+  // The size keys wrote to `settings.playerScale`, which does not exist —
+  // player.scale reads cheats.playerScale. So the read gave undefined, the
+  // multiply gave NaN, clamp passed it through (NaN < lo and NaN > hi are both
+  // false), and the toast said "Size NaNx" while nothing moved. Silent in
+  // exactly the way this project keeps finding things silent.
+  const { DEFAULT_SETTINGS } = await import('../src/core/settings.js');
+  const { CHEAT_DEFAULTS } = await import('../src/core/cheats.js');
+  const files = readdirSync(new URL('../src/', import.meta.url), { recursive: true })
+    .map(String).filter((f) => f.endsWith('.js'));
+  const strayS = [];
+  const strayC = [];
+  let readsS = 0;
+  let readsC = 0;
+  // Everything on the Cheats object that is not one of the cheats themselves.
+  const CHEAT_MEMBERS = new Set(['js', 'set', 'get', 'toggle', 'reset', 'unlock', 'lock',
+    'offerKey', 'active', 'labels', 'on', 'off', 'emit', 'values', 'locked', 'unlocked']);
+  for (const f of files) {
+    const src = readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8');
+    for (const m of src.matchAll(/settings\.(?:get|set)\(\s*'([A-Za-z0-9_]+)'/g)) {
+      readsS++;
+      if (!(m[1] in DEFAULT_SETTINGS)) strayS.push(`${f}: ${m[1]}`);
+    }
+    // Cheats are read as plain properties — `cheats.playerScale` — not through
+    // a getter, which is why the first version of this check matched nothing
+    // at all and passed on an empty set. Vacuous, and caught by counting the
+    // matches rather than trusting the pass.
+    for (const m of src.matchAll(/\bcheats\.([A-Za-z_][A-Za-z0-9_]*)\b/g)) {
+      if (CHEAT_MEMBERS.has(m[1])) continue;
+      readsC++;
+      if (!(m[1] in CHEAT_DEFAULTS)) strayC.push(`${f}: ${m[1]}`);
+    }
+  }
+  // A check that matched nothing would pass for the wrong reason, so the count
+  // is asserted as well as the result.
+  ok(`the settings check actually reads something  (${readsS} reads)`, readsS > 50);
+  ok(`and the cheats check does too  (${readsC} reads)`, readsC > 5);
+  ok(`every setting read or written exists  (${strayS.join(', ') || `${Object.keys(DEFAULT_SETTINGS).length} declared`})`,
+    strayS.length === 0);
+  ok(`and every cheat does too  (${strayC.join(', ') || `${Object.keys(CHEAT_DEFAULTS).length} declared`})`,
+    strayC.length === 0);
 }
 
 console.log('\na key that is bound is a key that does something');
