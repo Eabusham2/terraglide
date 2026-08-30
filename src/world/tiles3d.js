@@ -85,6 +85,24 @@ const DETAIL = {
 };
 const DEFAULT_DETAIL = 'high';
 /**
+ * How long a piece of content that refused is left alone before asking again.
+ *
+ * There was no memory of a refusal at all. The wanted list is rebuilt every
+ * frame and every entry offered to `requestContent` again, and the only gates
+ * were the concurrency budget and a fifty-millisecond in-flight flag — so a
+ * tile the server would not serve was asked for sixteen times a second, and a
+ * viewful of them ninety-four times a second. Measured, driving the real
+ * request path with a loader that refuses. An expired session refuses every
+ * tile at once, and both APIs this talks to bill per request, so that is the
+ * player's money going out at a hundred requests a second with nothing on
+ * screen to show for it.
+ *
+ * Eight seconds is short enough that a hiccup or a refreshed session comes
+ * back almost at once, and long enough to turn a hundred requests a second
+ * into rather fewer than one.
+ */
+const REFUSAL_REST_MS = 8000;
+/**
  * How long to wait on the handshake before calling it dead. A request that
  * never answers is worse than one that fails: the status line would sit on
  * "connecting" forever and the player would have no idea anything was wrong.
@@ -156,6 +174,8 @@ export class Tiles3D {
     /** Tileset JSON already fetched, keyed by URI. */
     this.tilesets = new Map();
     this.pending = new Set();
+    /** What refused, and when — see REFUSAL_REST_MS. */
+    this.refused = new Map();
     this.active = 0;
     this.session = '';
     this.bearer = '';
@@ -503,7 +523,7 @@ export class Tiles3D {
   }
 
   requestTileset(uri) {
-    if (this.pending.has(uri) || this.active >= this.budget.active) return;
+    if (this.pending.has(uri) || this.resting(uri) || this.active >= this.budget.active) return;
     this.pending.add(uri);
     this.active++;
     fetch(this.absolute(uri), { headers: this.headers() })
@@ -513,10 +533,12 @@ export class Tiles3D {
       })
       .then((json) => {
         this.tilesets.set(uri, json);
+        this.refused.delete(uri);
         if (json.asset?.copyright) this.copyrights.add(json.asset.copyright);
       })
       .catch(() => {
         this.stats.failed++;
+        this.refused.set(uri, performance.now());
       })
       .finally(() => {
         this.pending.delete(uri);
@@ -525,7 +547,7 @@ export class Tiles3D {
   }
 
   requestContent(uri, transform) {
-    if (this.pending.has(uri) || this.active >= this.budget.active) return;
+    if (this.pending.has(uri) || this.resting(uri) || this.active >= this.budget.active) return;
     this.pending.add(uri);
     this.active++;
 
@@ -549,6 +571,7 @@ export class Tiles3D {
         });
         this.group.add(object);
         this.loaded.set(uri, { object, used: performance.now() });
+        this.refused.delete(uri);
         if (gltf.parser?.json?.asset?.copyright) {
           this.copyrights.add(gltf.parser.json.asset.copyright);
         }
@@ -556,6 +579,7 @@ export class Tiles3D {
       undefined,
       () => {
         this.stats.failed++;
+        this.refused.set(uri, performance.now());
       },
     );
 
@@ -563,6 +587,20 @@ export class Tiles3D {
     setTimeout(() => {
       if (this.pending.delete(uri)) this.active = Math.max(0, this.active - 1);
     }, 50);
+  }
+
+  /**
+   * Is this one still sitting out its rest after a refusal?
+   *
+   * The wait is dropped as it expires, so the map holds only what has refused
+   * recently rather than growing for the length of the session.
+   */
+  resting(uri) {
+    const at = this.refused.get(uri);
+    if (at === undefined) return false;
+    if (performance.now() - at < REFUSAL_REST_MS) return true;
+    this.refused.delete(uri);
+    return false;
   }
 
   dispose(uri, entry) {
@@ -593,6 +631,8 @@ export class Tiles3D {
   reconfigure() {
     this.clear();
     this.tilesets.clear();
+    // A new account may well be allowed what the old one was refused.
+    this.refused.clear();
     this.copyrights.clear();
     this.root = null;
     this.session = '';

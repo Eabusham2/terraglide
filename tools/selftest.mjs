@@ -2770,6 +2770,53 @@ console.log('\nThe ground says when it was photographed');
   ok('and changing provider forgets it', /clearImageryAges\(\)/.test(game));
   // Only for the provider it came from.
   ok('and it is only claimed for Esri', /descriptor\?\.id === 'esri'/.test(game));
+
+  // A square with no metadata record — ocean, the poles — is a real and
+  // permanent answer, and is kept. A request that failed is neither, and used
+  // to be kept in exactly the same way: one timeout while crossing Kansas and
+  // the line never carried a date for those eighty kilometres again.
+  const { clearImageryAges } = await import('../src/geo/imageryAge.js');
+  const realFetch = globalThis.fetch;
+  const realNow = performance.now.bind(performance);
+  let skew = 0;
+  let fetches = 0;
+  let reply = 'refuse';
+  const record = { SRC_DATE: 20180909, SRC_RES: 0.5, SRC_DESC: 'WV02', NICE_DESC: 'Vantor', MaxMapLevel: 19 };
+  const settle = () => new Promise((done) => setTimeout(done, 12));
+  try {
+    performance.now = () => realNow() + skew;
+    globalThis.fetch = async () => {
+      fetches++;
+      if (reply === 'refuse') return { ok: false, status: 503, json: async () => ({}) };
+      if (reply === 'miss') return { ok: true, json: async () => ({ features: [] }) };
+      return { ok: true, json: async () => ({ features: [{ attributes: record }] }) };
+    };
+    clearImageryAges();
+
+    imageryAt(12.5, 34.5); await settle();
+    imageryAt(12.5, 34.5); await settle();
+    ok(`a refusal is not asked again straight away  (${fetches} request)`, fetches === 1);
+    // Two minutes later, and the service is well again.
+    skew = 130000;
+    reply = 'good';
+    imageryAt(12.5, 34.5); await settle();
+    ok(`once the wait is over it is asked again  (${fetches} requests)`, fetches === 2);
+    ok(`and the date lands  (${describeImagery(imageryAt(12.5, 34.5))})`,
+      describeImagery(imageryAt(12.5, 34.5)) === 'Sep 2018 · 0.5 m · WV02');
+
+    // Whereas ocean, which genuinely has no record, is answered once.
+    reply = 'miss';
+    const before = fetches;
+    imageryAt(-40.5, -140.5); await settle();
+    skew = 400000;
+    imageryAt(-40.5, -140.5); await settle();
+    ok(`a square with no record is asked once and believed  (${fetches - before} request)`,
+      fetches - before === 1);
+  } finally {
+    globalThis.fetch = realFetch;
+    performance.now = realNow;
+    clearImageryAges();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -5098,6 +5145,46 @@ console.log('\nphotograph where you have been, drawn map where you have not');
   ok('no tile grid is drawn over the map',
     !/options\.grid/.test(renderer)
     && !/grid:/.test(readFileSync(new URL('../src/ui/worldmap.js', import.meta.url), 'utf8')));
+}
+
+console.log('\na refusal is not a reason to ask harder');
+{
+  // Both APIs behind this bill per request. The wanted list is rebuilt every
+  // frame and every entry offered to requestContent again, and there was no
+  // memory of a refusal at all — so an expired session, which refuses every
+  // tile at once, spent the player's money at ninety-odd requests a second
+  // with nothing on screen. This drives the real request path.
+  const { Tiles3D } = await import('../src/world/tiles3d.js');
+  const rig = {
+    // Wide enough that the concurrency gate is never the thing under test.
+    budget: { active: 500 },
+    pending: new Set(),
+    refused: new Map(),
+    loaded: new Map(),
+    active: 0,
+    stats: { failed: 0 },
+    absolute: (u) => u,
+    resting: Tiles3D.prototype.resting,
+    requestContent: Tiles3D.prototype.requestContent,
+  };
+  let asked = 0;
+  rig.loader = { load: (_u, _ok, _p, fail) => { asked++; setTimeout(() => fail(new Error('403')), 0); } };
+
+  const uris = Array.from({ length: 40 }, (_, i) => `refuses-${i}.glb`);
+  const frame = () => { for (const u of uris) rig.requestContent(u, null); };
+  const settle = () => new Promise((done) => setTimeout(done, 60));
+
+  frame(); await settle();
+  const first = asked;
+  ok(`every tile is asked once  (${first})`, first === uris.length);
+  // Sixty of the frames that used to each fire another forty requests.
+  for (let i = 0; i < 60; i++) frame();
+  await settle();
+  ok(`and not again while they are resting  (${asked - first} more)`, asked === first);
+  // Once the rest is over, one more try each — not a hundred a second.
+  for (const u of uris) rig.refused.set(u, performance.now() - 9000);
+  frame(); await settle();
+  ok(`then once more  (${asked - first})`, asked - first === uris.length);
 }
 
 console.log('\nphotogrammetry that stays put');

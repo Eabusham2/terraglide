@@ -1387,6 +1387,37 @@ what is left · `[?]` needs a decision from you.
         founding: median 0.29 m into the ground, worst case 11 m, nothing
           floating above it. Buildings sit on the lowest ground under their
           own footprint, which is what puts them slightly into a slope.
+- [x] G25. A refused 3D tile was asked for ninety-four times a second
+      Both routes to photogrammetry — Google's Map Tiles API and Cesium ion —
+      bill per request. The wanted list is rebuilt every frame and every entry
+      offered to the loader again, and there was no memory of a refusal at all:
+      the only gates were the concurrency budget and a fifty-millisecond
+      in-flight flag. So a tile the server would not serve was asked for
+      sixteen times a second, and a viewful of them ninety-four times a second.
+      An expired session refuses every tile at once, which is exactly when this
+      happens — the screen is empty and the requests are being billed.
+
+      Measured by driving the real request path with a loader that refuses,
+      forty tiles, twenty seconds:
+
+        before   1,854 requests   93/s
+        after       120 requests    6/s
+
+      A refusal now rests for eight seconds — short enough that a hiccup or a
+      refreshed session comes back almost at once — and is forgotten on a
+      success or when the account changes. The self test runs the same
+      measurement.
+- [x] G26. A failed imagery-date query was cached as though it were an answer
+      "This square has no metadata record" is true and permanent for ocean and
+      the poles, and is rightly kept for ever. A timeout is neither, and it was
+      being kept in exactly the same way — one hiccup while crossing Kansas and
+      the attribution line never carried a date for those eighty kilometres
+      again, however long the session ran. The query now throws rather than
+      returning nothing when it could not ask at all, so only a genuine
+      "nothing here" is cached; a refusal waits two minutes and is asked again.
+      Tested against a driven clock: one request, then none, then one more once
+      the wait is over, and the date arrives — while a square that genuinely
+      has no record is asked once and believed.
 
 ## H. World and atmosphere
 

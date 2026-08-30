@@ -38,9 +38,22 @@ const CACHE_ZOOM = 9;
 
 /** Don't hold a query open for ever; the answer is a nicety. */
 const TIMEOUT_MS = 6000;
+/**
+ * How long a square that could not be asked is left before asking again.
+ *
+ * A square with no metadata record — ocean, the poles — is a real answer and is
+ * cached for good. A request that failed is not an answer, and it used to be
+ * cached exactly as though it were: one timeout while flying over Kansas and
+ * the attribution line never carried a date for eighty kilometres of it again,
+ * however long the session ran. Two minutes is far longer than the hiccup and
+ * far shorter than a flight.
+ */
+const RETRY_MS = 120000;
 
 const cache = new Map();
 const inFlight = new Set();
+/** Squares that could not be asked, and when it is worth asking again. */
+const retryAt = new Map();
 
 /** `20180909` -> a Date, or null. */
 function parseStamp(value) {
@@ -94,15 +107,24 @@ export function imageryAt(lat, lon) {
   const key = keyFor(lat, lon);
   if (cache.has(key)) return cache.get(key);
   if (inFlight.has(key)) return null;
+  // Asked, and it did not answer. Not the same thing as "there is no record
+  // here" — see RETRY_MS — so it waits rather than being written off.
+  const failed = retryAt.get(key);
+  if (failed !== undefined) {
+    if (performance.now() < failed) return null;
+    retryAt.delete(key);
+  }
   inFlight.add(key);
   ask(lat, lon)
     .then((info) => {
       // A miss is cached too. Ocean and the poles have no metadata record, and
       // asking again every frame for country that will never have one is how a
-      // nicety turns into a request storm.
+      // nicety turns into a request storm. `ask` throws rather than returning
+      // null when it could not ask at all, so only a genuine "nothing here"
+      // reaches this line.
       cache.set(key, info);
     })
-    .catch(() => cache.set(key, null))
+    .catch(() => retryAt.set(key, performance.now() + RETRY_MS))
     .finally(() => inFlight.delete(key));
   return null;
 }
@@ -118,8 +140,12 @@ async function ask(lat, lon) {
   const controller = typeof AbortController === 'function' ? new AbortController() : null;
   const timer = controller ? setTimeout(() => controller.abort(), TIMEOUT_MS) : null;
   try {
+    // Throwing, not returning null. The caller keeps a null for ever, because
+    // "this square has no metadata record" is a true and permanent fact about
+    // ocean and the poles — and a refusal or a timeout is neither true nor
+    // permanent, so it must not arrive here looking the same.
     const response = await fetch(url, { signal: controller?.signal });
-    if (!response.ok) return null;
+    if (!response.ok) throw new Error(`imagery metadata ${response.status}`);
     const body = await response.json();
     const attributes = body?.features?.[0]?.attributes;
     if (!attributes) return null;
@@ -130,8 +156,6 @@ async function ask(lat, lon) {
       vendor: String(attributes.NICE_DESC ?? '').trim(),
       maxZoom: Number(attributes.MaxMapLevel) || 0,
     };
-  } catch {
-    return null;
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -141,4 +165,5 @@ async function ask(lat, lon) {
 export function clearImageryAges() {
   cache.clear();
   inFlight.clear();
+  retryAt.clear();
 }
