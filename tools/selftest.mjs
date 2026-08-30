@@ -1000,6 +1000,40 @@ console.log('\na key that is bound is a key that does something');
     unreachable.length === 0);
 }
 
+console.log('\nthe shipped single file is the game that is in src');
+{
+  // terraglide.html is the artefact this project tells people to double-click,
+  // and nothing checked that it still matched src. Edit a module, forget to
+  // rebuild, and the file people download is the old game — silently, because
+  // it still boots and still works, just not the way the source says.
+  //
+  // The bundler stamps it with a fingerprint of the files it read. This
+  // recomputes that from src the same way, so the two can only agree if the
+  // bundle was built from what is here now.
+  const { createHash } = await import('node:crypto');
+  const bundle = readFileSync(new URL('../terraglide.html', import.meta.url), 'utf8');
+  const stamped = /name="terraglide-sources" content="([a-f0-9]+)"/.exec(bundle)?.[1] ?? null;
+  ok(`the single file records what it was built from  (${stamped ?? 'no stamp'})`, !!stamped);
+
+  // The ids the bundler hashes are repo-relative paths, entry first, and it
+  // sorts them — so the order here does not have to match the walk order.
+  const ids = [...bundle.matchAll(/__tg_modules\[\"([^\"]+)\"\] = function/g)].map((m) => m[1]);
+  ok(`and names the modules it holds  (${ids.length})`, ids.length > 60);
+  const hash = createHash('sha256');
+  let readable = 0;
+  for (const id of [...ids].sort()) {
+    let text;
+    try {
+      text = readFileSync(new URL(`../${id}`, import.meta.url), 'utf8');
+      readable++;
+    } catch { text = ''; }
+    hash.update(id).update('\u0000').update(text);
+  }
+  ok(`every module it holds is still in the tree  (${readable}/${ids.length})`, readable === ids.length);
+  const recomputed = hash.digest('hex').slice(0, 16);
+  ok(`the single file is current  (stamp ${stamped}, src ${recomputed})`, stamped === recomputed);
+}
+
 console.log('\nand the README says the same thing the game does');
 {
   // I14 fixed the help card and guarded it in both directions, and left the

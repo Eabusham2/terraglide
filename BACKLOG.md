@@ -2333,6 +2333,24 @@ what is left · `[?]` needs a decision from you.
       with the HUD ceasing to render the row at all. Each one verified by doing
       it and watching the check fail by name.
 
+- [x] J9. Nothing checked that the file people download is the game in src
+      terraglide.html is the artefact this project tells people to
+      double-click. It is generated from src, it is committed, and nothing
+      verified the two still agreed. Edit a module, forget to rebuild, and the
+      file people download is the old game — silently, because it still boots
+      and still works, just not the way the source says. Every other artefact
+      here has a check; this one had none.
+
+      The bundler now stamps the file with a fingerprint of the sources it
+      read, and the self test recomputes that from src the same way — from the
+      files on disk rather than the transformed text, so the check does not
+      have to reproduce the transform to verify it. It also confirms the stamp
+      exists, that the bundle names the modules it holds, and that every one of
+      them is still in the tree, so the check cannot pass by matching nothing.
+
+      Verified by editing a module and not rebuilding: it fails, and prints both
+      fingerprints.
+
 
 ## L. Standing instructions
 

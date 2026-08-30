@@ -16,6 +16,7 @@
  */
 
 import { readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -248,6 +249,19 @@ __tg_require(${JSON.stringify(entryId)});
 </html>
 `;
 
-await writeFile(OUT, bundle);
-const kb = Math.round(Buffer.byteLength(bundle) / 1024);
-console.log(`wrote ${relative(ROOT, OUT)} — ${order.length} modules, ${kb} KB`);
+// A fingerprint of the sources this was built from, so a bundle that has gone
+// stale can be caught rather than shipped. The single file is the artefact this
+// project tells people to double-click; nothing checked that it still matched
+// src, so editing a module and forgetting to rebuild shipped the old game.
+const stamp = createHash('sha256');
+// Hashed from the files on disk rather than from the transformed text, so the
+// self test can recompute exactly the same thing from src without having to
+// reproduce the transform.
+for (const id of [...order].sort()) {
+  stamp.update(id).update('\u0000').update(await readFile(join(ROOT, id), 'utf8'));
+}
+const fingerprint = stamp.digest('hex').slice(0, 16);
+const stamped = bundle.replace('<head>', `<head>\n<meta name="terraglide-sources" content="${fingerprint}">`);
+await writeFile(OUT, stamped);
+const kb = Math.round(Buffer.byteLength(stamped) / 1024);
+console.log(`wrote ${relative(ROOT, OUT)} — ${order.length} modules, ${kb} KB, sources ${fingerprint}`);
