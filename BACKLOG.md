@@ -19,8 +19,36 @@ what is left · `[?]` needs a decision from you.
       spot reads imagery to check for dry land; if that never came back, the
       frame loop never started and the boot screen sat there for ever saying
       nothing). And a module that fails to download now says so and offers the
-      single file, instead of leaving that first message on screen. Still open
-      until you can confirm on the machine it fails on.
+      single file, instead of leaving that first message on screen.
+
+      Since then the mechanism has been reproduced rather than guessed at, and
+      the wording of the report is what makes that possible: "Starting engine…"
+      is the static text in index.html, shown before a single line of the
+      game's code runs. So the report means the module graph never finished —
+      sixty-odd separate files, one of them not arriving.
+
+      Both ways that happens were simulated. One module served but never
+      answered, which is a captive portal swallowing a request; and one module
+      answered with a portal's own HTML instead of the script, which is a proxy
+      rewriting it. In both, the watchdog fires after twenty seconds and
+      replaces the message with "Could not start", the explanation — "Something
+      between here and the files is blocking or rewriting one of them — a
+      filtered network, a proxy, an extension — rather than a fault in the
+      game" — and a working link to terraglide.html, which is one request
+      instead of sixty.
+
+      A network that is simply dead is a different thing and is also fine: with
+      every outbound request refused, the game boots in under half a second,
+      runs, and the status line reads "Esri World Imagery: unreachable ·
+      elevation unreachable — flat ground · no provider answered — ground
+      shaded from the relief". The boot overlay leaves the DOM within two
+      seconds.
+
+      So both things it could be are handled, and both are now verified rather
+      than asserted. Still open until you confirm on the machine it fails on —
+      and if it does, the one thing worth knowing is whether the screen ever
+      changes from "Starting engine…" to "Could not start", because those are
+      different faults and only the first is this one.
 - [~] A9. Does not work on Chromebook
       — two causes found and fixed. There was no handling for the graphics
       context being lost, which on a low-memory machine is not an edge case:
@@ -32,6 +60,18 @@ what is left · `[?]` needs a decision from you.
       High for everybody, so a Chromebook started at a quality it could never
       hold; the first run now reads the GPU name, memory and core count and
       starts Low on a modest machine. Open until you confirm on yours.
+
+      Since then the machine has been simulated rather than waited for. A
+      Chromebook is a device class, and Chrome's own debugger can impose the two
+      things that define it: the CPU throttled to a sixth of this one's speed,
+      `deviceMemory` reporting two gigabytes, two cores. Flown for two minutes
+      under that, auto settled on Low and stayed there, the graphics context was
+      never lost, the degraded latch never tripped, and no square was ever drawn
+      bare — so none of the three failures this item was opened for reproduced.
+
+      What it did find is A7's real cause: the texture cache holding 1,731
+      textures against its own budget of 160, which is about 440 MB on a machine
+      with two gigabytes. That is a tab being killed, and it is fixed. See A7.
 - [x] A10. Online single file broken; single file missing things
       Two causes. The zip's index.html runs from file://, where browsers refuse
       ES modules, so main.js never ran and the watchdog blamed the network after
@@ -275,6 +315,13 @@ what is left · `[?]` needs a decision from you.
       this one, and the measurement above is a hard flight rather than every
       condition — a provider failing mid-flight, or a machine short of memory,
       are not in it.
+
+      Measured again on a simulated low-end machine rather than this one — CPU
+      throttled to a sixth, two gigabytes reported, two cores — flying and
+      banking hard for two minutes. No square was ever drawn bare, and the cap
+      on how many squares may be drawn never bound after the fixes, so nothing
+      went undrawn for want of budget. That is the condition this was most
+      likely to happen under, and it did not.
 - [x] B4. Floating on invisible ground above the imagery
       Two causes, and this was the second one. You are no longer *set down* on
       ground the game has not measured — that was the first.
@@ -328,6 +375,13 @@ what is left · `[?]` needs a decision from you.
       was never a frame with nothing under the player.
 
       Same caveat as B3: open until you see it or stop seeing it.
+
+      Measured again on a simulated low-end machine rather than this one — CPU
+      throttled to a sixth, two gigabytes reported, two cores — flying and
+      banking hard for two minutes. No square was ever drawn bare, and the cap
+      on how many squares may be drawn never bound after the fixes, so nothing
+      went undrawn for want of budget. That is the condition this was most
+      likely to happen under, and it did not.
 - [x] B7. Random refresh of textures
       Not random — it is ground you looked away from for more than twenty
       seconds, and the trigger is exactly that.
@@ -2694,6 +2748,12 @@ what is left · `[?]` needs a decision from you.
       the counts above. What would settle it is which tier the game picked on
       your machine and what the frame counter reads there — both are on the
       debug overlay.
+
+      One thing measured since, on a machine made to behave like a slow one:
+      the texture cache was holding ten times its own budget, about 440 MB
+      against 40 on a two-gigabyte machine. Memory pressure at that scale is
+      felt as everything being slow before it is felt as a tab dying, so this
+      may be part of what "so laggy" was. Fixed and bounded — see A7.
 - [x] M4. The quality is bad; zooming in on the map looks better than the ground
       Two answers, and the second was a real bug.
 
