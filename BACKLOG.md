@@ -1731,9 +1731,16 @@ what is left · `[?]` needs a decision from you.
 
       Guarded across every file that writes a shader rather than across the two
       that were wrong, since the next hand-written shader would have the same
-      hole. The sky is the one exemption and it earns it: depth testing and
-      writing are both off, so it neither reads the buffer nor writes it.
-      Removing one include makes the check fail by name.
+      hole. Removing one include makes the check fail by name.
+
+      Except it was not, quite. "Across every file" was a hard-coded list of
+      nine, and it had already drifted — four of the nine no longer build a
+      shader material at all, including the sky, which the exemption in the
+      check describes. A hand-written shader in a file nobody thought to add
+      would not have been looked at, which is the entire point of the guard.
+      The files are found now rather than listed: anything in src that builds a
+      ShaderMaterial is checked. Verified by adding one to a file that was never
+      on the list — it is found, and it fails.
 
       Worth knowing separately: the Low graphics tier turns weather off
       entirely, so on the tier a Chromebook runs there is no deck at all.

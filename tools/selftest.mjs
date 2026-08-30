@@ -6369,19 +6369,20 @@ console.log('\nEvery hand-written shader writes depth on the same scale');
     'logdepthbuf_pars_fragment',
     'logdepthbuf_fragment',
   ];
-  const files = [
-    'src/world/shaders.js', 'src/world/weather.js', 'src/world/edgeWall.js',
-    'src/world/seaFloor.js', 'src/world/beacons.js', 'src/world/sky.js',
-    'src/world/panorama.js', 'src/world/buildings.js', 'src/world/woodland.js',
-  ];
+  // The comment above says "across every file", and this was a hard-coded list
+  // of nine. It had already drifted: four of the nine no longer build a shader
+  // material at all, including the sky, which the exemption below describes.
+  // A hand-written shader in a file nobody thought to add would not have been
+  // checked, which is the whole thing this guard exists to prevent.
+  const files = readdirSync(new URL('../src/', import.meta.url), { recursive: true })
+    .map(String).filter((f) => f.endsWith('.js'))
+    .filter((f) => /new THREE\.(Raw)?ShaderMaterial/
+      .test(readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8')))
+    .map((f) => `src/${f}`);
+  ok(`every hand-written shader is found, not listed  (${files.length}: ${files.map((f) => f.split('/').pop()).join(', ')})`,
+    files.length >= 5);
   for (const file of files) {
-    let source;
-    try {
-      source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
-    } catch {
-      continue;
-    }
-    if (!/new THREE\.(Raw)?ShaderMaterial/.test(source)) continue;
+    const source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
     // The sky is the one honest exception and it says so itself: depthTest is
     // off and it is drawn behind everything, so it neither reads nor writes.
     const exempt = /depthTest: false/.test(source) && /depthWrite: false/.test(source);
