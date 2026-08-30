@@ -2300,6 +2300,24 @@ what is left · `[?]` needs a decision from you.
       systems at nought, one and two decimal places — 120,000 readings, none of
       which prints a zero. The old check now asks what it should have asked.
 
+- [x] J8. The credit was required to exist, not required to be visible
+      Every provider is checked for an attribution string, and that check has
+      been there a long time. Carrying the string is not the same as showing
+      it, and the licence this ships under keeps the credit on screen.
+
+      Measured in the running game at 360, 768, 960, 1280 and 1920 px wide: the
+      line wraps inside its own box, overflows by nothing in either direction,
+      and stays inside the viewport at every one of them. It reads "Imagery ©
+      Esri, Maxar, Earthstar Geographics · Aug 2024 · 0.1 m · SWISSIMAGE 10 cm ·
+      Elevation: AWS Terrain Tiles, SRTM/GMTED · Geocoding: Nominatim" — 148
+      characters, and it is not clipped at any of them. (It looked clipped in a
+      screenshot, which is what sent me to measure it; it wraps.)
+
+      What a measurement cannot do is stay true, so the three CSS ways of losing
+      it — clipping, holding it to one line, hiding it — are now refused, along
+      with the HUD ceasing to render the row at all. Each one verified by doing
+      it and watching the check fail by name.
+
 
 ## L. Standing instructions
 

@@ -1981,6 +1981,28 @@ console.log('\nProviders and detail budgets');
     .map((p) => p.id);
   ok('every provider carries attribution', unattributed.length === 0, unattributed.join(', '));
 
+  // Carrying the string is not the same as showing it, and the licence this
+  // ships under keeps the credit on screen. Measured in the running game at
+  // 360, 768, 960, 1280 and 1920 px wide: it wraps inside its box, overflows by
+  // nothing in either direction, and stays inside the viewport at every one.
+  // What that measurement cannot do is stay true, so the two CSS ways of
+  // losing it are refused here.
+  {
+    const css = readFileSync(new URL('../styles/main.css', import.meta.url), 'utf8');
+    const block = /\.attribution\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+    ok(`the attribution has its own styling  (${block.trim().split('\n').length} rules)`,
+      block.trim().length > 0);
+    ok('it is not clipped', !/overflow\s*:\s*hidden/.test(block));
+    ok('it is not held to one line', !/white-space\s*:\s*nowrap/.test(block));
+    ok('and it is not hidden', !/display\s*:\s*none/.test(block)
+      && !/visibility\s*:\s*hidden/.test(block)
+      && !/opacity\s*:\s*0(\.0*)?\s*[;}]/.test(block));
+    // And it has to be in the HUD at all — a row that stops being rendered is
+    // the other way to lose it.
+    const hud = readFileSync(new URL('../src/ui/hud.js', import.meta.url), 'utf8');
+    ok('the HUD renders it', /attribution/.test(hud));
+  }
+
   const byId = Object.fromEntries(IMAGERY_PROVIDERS.map((p) => [p.id, p]));
   // The point of the keyless additions: a good flight map with no account at
   // all, and a second one anywhere the first has nothing.
