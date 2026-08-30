@@ -1000,6 +1000,35 @@ console.log('\na key that is bound is a key that does something');
     unreachable.length === 0);
 }
 
+console.log('\nno credential is committed');
+{
+  // Keyless by default is a promise this project makes, and the other half of
+  // it is that nobody's key ends up in the repository. Every key setting has to
+  // start empty, and nothing token-shaped may appear in the source or in either
+  // shipped artefact.
+  const { DEFAULT_SETTINGS } = await import('../src/core/settings.js');
+  const keyish = Object.entries(DEFAULT_SETTINGS).filter(([k]) => /key|token|connectid/i.test(k));
+  ok(`there are key settings to check  (${keyish.length})`, keyish.length >= 6);
+  const filled = keyish.filter(([, v]) => v !== '').map(([k]) => k);
+  ok(`every key setting starts empty  (${filled.join(', ') || 'all empty'})`, filled.length === 0);
+
+  // Shapes: JWT, Mapbox, Google, and the generic sk- prefix.
+  const SECRET = /eyJ[A-Za-z0-9_-]{20,}|pk\.[A-Za-z0-9_-]{30,}|AIza[A-Za-z0-9_-]{30,}|sk-[A-Za-z0-9]{20,}/;
+  const scanned = [];
+  const leaks = [];
+  const srcFiles = readdirSync(new URL('../src/', import.meta.url), { recursive: true })
+    .map(String).filter((f) => f.endsWith('.js')).map((f) => `src/${f}`);
+  for (const rel of [...srcFiles, 'terraglide.html', 'terraglide-online.html', 'index.html', 'README.md']) {
+    let text;
+    try { text = readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8'); } catch { continue; }
+    scanned.push(rel);
+    if (SECRET.test(text)) leaks.push(rel);
+  }
+  ok(`the scan covers the source and both shipped files  (${scanned.length})`,
+    scanned.length > 70 && scanned.includes('terraglide.html'));
+  ok(`nothing token-shaped is committed  (${leaks.join(', ') || 'none'})`, leaks.length === 0);
+}
+
 console.log('\nthe shipped single file is the game that is in src');
 {
   // terraglide.html is the artefact this project tells people to double-click,

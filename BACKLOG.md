@@ -2351,6 +2351,21 @@ what is left · `[?]` needs a decision from you.
       Verified by editing a module and not rebuilding: it fails, and prints both
       fingerprints.
 
+- [x] J10. Keyless by default, checked rather than intended
+      The promise has two halves. The first — that the game works with no
+      account — was already checked: every provider declares whether it needs a
+      key, every label says which, and the recommended one needs none.
+
+      The second half was not checked at all: that nobody's key ends up in the
+      repository. It is clean, and now it stays clean. All eight key settings
+      must ship empty, and nothing token-shaped — a JWT, a Mapbox pk., a Google
+      AIza, an sk- — may appear in any of the seventy-six files scanned, which
+      includes both shipped artefacts as well as the source.
+
+      Verified by shipping a Mapbox key in the defaults and by pasting a Google
+      key into a source file: both fail by name and by file, and the bundle
+      staleness check fires alongside, which is the two guards agreeing.
+
 
 ## L. Standing instructions
 
