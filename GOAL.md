@@ -1,6 +1,6 @@
 # GOAL: every item in BACKLOG.md done properly and fully — nothing failing, everything addressed
 
-Status: IN PROGRESS | Pass 1 | R-A settled, R-F triaged
+Status: IN PROGRESS | Pass 1 done, entering sweeps | 5 commits pushed
 Started: 2026-08-30
 Base: cb1b26e, self test 1060/1060, exit 0
 
@@ -86,10 +86,14 @@ The right treatment is to keep obeying them and to keep the record current.
 - [x] N1  C14 — the request queue drained once a frame; 10 of 12 slots idle. Root cause of the whole R-A cluster.
 - [x] N2  J6 — F4 copies a diagnostics report, which is what makes the R-C cluster answerable.
 - [x] N3  A key can be bound, documented and wired and still do nothing — ACTIONS and DEFAULT_BINDS had no check that they agree. F4 shipped dead; guarded now.
-- [ ] N4  The elevation queue has the identical starvation (onMessage frees a slot and never refills it) — measuring
+- [x] N4  C15 — the elevation queue had the identical starvation. Queue 9.57 -> 0.69 mean, idle-with-work-waiting 20/113 -> 0/112.
+- [x] N5  C16 — the in-page worker host (the double-clickable build) ran one job at a time, serialising the network wait. Stretched 41.8% -> 14.6%, against a real worker's 14.1%.
+- [x] N6  All five standing instructions (B14, J3, L1, L2, M17) brought up to date with this pass.
 
 ## Sweep log
-- (pass 1 still in progress)
+- Pass 1 complete. 5 commits: Overpass mirror, water probe, 3D refusal storm + imagery date,
+  imagery queue pump + F4 diagnostics, dead keybind guard, elevation queue pump, in-page host.
+- Sweep 1 (coverage): next
 
 ## Notes for resume
 - Container resets wipe the tree: `git fetch origin main && git reset --hard origin/main && npm install`.

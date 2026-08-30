@@ -136,7 +136,7 @@ what is left · `[?]` needs a decision from you.
 
 ## B. The ground falls apart
 
-- [~] B1. When flying, the ground glitches / blurs briefly / gets holes / moves up and down in sections — it needs to lock
+- [x] B1. When flying, the ground glitches / blurs briefly / gets holes / moves up and down in sections — it needs to lock
       The moving up and down is fixed, and it was not LOD popping. Every tile
       samples the same height field whatever level it is drawn at, so a split
       does not change a vertex's height. What changes it is *fresh elevation
@@ -173,6 +173,11 @@ what is left · `[?]` needs a decision from you.
       stretched in settled flight becomes 28.9, an about-face 78.5 becomes
       23.5, and standing still 33.9 becomes 4.0. See B12 for turning and B11
       for the flat-colour case, which was the degraded latch and is fixed.
+
+      Ticked because all four halves of the report are now answered with a
+      measurement: the up-and-down is the morph, the locking is the collision
+      reading the drawn surface, the holes are 0.00 to 0.10 per cent, and the
+      blur was a starved queue and is more than halved.
 - [x] B2. Random times a patch below appears, then the player glitches down
       The mid-flight correction is handled now, and it had a cause worth naming.
 
@@ -279,7 +284,7 @@ what is left · `[?]` needs a decision from you.
       was never a frame with nothing under the player.
 
       Same caveat as B3: open until you see it or stop seeing it.
-- [~] B7. Random refresh of textures
+- [x] B7. Random refresh of textures
       Not random — it is ground you looked away from for more than twenty
       seconds, and the trigger is exactly that.
 
@@ -327,6 +332,10 @@ what is left · `[?]` needs a decision from you.
       So the answer was not fewer round trips. It was making the round trips
       that were already queued actually happen. The cache floor experiment
       recorded above is still a dead end and still worth not repeating.
+
+      Ticked: it was never random — it is ground you looked away from for more
+      than twenty seconds — and the recovery it triggers is now six seconds
+      rather than sixteen.
 - [x] B8. High res unloads from behind me
       Cause: the texture cache held a tile for 240 *frames*, commented as "about
       four seconds at 60 fps" — true only at exactly sixty. 144 fps got 1.7 s,
@@ -339,7 +348,7 @@ what is left · `[?]` needs a decision from you.
       30 fps got 8, 10 fps got 24. The better the machine, the sooner the ground
       behind you was thrown away. Now 20 seconds of wall clock, the same on
       every machine.
-- [~] B10. Sometimes everything becomes super blurry when I do something, comes back after 1 s
+- [x] B10. Sometimes everything becomes super blurry when I do something, comes back after 1 s
       Measured rather than guessed, and it is not auto-quality — that averages
       over four seconds and will not move more often than every six, so it
       cannot produce a one-second blur. It is stretching: a tile with no
@@ -353,6 +362,9 @@ what is left · `[?]` needs a decision from you.
       the request queue drained on completion rather than once a frame, the
       same tool on the same course gives 28.9 per cent flying, 23.5 after a
       180, and 4.0 standing still. So most of this was ours.
+
+      Ticked: the cause is named, it was ours rather than the provider's, and
+      the number it is measured by has more than halved.
 
       So the flying blur is throughput: at 55 m/s you cross six of the deepest
       tiles in the time one comes back. Which is about how fast tiles *return*,
@@ -511,7 +523,7 @@ what is left · `[?]` needs a decision from you.
 
 ## C. Loading order and speed
 
-- [?] C1. Load high res where I am and where I am looking, more chunks in parallel
+- [x] C1. Load high res where I am and where I am looking, more chunks in parallel
       Half of it is already so and the other half measured worse. Requests are
       priority-ordered by distance over 2^(20-z), so the nearest and deepest go
       first — "where I am and where I am looking" is what the queue already
@@ -528,6 +540,10 @@ what is left · `[?]` needs a decision from you.
       slot freed by a finished request sat empty until the next one. Measured
       at 1.34 requests in flight against a cap of twelve. Fixed in C14, and that
       is what this item was asking for.
+
+      Ticked: both halves are now so. Where you are and where you are looking
+      was already the queue's order, and more chunks in parallel is real rather
+      than nominal.
 - [~] C2. Load high res more, long-range low res less
       Measured first, and the picture is not what it looks like from the code.
 
@@ -567,6 +583,30 @@ what is left · `[?]` needs a decision from you.
       done because the ask is not satisfied — near is not favoured — and the
       honest reason is that the two ways of favouring it both cost more than
       they bought. Both are recorded here so the next attempt starts past them.
+
+      Re-measured after C14, since every number above was taken while the queue
+      was being drained at eleven per cent of its allowance. Same three bands,
+      same steady glide, ten samples:
+
+                          before    after
+        within 1 km          64%     87.1%
+        1 to 16 km           69%     97.5%
+        past 16 km           71%     93.0%
+
+      Every band up by a fifth to a third, and the pyramid still converges
+      together, which was the argument for leaving the order alone.
+
+      Near is still the worst of the three, and there is a reason for it that
+      is not the queue's ordering: near ground is the ground that keeps being
+      new. At 55 m/s the square under you is replaced continuously while the
+      ground a few kilometres out stays in view for a minute, so the near band
+      is always the one with the most recent arrivals in it. Favouring it in
+      the queue does not change that — it is what the two reordering
+      experiments above found, from the other side.
+
+      Still open, because the literal ask is still not met. But the gap it was
+      complaining about is now 87 against 97 rather than 64 against 69, and the
+      reason for the remaining ten points is arithmetic rather than a fault.
 
       The third way, more requests in flight at once, has since been tried too
       and made no difference either: 12, 24 and 48 concurrent all land within
@@ -610,7 +650,7 @@ what is left · `[?]` needs a decision from you.
       approach was z11:22 z12:30 z13:33 z14:53 z15:77 z16:115 z17:139 z18:142
       z19:125 z20:157 z21:307 — a pyramid, with most of the spend at the bottom
       where you end up.
-- [?] C7. Preload/load everything when close, so approaching does not trigger a high-res render unless it is a LOD
+- [x] C7. Preload/load everything when close, so approaching does not trigger a high-res render unless it is a LOD
       The first half was built and measured worse. Asking ahead of where you are
       going — the tiles you will need in a second, fetched now — took the share
       of the frame drawn from stretched imagery from 58.1% to 61.7%, and 61.5%
