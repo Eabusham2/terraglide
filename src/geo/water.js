@@ -15,12 +15,30 @@ import { destination, latToNormY, lonToNormX, tileKey, wrapTileX } from './merca
 
 const PROBE_ZOOM = 6;
 const MASK = 32;
+/**
+ * How long a probe that came back with nothing is left alone before it is
+ * worth asking again.
+ *
+ * It used to be for ever. One hiccup fetching one zoom-6 tile — a reset, a
+ * provider between deployments, a no-data card from every source at once — and
+ * a square the size of a continent read "cannot tell" for the rest of the
+ * session. "Cannot tell" reads as land, so a random teleport looking for
+ * somewhere dry would happily drop you into the middle of an ocean it could
+ * not see, and the climate model would call that ocean continental. It is the
+ * same mistake as the Overpass mirror that answered success with nothing: a
+ * failure kept as though it were an answer. A minute is long enough that a
+ * teleport's seventy-odd probes cost one request rather than seventy, and
+ * short enough that the next one recovers.
+ */
+const PROBE_RETRY_MS = 60000;
 
 export class WaterMap {
   constructor() {
     this.source = null;
     this.masks = new Map();
     this.pending = new Map();
+    /** When each square last failed to answer — see PROBE_RETRY_MS. */
+    this.failedAt = new Map();
   }
 
   setSource(source, standbys = []) {
@@ -28,6 +46,7 @@ export class WaterMap {
     this.standbys = standbys.filter(Boolean);
     this.masks.clear();
     this.pending.clear();
+    this.failedAt.clear();
   }
 
   /** @returns {Promise<boolean>} */
@@ -77,16 +96,25 @@ export class WaterMap {
     const key = tileKey(tile.z, tile.x, tile.y);
     const cached = this.masks.get(key);
     if (cached !== undefined) return cached;
+    const failed = this.failedAt.get(key);
+    if (failed !== undefined) {
+      if (performance.now() - failed < PROBE_RETRY_MS) return null;
+      this.failedAt.delete(key);
+    }
     const inflight = this.pending.get(key);
     if (inflight) return inflight;
 
     const job = this.buildMask(tile)
       .then((mask) => {
-        this.masks.set(key, mask);
+        // Nothing came back is a failure, not an answer. buildMask returns
+        // null when every provider refused or served a no-data card, and that
+        // is precisely the case that is worth asking about again later.
+        if (mask) this.masks.set(key, mask);
+        else this.failedAt.set(key, performance.now());
         return mask;
       })
       .catch(() => {
-        this.masks.set(key, null);
+        this.failedAt.set(key, performance.now());
         return null;
       })
       .finally(() => this.pending.delete(key));

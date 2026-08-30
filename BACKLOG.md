@@ -1354,6 +1354,39 @@ what is left · `[?]` needs a decision from you.
       position instead of nine, asked of donated hardware, for one more row of
       rooftops. A tier setting the data cannot express is not a setting. The
       self test now fails on any tier number that nothing reads.
+- [x] G23. A sea the game could not see stayed dry for the session
+      Same shape as G21, found by looking for it. The land/water test reads one
+      zoom-6 imagery square per region and caches a 32x32 mask from it. When
+      that fetch came back with nothing — a reset, a provider between
+      deployments, or the "map data not yet available" card from every source
+      at once — the *failure* was cached in the same map as the answers, with
+      no expiry. So one hiccup and a square the size of a continent read
+      "cannot tell" for the rest of the session; "cannot tell" reads as land;
+      and a random teleport looking for somewhere dry would drop you into the
+      middle of an ocean it could not see, while the climate model called that
+      ocean continental.
+
+      Failures are now held apart from answers and for a minute, so a
+      teleport's seventy-odd probes still cost one request rather than seventy,
+      and the next teleport recovers. The self test exercises the real
+      WaterMap: one probe for two lookups in the same square, nothing cached as
+      an answer, and a second probe once the wait is over.
+- [x] G24. What the buildings actually build, measured
+      The question G21 was opened to answer, now that there is data to answer
+      it with. One real OpenStreetMap square over central Paris — 771 building
+      ways, 543 with a surveyed height or storey count, fetched from
+      api.openstreetmap.org and served to the game through the same interface
+      an Overpass mirror uses:
+
+        585 structures built, 255 skipped for having no surveyed height;
+        heights 2.5 m to 28.8 m, median 19.2 m — which is the median of the
+          raw survey, to the decimal, so the extrusion is faithful;
+        no NaN, nothing absurdly tall, nothing under two metres;
+        every roof took its colour from the aerial photograph — none fell back
+          to the grey placeholder;
+        founding: median 0.29 m into the ground, worst case 11 m, nothing
+          floating above it. Buildings sit on the lowest ground under their
+          own footprint, which is what puts them slightly into a slope.
 
 ## H. World and atmosphere
 

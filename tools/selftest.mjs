@@ -842,6 +842,34 @@ console.log('\nwater classifier');
   ok('city grey is not water', !isWaterPixel(120, 120, 124));
 }
 
+console.log('\na probe that could not answer is asked again');
+{
+  // The failure was cached for ever. One hiccup fetching one zoom-6 tile and a
+  // square the size of a continent read "cannot tell" for the rest of the
+  // session — which reads as land, which is a random teleport dropping you in
+  // the middle of an ocean it could not see.
+  const { WaterMap } = await import('../src/geo/water.js');
+  const map = new WaterMap();
+  let probes = 0;
+  map.setSource({ ready: true, urlFor: () => { probes++; return null; } });
+  await map.isWater(10, 10);
+  await map.isWater(10.01, 10.01); // the same zoom-6 square
+  ok(`a square that could not answer is not re-fetched at once  (${probes} probe)`, probes === 1);
+  ok('and nothing was cached as though it were an answer',
+    map.masks.size === 0 && map.failedAt.size === 1);
+  // A minute passing. This is the part that never used to happen.
+  for (const key of map.failedAt.keys()) map.failedAt.set(key, performance.now() - 61000);
+  await map.isWater(10, 10);
+  ok(`once the wait is over it is asked again  (${probes} probes)`, probes === 2);
+  // And a square that did answer is never asked twice.
+  const answered = new WaterMap();
+  let asked = 0;
+  answered.setSource({ ready: true, urlFor: () => { asked++; return null; } });
+  answered.masks.set('6/33/30', new Uint8Array(32 * 32));
+  await answered.isWater(10, 10);
+  ok('a square that did answer is not asked again', asked === 0);
+}
+
 console.log('\nNothing is generated');
 {
   const read = (file) => readFileSync(new URL(`../src/${file}`, import.meta.url), 'utf8');
