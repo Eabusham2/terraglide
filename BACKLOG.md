@@ -82,17 +82,51 @@ what is left · `[?]` needs a decision from you.
       old picture of a place is a good picture of that place until the new one
       lands, so each square now swaps as its replacement arrives.
 - [~] A6. Pressing a button within 3 s of RTP reverts to old spots and removes the new discovery
-      — the half of this I could reproduce is fixed: a keypress no longer
-      abandons the hold onto unmeasured ground. The "reverts to old spots"
-      part I have not reproduced yet and it stays open.
+      The half I could reproduce is fixed: a keypress no longer abandons the
+      hold onto unmeasured ground.
+
+      The other half still does not reproduce, and now it has been tried
+      properly. Three random teleports, each followed by a real keypress at one
+      second and at two and a half, with the position and the exploration record
+      read before, at the moment of landing, and six seconds later:
+
+        no press            landed -21.27897, 140.04305   moved 0.00000 deg
+        press after 1 s     landed  43.98885, 118.19822   moved 0.00000 deg
+        press after 2.5 s   landed  -8.17581, 157.40461   moved 0.00000 deg
+
+      and the explored record only ever grew — 317 cells to 385 to 543 to 645,
+      with the copy on disk growing alongside it, 747 characters to 1,567.
+      Nothing reverted and nothing was removed.
+
+      Worth recording how that test was wrong the first time, because it passed
+      then too and meant nothing: it pressed a key the game does not bind, so
+      the game never saw a press at all. It now checks first that a press
+      reaches the game — pressing the minimap key and watching the setting flip
+      — and refuses to report anything if it does not. The first version of this
+      check said "NO", which is how the fault was found.
+
+      Still open because it is your machine it happened on, not this one.
 - [~] A7. It randomly refreshes
-      Nothing in the game reloads itself — no location.reload anywhere — so this is
-      the browser killing the tab, and the likeliest reason is memory. The
+      Nothing in the game reloads itself — no location.reload anywhere — so this
+      is the browser killing the tab, and the likeliest reason is memory. The
       texture cache was counted in *tiles*, which is a proxy for memory that is
       wrong by four when a provider serves 512 px instead of 256: "high" was
       1.2 GB of texture rather than 300 MB, on top of the meshes. It is a byte
       budget now, and halved again where the browser reports 4 GB or less.
       Context loss was already handled (preventDefault plus a rebuild).
+
+      Measured in the running game, asking the cache what it would allow at each
+      tile size — the point being that the two columns agree, which is what
+      "budget in bytes rather than in tiles" means:
+
+        Low       320 tiles at 256 px = 107 MB     80 at 512 px = 107 MB
+        Medium    560                 = 187 MB    140            = 187 MB
+        High      900                 = 300 MB    225            = 300 MB
+        Ultra   1,400                 = 467 MB    350            = 467 MB
+
+      Still open until you can say whether the tab still dies. If it does, the
+      thing worth knowing is which tier the game had picked, since that is the
+      figure above it was spending.
 - [x] A8. Why is it forcing to fly — why can't it remember position on relog
       The position was always remembered. What you were *doing* was not, so the
       spawn had nothing to go on and took "arrive in the sky" at its word every
@@ -154,7 +188,20 @@ what is left · `[?]` needs a decision from you.
       Whether it still happens after a mid-flight correction is untested.
 - [~] B5. Ground becomes griddy and comes back — moves up or down and shows a grid
       The moving up and down is fixed — see B1, it is fresh elevation landing
-      and the tile now walks rather than steps. The grid itself is still open.
+      and the tile now walks rather than steps.
+
+      The grid: photographed at the place it was reported, the Strait of
+      Gibraltar, where a stipple of dotted lines in the shape of the tile grid
+      used to lie across the water. Flown at 1,500 m looking down over open sea,
+      the surface is a clean gradient — no stipple, no seams, no tile edges —
+      and the coast and the Rock read correctly. That is the fix for it working:
+      coplanar stand-ins are sunk a hand's breadth per level of coarseness so
+      the depth test can separate them, since over sea every vertex sits at
+      exactly zero and nothing else can.
+
+      Left open rather than closed because one photograph of one place is not
+      the same as it never happening. If you see it again, where matters —
+      over water or over land tells the two candidate causes apart.
 - [~] B6. Randomly starts disappearing, getting patchy, falling apart, coming back in chunks
       Three separate things were behind this and two are now measured out.
 
@@ -1734,13 +1781,38 @@ what is left · `[?]` needs a decision from you.
       shape of smear being complained about — so they were zeroed and the same
       view re-shot. The band is pixel-for-pixel unchanged. Not the skirts.
 
-      What is left is a shadowed slope seen at a grazing angle, showing the
-      source photograph's own chroma noise stretched along the surface — the
-      colour spread is 11.8 against a mean of 27.8, which is high in relative
-      terms and is what reads as rainbow in near-black. That is real imagery
-      displayed honestly. It could be made to look better by lifting or
-      desaturating deep shadow, which is a display choice rather than an
-      invention, but it is a choice worth asking about rather than making.
+      One of those eliminations was right about the answer and wrong about the
+      evidence, and it is worth correcting. "Anisotropy forced to 1 gives
+      readings identical to three significant figures" was comparing the patch's
+      mean and colour spread — and those barely move whether pixels are blurred
+      or smeared, because it is the same pixels rearranged. It could not have
+      shown a difference.
+
+      Measured again on the thing that actually differs. A smear is directional:
+      little variation along it, plenty across it. Sampling the streaked slope
+      in four directions, as the mean step between pixels two apart:
+
+        aniso   horizontal  vertical   diag /   diag \    roughest/smoothest
+            1         4.73      5.10     6.82     3.33          2.05
+            2         5.46      5.78     7.43     3.92          1.89
+            8         5.71      6.04     7.66     4.16          1.84
+           16         5.74      6.06     7.68     4.20          1.83
+
+      So filtering does do something the old test could not see — detail rises
+      about a fifth from anisotropy 1 to 16, while the mean sits at 45.2 the
+      whole way. But it does not remove the streak: the ratio only falls from
+      2.05 to 1.83, and 8 to 16 is worth 0.01, so the preset's 8 is already at
+      the point where more buys nothing. The smooth direction is the same one at
+      every setting — down-right, which is the way the slope runs.
+
+      What is left is the same answer as before, now with the right evidence
+      under it: a shadowed slope seen at a grazing angle, where the surface's
+      own texture is genuinely elongated in screen space, showing the
+      photograph's chroma noise along it — colour spread 11.8 against a mean of
+      27.8, high in relative terms, which is what reads as rainbow in near-black.
+      That is real imagery displayed honestly. It could be made to look better by
+      lifting or desaturating deep shadow, which is a display choice rather than
+      an invention, but it is a choice worth asking about rather than making.
 
       One thing that helped and is not a display choice: the chase camera used
       to be pushed straight up out of any ground it landed in, so standing on a
