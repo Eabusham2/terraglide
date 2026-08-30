@@ -164,11 +164,15 @@ what is left · `[?]` needs a decision from you.
       Holes: measured at 0.00 to 0.10 per cent across every view once the
       character is excluded from the measurement — see the note under M7.
 
-      The brief blur is the one part still open, and it is throughput rather
-      than a bug: at 55 m/s you cross six of the deepest tiles in the time one
-      comes back. See B10 for the numbers and for the prefetch that measured
-      worse, B12 for the same thing when you turn, and B11 for the flat-colour
-      case, which turned out to be the degraded latch and is fixed.
+      The brief blur was the one part left open, called throughput and not a
+      bug. It was a bug. The request queue was pumped from one place, once a
+      frame, and a slot freed by a finished request stayed empty until the next
+      frame — so the pipeline ran at eleven per cent of its own allowance with
+      sixty-six squares waiting. Fixed in C14, and blurcheck on both arms of
+      the same build says what it was worth: 63.9 per cent of the ground
+      stretched in settled flight becomes 28.9, an about-face 78.5 becomes
+      23.5, and standing still 33.9 becomes 4.0. See B12 for turning and B11
+      for the flat-colour case, which was the degraded latch and is fixed.
 - [x] B2. Random times a patch below appears, then the player glitches down
       The mid-flight correction is handled now, and it had a cause worth naming.
 
@@ -331,9 +335,11 @@ what is left · `[?]` needs a decision from you.
 
       In settled flight at 55 m/s, 58 per cent of the ground is stretched, 1.42
       levels on average. Just after a 180 it is 73 per cent. Standing still it
-      converges to 8 per cent in about ten seconds and stays there with an
-      empty queue — and that 8 is ground the provider has nothing deeper for,
-      which is honest rather than broken.
+      converges to 8 per cent in about ten seconds — which was read at the time
+      as ground the provider has nothing deeper for, and was not: see C14. With
+      the request queue drained on completion rather than once a frame, the
+      same tool on the same course gives 28.9 per cent flying, 23.5 after a
+      180, and 4.0 standing still. So most of this was ours.
 
       So the flying blur is throughput: at 55 m/s you cross six of the deepest
       tiles in the time one comes back. Which is about how fast tiles *return*,
@@ -709,9 +715,21 @@ what is left · `[?]` needs a decision from you.
         requests in flight      1.34      2.23
         tiles fetched          2,534     3,575
 
-      Stretched ground more than halved and the queue drained. The absolute
-      percentages are this probe's own course rather than blurcheck's, so they
-      are not comparable to the 58% quoted under B10 — the pair is.
+      Stretched ground more than halved and the queue drained. Those are this
+      probe's own course; blurcheck, the project's own tool and the one that
+      produced the 58% quoted under B10, run on both arms of the same build:
+
+                            once a frame    on completion
+        settled, flying          63.9%           28.9%
+        just after a 180         78.5%           23.5%
+        standing still           33.9%            4.0%
+
+      Standing still is the one that settles the argument. B10 recorded 8 per
+      cent there and called it "ground the provider has nothing deeper for,
+      which is honest rather than broken". It is 4 per cent once the queue is
+      drained properly — so half of what had been written off as the provider's
+      limit was this. Nothing is bare in either arm; it was never about squares
+      going missing, only about how long they stayed coarse.
 
       One thing guarded alongside it: with a completion pumping as well as a
       frame, the queue would have been re-sorted a dozen times a frame instead
@@ -2023,6 +2041,22 @@ what is left · `[?]` needs a decision from you.
       It is on the help card, which the build enforces in both directions: a
       binding with no line fails, and a line naming an action the game does not
       bind fails too.
+
+      It shipped dead the first time, and the reason is worth keeping because
+      it is a hole in the system rather than a slip. Keys live in two lists —
+      ACTIONS, which declares what an action is, and DEFAULT_BINDS, which says
+      which key it starts on — and `reindex` walks ACTIONS. So a key named in
+      DEFAULT_BINDS with no ACTIONS entry is never indexed, `actionsFor`
+      returns nothing for it, and pressing it does nothing: no error, no
+      warning, nothing on screen. F4 was bound, documented on the help card and
+      wired to a working handler, and unreachable.
+
+      Caught because the probe checked that the press reached the game before
+      believing anything about what it did — the same check that caught the
+      vacuous A6 test, and the reason it exists. The self test now fails when
+      the two lists disagree in either direction, and separately when any
+      default binding does not resolve to its own action when pressed. Thirty
+      three keys, all of them reachable.
 
 
 ## L. Standing instructions

@@ -806,6 +806,37 @@ console.log('\na graphics tier only carries settings that do something');
   ok('and buildingRadiusM in particular is gone', !/buildingRadiusM/.test(conf));
 }
 
+console.log('\na key that is bound is a key that does something');
+{
+  // ACTIONS and DEFAULT_BINDS are two lists that have to agree, and the
+  // failure when they do not is silent. `reindex` walks ACTIONS, so a key
+  // named in DEFAULT_BINDS with no entry in ACTIONS is never indexed,
+  // `actionsFor` returns nothing for it, and pressing it does nothing at all —
+  // no error, no warning, nothing on screen.
+  //
+  // That is how the diagnostics key shipped dead: bound to F4, documented on
+  // the help card, wired to a handler, and unreachable. It was caught only
+  // because the probe for it checked that the press reached the game before
+  // believing anything about what it did — the same check that caught the
+  // vacuous A6 test.
+  const { ACTIONS, DEFAULT_BINDS, keybinds } = await import('../src/core/keybinds.js');
+  const declared = new Set(ACTIONS.map((a) => a.id));
+  const boundOnly = Object.keys(DEFAULT_BINDS).filter((id) => !declared.has(id));
+  const declaredOnly = [...declared].filter((id) => !DEFAULT_BINDS[id]);
+  ok(`every default binding names a declared action  (${boundOnly.join(', ') || 'all do'})`,
+    boundOnly.length === 0);
+  ok(`and every declared action has a default key  (${declaredOnly.join(', ') || 'all do'})`,
+    declaredOnly.length === 0);
+  // The thing that actually matters: the press has to resolve. Checking the
+  // two lists agree is the cause; this is the effect, and it is worth testing
+  // directly because the index is what the keyboard handler reads.
+  const unreachable = Object.entries(DEFAULT_BINDS)
+    .filter(([id, code]) => !keybinds.actionsFor(code).includes(id))
+    .map(([id, code]) => `${id}->${code}`);
+  ok(`and every one of them resolves when pressed  (${unreachable.join(', ') || `${Object.keys(DEFAULT_BINDS).length} keys`})`,
+    unreachable.length === 0);
+}
+
 console.log('\nevery key the game binds is written down');
 {
   const help = readFileSync(new URL('../src/ui/help.js', import.meta.url), 'utf8');

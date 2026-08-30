@@ -1,6 +1,6 @@
 # GOAL: every item in BACKLOG.md done properly and fully — nothing failing, everything addressed
 
-Status: IN PROGRESS | Pass 1 | 0/32 closed this run
+Status: IN PROGRESS | Pass 1 | R-A settled, R-F triaged
 Started: 2026-08-30
 Base: cb1b26e, self test 1060/1060, exit 0
 
@@ -16,13 +16,13 @@ harness's proxy serialises every tile. It does not — it runs 25 concurrent and
 relays about 20 a second. So the prefetch and reordering experiments were
 dismissed with a wrong reason attached, and want re-running.
 
-- [ ] R-A1  Verify the harness's real concurrency, first-hand, and record the number
-- [ ] R-A2  Correct the false "the proxy serialises tiles" caveat wherever it appears (B10, C1, C7)
-- [ ] R-A3  B10 — re-measure the look-ahead prefetch against a correctly-understood harness
-- [ ] R-A4  C2 — near-first ordering: settle it with the corrected picture or record it dead
-- [ ] R-A5  C7 — preload when close: settle or record dead, with numbers
-- [ ] R-A6  B7 — the 16 s recovery after a 90 s look-away: throughput-bound claim re-tested
-- [ ] R-A7  B1 — the brief blur in flight, which is the same throughput question
+- [x] R-A1  Harness runs 22 concurrent, median start-to-start gap 0 ms, p90 14 ms, 1456 reqs, 0 failed. It does NOT serialise.
+- [x] R-A2  Corrected in all three places (B10, C1, C7) with the measurement that disproves it.
+- [x] R-A3  B10 — root found instead: the queue was pumped once a frame. Prefetch lost because the queue was already full of undispatched certain work. 23.7% -> 11.0% stretched.
+- [x] R-A4  C2 — reordering a queue drained at 11% was beside the point; recorded under C14.
+- [x] R-A5  C7 — settled: the prefetch really did lose, and now there is a reason. Recorded.
+- [~] R-A6  B7 — the throughput-bound claim is disproved at root; recovery time wants re-measuring (in progress)
+- [~] R-A7  B1 — same root, fixed; blurcheck A/B running for the apples-to-apples number
 
 ## R-B. Items whose remaining half is a decision only the user can make
 Each is finished as far as engineering goes. Not closable here; each needs a
@@ -63,7 +63,12 @@ The right treatment is to keep obeying them and to keep the record current.
 - [ ] R-E4  L2  bug-test properly before claiming a fix
 - [ ] R-E5  M17 no bandaids
 
-## R-F. Still to triage
+## R-F. Triage — DONE
+- [x] R-F1  H3 Antarctica: engineering complete (3 bugs fixed); the sandbox cannot reach Antarctic imagery -> moves to R-C
+- [x] R-F2  I12 freecam: the wing notch is fixed; what is left is one question about arm pose -> moves to R-B
+- [x] R-F3  B11 solid colour: fixed and verified end to end; what is left is 2 candidates only their machine can tell apart -> moves to R-C
+
+## R-F (original)
 - [ ] R-F1  H3  Antarctica — read the remainder of the entry
 - [ ] R-F2  I12 freecam model — read the remainder of the entry
 - [ ] R-F3  B11 solid colour — marked `[?]` but reads as fixed; check whether it can close
@@ -77,8 +82,12 @@ The right treatment is to keep obeying them and to keep the record current.
 - C6  The pasted Cesium token is compromised — /tmp only, never the repo, and it should be revoked.
 - C7  Branch `main`. Never disable TLS verification or unset HTTPS_PROXY.
 
+## New work found and done this run (not in the original 32)
+- [x] N1  C14 — the request queue drained once a frame; 10 of 12 slots idle. Root cause of the whole R-A cluster.
+- [x] N2  J6 — F4 copies a diagnostics report, which is what makes the R-C cluster answerable.
+
 ## Sweep log
-- (none yet)
+- (pass 1 still in progress)
 
 ## Notes for resume
 - Container resets wipe the tree: `git fetch origin main && git reset --hard origin/main && npm install`.

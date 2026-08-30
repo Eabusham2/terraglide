@@ -33,6 +33,7 @@ export const ACTIONS = [
   { id: 'pause', label: 'Pause \u2014 stop the world without opening anything', group: 'System' },
   { id: 'help', label: 'Controls help', group: 'System' },
   { id: 'debug', label: 'Debug overlay', group: 'System' },
+  { id: 'diagnostics', label: 'Copy diagnostics', group: 'System' },
   { id: 'hotbar1', label: 'Hotbar 1', group: 'Hotbar' },
   { id: 'hotbar2', label: 'Hotbar 2', group: 'Hotbar' },
   { id: 'hotbar3', label: 'Hotbar 3', group: 'Hotbar' },
@@ -40,6 +41,17 @@ export const ACTIONS = [
   { id: 'hotbar5', label: 'Hotbar 5', group: 'Hotbar' },
 ];
 
+/**
+ * The physical key each action starts on.
+ *
+ * This and ACTIONS above are two lists that have to agree, and the failure
+ * when they do not is silent: `reindex` walks ACTIONS, so a key named here
+ * with no entry there is never indexed, `actionsFor` returns nothing, and the
+ * key simply does nothing when pressed. No error, no warning. That is exactly
+ * how `diagnostics` shipped dead — bound here, documented on the help card,
+ * wired to a handler, and unreachable. The self test now fails when the two
+ * lists disagree in either direction.
+ */
 export const DEFAULT_BINDS = {
   forward: 'KeyW',
   back: 'KeyS',
