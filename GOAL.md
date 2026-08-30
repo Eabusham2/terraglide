@@ -119,8 +119,22 @@ The right treatment is to keep obeying them and to keep the record current.
 - Sweep 7 (integration): the single file boots from file://, uses the in-page host, and draws
   92.8% of the ground at its own resolution. The minimap scale bar reads "1,207 ft" where it
   read "0 mi". Both fixes visible in the shipped artefact.
-- Every sweep so far has found something, so more are needed. The recurring shape is one
-  thing: a guard written against the instances that were wrong rather than against the rule.
+- Sweep 8 (promises): providers were checked for carrying an attribution string, but nothing
+  checked it was visible. Measured at five widths, then guarded against the three CSS ways of
+  losing it.
+- Sweep 9 (docs): the README key table was a third place keys are written down, unguarded. It
+  promised `X` for a barrel roll that M18 removed, and omitted E, O and F4. Guarded both ways.
+- Sweep 10 (artefacts): nothing checked the committed single file matched src. The bundler
+  stamps a source fingerprint now and the self test recomputes it.
+- Sweep 11 (world map): CLEAN. Investigated an apparent mismatch between "Explored 111 sq mi"
+  and a small revealed patch. No defect: the record holds two clusters, because the game
+  random-teleports at boot before the probe teleports to the Alps, so half the explored area
+  is on another continent and off-screen. The arithmetic checks out (3.35 km flown, 8 km
+  seen-radius, 101 cells of 1,681 m, 285 km²). A first attempt to measure this by classifying
+  dark pixels was worthless and was thrown away rather than reported — inside the explored
+  patch the imagery has pale fields, so it could not tell explored-and-bright from unexplored.
+- The recurring shape across sweeps 2-10 is one thing: a guard written against the instances
+  that were wrong rather than against the rule.
 
 ## Notes for resume
 - Container resets wipe the tree: `git fetch origin main && git reset --hard origin/main && npm install`.
