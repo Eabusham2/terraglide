@@ -67,15 +67,16 @@ map. Dive is held: it drops the nose in the air and takes you under in water.
 | `W A S D` | walk |
 | `Shift` / `C` | sprint / crouch — `C` also dives when you are swimming |
 | `Space` | jump — **hold it while falling** to snap the wings open |
-| mouse buttons | fire a rocket, which opens the wings for you (see mouse modes below) |
+| mouse buttons / `E` | fire a rocket, which opens the wings for you (see mouse modes below) |
 | `1`–`5` | rockets — the number is the burn in seconds, and the power |
 | `V` | speed mode — everything at 2x for a while, then a cooldown |
 | `R` | random teleport |
 | `G` | world map · `M` minimap on/off · `=` / `-` minimap zoom |
 | `B` | drop a waypoint · `P` copy coordinates |
 | `F` | fold the wings away and fall |
-| `Q` | freecam · `F5` perspective (first / third / second) · `X` barrel roll (off by default) · `[` / `]` shrink / grow |
-| `L` | swap mouse mode · `F1` hide HUD · `F2` controls · `F3` debug · `Esc` settings |
+| `Q` | freecam · `F5` perspective (first / third / second) · `[` / `]` shrink / grow |
+| `L` | swap mouse mode · `F1` hide HUD · `F2` controls · `F3` debug · `F4` copy diagnostics · `Esc` settings |
+| `O` | pause — stop the world without opening anything |
 
 Every one of those is rebindable in **Settings → Controls**.
 

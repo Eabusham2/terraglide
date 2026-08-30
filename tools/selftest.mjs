@@ -1000,6 +1000,40 @@ console.log('\na key that is bound is a key that does something');
     unreachable.length === 0);
 }
 
+console.log('\nand the README says the same thing the game does');
+{
+  // I14 fixed the help card and guarded it in both directions, and left the
+  // README out — a third place the keys are written down, with nothing
+  // checking it. It had drifted: `X` for a barrel roll, which M18 removed and
+  // nothing binds; and E, O and F4 undocumented.
+  const { ACTIONS: A, DEFAULT_BINDS: B, keyLabel: label } = await import('../src/core/keybinds.js');
+  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  const table = readme.split('\n').filter((l) => /^\| `|^\| mouse/.test(l)).join('\n');
+  ok(`the README has a key table  (${table.split('\n').length} rows)`, table.split('\n').length > 8);
+
+  // Some keys are documented as a group rather than one at a time, which reads
+  // better than eleven rows would. Those groups are named here so the check
+  // knows they are covered rather than missing.
+  const GROUPED = {
+    forward: 'W A S D', back: 'W A S D', left: 'W A S D', right: 'W A S D',
+    sprint: 'Shift', hotbar1: '1', hotbar2: '1', hotbar3: '1', hotbar4: '1', hotbar5: '5',
+  };
+  const undocumented = A.filter((a) => {
+    const needle = GROUPED[a.id] ?? label(B[a.id]);
+    return !table.includes(`\`${needle}\``);
+  }).map((a) => `${a.id} (${label(B[a.id])})`);
+  ok(`every key is in the README  (${undocumented.join(', ') || `${A.length} actions`})`,
+    undocumented.length === 0);
+
+  // And the other way: the README must not promise a key the game does not
+  // bind. That is what `X` was.
+  const bound = new Set([...A.map((a) => label(B[a.id])), 'W A S D', 'Shift', '1', '5', '1`–`5']);
+  const orphans = [...new Set([...table.matchAll(/`([^`]+)`/g)].map((m) => m[1]))]
+    .filter((k) => !bound.has(k) && !/^[0-9]$|–|mouse/.test(k));
+  ok(`and the README promises no key that does nothing  (${orphans.join(', ') || 'none'})`,
+    orphans.length === 0);
+}
+
 console.log('\nevery key the game binds is written down');
 {
   const help = readFileSync(new URL('../src/ui/help.js', import.meta.url), 'utf8');
