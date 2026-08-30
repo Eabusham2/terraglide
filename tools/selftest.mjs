@@ -806,6 +806,49 @@ console.log('\na graphics tier only carries settings that do something');
   ok('and buildingRadiusM in particular is gone', !/buildingRadiusM/.test(conf));
 }
 
+console.log('\nthe in-page worker host overlaps its round trips');
+{
+  // What the double-clickable build runs on: a page opened from file:// cannot
+  // start a Web Worker. The host ran exactly one job at a time, "yielding
+  // between them so the frame still gets drawn" — but most of a tile job is
+  // `await fetch`, which never touches the main thread, so serialising the job
+  // serialised the network wait too. Measured against a real worker on the same
+  // course: 41.8 per cent of the ground stretched against 14.1, 1,280 tiles
+  // fetched against 1,906, and the queue behind it backed up to 157.
+  const host = await import('../src/tiles/workerHost.js');
+  const src = readFileSync(new URL('../src/tiles/workerHost.js', import.meta.url), 'utf8');
+  // The count is a count, not a flag — `if (this.running) return` is what made
+  // it one at a time.
+  ok('the host tracks how many are in the air, not whether any is',
+    /this\.running = 0;/.test(src) && !/if \(this\.running\) return;/.test(src));
+  ok('it starts more than one', /this\.running < INLINE_JOBS/.test(src));
+  // The yield is the part that protected the frame and it must survive.
+  ok('and still hands the frame back between starts',
+    /setTimeout\(resolve, 0\)/.test(src));
+  // A finished job fills the slot it freed, same as every other queue here.
+  ok('a finished job fills the slot it freed',
+    /this\.running--;[\s\S]{0,200}this\.pump\(\);/.test(src));
+
+  // And the cap actually holds, driven rather than read.
+  const worker = host.createTileWorker.call(null);
+  if (worker && worker.inline) {
+    let started = 0;
+    worker.queue.length = 0;
+    for (let i = 0; i < 20; i++) worker.queue.push({ channel: 'imagery', id: i, kind: 'nothing' });
+    // Jobs that never finish, so the cap is the only thing that can stop it.
+    // The first version of this decremented the counter straight away, so the
+    // cap never bit and the check passed at 20 of 20 — vacuous.
+    worker.run = function run() { started++; return new Promise(() => {}); };
+    await worker.pump();
+    ok(`it stops at the cap while they are in the air  (${started} of 20 started)`,
+      started > 1 && started < 20);
+    ok(`and what it did not start is still queued  (${worker.queue.length} waiting)`,
+      worker.queue.length === 20 - started);
+  } else {
+    ok('the in-page host is reachable for testing', false);
+  }
+}
+
 console.log('\nthe elevation queue fills the slots it frees');
 {
   // The same starvation the imagery queue had. `pump` ran from one place —

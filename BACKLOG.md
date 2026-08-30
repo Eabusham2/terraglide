@@ -476,10 +476,38 @@ what is left · `[?]` needs a decision from you.
           ever done anything.
 
       Every one of those has a self-test that fails on the old behaviour by
-      name. The suite is 1,008 checks.
+      name.
+
+      And from the pass after it, all six found by measuring rather than by
+      report:
+
+        a mirror in the Overpass fallback list held Switzerland and nothing
+          else, and answered 200-with-nothing for the rest of the planet — so
+          one 503 from the main instance and every building, wood, bridge and
+          mast on Earth outside Switzerland silently stopped existing;
+        a failed land/water probe was cached exactly like an answer, so one
+          hiccup made a continent-sized square read "cannot tell" for the
+          session — which reads as land, which is a teleport into open sea;
+        a refused 3D tile was asked for ninety-four times a second, against
+          two APIs that bill per request;
+        a failed imagery-date query was cached as though it were the permanent
+          truth about that ground;
+        the imagery request queue was pumped once a frame and never on
+          completion, so ten of twelve slots sat idle with sixty-six squares
+          waiting — the single biggest thing in this file, and the cause behind
+          six separate entries that had all concluded "throughput";
+        the elevation queue had the identical fault, which is worse, because
+          ground with no DEM tile reads as sea level;
+        and a key could be bound, documented on the help card and wired to a
+          working handler and still do nothing, because two lists had to agree
+          and nothing checked that they did.
+
+      Every one has a self-test that fails on the old behaviour by name. The
+      suite is 1,070 checks.
 
       Left open because "generally" has no end, and the useful next input is
-      which glitch you are still seeing.
+      which glitch you are still seeing — F4 now copies everything needed to
+      tell the candidates apart, so "it does it on mine" can become a paste.
 
 ## C. Loading order and speed
 
@@ -776,6 +804,34 @@ what is left · `[?]` needs a decision from you.
 
       Guarded the same way, including the failure path: a request that fails
       frees a slot too, and used to leave it empty just the same.
+
+- [x] C16. The double-clickable build loaded ground three times as slowly as the hosted one
+      Third instance of the same shape, found by looking rather than by report.
+
+      A page opened from file:// cannot start a Web Worker, so the single-file
+      build — the one meant to be double-clicked — runs the tile jobs in the
+      page instead. That host ran exactly one at a time, described as "one at a
+      time, yielding between them so the frame still gets drawn". The yielding
+      was right and is what protects the frame. One at a time was not: most of
+      a tile job is `await fetch`, which never touches the main thread, so
+      serialising the job serialised the network wait along with the decode.
+
+      Meanwhile the streamer believed it had a dozen requests in flight,
+      because it had posted a dozen messages. They were sitting in this queue.
+
+      Measured on the fallback path against a real worker over the same course,
+      then again after:
+
+                            before    after    real worker
+        ground stretched     41.8%    14.6%       14.1%
+        tiles fetched        1,280    1,556       1,906
+        queue behind it        157       24          19
+        frames per second     1.42     1.51        1.44
+
+      Within half a point of a real worker, from three times the blur. The
+      frame rate went up rather than down, which was the thing to check: the
+      yield between starts is untouched and is still what keeps the page
+      responsive.
 
 
 ## D. Physics
@@ -2042,6 +2098,19 @@ what is left · `[?]` needs a decision from you.
       explained away: both attempts at favouring near ground in the tile queue
       (C2), and raising the texture cache to the drawn cap (B7). Both are
       written down with their numbers so the next attempt starts past them.
+
+      The clearest case in the pass after that is C14, and it is worth stating
+      as cause rather than remedy. Six entries in this file — B1, B7, B10, C1,
+      C2, C7 — had concluded "throughput is the constraint". None of them had
+      measured the pipeline; they had measured the *symptom* and inferred the
+      cause. The evidence offered for it was that the test harness serialised
+      tiles, which was checked and found to be false: 22 concurrent, median
+      start-to-start gap 0 ms. Measured properly, the queue was being drained
+      once a frame and ran at eleven per cent of its own allowance. Two of
+      those six had reverted a prefetch on the strength of the wrong reason.
+
+      The habit that failed here was not the fixing. It was accepting an
+      inferred cause across six entries because each one agreed with the last.
 - [x] J4. Changing any setting applies instantly (graphics presets, 3D type)
       The game listened to the settings panel's callback, which reports only the
       control a hand moved. Picking Low writes nine settings; eight were stored
@@ -2103,13 +2172,19 @@ what is left · `[?]` needs a decision from you.
 ## L. Standing instructions
 
 - [~] L1. Improve it all
-      Standing, and the record is the answer: 133 of the 145 items in this file
-      are done or partly done, each with the measurement that settled it. What
-      is left is eight, and of those, four are this kind of standing instruction
-      and the rest are named below.
+      Standing, and the record is the answer: every item in this file is done,
+      partly done with the remaining half named, or waiting on something only
+      you can supply — a machine, a key, or a one-line decision. Each carries
+      the measurement that settled it.
 
-      No end condition, so it stays open. The useful input is which part is
-      worst now.
+      What is genuinely left splits three ways and nothing in it is idle work
+      waiting to be done here. Nine items are measured clean on this machine
+      and reported from yours (F4 now copies everything needed to tell their
+      candidate causes apart). Four need a credential you hold. Six are one-line
+      decisions. The rest, including this one, are standing instructions with no
+      end condition.
+
+      The useful input is which part is worst now — or a paste of F4.
 - [~] L2. Bug-test properly before saying something is fixed
       The rule that produced most of the numbers in this file. What "properly"
       has come to mean here, learned mostly by getting it wrong:
@@ -2121,6 +2196,18 @@ what is left · `[?]` needs a decision from you.
       the new one. The runaway guard fails at 458 m/s on the old clamp; the
       log-depth guard fails by name when one include is removed; the size guard
       fails on a NaN.
+
+      Prove the input reaches the thing before believing anything about what it
+      did. This is the A6 lesson and it earned its keep again: the diagnostics
+      key was bound to F4, listed on the help card and wired to a handler that
+      worked, and pressing it did nothing at all — two lists have to agree and
+      nothing checked that they did. The probe printed "press reached the
+      action: NO", which is the only reason it was caught before shipping.
+
+      Watch for the reason as well as the result. A prefetch was reverted twice
+      on the strength of "the sandbox proxy serialises tiles". That was never
+      measured, and it was false. The result stood; the reason did not, and the
+      reason was what stopped anyone looking further for four entries.
 
       Watch the measurement itself for the same bugs as the code. In this pass:
       a six-second speed sample at one frame a second is seven frames, so the
@@ -2460,6 +2547,21 @@ what is left · `[?]` needs a decision from you.
       case for 'auto'. And the missing shader chunks are guarded across every
       file that writes a shader, not across the two that were wrong, because
       the next hand-written shader would have the same hole.
+
+      Three more from the pass after it.
+
+      The request queue was drained once a frame. The symptom fix would have
+      been to raise the concurrency cap, which had already been tried at 12, 24
+      and 48 and made no difference — because the cap was never the thing being
+      hit. The system fix is that a completing request fills the slot it just
+      freed, which is what every other queue in this project already did.
+
+      The same fault was then looked for in the *other* queues rather than
+      waiting for it to be reported, and the elevation queue had it too.
+
+      And when a key turned out to be bound, documented and wired yet dead, the
+      guard went on the two lists that have to agree and on every binding
+      resolving when pressed — not on F4.
 - [x] M18. Barrel roll, implemented like the mod, not as a keybind
       Was a key: X ran a canned 360 over 0.8 s whatever you were doing. Now it is
       the strafe keys held while gliding — you keep rolling for as long as you
