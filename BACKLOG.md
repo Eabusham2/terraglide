@@ -124,9 +124,53 @@ what is left · `[?]` needs a decision from you.
         High      900                 = 300 MB    225            = 300 MB
         Ultra   1,400                 = 467 MB    350            = 467 MB
 
-      Still open until you can say whether the tab still dies. If it does, the
-      thing worth knowing is which tier the game had picked, since that is the
-      figure above it was spending.
+      That was not the whole of it, and the rest was found by reproducing the
+      machine instead of waiting for one. A Chromebook is a device *class*, and
+      Chrome's own debugger can impose the two things that define it: the CPU
+      throttled to a sixth, `deviceMemory` reporting two gigabytes, two cores.
+      Flown for two minutes under that:
+
+        textures held      1,731
+        budget             160
+
+      Ten times over its own budget — about 440 MB of texture where the budget
+      says 40, on a machine with two gigabytes. That is a tab being killed, and
+      it is exactly what "it randomly refreshes" is.
+
+      The cause: the twenty-second hold that stops a tile being thrown away and
+      immediately re-fetched (B8/B9) was absolute. Nothing bounded how many
+      tiles it could protect, and on a slow machine covering ground quickly the
+      set of "seen in the last twenty seconds" is larger than the whole cache,
+      so eviction found nothing it was allowed to drop and the cache just grew.
+
+      The first fix was wrong and is worth recording. Letting the hold yield
+      brought the cache inside its budget — and took the share of ground drawn
+      at its own resolution from 71% to 15%, with the queue going from 104 deep
+      to 1,165. That is the thrash the hold exists to prevent, and B7 predicted
+      it in as many words: a cache smaller than the view is not a smaller
+      cache, it is no history.
+
+      Which is the actual cause. On Low with two gigabytes the budget was 160
+      while the same tier draws up to 520 squares — a cache that cannot hold
+      what is on screen has to either evict things still being drawn or ignore
+      its own budget, and it was silently doing the second. So the budget is
+      floored at what the tier draws, and the hold yields above that. Nothing
+      still on screen is ever evicted, and memory is bounded:
+
+                          before   hold removed   floored
+        textures held      1,731        174         534
+        against a budget     160        160         520
+        own picture        70.7%       14.8%       66.8%
+        queue, mean          104         356         112
+
+      133 MB of texture instead of an unbounded 440, with the picture intact.
+      The self test now refuses any tier whose cache is smaller than what it
+      draws, and the check that a heavier preset holds more asserts that rather
+      than the multiple it happened to have.
+
+      Still open until you can say whether the tab still dies on yours — but
+      there is now a measured cause that was not visible from this machine
+      until it was made to behave like yours.
 - [x] A8. Why is it forcing to fly — why can't it remember position on relog
       The position was always remembered. What you were *doing* was not, so the
       spawn had nothing to go on and took "arrive in the sky" at its word every

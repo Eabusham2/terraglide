@@ -783,7 +783,11 @@ export class Game {
     requestAnimationFrame((t) => this.loop(t));
 
     if (this.firstRunTier === 'low') {
-      this.toast('Starting on Low for this machine — change it in Settings → Graphics');
+      // A Latin-1 guillemet, not a rightwards arrow. This is the first thing a
+      // low-end machine is told, and a minimal Android or embedded font set is
+      // exactly where U+2192 draws as an empty box — the same fault I16 found
+      // in the map's zoom buttons, in the worst possible place for it.
+      this.toast('Starting on Low for this machine — change it in Settings » Graphics');
     }
     if (this.help.firstRun) this.help.show();
   }

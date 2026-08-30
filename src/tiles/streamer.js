@@ -867,12 +867,41 @@ export class ImageryStreamer extends Emitter {
    * does not answer is given the benefit of the doubt rather than the floor.
    */
   textureLimit() {
-    const nominal = settings.preset().textureCacheSize;
+    const preset = settings.preset();
     const size = this.tileSizeHint || 256;
-    const scaled = nominal * (256 / size) ** 2;
+    // A 512-pixel tile costs four times the memory of a 256-pixel one, so the
+    // preset's figure — which is a count of 256-pixel tiles — is divided by
+    // that. Any floor added below has to be scaled the same way or it
+    // quadruples the budget on a provider that serves 512s; that is the
+    // mistake recorded under B7.
+    const perTile = (256 / size) ** 2;
     const memoryGB = Number(globalThis.navigator?.deviceMemory ?? 0);
     const share = memoryGB > 0 && memoryGB <= 4 ? 0.5 : 1;
-    return Math.max(64, Math.round(scaled * share));
+    const budget = preset.textureCacheSize * perTile * share;
+
+    /**
+     * Never smaller than the view.
+     *
+     * A cache that cannot hold what is on screen is not a smaller cache, it is
+     * an incoherent one: it has to either evict tiles that are still being
+     * drawn — which fetches them straight back, and is the thrash the
+     * twenty-second hold exists to prevent — or ignore its own budget. It was
+     * silently doing the second. Measured on a machine throttled to a sixth
+     * speed reporting two gigabytes: 1,731 textures held against a budget of
+     * 160, while the same tier draws up to 520 squares.
+     *
+     * Removing the hold instead was tried and was much worse: the cache came
+     * back inside 160, and the share of ground drawn at its own resolution
+     * fell from 71% to 15% while the queue went from 104 deep to 1,165. That
+     * is the thrash, exactly as B7 predicted it.
+     *
+     * So the budget is floored at what the tier actually draws. On Low with
+     * two gigabytes that is 520 tiles rather than 160 — about 133 MB of
+     * texture instead of an unbounded 440 — and the hold can then yield above
+     * it without ever evicting anything still on screen.
+     */
+    const view = preset.maxDrawnTiles * perTile;
+    return Math.max(64, Math.round(Math.max(budget, view)));
   }
 
   evict() {
@@ -901,11 +930,40 @@ export class ImageryStreamer extends Emitter {
     let excess = rest.length - limit;
     if (excess > 0) {
       rest.sort((a, b) => a.used - b.used);
+      // First pass: the ones nothing is protecting, oldest first.
       for (const entry of rest) {
         if (excess <= 0) break;
         if (moment - (entry.seen ?? 0) < KEEP_SECONDS * 1000 || entry.state === STATE_PENDING) continue;
         drop(entry);
         excess--;
+      }
+      // Second pass: the protection is a preference, not a promise.
+      //
+      // Holding a tile for twenty seconds after it was last drawn exists to
+      // stop it being thrown away and immediately fetched again — see B8/B9.
+      // But nothing bounded how *many* tiles that could protect, and on a slow
+      // machine covering ground quickly the set of "seen in the last twenty
+      // seconds" is enormous, so the first pass could find nothing droppable
+      // at all and the cache simply grew.
+      //
+      // Measured on a machine throttled to a sixth of this one's speed,
+      // reporting two gigabytes: 1,731 textures held against a budget of 160.
+      // Ten times over, which at a quarter-megabyte a tile is about 440 MB of
+      // texture where the budget says 40 — and a tab dying of memory is
+      // exactly what "it randomly refreshes" looks like from the inside (A7).
+      //
+      // So when the first pass cannot get back under, the protection yields,
+      // oldest-seen first. A re-fetch is cheaper than the tab being killed,
+      // and the cover pool immediately below has always been bounded this way
+      // and says so.
+      if (excess > 0) {
+        for (const entry of rest) {
+          if (excess <= 0) break;
+          if (entry.state === STATE_PENDING) continue;
+          if (!this.entries.has(entry.key)) continue; // already dropped above
+          drop(entry);
+          excess--;
+        }
       }
     }
 

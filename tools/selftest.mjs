@@ -1000,6 +1000,85 @@ console.log('\na key that is bound is a key that does something');
     unreachable.length === 0);
 }
 
+console.log('\nthe texture cache cannot grow past its own budget');
+{
+  // The twenty-second hold after a tile was last drawn stops it being thrown
+  // away and immediately re-fetched (B8/B9). Nothing bounded how many tiles it
+  // could protect, so on a slow machine covering ground quickly the eviction
+  // pass could find nothing droppable and the cache simply grew.
+  //
+  // Measured on a machine throttled to a sixth speed reporting two gigabytes:
+  // 1,731 textures against a budget of 160. About 440 MB of texture where the
+  // budget says 40, which is a tab dying of memory — A7.
+  const { ImageryStreamer, STATE_READY } = await import('../src/tiles/streamer.js');
+  const s6 = new ImageryStreamer({ postMessage() {}, addEventListener() {} },
+    { capabilities: { getMaxAnisotropy: () => 1 } });
+  const limit = s6.textureLimit();
+  ok(`the cache has a budget  (${limit})`, limit > 0);
+  // Every one of them drawn just now, so every one is inside the hold.
+  const many = limit * 4;
+  for (let i = 0; i < many; i++) {
+    s6.entries.set(`14/${i}/9`, {
+      key: `14/${i}/9`, tile: { z: 14, x: i, y: 9 }, state: STATE_READY,
+      texture: { dispose() {} }, used: i, seen: performance.now(),
+    });
+  }
+  ok(`the cache is over budget to begin with  (${s6.entries.size} of ${limit})`,
+    s6.entries.size > limit);
+  s6.evict();
+  ok(`eviction brings it back inside  (${s6.entries.size} of ${limit})`, s6.entries.size <= limit);
+  // And the hold still does its job when the cache is not over budget: a tile
+  // seen a moment ago must survive an eviction that has room to spare.
+  const s7 = new ImageryStreamer({ postMessage() {}, addEventListener() {} },
+    { capabilities: { getMaxAnisotropy: () => 1 } });
+  s7.entries.set('14/1/1', {
+    key: '14/1/1', tile: { z: 14, x: 1, y: 1 }, state: STATE_READY,
+    texture: { dispose() {} }, used: 1, seen: performance.now(),
+  });
+  s7.evict();
+  ok('and a recently drawn tile is kept when there is room', s7.entries.has('14/1/1'));
+}
+
+console.log('\nno text the player sees needs a font they may not have');
+{
+  // I16: the map's zoom buttons were "+" and U+2212 MINUS SIGN, typed as the
+  // whole content of a twenty-pixel button — and U+2212 is missing from some
+  // Android and embedded font sets, where it draws as an empty box. That was
+  // fixed by drawing both in CSS. But the audit behind it was a one-off read,
+  // not a rule, so nothing stopped the next risky glyph.
+  //
+  // This is the rule. Comments may contain anything; text the player sees may
+  // contain Latin-1, plus the three pieces of punctuation that are in
+  // effectively every font shipped anywhere.
+  const SAFE_BEYOND_LATIN1 = new Set(['\u2014', '\u2013', '\u2026']); // em dash, en dash, ellipsis
+  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const LITERAL = /'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g;
+  const files = readdirSync(new URL('../src/', import.meta.url), { recursive: true })
+    .map(String).filter((f) => f.endsWith('.js'));
+  const risky = new Map();
+  let scanned = 0;
+  for (const f of files) {
+    const body = strip(readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8'));
+    for (const m of body.matchAll(LITERAL)) {
+      scanned++;
+      for (const ch of m[0]) {
+        const cp = ch.codePointAt(0);
+        if (cp <= 127 || cp <= 0xFF || SAFE_BEYOND_LATIN1.has(ch)) continue;
+        const key = `U+${cp.toString(16).toUpperCase().padStart(4, '0')} in ${f}`;
+        risky.set(key, (risky.get(key) ?? 0) + 1);
+      }
+    }
+  }
+  ok(`the scan reads the strings, not the comments  (${scanned} literals)`, scanned > 500);
+  ok(`nothing the player sees needs an unusual glyph  (${[...risky.keys()].slice(0, 4).join(', ') || 'none'})`,
+    risky.size === 0);
+  // The one that was actually wrong, named, so this cannot regress quietly.
+  const seen = files.map((f) => strip(readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8')))
+    .join('\n');
+  ok('no rightwards arrow in anything the player reads', !seen.includes('\u2192'));
+  ok('and no minus sign either', !seen.includes('\u2212'));
+}
+
 console.log('\nthe README lists the providers that exist');
 {
   // The README's provider table listed five imagery providers. There are
@@ -2991,13 +3070,32 @@ console.log('\nThe texture cache is a size, not a tally');
   ok(`and the same memory either way  (${megabytes(small, 256).toFixed(0)} vs ${megabytes(large, 512).toFixed(0)} MB)`,
     Math.abs(megabytes(small, 256) - megabytes(large, 512)) < 8);
 
-  // A preset still means something: heavier presets hold more.
+  // A preset still means something: heavier presets hold more. Asserted as
+  // "more at every step" rather than as a multiple — this said `ultra > low * 3`,
+  // a ratio read off the numbers of the day, and it broke when the budget was
+  // floored at what each tier actually draws. The floor narrows the spread
+  // (520 to 1500 rather than 320 to 1400) because the drawn caps are closer
+  // together than the cache figures were. Monotonic is the requirement; the
+  // multiple was a snapshot.
   streamer.tileSizeHint = 256;
-  settings.set('graphics', 'low');
-  const low = streamer.textureLimit();
-  settings.set('graphics', 'ultra');
-  const ultra = streamer.textureLimit();
-  ok(`a heavier preset still holds more  (${low} low, ${ultra} ultra)`, ultra > low * 3);
+  const byTier = [];
+  for (const tier of ['low', 'medium', 'high', 'ultra']) {
+    settings.set('graphics', tier);
+    byTier.push([tier, streamer.textureLimit()]);
+  }
+  const rising = byTier.every(([, v], i) => i === 0 || v > byTier[i - 1][1]);
+  ok(`a heavier preset still holds more  (${byTier.map(([t, v]) => `${t} ${v}`).join(', ')})`, rising);
+
+  // And never less than the tier draws, or the cache cannot hold the view and
+  // has to either thrash or ignore its own budget. It was ignoring it: 1,731
+  // textures against a budget of 160, measured on a throttled machine
+  // reporting two gigabytes.
+  const short = [];
+  for (const tier of ['low', 'medium', 'high', 'ultra']) {
+    settings.set('graphics', tier);
+    if (streamer.textureLimit() < settings.preset().maxDrawnTiles) short.push(tier);
+  }
+  ok(`no tier caches less than it draws  (${short.join(', ') || 'none of the four'})`, short.length === 0);
 
   // Never so small that nothing can be cached at all.
   streamer.tileSizeHint = 4096;

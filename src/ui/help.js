@@ -110,7 +110,7 @@ export class HelpCard {
           ).join('')}
         </div>
         <p class="help-note">
-          Satellite imagery and elevation work with no account at all. <strong>Settings → Providers</strong>
+          Satellite imagery and elevation work with no account at all. <strong>Settings » Providers</strong>
           swaps in Google, Azure or Mapbox if you have a key. With no network there is nothing to fly
           over: the ground stays bare rather than being made up.
         </p>
