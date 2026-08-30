@@ -336,7 +336,10 @@ what is left · `[?]` needs a decision from you.
       which is honest rather than broken.
 
       So the flying blur is throughput: at 55 m/s you cross six of the deepest
-      tiles in the time one comes back. Asking ahead was the obvious answer and
+      tiles in the time one comes back. Which is about how fast tiles *return*,
+      not how many are asked for at once — raising the number in flight from 12
+      to 24 to 48 changes nothing measurable, with an empty queue throughout.
+      See C7. Asking ahead was the obvious answer and
       it was tried — a lead point two seconds along the velocity, three levels,
       a ring of nine — and it measured *worse*: 58.1 per cent became 61.7, and
       gating it to an empty queue still gave 61.5. The pipeline is limited by
@@ -498,6 +501,11 @@ what is left · `[?]` needs a decision from you.
       done because the ask is not satisfied — near is not favoured — and the
       honest reason is that the two ways of favouring it both cost more than
       they bought. Both are recorded here so the next attempt starts past them.
+
+      The third way, more requests in flight at once, has since been tried too
+      and made no difference either: 12, 24 and 48 concurrent all land within
+      half a per cent of each other, with an empty queue throughout. See C7 for
+      the run and for the one caveat it cannot rule out.
 - [x] C3. Ground loading is super slow but the minimap is already loaded
       Cause found: the per-frame streaming budget was spare time only, so any
       machine missing its target pinned to the 1.5 ms floor — 45 ms of terrain
@@ -554,10 +562,35 @@ what is left · `[?]` needs a decision from you.
       requested while the coarser one you already have keeps being drawn,
       stretched, until it lands. That is what the 29% ladder in C6 is.
 
-      Left as a question rather than closed, because the thing that would make
-      the first half work is not more prefetching, it is more throughput —
-      several tiles in flight per round trip — and whether that is worth doing
-      depends on which provider you actually fly on.
+      "More throughput" was the obvious remaining lever and it has now been
+      tried, because the assumption blocking it turned out to be wrong. This
+      sandbox was believed to serialise outbound requests, which would have made
+      any concurrency measurement meaningless; measured, it reaches 25 requests
+      in flight at once and 20 a second. So the experiment is possible after
+      all.
+
+      Run over four alpine places this session had never fetched — clearing the
+      texture cache is not enough, because the browser's HTTP cache then serves
+      the refetch off disk and every arm after the first measures that instead
+      of the setting:
+
+        12 in flight   Chamonix        0.5% of the ground stretched
+        24             Zugspitze       0.8%
+        48             Zermatt         0.6%
+        12             Barcelonnette  10.8%, and that is the settle after the
+                                      teleport — its samples run 45, 14, 0, 2,
+                                      0, 4
+
+      No effect. And the reason is in the same table: the queue is empty in
+      three of the four arms. There is nothing waiting for a slot, so more slots
+      cannot help.
+
+      One caveat that matters and cannot be measured away here: this harness
+      renders at about 1.4 frames a second, so the game asks for tiles some
+      forty times less often than it would at 60. An empty queue at 1.4 fps does
+      not prove an empty queue at 60. What the run does establish is that the
+      limit is not the binding constraint in an environment where the network is
+      fast, and that raising it is not a free win to be assumed.
 - [x] C8. Flying up should not decrease quality
       Cause: the split test used the *horizontal* distance, which is nought for
       ground directly beneath you however high you are — so at 9 km the quadtree
