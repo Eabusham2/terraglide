@@ -1979,7 +1979,22 @@ what is left · `[?]` needs a decision from you.
       themselves. A binding with no line on the card fails the build rather
       than reaching somebody's keyboard undocumented, and a line naming an
       action the game does not bind fails it too — the card cannot promise a
-      key that does nothing. Thirty-two bindings, all of them written down.
+      key that does nothing.
+
+      That guarded the help card and left the README out, which is a third
+      place the keys are written down with nothing checking it, and it had
+      drifted. It promised `X` for a barrel roll, which M18 removed when the
+      roll became the strafe keys held while gliding — so the README named a
+      key that does nothing at all. And it never mentioned `E` for a rocket,
+      `O` for pause, or `F4` for the diagnostics report, the last of which was
+      added earlier in this same pass and not documented, which is the same
+      mistake one commit later.
+
+      All four corrected, and the README is checked in both directions now, like
+      the card. Thirty-three bindings, written down in both places, and neither
+      place naming a key that does nothing. Keys documented as a group — W A S D,
+      1 to 5, Shift — are named in the check as groups rather than counted
+      missing.
 - [x] I15. Touchscreen controls do not go away when returning to keyboard
       watchForTouch only ever called setEnabled(true) — nothing turned them off.
       On anything with both a finger and a keyboard, one tap pinned the sticks
