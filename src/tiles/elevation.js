@@ -1,3 +1,4 @@
+import { settings } from '../core/settings.js';
 import { bilinear, clamp } from '../core/math.js';
 import { latToNormY, lonToNormX, tileKey, wrapTileX } from '../geo/mercator.js';
 
@@ -44,7 +45,6 @@ export class ElevationField {
     /** Set when something is queued, so pump only re-sorts when it must. */
     this.queueDirty = false;
     this.queue = [];
-    this.cacheLimit = 320;
     this.frame = 0;
     this.ready = false;
     this.loaded = 0;
@@ -404,10 +404,49 @@ export class ElevationField {
     return this.givenUp || this.loaded > 0;
   }
 
+  /**
+   * How many height tiles to keep.
+   *
+   * This was a flat 320 on every machine, and the grid it has to cover is not:
+   * the terrain is 25 squares across on Low and 41 on Ultra, so the area — and
+   * the number of height tiles under it — is nearly three times bigger at the
+   * top. On the tiers a real graphics card picks, the stated limit therefore
+   * sat below what a single frame needs, which is not a cache size. It is a
+   * permanent overflow with a number written next to it.
+   *
+   * Nothing here was measurable on the sandbox this was developed against,
+   * because SwiftShader picks Low and every reading came from there.
+   */
+  get cacheLimit() {
+    const grid = settings.preset().tileGridSize || 25;
+    return Math.round(320 * (grid / 25) ** 2);
+  }
+
   evict() {
-    if (this.tiles.size <= this.cacheLimit) return;
+    // Never below what this frame is actually using.
+    //
+    // The guard in the loop skips anything touched in the last couple of
+    // frames, because the mesh is sampling it right now. At a big grid that is
+    // most of the cache, so one pass could be asked to free a hundred tiles and
+    // find nothing it was allowed to take — and then simply stop, leaving the
+    // cache over a limit it went on reporting as if it were keeping it.
+    // Measured over Gibraltar at Ultra before this: 401 held against a stated
+    // 320, peaking at 511, evict() asking to free 491 across the run and
+    // managing 360, with 131 it wanted gone and could not take.
+    //
+    // Flooring the limit at the live set says the true thing instead: what one
+    // frame needs is not spare, so it is not budget either. It also makes the
+    // shortfall impossible rather than rare — the excess is now only ever
+    // counted against tiles the loop is allowed to drop. Same fault, and the
+    // same fix, as the texture cache in A7.
+    let live = 0;
+    for (const entry of this.tiles.values()) {
+      if (entry.state === STATE_PENDING || entry.used >= this.frame - 2) live++;
+    }
+    const limit = Math.max(this.cacheLimit, live);
+    if (this.tiles.size <= limit) return;
     const sorted = [...this.tiles.values()].sort((a, b) => a.used - b.used);
-    let excess = this.tiles.size - this.cacheLimit;
+    let excess = this.tiles.size - limit;
     for (const entry of sorted) {
       if (excess <= 0) break;
       if (entry.state === STATE_PENDING || entry.used >= this.frame - 2) continue;

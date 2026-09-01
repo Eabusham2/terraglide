@@ -215,10 +215,9 @@ export const DEFAULT_SETTINGS = {
  * from a zoom-20 photograph costs exactly what one drawn from zoom 18 costs.
  * So those stay near maximum everywhere, and the two knobs above do the work.
  *
- * `maxConcurrentRequests` was the quiet one, and it was set far too low. Tiles
- * are fetched from a worker over HTTP/2, where the browser multiplexes and the
- * old six-connections-per-host rule does not apply, so a low number here is not
- * politeness — it is the ground staying blurred while the queue drains. Flying
+ * `maxConcurrentRequests` was the quiet one, and it was set far too low. A low
+ * number here is not politeness — it is the ground staying blurred while the
+ * queue drains. Flying
  * the Strait of Gibraltar and counting how much of the drawn ground wears its
  * own photograph rather than a stretched ancestor:
  *
@@ -227,8 +226,30 @@ export const DEFAULT_SETTINGS = {
  *   32 wide     70%       83%       88%
  *
  * That is the "blurry for a while" — half the world drawn from a coarse tile
- * for the first half minute. These are roughly doubled, which is still well
- * inside what one page is allowed to have in flight.
+ * for the first half minute. These are roughly doubled.
+ *
+ * The reason once given for that being safe was wrong, and worth writing down
+ * so nobody reasons from it again: it said tiles come "over HTTP/2, where the
+ * browser multiplexes and the old six-connections-per-host rule does not
+ * apply". Measured, server.arcgisonline.com and s3.amazonaws.com — the default
+ * imagery and the default elevation — both negotiate HTTP/1.1. The rule
+ * applies, and every harness run had hidden it, because a relayed response
+ * never touches the browser's connection pool.
+ *
+ * So the numbers were re-measured with a six-per-origin gate in front of the
+ * relay, which is what a browser actually enforces. Arriving cold over
+ * Gibraltar, share of drawn ground wearing its own photograph:
+ *
+ *                            at 4 s   at 12 s   peak connections
+ *   no gate, limit 34         45.4%     94.1%         43
+ *   gate of six, limit 34     45.5%     94.1%          6
+ *   gate of six, limit 6      37.3%     94.6%          6
+ *
+ * The gate costs nothing measurable, and lowering the limit to match it is
+ * worse — 178 tiles deep in the queue instead of 11, and a slower fill. Over-
+ * asking is not wasted: the browser holds the surplus and spends it the moment
+ * a connection frees, while the streamer keeps a short queue it can still
+ * re-order. So the numbers stand; only the reason for them was false.
  */
 export const GRAPHICS_PRESETS = {
   low: {

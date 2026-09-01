@@ -12,6 +12,63 @@ what is left · `[?]` needs a decision from you.
 
 ## A. Stops you playing
 
+- [x] A18. Everything was measured on a tier your machines never run
+      You said the boot hang, and every other thing I could not reproduce,
+      happens on all seven of your machines — Mac, Windows, Chrome, Edge,
+      Safari. Nothing per-machine explains that, so the question became what is
+      different about *here*.
+
+      This: the sandbox draws through SwiftShader, a software renderer, so the
+      first-run check measures a slow machine and picks **Low**. Every reading
+      in this file — every "cannot reproduce", every percentage, every cache
+      figure — came from Low: 520 drawn tiles, a grid 25 squares across, a
+      texture budget of 320. Seven machines with real graphics cards pick High
+      or Ultra: up to 1,500 drawn tiles, a grid of 41, a budget of 1,400. I had
+      been testing a code path your machines never take, and reporting the
+      result as if it covered them.
+
+      Running the same flight at both tiers found a real defect immediately, and
+      it is the A7 fault in the file next door.
+
+      The height cache had `this.cacheLimit = 320` — a constant, never scaled,
+      never read from the preset, while the imagery cache beside it scales with
+      both `textureCacheSize` and `maxDrawnTiles`. The grid it has to cover goes
+      from 25 squares across to 41, which is nearly three times the area, so on
+      the tiers a real card picks the stated limit sat *below what a single
+      frame needs*. That is not a cache size. It is a permanent overflow with a
+      number written next to it.
+
+      And `evict()` had one pass that could be blocked outright. It skips
+      anything touched in the last couple of frames, because the mesh is
+      sampling it right now; at a big grid that is most of the cache, so it
+      could be asked to free a hundred tiles, find nothing it was allowed to
+      take, and stop. The imagery cache was given a yielding second pass for
+      exactly this reason under A7. This one never got it.
+
+      Measured over Gibraltar, arriving cold:
+
+                              held / limit    peak    evict asked / freed
+        Low                     320 / 320      320          0 / 0
+        Ultra, before           401 / 320      511        491 / 360
+        Ultra, after            778 / 861      778          0 / 0
+
+      131 tiles it wanted gone and could not take, gone. The limit now scales
+      with the grid (320, 431, 558, 861 across the four tiers — Low unchanged,
+      because Low was never the one over) and the floor is the live set, which
+      makes the shortfall unreachable rather than rarer: the excess is only ever
+      counted against tiles the loop is actually allowed to drop.
+
+      Honest about the size of it: a height tile is a 65x65 Float32Array, 16.9
+      KB, so the old overrun was about 3 MB. And the churn I expected was *not*
+      there — `refetchedAfterDrop` was 0 both before and after, so nothing it
+      dropped came straight back. This is a cache that lied about its size and
+      could not honour it, not the cause of ground moving under you.
+
+      The wider point stands and is the reason this is filed at the top: every
+      "could not reproduce here" in this file was measured at Low and needs
+      re-reading in that light.
+
+
 - [~] A0. Stuck on "Starting engine" — game never boots
       — could not reproduce: the deployed index, the single file and the online
       single file all boot here, and every Pages deploy has succeeded. Two

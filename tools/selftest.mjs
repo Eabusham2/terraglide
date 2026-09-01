@@ -3852,6 +3852,59 @@ console.log('\nThe tab icon is the thing you fly with');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe height cache is sized for the grid it has to cover');
+{
+  const { ElevationField } = await import('../src/tiles/elevation.js');
+  const { settings } = await import('../src/core/settings.js');
+  const field = new ElevationField({ postMessage() {}, addEventListener() {} });
+  const was = settings.tier;
+
+  // It was a flat 320 for every machine while the terrain grid it covers goes
+  // from 25 squares across to 41 — nearly three times the area. So on the tiers
+  // a real graphics card picks, the stated limit sat below what one frame
+  // needs. Every reading that missed this came from a SwiftShader sandbox,
+  // which picks Low.
+  const limits = {};
+  for (const tier of ['low', 'medium', 'high', 'ultra']) {
+    settings.set('graphics', tier);
+    limits[tier] = field.cacheLimit;
+  }
+  ok(`the limit grows with the tier  (${limits.low}, ${limits.medium}, ${limits.high}, ${limits.ultra})`,
+    limits.low < limits.medium && limits.medium < limits.high && limits.high < limits.ultra);
+  ok('and Low is unchanged, because Low was never the one over', limits.low === 320);
+
+  // The shortfall this replaces: evict() skips anything the mesh touched in the
+  // last couple of frames, and at a big grid that is most of the cache — so it
+  // could be asked to free a hundred tiles, find nothing it was allowed to
+  // take, and stop, leaving the cache over a limit it went on reporting.
+  // Measured at Ultra before the fix: 491 asked for, 360 freed, 131 short.
+  settings.set('graphics', 'low');
+  field.frame = 1000;
+  const live = 420;   // more than Low's whole nominal limit, all in use now
+  const stale = 150;
+  for (let i = 0; i < live; i++) {
+    field.tiles.set('L' + i, { key: 'L' + i, tile: { z: 12, x: i, y: 1 }, state: 2, heights: null, used: field.frame, priority: 0 });
+  }
+  for (let i = 0; i < stale; i++) {
+    field.tiles.set('S' + i, { key: 'S' + i, tile: { z: 12, x: i, y: 2 }, state: 2, heights: null, used: 0, priority: 0 });
+  }
+  const before = field.tiles.size;
+  field.evict();
+  const after = field.tiles.size;
+  const liveLeft = [...field.tiles.values()].filter((e) => e.used === field.frame).length;
+  ok(`it frees every tile it is allowed to  (${before} -> ${after}, floor ${live})`, after === live);
+  ok('it never drops ground the frame is still sampling', liveLeft === live);
+  // The point of the floor: with the limit floored at the live set, the excess
+  // is only ever counted against tiles the loop may actually take, so "asked to
+  // free more than it could" stops being reachable rather than becoming rarer.
+  ok('so nothing is left over that it wanted gone', after <= Math.max(field.cacheLimit, live));
+
+  const src = readFileSync(new URL('../src/tiles/elevation.js', import.meta.url), 'utf8');
+  ok('the floor is the live set, not a constant', /const limit = Math\.max\(this\.cacheLimit, live\)/.test(src));
+  settings.set('graphics', was ?? 'high');
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe boot watchdog asks whether the game started, not whether it exists');
 {
   const index = readFileSync(new URL('../index.html', import.meta.url), 'utf8');

@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta name="terraglide-sources" content="f9254e7d9df98f6f">
+<meta name="terraglide-sources" content="7daa813f6c9eb164">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
 <meta name="color-scheme" content="dark light" />
@@ -84615,10 +84615,9 @@ const DEFAULT_SETTINGS = {
  * from a zoom-20 photograph costs exactly what one drawn from zoom 18 costs.
  * So those stay near maximum everywhere, and the two knobs above do the work.
  *
- * `maxConcurrentRequests` was the quiet one, and it was set far too low. Tiles
- * are fetched from a worker over HTTP/2, where the browser multiplexes and the
- * old six-connections-per-host rule does not apply, so a low number here is not
- * politeness — it is the ground staying blurred while the queue drains. Flying
+ * `maxConcurrentRequests` was the quiet one, and it was set far too low. A low
+ * number here is not politeness — it is the ground staying blurred while the
+ * queue drains. Flying
  * the Strait of Gibraltar and counting how much of the drawn ground wears its
  * own photograph rather than a stretched ancestor:
  *
@@ -84627,8 +84626,30 @@ const DEFAULT_SETTINGS = {
  *   32 wide     70%       83%       88%
  *
  * That is the "blurry for a while" — half the world drawn from a coarse tile
- * for the first half minute. These are roughly doubled, which is still well
- * inside what one page is allowed to have in flight.
+ * for the first half minute. These are roughly doubled.
+ *
+ * The reason once given for that being safe was wrong, and worth writing down
+ * so nobody reasons from it again: it said tiles come "over HTTP/2, where the
+ * browser multiplexes and the old six-connections-per-host rule does not
+ * apply". Measured, server.arcgisonline.com and s3.amazonaws.com — the default
+ * imagery and the default elevation — both negotiate HTTP/1.1. The rule
+ * applies, and every harness run had hidden it, because a relayed response
+ * never touches the browser's connection pool.
+ *
+ * So the numbers were re-measured with a six-per-origin gate in front of the
+ * relay, which is what a browser actually enforces. Arriving cold over
+ * Gibraltar, share of drawn ground wearing its own photograph:
+ *
+ *                            at 4 s   at 12 s   peak connections
+ *   no gate, limit 34         45.4%     94.1%         43
+ *   gate of six, limit 34     45.5%     94.1%          6
+ *   gate of six, limit 6      37.3%     94.6%          6
+ *
+ * The gate costs nothing measurable, and lowering the limit to match it is
+ * worse — 178 tiles deep in the queue instead of 11, and a slower fill. Over-
+ * asking is not wasted: the browser holds the surplus and spends it the moment
+ * a connection frees, while the streamer keeps a short queue it can still
+ * re-order. So the numbers stand; only the reason for them was false.
  */
 const GRAPHICS_PRESETS = {
   low: {
@@ -90352,6 +90373,7 @@ __tg_exports["PlayerController"] = PlayerController;
 __tg_exports["pointInPolygon"] = pointInPolygon;
 };
 __tg_modules["src/tiles/elevation.js"] = function (__tg_exports) {
+const { settings } = __tg_require("src/core/settings.js");
 const { bilinear, clamp } = __tg_require("src/core/math.js");
 const { latToNormY, lonToNormX, tileKey, wrapTileX } = __tg_require("src/geo/mercator.js");
 
@@ -90398,7 +90420,6 @@ class ElevationField {
     /** Set when something is queued, so pump only re-sorts when it must. */
     this.queueDirty = false;
     this.queue = [];
-    this.cacheLimit = 320;
     this.frame = 0;
     this.ready = false;
     this.loaded = 0;
@@ -90758,10 +90779,49 @@ class ElevationField {
     return this.givenUp || this.loaded > 0;
   }
 
+  /**
+   * How many height tiles to keep.
+   *
+   * This was a flat 320 on every machine, and the grid it has to cover is not:
+   * the terrain is 25 squares across on Low and 41 on Ultra, so the area — and
+   * the number of height tiles under it — is nearly three times bigger at the
+   * top. On the tiers a real graphics card picks, the stated limit therefore
+   * sat below what a single frame needs, which is not a cache size. It is a
+   * permanent overflow with a number written next to it.
+   *
+   * Nothing here was measurable on the sandbox this was developed against,
+   * because SwiftShader picks Low and every reading came from there.
+   */
+  get cacheLimit() {
+    const grid = settings.preset().tileGridSize || 25;
+    return Math.round(320 * (grid / 25) ** 2);
+  }
+
   evict() {
-    if (this.tiles.size <= this.cacheLimit) return;
+    // Never below what this frame is actually using.
+    //
+    // The guard in the loop skips anything touched in the last couple of
+    // frames, because the mesh is sampling it right now. At a big grid that is
+    // most of the cache, so one pass could be asked to free a hundred tiles and
+    // find nothing it was allowed to take — and then simply stop, leaving the
+    // cache over a limit it went on reporting as if it were keeping it.
+    // Measured over Gibraltar at Ultra before this: 401 held against a stated
+    // 320, peaking at 511, evict() asking to free 491 across the run and
+    // managing 360, with 131 it wanted gone and could not take.
+    //
+    // Flooring the limit at the live set says the true thing instead: what one
+    // frame needs is not spare, so it is not budget either. It also makes the
+    // shortfall impossible rather than rare — the excess is now only ever
+    // counted against tiles the loop is allowed to drop. Same fault, and the
+    // same fix, as the texture cache in A7.
+    let live = 0;
+    for (const entry of this.tiles.values()) {
+      if (entry.state === STATE_PENDING || entry.used >= this.frame - 2) live++;
+    }
+    const limit = Math.max(this.cacheLimit, live);
+    if (this.tiles.size <= limit) return;
     const sorted = [...this.tiles.values()].sort((a, b) => a.used - b.used);
-    let excess = this.tiles.size - this.cacheLimit;
+    let excess = this.tiles.size - limit;
     for (const entry of sorted) {
       if (excess <= 0) break;
       if (entry.state === STATE_PENDING || entry.used >= this.frame - 2) continue;
