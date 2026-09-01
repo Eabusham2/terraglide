@@ -45,10 +45,48 @@ what is left · `[?]` needs a decision from you.
       seconds.
 
       So both things it could be are handled, and both are now verified rather
-      than asserted. Still open until you confirm on the machine it fails on —
-      and if it does, the one thing worth knowing is whether the screen ever
-      changes from "Starting engine…" to "Could not start", because those are
-      different faults and only the first is this one.
+      than asserted.
+
+      Then you said it happens on all seven of your machines — Mac, Windows,
+      Chrome, Edge, Safari. That kills the explanation above as *the* cause. A
+      captive portal, a filtered network or a broken extension does not follow
+      somebody across three operating systems and four browsers, and the
+      deployed site boots here in under five seconds with all seventy-seven
+      modules answering 200 as JavaScript. Something common to every one of
+      your machines is doing this, and nothing I can run reaches it.
+
+      Two things came out of chasing it anyway.
+
+      The first is a real defect, found by reading the guard and then proving
+      it. The watchdog that was supposed to break the silence asked
+      `if (window.terraglide) return` — and main.js publishes that handle on
+      the line *before* it awaits start(). So the handle existing proved only
+      that the constructor had run. Hanging start() on purpose: at thirty
+      seconds the screen still read "Building interface", with no message, no
+      explanation and no link — the one thing built to notice a dead boot was
+      switched off for the entire window it was meant to cover. It now asks
+      whether start() actually resolved, and the same run says "Could not
+      start" at twenty-two seconds. Whether that is your fault or not, it was
+      a hole, and any hang inside start() fell straight through it.
+
+      The second is the part that matters for your machines: the dead screen
+      now reports itself. It names the stage it stopped at — which separates
+      "the code never arrived" from "the code ran and stopped at "Building
+      interface"", two faults that wear the same frozen screen and want
+      opposite advice — and it runs three bounded probes and prints the
+      answers: this site's code, this site's textures, and one provider. So
+      "nothing at all", "everything except the providers" and "this machine
+      only" come back as three different reports instead of one shrug. There
+      is a "Copy this report" button, because a screen that cannot start
+      cannot press F4, and F4 is where every other answer in this game lives.
+      Verified end to end: with providers hung, the report reads `this site's
+      code — HTTP 200 (11 ms)`, `this site's textures — HTTP 200 (12 ms)`,
+      `Esri imagery — failed: no answer in 10 s`. It fits a 360-pixel screen
+      without overflowing, and a healthy boot twenty-six seconds past the
+      watchdog does not trip it.
+
+      Still open, and now it is one paste from being closed: play it until it
+      hangs, wait twenty seconds, and send what the box says.
 - [~] A9. Does not work on Chromebook
       — two causes found and fixed. There was no handling for the graphics
       context being lost, which on a low-memory machine is not an edge case:

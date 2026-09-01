@@ -3852,6 +3852,52 @@ console.log('\nThe tab icon is the thing you fly with');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nThe boot watchdog asks whether the game started, not whether it exists');
+{
+  const index = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  const watchdog = /setTimeout\(\(\) => \{[\s\S]*?\}, 20000\);/.exec(index)?.[0] ?? '';
+  ok('there is a watchdog', watchdog.length > 200);
+  // Comments quote the old guard on purpose, to record what was wrong with it.
+  // The shape checks below are about the code, so the prose comes out first —
+  // otherwise this passes or fails on what the comment says, which is exactly
+  // the vacuous check this file keeps catching elsewhere.
+  const code = watchdog.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  ok('the comments really do quote it', /if \(window\.terraglide\)/.test(watchdog));
+
+  // The bug this pins: the guard was `if (window.terraglide) return`, and
+  // main.js publishes that handle before it awaits start(). So the object
+  // existing proved only that the constructor had run, and every hang inside
+  // start() left the boot screen frozen with the one thing built to notice it
+  // switched off. Hanging start() on purpose held "Building interface" at
+  // thirty seconds with no message; the same run now says "Could not start"
+  // at twenty-two.
+  ok('it does not treat the handle existing as the game running',
+    !/if \(window\.terraglide\)/.test(code));
+  ok('it asks whether start() finished', code.includes('__terraglideStarted'));
+  ok('and it does not talk over a failure the page already explained',
+    code.includes('__terraglideSpoke'));
+
+  // The flag has to be set after the await, or it means the same wrong thing
+  // under a better name.
+  const started = main.indexOf('__terraglideStarted = true');
+  const awaited = main.indexOf('await game.start()');
+  ok('the flag is set only once start() has resolved', awaited > 0 && started > awaited);
+  ok('a reported failure says so', /function fail\([\s\S]{0,200}__terraglideSpoke = true/.test(main));
+  ok('the stage is published for the watchdog to name',
+    /function status\([\s\S]{0,160}__terraglideStage = message/.test(main));
+
+  // A screen that cannot start cannot press F4, so it has to ask the questions
+  // itself — and the answers only separate causes if they cover both this
+  // origin and a provider.
+  ok('the dead screen probes this site and a provider',
+    code.includes("probe('this site’s code'") && /probe\('Esri imagery'/.test(code));
+  ok('every probe is bounded, so a silent network still reports',
+    /AbortController/.test(code) && /abort\(\), 10000\)/.test(code));
+  ok('and the report can be copied off the machine', /clipboard\.writeText/.test(code));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nTouch controls follow how you are actually playing');
 {
   const source = readFileSync(new URL('../src/ui/touch.js', import.meta.url), 'utf8');

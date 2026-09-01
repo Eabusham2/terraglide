@@ -79,15 +79,45 @@
         window.__terraglideLoadError = String(event.message ?? 'script error');
       }, true);
       setTimeout(() => {
-        if (window.terraglide) return;
+        /*
+          What this asks has to be what it means.
+
+          It used to be `if (window.terraglide) return`, and main.js publishes
+          that handle *before* it awaits game.start(). So the object existing
+          proved only that the constructor had run \u2014 and for the whole of
+          start(), or for ever if anything in it never settled, the watchdog
+          returned here and said nothing. Hanging start() on purpose and
+          watching the screen still read "Building interface" at thirty seconds,
+          with no message and no link, is what turned that from a reading into a
+          fact. `__terraglideStarted` is set after start() resolves and
+          `__terraglideSpoke` when the page has already explained itself, so
+          neither a live game nor a reported failure gets talked over.
+        */
+        if (window.__terraglideStarted || window.__terraglideSpoke) return;
         const status = document.getElementById('boot-status');
         if (!status) return;
+        const stage = window.__terraglideStage;
+        /*
+          Two different faults wear the same frozen screen, and the advice for
+          one is wrong for the other.
+
+          No stage means main.js never ran: sixty-odd module requests and one of
+          them never arrived, which is a network in the way. A stage means the
+          code did arrive, did run, and stopped somewhere specific \u2014 and
+          blaming the network there is the confident wrong answer this boot path
+          has already given once.
+        */
         const detail = window.__terraglideLoadError
           ? 'A script failed to load: ' + window.__terraglideLoadError
-          : 'The game\u2019s code did not finish arriving. Something between here and '
-            + 'the files is blocking or rewriting one of them \u2014 a filtered network, '
-            + 'a proxy, an extension \u2014 rather than a fault in the game.';
+          : stage
+            ? 'The game loaded and started, then stopped while it was still '
+              + '\u201c' + stage + '\u201d. The code got here, so this is not the '
+              + 'network in the way \u2014 the report below says what did answer.'
+            : 'The game\u2019s code did not finish arriving. Something between here and '
+              + 'the files is blocking or rewriting one of them \u2014 a filtered network, '
+              + 'a proxy, an extension \u2014 rather than a fault in the game.';
         status.textContent = 'Could not start';
+        const inner = status.parentNode;
         const p = document.createElement('p');
         p.style.cssText = 'max-width:46ch;margin:10px auto 0;color:#767d87;font-size:12px;line-height:1.5';
         p.textContent = detail;
@@ -95,8 +125,98 @@
         link.style.cssText = 'margin:10px auto 0;font-size:12px';
         link.innerHTML = 'Try <a href="https://eabusham2.github.io/terraglide/terraglide.html" style="color:#9fb8d8">terraglide.html</a>'
           + ' \u2014 the whole game in one file, one request instead of sixty.';
-        status.parentNode.appendChild(p);
-        status.parentNode.appendChild(link);
+        inner.appendChild(p);
+        inner.appendChild(link);
+
+        /*
+          A screen that cannot start cannot press F4, and F4 is where every
+          other answer in this game lives. Without something here, the only
+          thing a player can report is "it hangs" \u2014 which is what came back, on
+          seven machines across three operating systems and four browsers, and
+          it is not enough to act on from the outside.
+
+          So this asks the questions itself. Each probe is one request whose
+          answer distinguishes a real cause: the modules on this origin, the
+          textures beside them, and one provider \u2014 so "nothing at all",
+          "everything but the providers" and "this machine only" are three
+          different reports rather than one shrug.
+        */
+        const report = document.createElement('pre');
+        report.style.cssText = 'max-width:52ch;margin:14px auto 0;padding:8px 10px;text-align:left;'
+          + 'background:#141a24;border:1px solid #263041;border-radius:6px;color:#8b93a0;'
+          + 'font-size:11px;line-height:1.45;white-space:pre-wrap;word-break:break-word';
+        inner.appendChild(report);
+        const button = document.createElement('button');
+        button.textContent = 'Copy this report';
+        button.style.cssText = 'margin:10px auto 0;padding:6px 12px;font:inherit;font-size:12px;'
+          + 'color:#cfd8e3;background:#232c3a;border:1px solid #36435a;border-radius:6px;cursor:pointer';
+        inner.appendChild(button);
+
+        const gl = (() => {
+          try {
+            const c = document.createElement('canvas');
+            return c.getContext('webgl2') ? 'yes' : 'no';
+          } catch (e) { return 'threw: ' + e.message; }
+        })();
+        const store = (() => {
+          try { localStorage.setItem('__tg', '1'); localStorage.removeItem('__tg'); return 'yes'; }
+          catch (e) { return 'blocked (' + e.name + ')'; }
+        })();
+        const lines = [
+          'TerraGlide could not start \u2014 ' + new Date().toISOString(),
+          'stage      ' + (stage || 'never ran (modules did not finish arriving)'),
+          'loadError  ' + (window.__terraglideLoadError || 'none reported'),
+          'page       ' + location.href,
+          'browser    ' + navigator.userAgent,
+          'webgl2     ' + gl,
+          'workers    ' + (typeof Worker === 'function' ? 'yes' : 'no'),
+          'storage    ' + store,
+          'bitmap     ' + (typeof createImageBitmap === 'function' ? 'yes' : 'no'),
+          'online     ' + navigator.onLine,
+        ];
+        const draw = () => { report.textContent = lines.join('\n'); };
+        draw();
+
+        const probe = (label, url) => {
+          const started = Date.now();
+          const stop = new AbortController();
+          const timer = setTimeout(() => stop.abort(), 10000);
+          const done = (text) => {
+            clearTimeout(timer);
+            lines.push('probe      ' + label + ' \u2014 ' + text + ' (' + (Date.now() - started) + ' ms)');
+            draw();
+          };
+          return fetch(url, { signal: stop.signal, cache: 'no-store' })
+            .then((r) => r.text().then((body) => {
+              // A portal answers 200 with its own page. Saying "200" there is
+              // the same lie that made this screen necessary.
+              const html = /^\s*<(!doctype|html)/i.test(body);
+              done('HTTP ' + r.status + (html && !/\.html/.test(url) ? ' but the body is HTML \u2014 something rewrote it' : ''));
+            }))
+            .catch((e) => done('failed: ' + (e.name === 'AbortError' ? 'no answer in 10 s' : e.message)));
+        };
+        Promise.all([
+          probe('this site’s code', './src/main.js'),
+          probe('this site’s textures', './assets/manifest.json'),
+          probe('Esri imagery', 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/3/3/4'),
+        ]).then(() => { lines.push('\u2014 end of report \u2014'); draw(); });
+
+        button.addEventListener('click', () => {
+          const text = lines.join('\n');
+          const copied = () => { button.textContent = 'Copied'; };
+          try {
+            navigator.clipboard.writeText(text).then(copied, () => {
+              // No clipboard permission, or an insecure origin. Selecting it is
+              // still a copy, just one the player finishes themselves.
+              const range = document.createRange();
+              range.selectNodeContents(report);
+              const sel = getSelection();
+              sel.removeAllRanges();
+              sel.addRange(range);
+              button.textContent = 'Selected \u2014 press Ctrl/Cmd+C';
+            });
+          } catch (e) { button.textContent = 'Select the text above and copy it'; }
+        });
       }, 20000);
     </script>
   </body>

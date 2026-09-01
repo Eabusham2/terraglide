@@ -10,11 +10,25 @@ const ui = document.getElementById('ui');
 const boot = document.getElementById('boot');
 const bootStatus = document.getElementById('boot-status');
 
+/**
+ * The stage is published as well as shown, because the watchdog in index.html
+ * is the only thing still running when this file is not, and "how far did it
+ * get" is the difference between two completely different faults. A screen
+ * frozen with no stage means the module graph never finished and the code
+ * never ran; a screen frozen at a named stage means the code arrived, ran, and
+ * stopped somewhere specific. Telling a player the network is at fault in the
+ * second case is a wrong answer delivered confidently, which is the thing this
+ * boot path already got wrong once.
+ */
 function status(message) {
+  window.__terraglideStage = message;
   if (bootStatus) bootStatus.textContent = message;
 }
 
 function fail(title, detail) {
+  // Said out loud, so the watchdog does not paste a second, vaguer explanation
+  // over a specific one that is already on screen.
+  window.__terraglideSpoke = true;
   if (!boot) return;
   boot.classList.remove('done');
   boot.innerHTML = `
@@ -58,6 +72,14 @@ async function main() {
     const game = new Game({ canvas, ui, onStatus: status });
     window.terraglide = game; // handy from the console; not required by anything
     await game.start();
+    // The watchdog used to key on `window.terraglide`, which is set on the line
+    // above — before start() has done anything. So for the whole of start(),
+    // and for ever if anything in it failed to settle, the one thing built to
+    // notice a dead boot was disarmed: the screen sat on its last stage with no
+    // message and no way out. Proved by hanging start(): at thirty seconds the
+    // status still read "Building interface" and the watchdog had not fired.
+    // This flag means what the watchdog is actually asking about.
+    window.__terraglideStarted = true;
     status('Ready');
     boot?.classList.add('done');
     setTimeout(() => boot?.remove(), 600);
