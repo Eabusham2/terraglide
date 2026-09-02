@@ -2060,7 +2060,7 @@ paragraph.
 
 ## G. Providers and 3D
 
-- [ ] G23. The photorealistic city is sitting about thirty metres too low
+- [~] G23. The photorealistic city was sitting about thirty metres too low
       Found by chasing the flat pale plane in A24, and it is very likely the
       root cause of that, of G22, and of some of what you photographed.
 
@@ -2119,16 +2119,48 @@ paragraph.
       -199 m rather than -26 m. Both are the pair nearest the spawn, which is
       inside a building.
 
-      How it would be fixed. Either bring the terrain onto the ellipsoid or the
-      tiles onto the geoid; either way it needs a geoid model. EGM96 as a
-      compact spherical-harmonic set is real published data, a few hundred
-      coefficients, no network, and good to a few metres worldwide. The
-      alternative is deriving the offset at each anchor by measuring the loaded
-      photogrammetry against the height field, which needs no dataset but is
-      noisy because it has to tell a street from a roof.
+      Fixed, by measuring rather than modelling. A geoid model would be a
+      megabyte of grid and would still be a model; the two datasets the game is
+      actually drawing can be asked directly, and their difference is the truth
+      for that pair of providers — it absorbs anything else systematic between
+      them too, and it needs no new file and no network.
 
-      Not started: this is a new subsystem rather than a tweak, and which of the
-      two it should be is worth a word from you first.
+      The estimator is the part that needed care, because a ray fired down
+      through a city hits roofs, canopies and holes in shells as well as the
+      street. The naive answer — the lowest hit in each column — is what gave
+      that -63 m median in London. So every hit from every ray goes into a
+      histogram of its height above the field, and the answer is the lowest
+      cluster dense enough to be real: the ground is the one surface that turns
+      up in every column at the same offset, and it is below the roofs.
+
+      It declines rather than guesses. Too little loaded, too few samples in the
+      winning cluster, or an answer outside the geoid's range, and nothing moves.
+      A teleport drops it, because the geoid at the far end is a different
+      number.
+
+      Verified twice. Against a built ground with roofs at nine different
+      heights and shells with their far side missing: recovers 32.8 from -32.8
+      and -46.6 from +46.6, is not dragged down by the holes, and stays silent
+      in all three refusal cases. And live on the real tileset at Market Street,
+      converging as tiles arrive:
+
+        after ~60 s   110 tiles loaded    lift 32.3 m
+        after ~120 s  226 tiles loaded    lift 32.8 m
+        after ~200 s  253 tiles loaded    lift 32.9 m
+
+      against the -32.8 measured independently by raycast and EGM96's -32.3.
+
+      What the picture does: the city comes down to the ground, and street-level
+      detail — the construction site on Stevenson Street, the lower storeys, the
+      road surface — appears where there had been a blank plane.
+
+      Left open, which is why this is `[~]` and not `[x]`. A pale band remains
+      across the near field, lower in frame than before and much smaller, and I
+      have not isolated it. It is either photogrammetry that has not reached the
+      finest level under the camera yet — likely here, where the relay makes
+      everything slow — or the sea-floor sheet still. The test is the one that
+      found the sheet in the first place: hide it and look. Not run again since
+      the lift went in, because the container restarted twice underneath it.
 
 - [ ] G22. In a photorealistic city you can stand inside a building
       Noticed while photographing the blur, not reported — so it goes in the
