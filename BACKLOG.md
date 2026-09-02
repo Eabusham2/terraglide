@@ -2034,6 +2034,27 @@ paragraph.
 
 ## G. Providers and 3D
 
+- [ ] G22. In a photorealistic city you can stand inside a building
+      Noticed while photographing the blur, not reported — so it goes in the
+      record rather than being quietly fixed or quietly ignored.
+
+      Teleporting to 37.78970, -122.40000 (Stevenson Street, San Francisco) puts
+      you at street level inside a building's shell. The player collides with
+      the terrain heightfield; the photogrammetry is drawn but nothing in it is
+      solid. So the ground you stand on is right and the walls are not there.
+
+      What it looks like from inside is a large, near, featureless surface
+      filling the view, with no terrain under it. Which is worth flagging next
+      to A24, because "sometimes it becomes mega blurry and terrain becomes
+      flat" describes that exactly as well as it describes the coverage fault
+      A24 fixed. If it still happens after those fixes, this is the next
+      suspect, and the tell is whether the minimap shows you inside a building
+      footprint.
+
+      Not fixed, and not fixed quietly-in-passing either: making photogrammetry
+      solid means raycasting against loaded tile meshes on a moving budget,
+      which is a real piece of work and its own decision. Say the word.
+
 - [~] G21. Test the street view merge
       Asked alongside the blur. The merge rule is the part I could test without
       a key, and I drove the real update() rather than reading it: standing on a
