@@ -58,6 +58,29 @@ what is left · `[?]` needs a decision from you.
       impossible range into wrong-but-possible values, and separating those from
       real bathymetry needs a second dataset rather than a cleverer rule.
 
+- [x] A23. Two things checked because they differ between here and your machines
+      Both came back clean, and both are worth recording so nobody spends the
+      time again.
+
+      **A save from a previous session does not stop it starting.** Every probe
+      in this file boots with empty storage; seven machines that have been
+      played on do not. start() reads the saved position and teleports to it
+      *before* the frame loop begins, so a save the code cannot cope with would
+      be a boot that never finishes — exactly the shape of A0. Driven with
+      eleven different saves in that slot: a normal one, null coordinates,
+      strings where numbers belong, latitude 9999, an empty object, an array, a
+      bare number, truncated JSON, a spawn in the middle of the Pacific, and a
+      200-kilobyte junk object. Every one started, in 1.0 to 2.7 seconds. Not
+      this.
+
+      **The standby providers still take over when the first one refuses**,
+      which needed re-checking because A20 changed how "no imagery here" is
+      decided. Measured by where the requests went rather than by the label on
+      the primary — which is what misled me first time: tiles.maps.eox.at took
+      174 requests, and all 174 of them were during the two minutes Esri was
+      returning 503. None before, none after. Per-square escalation, exactly as
+      designed.
+
 - [~] A21. Buildings could not be tested here, and the sandbox is why
       Manhattan, Reykjavik and Paris all reported zero buildings at Ultra, with
       the failure count climbing. That looked like a serious fault and is not
@@ -590,6 +613,29 @@ what is left · `[?]` needs a decision from you.
       Still open until you can say whether the tab still dies on yours — but
       there is now a measured cause that was not visible from this machine
       until it was made to behave like yours.
+
+      Soaked at Ultra, which is the tier your machines pick and none of the
+      earlier readings used. Fifteen minutes, fifteen stops right round the
+      world — Alps, Tokyo, Sydney, Reykjavik, Antarctica, Manhattan, Everest,
+      the Andes, the Sahara, Svalbard, Singapore, Rio, Edinburgh, the New
+      Zealand fjords, Anchorage — sampling every minute:
+
+        heap        278 170 122  93 148 208 120 121 290 298 107 184 109 156 152 MB
+        meshes     1400 838 548 381 682 1019 517 522 1400 1400 469 907 495 747 723
+        textures   1509-1552 against a limit of 1500
+        height     446-925 against a limit of 861
+        geometries tracked the mesh count exactly, every sample
+        contexts lost                                                        0
+
+      The heap moves with how much is on screen and ends where it started.
+      Geometries never exceed meshes, so nothing is orphaned. Fourteen console
+      errors in fifteen minutes, every one a provider 5xx.
+
+      So on this machine, at the tier yours run, nothing grows without bound and
+      the graphics context is never lost. That is not proof it does not happen
+      on yours — a real GPU driver under real memory pressure is a different
+      thing — but every mechanism I can measure here is bounded, and F4 now
+      carries the numbers if it happens to you.
 - [x] A8. Why is it forcing to fly — why can't it remember position on relog
       The position was always remembered. What you were *doing* was not, so the
       spawn had nothing to go on and took "arrive in the sky" at its word every
