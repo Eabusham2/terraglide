@@ -12,6 +12,52 @@ what is left · `[?]` needs a decision from you.
 
 ## A. Stops you playing
 
+- [x] A22. Ground eleven kilometres below the deepest place on Earth
+      Found by driving the coordinate edges — poles, the Mercator limit, the
+      antimeridian — looking for NaN. No NaN anywhere, latitude clamped to
+      85.051 correctly, longitude 200 wrapped to -160 correctly. But two ground
+      readings were impossible: -13,797 m at the southern Mercator limit and
+      -14,460 m at null island. The deepest place on Earth is -10,994 m.
+
+      The provider again, and this time with a bound that is a fact rather than
+      a threshold. Read straight off the dataset at thirty places and three
+      zooms — ninety tile-reads — the deepest real cell anywhere is -10,836 at
+      the Challenger Deep and -10,706 in the Tonga Trench, and the highest is
+      8,753 on Everest. Not one real cell falls outside [-11,000, 9,000]. The
+      broken ones are far outside: -12,860, -13,021, -13,797, -14,460.
+
+      Their counts gave the shape away: 256, 512, 256 and 1,536 cells, exact
+      multiples of a 256-wide tile. Whole lines. And they are *columns* at the
+      left edge — column 0 over Antarctica, 0-1 at null island, 0-5 at the
+      southern limit. A seam artefact in the source.
+
+      Two things worth recording from getting it wrong first. The despike could
+      not reach these, and not by accident: a two-column band outvotes an
+      eight-neighbour ring, because five of the eight neighbours of a cell in
+      the middle are themselves bad. A physical bound consults no neighbours, so
+      the width of the damage does not matter. And the first fill searched up
+      and down each column and replaced nothing at all — the whole column is
+      bad, so there was nothing valid to find. It has to search across the
+      damage, not along it.
+
+      A rejected cell is interpolated from the real ground either side of it on
+      its row; at the tile's edge, where there is only one side, the nearest
+      real value carries across a strip a few cells wide. Both ends are
+      measurements; the thing being replaced is not.
+
+      Verified: zero cells changed at every honest place tried — Alps, K2,
+      Everest, Challenger Deep, Tonga Trench, the Dead Sea, Manhattan, the
+      Pacific, Greenland — with every minimum and maximum identical to the
+      metre. On the broken tiles: 256, 512, 256 and 1,536 cells replaced,
+      exactly the counts that were wrong. In the running game, across null
+      island, the southern limit, Antarctica and the mid Pacific, no cell is off
+      the planet any more.
+
+      What it does not fix: those same tiles still read about -10,400 at their
+      left edge where the truth is nearer -4,800. The damage runs past the
+      impossible range into wrong-but-possible values, and separating those from
+      real bathymetry needs a second dataset rather than a cleverer rule.
+
 - [~] A21. Buildings could not be tested here, and the sandbox is why
       Manhattan, Reykjavik and Paris all reported zero buildings at Ultra, with
       the failure count climbing. That looked like a serious fault and is not

@@ -261,6 +261,89 @@ const SPIKE_RATIO = 5;
 const SPIKE_FLOOR_M = 60;
 
 /**
+ * The deepest and highest ground on Earth, with margin.
+ *
+ * Challenger Deep is 10,994 m down and Everest 8,849 m up. This dataset knows
+ * both: read straight off it, the deepest real cell found anywhere was -10,836
+ * at the Challenger Deep and -10,706 in the Tonga Trench, and the highest 8,753
+ * on Everest. So a cell outside this range is not a measurement of this planet,
+ * and saying so costs nothing — across thirty places at three zooms, ninety
+ * tile-reads, not one real cell falls outside it.
+ *
+ * What does fall outside: null island at zoom 14 reading -14,460, the southern
+ * Mercator limit reading -13,797, Antarctica at zoom 12 reading -12,860. Their
+ * counts are 256, 512, 256 and 1,536 — exact multiples of a 256-wide row, so
+ * these are whole bad rows like the Colca and Yarlung tiles.
+ *
+ * The despike below cannot reach them, and it is worth saying why rather than
+ * just adding a second filter: a *two*-row band outvotes an eight-neighbour
+ * ring, because five of the eight neighbours of a cell in the middle are
+ * themselves bad. A physical bound does not consult neighbours at all, so the
+ * width of the damage does not matter.
+ */
+const EARTH_MIN_M = -11000;
+const EARTH_MAX_M = 9000;
+
+/**
+ * Replace cells that are not of this planet, in place, from the real ground
+ * beside them.
+ *
+ * Where the damage is matters, and the first attempt got it wrong by assuming.
+ * It searched up and down each column, and found nothing — because these are
+ * whole *columns*, at the left edge of the tile: column 0 over Antarctica,
+ * columns 0-1 at null island, columns 0-5 at the southern Mercator limit. A
+ * tile-seam artefact in the source. So the search runs along the row first,
+ * where valid ground is one to six cells away, and falls back to the column.
+ *
+ * Interpolating across a gap of known-invalid data between two real surveys is
+ * void filling, not invention: both ends are measurements and the thing being
+ * replaced is not. At the tile's edge there is only one side, so the nearest
+ * real value carries across a strip a few metres wide. A line with nothing
+ * valid on either axis is left alone — there would be nothing real to use.
+ */
+function fillImpossible(grid, w, h) {
+  // Validity is judged against the original, so a filled cell never becomes the
+  // source for the next one. NaN fails this comparison too, which is intended.
+  const src = grid.slice();
+  const ok = (v) => v >= EARTH_MIN_M && v <= EARTH_MAX_M;
+  let filled = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (ok(src[i])) continue;
+      // Along the row first: the damage runs in columns, so this is the axis
+      // that crosses it.
+      let a = -1;
+      let b = -1;
+      for (let k = x - 1; k >= 0; k--) if (ok(src[y * w + k])) { a = k; break; }
+      for (let k = x + 1; k < w; k++) if (ok(src[y * w + k])) { b = k; break; }
+      if (a >= 0 && b >= 0) {
+        const lo = src[y * w + a];
+        const hi = src[y * w + b];
+        grid[i] = lo + (hi - lo) * ((x - a) / (b - a));
+      } else if (a >= 0) grid[i] = src[y * w + a];
+      else if (b >= 0) grid[i] = src[y * w + b];
+      else {
+        // Nothing valid across the row; try down the column before giving up.
+        let up = -1;
+        let down = -1;
+        for (let k = y - 1; k >= 0; k--) if (ok(src[k * w + x])) { up = k; break; }
+        for (let k = y + 1; k < h; k++) if (ok(src[k * w + x])) { down = k; break; }
+        if (up >= 0 && down >= 0) {
+          const lo = src[up * w + x];
+          const hi = src[down * w + x];
+          grid[i] = lo + (hi - lo) * ((y - up) / (down - up));
+        } else if (up >= 0) grid[i] = src[up * w + x];
+        else if (down >= 0) grid[i] = src[down * w + x];
+        else continue;
+      }
+      filled++;
+    }
+  }
+  return filled;
+}
+
+/**
  * Throw away cells no landscape could produce, in place.
  *
  * The ring is all eight neighbours, not the four orthogonal ones, and that is
@@ -353,6 +436,9 @@ function decodeHeights(bitmap, decode, size) {
       ? r * 256 + g + b / 256 - 32768
       : -10000 + (r * 65536 + g * 256 + b) * 0.1;
   }
+  // Order matters: the impossible ones go first, so the despike is never
+  // asked to judge a cell against a neighbour that is off the planet.
+  fillImpossible(full, w, h);
   despike(full, w, h);
 
   const out = new Float32Array(size * size);
@@ -366,4 +452,4 @@ function decodeHeights(bitmap, decode, size) {
   return out;
 }
 
-export { despike, SPIKE_LIMIT_M, SPIKE_RATIO, SPIKE_FLOOR_M };
+export { despike, fillImpossible, SPIKE_LIMIT_M, SPIKE_RATIO, SPIKE_FLOOR_M, EARTH_MIN_M, EARTH_MAX_M };

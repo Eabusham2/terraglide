@@ -3894,6 +3894,62 @@ console.log('\nA provider\u2019s placeholder is identified, not guessed at');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nGround that is not on this planet is replaced from ground that is');
+{
+  const { fillImpossible, EARTH_MIN_M, EARTH_MAX_M } = await import('../src/tiles/tileJobs.js');
+  const W = 16;
+  const make = (fn) => {
+    const g = new Float32Array(W * W);
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) g[y * W + x] = fn(x, y);
+    return g;
+  };
+
+  // The bounds are facts about the Earth, not thresholds: Challenger Deep is
+  // 10,994 m down and Everest 8,849 m up. Read straight off this dataset the
+  // deepest real cell found anywhere was -10,836 and the highest 8,753, across
+  // thirty places at three zooms.
+  ok(`the floor is below the deepest place on Earth  (${EARTH_MIN_M} m)`, EARTH_MIN_M === -11000);
+  ok(`the ceiling is above the highest  (${EARTH_MAX_M} m)`, EARTH_MAX_M === 9000);
+
+  // Real extremes must survive untouched, or the bound is not a fact.
+  const real = make((x) => (x < 8 ? -10836 : 8753)); // Challenger Deep beside Everest
+  const realBefore = real.slice();
+  ok('the deepest and highest real ground is left alone',
+    fillImpossible(real, W, W) === 0 && real.every((v, i) => v === realBefore[i]));
+
+  // The damage in this dataset is whole columns at the left edge of a tile:
+  // column 0 over Antarctica, 0-1 at null island, 0-5 at the southern limit.
+  // The first version of this searched up and down the column and found
+  // nothing, because the whole column is bad. It has to cross the damage.
+  const columns = make((x) => (x < 2 ? -14460 : 100 + x));
+  const filled = fillImpossible(columns, W, W);
+  ok(`two bad columns are replaced  (${filled} cells)`, filled === 2 * W);
+  ok('and the replacement is real ground, not the bound',
+    [...columns].every((v) => v >= EARTH_MIN_M && v <= EARTH_MAX_M) && columns[0] === 102);
+
+  // Between two real surveys it interpolates rather than picking a side.
+  const gap = make((x, y) => (x === 4 ? 1e9 : x * 100));
+  fillImpossible(gap, W, W);
+  ok(`a gap between real ground is interpolated  (${gap[4]})`, Math.abs(gap[4] - 400) < 1e-6);
+
+  // NaN is not on this planet either, and a naive comparison lets it through.
+  const nan = make((x) => (x === 3 ? NaN : 50));
+  fillImpossible(nan, W, W);
+  ok('NaN is replaced too', [...nan].every((v) => Number.isFinite(v)));
+
+  // Nothing valid anywhere: leave it rather than invent a number.
+  const hopeless = make(() => -99999);
+  ok('a tile with nothing real in it is left alone', fillImpossible(hopeless, W, W) === 0);
+
+  // It runs before the despike, so no cell is ever judged against a neighbour
+  // that is off the planet.
+  const src = readFileSync(new URL('../src/tiles/tileJobs.js', import.meta.url), 'utf8');
+  const fillAt = src.indexOf('fillImpossible(full, w, h)');
+  const spikeAt = src.indexOf('despike(full, w, h)');
+  ok('the impossible ones go first', fillAt > 0 && spikeAt > fillAt);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nImpossible ground is refused; steep ground is not');
 {
   const { despike, SPIKE_LIMIT_M, SPIKE_RATIO, SPIKE_FLOOR_M } = await import('../src/tiles/tileJobs.js');
