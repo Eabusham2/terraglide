@@ -6230,6 +6230,350 @@ console.log('\nphotogrammetry that stays put');
     sorted[0].order <= sorted[sorted.length - 1].order);
 }
 
+console.log('\nthe download slot is held until the download settles');
+{
+  // The slot used to be released fifty milliseconds after the request STARTED,
+  // which is not a concurrency limit at all: four slots recycled every fifty
+  // milliseconds is eighty requests a second with nothing capping how many are
+  // open at once. The `pending` mark went with it, so a tile still downloading
+  // no longer counted as asked for and was asked for again on the next frame,
+  // and the browser's few connections to the host filled with copies of tiles
+  // that were already arriving. This drives the real request path.
+  const { Tiles3D } = await import('../src/world/tiles3d.js');
+  const THREE = await import('../vendor/three/three.module.js');
+  const finish = [];
+  const rig = {
+    budget: { active: 4 },
+    pending: new Set(),
+    refused: new Map(),
+    loaded: new Map(),
+    copyrights: new Set(),
+    group: new THREE.Group(),
+    _ecefToLocal: new THREE.Matrix4(),
+    active: 0,
+    stats: { failed: 0 },
+    absolute: (u) => u,
+    sharpen() {},
+    resting: Tiles3D.prototype.resting,
+    requestContent: Tiles3D.prototype.requestContent,
+  };
+  let opened = 0;
+  // A loader that answers only when told to, so "in flight" is a real state.
+  rig.loader = { load: (u, onLoad, _p, onErr) => { opened++; finish.push({ u, onLoad, onErr }); } };
+
+  const uris = Array.from({ length: 40 }, (_, i) => `slow-${i}.glb`);
+  const place = new THREE.Matrix4();
+  const frame = () => { for (const u of uris) rig.requestContent(u, place, 0); };
+
+  frame();
+  ok(`only the budget is opened, not the whole wanted list  (${opened})`,
+    opened === 4 && rig.active === 4);
+  // Thirty frames at sixty a second is half a second of standing still. The
+  // old code turned each of those into another four requests.
+  for (let i = 0; i < 30; i++) frame();
+  await new Promise((done) => setTimeout(done, 120));
+  ok(`and nothing more is opened while they are still in flight  (${opened})`,
+    opened === 4, `${opened} opened, ${rig.active} slots held`);
+  ok('a tile already downloading is never asked for twice',
+    new Set(finish.map((f) => f.u)).size === finish.length);
+
+  // Settle one, and exactly one more slot opens.
+  const first = finish.shift();
+  first.onLoad({ scene: new THREE.Group(), parser: { json: { asset: {} } } });
+  frame();
+  ok(`one finishing lets exactly one more start  (${opened})`, opened === 5);
+
+  // A refusal frees its slot too, or a run of 404s would wedge the pipe shut.
+  const second = finish.shift();
+  second.onErr(new Error('404'));
+  frame();
+  ok(`and a refusal frees its slot as well  (${opened})`, opened === 6);
+}
+
+console.log('\na glance to the side does not destroy the view');
+{
+  // Eviction walked `loaded` in arrival order and dropped anything not wanted
+  // in that one frame — so the frame you turned your head in destroyed what
+  // was behind you, and the ground you had stood on longest went first. `used`
+  // was written once at load and then never read or refreshed.
+  const { Tiles3D } = await import('../src/world/tiles3d.js');
+  const now = 1000000;
+  const make = (n, capacity) => {
+    const loaded = new Map();
+    // Arrival order and last-seen order deliberately disagree: the tile that
+    // arrived first is the one being looked at most recently.
+    for (let i = 0; i < n; i++) loaded.set(`t${i}`, { object: {}, used: now - (n - i) * 1000 });
+    loaded.get('t0').used = now;
+    return {
+      budget: { loaded: capacity },
+      loaded,
+      visible: new Set(),
+      disposed: [],
+      dispose(uri) { this.disposed.push(uri); this.loaded.delete(uri); },
+      evict: Tiles3D.prototype.evict,
+    };
+  };
+
+  const under = make(10, 20);
+  under.evict(now);
+  ok('nothing is evicted while there is room', under.disposed.length === 0);
+
+  // Everything is inside its grace, and the cap still has to hold.
+  const tight = make(10, 6);
+  tight.evict(now);
+  ok(`the cap is still a cap  (${tight.loaded.size} of 6)`, tight.loaded.size === 6);
+  // t0 arrived first and is being looked at now; t1 arrived second and has
+  // been unseen the longest. Arrival order would take t0 and keep t1, which is
+  // exactly backwards.
+  ok('and it gives up what you looked at longest ago, not what arrived first',
+    tight.loaded.has('t0') && !tight.loaded.has('t1') && tight.loaded.has('t9'),
+    `kept ${[...tight.loaded.keys()].join(',')}`);
+
+  // What you can see is never taken, however long it has been held.
+  const looking = make(10, 3);
+  looking.visible = new Set(['t7', 't8', 't9']);
+  looking.evict(now);
+  ok('what is on screen is never evicted',
+    ['t7', 't8', 't9'].every((u) => looking.loaded.has(u)));
+
+  // A tile that left the view a moment ago survives; one gone for a minute does
+  // not. Both are over the cap, so only the grace separates them.
+  const glance = make(4, 3);
+  for (const u of ['t0', 't1', 't2', 't3']) glance.loaded.get(u).used = now - 500;
+  glance.loaded.get('t2').used = now - 60000;
+  glance.evict(now);
+  ok('a tile you looked away from a moment ago is kept',
+    glance.loaded.has('t0') && glance.loaded.has('t1') && glance.loaded.has('t3'));
+  ok('and the one gone a full minute is the one that goes',
+    !glance.loaded.has('t2'), `dropped ${glance.disposed.join(',')}`);
+}
+
+console.log('\nthe terrain only steps aside for a better picture');
+{
+  // The quadtree hides its own ground wherever a 3D tile covers it. That is
+  // right when the photogrammetry really is finer and wrong when it is a coarse
+  // ancestor standing in for children that have not arrived — then you get a
+  // blurry plate with no terrain under it, which is what "mega blurry and the
+  // terrain goes flat" is.
+  const { Tiles3D } = await import('../src/world/tiles3d.js');
+  const THREE = await import('../vendor/three/three.module.js');
+  const box = (x, z) => Object.assign(new THREE.Box3(), {
+    min: new THREE.Vector3(x - 40, 0, z - 40),
+    max: new THREE.Vector3(x + 40, 10, z + 40),
+  });
+  const rig = (error) => ({
+    coverage: new Set(),
+    visible: new Set(['tile']),
+    loaded: new Map([['tile', { object: {}, error, bounds: box(0, 0) }]]),
+    frame: { worldToNorm: (x, z) => ({ nx: 0.5 + x / 4e7, ny: 0.5 + z / 4e7 }) },
+    buildCoverage: Tiles3D.prototype.buildCoverage,
+  });
+
+  const fine = rig(1.5);
+  fine.buildCoverage();
+  ok(`street-level photogrammetry claims its ground  (${fine.coverage.size} cells)`,
+    fine.coverage.size > 0);
+
+  const coarse = rig(400);
+  coarse.buildCoverage();
+  ok('a coarse ancestor claims nothing, so the terrain stays',
+    coarse.coverage.size === 0);
+
+  const edge = rig(10);
+  edge.buildCoverage();
+  ok('and the threshold is inclusive at the limit', edge.coverage.size > 0);
+}
+
+console.log('\ndescending the tree does not queue behind the downloads');
+{
+  // The tree is a chain of tilesets: each level down is a small JSON that has
+  // to arrive before the level under it can even be considered. Sharing one
+  // pool with content meant the four kilobytes that says where the next storey
+  // of detail lives waited behind a few hundred kilobytes of photogrammetry.
+  const source = readFileSync(new URL('../src/world/tiles3d.js', import.meta.url), 'utf8');
+  ok('tilesets have their own slots in every tier',
+    ['low', 'medium', 'high', 'ultra'].every((t) =>
+      new RegExp(`${t}: \\{[^}]*tilesets: \\d+`).test(source)));
+  ok('and the descent is gated on its own counter, not the content one',
+    /this\.activeTilesets >= slots/.test(source) &&
+    /requestContent[\s\S]{0,200}this\.active >= this\.budget\.active/.test(source));
+
+  const { Tiles3D } = await import('../src/world/tiles3d.js');
+  const rig = {
+    budget: { active: 1, tilesets: 3 },
+    pending: new Set(),
+    refused: new Map(),
+    tilesets: new Map(),
+    copyrights: new Set(),
+    active: 1, // one content download already holds the only content slot
+    activeTilesets: 0,
+    stats: { failed: 0 },
+    absolute: (u) => u,
+    headers: () => undefined,
+    resting: Tiles3D.prototype.resting,
+    requestTileset: Tiles3D.prototype.requestTileset,
+  };
+  const seen = [];
+  globalThis.fetch = (u) => { seen.push(u); return new Promise(() => {}); };
+  for (const u of ['a.json', 'b.json', 'c.json', 'd.json']) rig.requestTileset(u);
+  ok(`the walk keeps descending while content is saturated  (${seen.length})`,
+    seen.length === 3 && rig.activeTilesets === 3);
+}
+
+console.log('\nphotogrammetry is sampled as sharply as the ground beside it');
+{
+  // Nothing set anisotropy on 3D tile textures, so every one was sampled at 1
+  // while the flat imagery next to it used 8 or 16 and the hardware offered 16.
+  // Measured on a live tileset before the fix: eight textures loaded, eight of
+  // them at 1. At 1 the GPU picks its mip from the larger of the two on-screen
+  // derivatives, so a surface seen at a slant reads from a mip chosen for its
+  // stretched axis — which at street level is nearly every surface there is.
+  const { Tiles3D } = await import('../src/world/tiles3d.js');
+  const streamer = readFileSync(new URL('../src/tiles/streamer.js', import.meta.url), 'utf8');
+  ok('the flat imagery has always asked for it',
+    /texture\.anisotropy = Math\.min\(/.test(streamer));
+
+  const rig = {
+    renderer: { capabilities: { getMaxAnisotropy: () => 16 } },
+    sharpen: Tiles3D.prototype.sharpen,
+  };
+  Object.defineProperty(rig, 'anisotropy',
+    Object.getOwnPropertyDescriptor(Tiles3D.prototype, 'anisotropy').get ? { get: Object.getOwnPropertyDescriptor(Tiles3D.prototype, 'anisotropy').get } : {});
+  const material = { map: { anisotropy: 1, needsUpdate: false }, normalMap: { anisotropy: 1, needsUpdate: false } };
+  rig.sharpen(material);
+  ok(`the photogrammetry asks for it too  (${material.map.anisotropy})`,
+    material.map.anisotropy > 1 && material.map.anisotropy <= 16);
+  ok('on every texture the material carries', material.normalMap.anisotropy === material.map.anisotropy);
+  ok('and the texture is told, so one already on the GPU picks it up',
+    material.map.needsUpdate === true);
+
+  // Hardware that cannot do it is not asked to.
+  const humble = { renderer: { capabilities: { getMaxAnisotropy: () => 1 } }, sharpen: Tiles3D.prototype.sharpen };
+  Object.defineProperty(humble, 'anisotropy', { get: Object.getOwnPropertyDescriptor(Tiles3D.prototype, 'anisotropy').get });
+  const plain = { map: { anisotropy: 1, needsUpdate: false } };
+  humble.sharpen(plain);
+  ok('and hardware that cannot do it is not asked to', plain.map.anisotropy === 1);
+
+  const source = readFileSync(new URL('../src/world/tiles3d.js', import.meta.url), 'utf8');
+  ok('a quality change reaches the city you are already standing in',
+    /sharpness !== this\._anisotropy/.test(source));
+}
+
+console.log('\nstreet level merges rather than switching on');
+{
+  // The merge rule is the whole point: satellite terrain is what you fly over,
+  // ground photography is what you stand in, and the dome has to arrive by
+  // degrees or the world visibly changes as you step forward. Three conditions
+  // multiply, so failing any one of them means no photograph at all.
+  const { Panorama, within } = await import('../src/world/panorama.js');
+
+  const rig = (state) => {
+    const r = {
+      enabled: true,
+      current: { lat: 0, lon: 0, texture: {} },
+      opacity: 0,
+      mesh: { visible: false, position: { set() {} } },
+      material: { uniforms: { uOpacity: { value: 0 } } },
+      frame: { toWorld: () => ({ x: 0, z: 0 }) },
+      maybeSearch() {},
+      update: Panorama.prototype.update,
+    };
+    // dt large enough that damp lands essentially on the target, so what is
+    // being read is the blend rule and not the smoothing.
+    r.update({ groundHeight: 0, ...state }, 10);
+    return r.opacity;
+  };
+
+  const standing = { lat: 0, lon: 0, altitudeAboveGround: 1.7, speed: 0 };
+  const here = rig(standing);
+  ok(`standing on the capture point, the photograph is what you see  (${here.toFixed(2)})`,
+    here > 0.9);
+
+  // 0.001 degrees of latitude is about 111 m — past the 110 m outer edge.
+  const away = rig({ ...standing, lat: 0.001 });
+  ok(`a hundred metres away it is gone  (${away.toFixed(2)})`, away < 0.01);
+
+  const mid = rig({ ...standing, lat: 0.00045 });
+  ok(`and halfway it is genuinely part-way, not on or off  (${mid.toFixed(2)})`,
+    mid > 0.05 && mid < 0.95);
+
+  const flying = rig({ ...standing, altitudeAboveGround: 40 });
+  ok('taking off puts the satellite world back', flying < 0.01);
+
+  const running = rig({ ...standing, speed: 30 });
+  ok('and so does covering ground quickly', running < 0.01);
+
+  // Every one of the three has to hold: on the spot but sprinting is not a
+  // moment a static photograph can describe.
+  const halfway = rig({ ...standing, altitudeAboveGround: 20, speed: 14 });
+  ok(`the conditions multiply rather than voting  (${halfway.toFixed(2)})`,
+    halfway < rig({ ...standing, altitudeAboveGround: 20 }));
+
+  const off = { enabled: false, opacity: 0.8, mesh: { visible: true }, provider: 'none',
+    update: Panorama.prototype.update };
+  off.update({ lat: 0, lon: 0, altitudeAboveGround: 1, speed: 0, groundHeight: 0 }, 1);
+  ok('with no provider the dome is not merely transparent, it is off',
+    off.opacity === 0 && off.mesh.visible === false);
+}
+
+console.log('\na panorama that never arrives is a failure, not a silence');
+{
+  // maybeSearch refuses to look again while `loading` is true, and `loading`
+  // was cleared only in the promise chain's finally. A stitch the worker never
+  // answered left it true for the rest of the session: street level searched
+  // once, could not finish, and never tried again anywhere in the world.
+  const { Panorama, within } = await import('../src/world/panorama.js');
+
+  const quick = await within(Promise.resolve('here'), 50, 'x');
+  ok('a promise that answers is passed straight through', quick === 'here');
+
+  let failed = null;
+  await within(new Promise(() => {}), 30, 'stitch').catch((e) => { failed = e.message; });
+  ok(`one that never answers rejects  (${failed})`, failed === 'stitch timed out');
+
+  let kept = null;
+  await within(Promise.reject(new Error('404')), 1000, 'stitch').catch((e) => { kept = e.message; });
+  ok('and a real error is reported as itself', kept === '404');
+
+  // The flag has to clear on every route out, or one bad lookup is permanent.
+  // lastSearchAt is set relative to now, because the four-second gate between
+  // lookups is otherwise measured against however long this run has been going.
+  const rig = {
+    loading: false, lastSearchAt: performance.now() - 10000, lastSearch: null, current: null,
+    provider: 'mapillary', status: '',
+    searchMapillary: () => new Promise(() => {}),  // never answers
+    maybeSearch: Panorama.prototype.maybeSearch,
+  };
+  rig.maybeSearch(0, 0);
+  ok('a search in flight blocks a second one', rig.loading === true);
+  const before = rig.lastSearchAt;
+  rig.maybeSearch(1, 1);
+  ok('and the second one really is refused while it runs', rig.lastSearchAt === before);
+
+  // A lookup that fails takes the same route out as one that times out, and
+  // proving that here costs milliseconds rather than the full timeout.
+  const failing = {
+    loading: false, lastSearchAt: performance.now() - 10000, lastSearch: null, current: null,
+    provider: 'mapillary', status: '',
+    searchMapillary: () => Promise.reject(new Error('mapillary 401')),
+    maybeSearch: Panorama.prototype.maybeSearch,
+  };
+  failing.maybeSearch(0, 0);
+  await new Promise((done) => setTimeout(done, 50));
+  ok(`a failed lookup does not wedge street level shut  (${failing.status})`,
+    failing.loading === false && /401/.test(failing.status));
+
+  const pending = {
+    pendingJobs: new Map(), loading: true, current: null, mesh: { visible: true },
+    clear: Panorama.prototype.clear,
+  };
+  let rejected = false;
+  pending.pendingJobs.set(1, { resolve() {}, reject() { rejected = true; } });
+  pending.clear();
+  ok('clearing settles whatever was still waiting', rejected && pending.pendingJobs.size === 0);
+  ok('and lets street level search again', pending.loading === false);
+}
+
 console.log('\ngraded as one photograph');
 {
   const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');

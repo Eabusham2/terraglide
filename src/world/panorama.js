@@ -20,6 +20,28 @@ import { createPanoramaMaterial } from './shaders.js';
 
 const SEARCH_RADIUS_M = 70;
 const DOME_RADIUS = 90;
+/**
+ * How long a panorama may take to arrive before the attempt is abandoned.
+ *
+ * `maybeSearch` refuses to look again while `loading` is true, and `loading`
+ * was only ever cleared in the `finally` of the promise chain. So a stitch the
+ * worker never answered, or an image request that hung rather than failed, left
+ * that flag true for the rest of the session: street level searched once, found
+ * nothing it could finish, and never tried again anywhere in the world. A
+ * failure has to be a failure — something that settles — rather than silence.
+ */
+const PANO_TIMEOUT_MS = 20000;
+
+/** A promise that rejects rather than hanging, so a caller always continues. */
+export function within(promise, ms, what) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${what} timed out`)), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
 
 /** Hermite fade between two edges, so a blend arrives rather than switches. */
 function smoothstep(edge0, edge1, x) {
@@ -131,7 +153,7 @@ export class Panorama {
     this.status = 'searching';
 
     const search = this.provider === 'google' ? this.searchGoogle(lat, lon) : this.searchMapillary(lat, lon);
-    search
+    within(search, PANO_TIMEOUT_MS, 'coverage lookup')
       .then((pano) => {
         if (!pano) {
           this.status = 'no coverage here';
@@ -200,7 +222,7 @@ export class Panorama {
 
   async load(pano) {
     if (pano.provider === 'mapillary') {
-      const texture = await loadEquirect(pano.url);
+      const texture = await within(loadEquirect(pano.url), PANO_TIMEOUT_MS, 'panorama');
       this.place({ ...pano, texture });
       return;
     }
@@ -211,7 +233,7 @@ export class Panorama {
         `https://maps.googleapis.com/maps/api/streetview?size=640x640&pano=${encodeURIComponent(pano.id)}` +
         `&fov=90&heading=${heading}&pitch=0&key=${encodeURIComponent(key)}`,
     );
-    const bitmap = await this.stitch(urls);
+    const bitmap = await within(this.stitch(urls), PANO_TIMEOUT_MS, 'stitch');
     const texture = new THREE.Texture(bitmap);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.wrapS = THREE.RepeatWrapping;
@@ -225,6 +247,8 @@ export class Panorama {
     return new Promise((resolve, reject) => {
       const id = ++this.jobId;
       this.pendingJobs.set(id, { resolve, reject });
+      // The job is dropped when it times out, so a late reply finds nothing
+      // waiting rather than resolving a promise the caller has moved on from.
       this.worker.postMessage({
         kind: 'panoStitch',
         channel: 'pano',
@@ -258,6 +282,9 @@ export class Panorama {
 
   clear() {
     if (this.current && this.current.texture) this.current.texture.dispose();
+    for (const job of this.pendingJobs.values()) job.reject(new Error('cleared'));
+    this.pendingJobs.clear();
+    this.loading = false;
     this.current = null;
     this.opacity = 0;
     this.mesh.visible = false;

@@ -185,6 +185,79 @@ paragraph.
       Eight for eight. The pixel test itself was always right — it rejects snow
       and cloud explicitly — it just never got to see the picture.
 
+- [x] A24. It blurs so much and so long, and even the minimap is higher res
+      Your words, with a photograph of Market Street attached, and later: "even
+      on high it blurry more than minimap, it takes a long time and keeps
+      toggling blurry not blurry and sometimes it becomes mega blurry and
+      terrain becomes flat."
+
+      Four complaints, four separate causes. None of them was the detail tier,
+      which is what I would have reached for first.
+
+      1. Blurrier than the minimap. Nothing ever set anisotropy on
+         photogrammetry textures. Measured on a live Cesium ion tileset: eight
+         textures loaded, all eight at anisotropy 1, on hardware reporting a
+         maximum of 16, while the flat imagery beside them runs at 16 through
+         streamer.js. At 1 the GPU chooses its mip level from the larger of the
+         two on-screen derivatives, so any surface seen at a slant is read from
+         a mip picked for its stretched axis. Standing in a street, that is
+         nearly every surface there is: the road, the pavement, every facade
+         running away from you. The minimap is drawn flat and face-on and never
+         pays it, which is exactly why it looked sharper than the world it is a
+         map of. This is why turning the tier up did not help — the tier does
+         not touch the sampler.
+
+      2. Takes a long time. The concurrency slot was released fifty
+         milliseconds after a request STARTED rather than when it finished:
+
+             setTimeout(() => {
+               if (this.pending.delete(uri)) this.active = Math.max(0, ...);
+             }, 50);
+
+         So `budget.active` never limited anything — four slots recycled every
+         fifty milliseconds is eighty requests a second with no ceiling on how
+         many are open at once. Worse, the `pending` mark went with it, so a
+         tile still downloading no longer counted as asked for and was asked for
+         again on the very next frame, and the one after that. The browser's
+         handful of connections to the host filled with copies of tiles that
+         were already arriving, and the tiles you did not have yet queued behind
+         them. It gets worse the more of the city you can see. Slots are now
+         released when the request settles — GLTFLoader calls exactly one of
+         onLoad or onError — with the timer kept as what it was meant to be, a
+         net under a request that never answers at all, at thirty seconds.
+
+         Driven through the real request path: with four slots and forty tiles
+         wanted, four open; thirty more frames open nothing further; no URI is
+         ever requested twice at once; one finishing opens exactly one more, and
+         a refusal frees its slot too.
+
+      3. Keeps toggling blurry, not blurry. A tile could be evicted the moment
+         it was not wanted in one single frame — the frame you turned your head
+         in. Turning back found it destroyed, so the coarse parent was drawn
+         while the re-download ran: blurry, sharp, blurry again. And eviction
+         walked the map in arrival order, so the ground you had been standing on
+         longest went first. `entry.used` was written once when a tile landed
+         and then never read or refreshed — the field named the intention the
+         loop did not implement. It is now touched every frame a tile is drawn,
+         eviction is least-recently-seen first, and a tile keeps its place for
+         fifteen seconds after leaving view so a look around is free. The cap is
+         still a cap: when everything spare is inside its grace it yields, but
+         it yields what you looked at longest ago.
+
+      4. Mega blurry and the terrain goes flat. The quadtree hides its own
+         ground wherever a 3D tile covers it, and coverage was claimed by
+         whatever was visible at whatever depth. When a coarse ancestor is
+         standing in for children that have not arrived, the terrain stepped
+         aside for a blurry plate and you got both faults at once — no relief
+         underneath and nothing sharp on top. Coverage now requires the tile to
+         be at least as fine as the ground it replaces: the terrain only steps
+         aside from zoom 15, which is about five metres a texel, so ten metres
+         of geometric error is the line. The old guard only rejected tiles whose
+         box spanned a continent.
+
+      Regression tests for all four, driving the real methods rather than
+      asserting on source text.
+
 - [~] A19. Black spikes over Reykjavik — the elevation provider is wrong there
       Found by looking at Ultra rather than measuring it. Flying over Reykjavik
       the city erupts in black shards hundreds of metres tall, standing over a

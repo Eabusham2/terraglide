@@ -78,11 +78,60 @@ const ION_ENDPOINT = 'https://api.cesium.com/v1/assets';
  * than one hard-coded compromise.
  */
 const DETAIL = {
-  low: { sse: 48, loaded: 90, active: 4 },
-  medium: { sse: 32, loaded: 160, active: 6 },
-  high: { sse: 24, loaded: 220, active: 6 },
-  ultra: { sse: 16, loaded: 340, active: 8 },
+  low: { sse: 48, loaded: 90, active: 4, tilesets: 3 },
+  medium: { sse: 32, loaded: 160, active: 6, tilesets: 4 },
+  high: { sse: 24, loaded: 220, active: 6, tilesets: 4 },
+  ultra: { sse: 16, loaded: 340, active: 8, tilesets: 6 },
 };
+/**
+ * Why descending the tree has its own slots rather than sharing the content
+ * ones.
+ *
+ * The tree is not a tree of tiles, it is a chain of tilesets: each level down
+ * is a separate small JSON that has to arrive before the level under it can
+ * even be considered. Sharing one pool meant the cheap thing that unlocks
+ * depth queued behind the expensive thing that only refines width, so a few
+ * hundred kilobytes of photogrammetry could hold up the four kilobytes that
+ * says where the next storey of detail lives. That is backwards: you can draw
+ * a coarse tile while waiting for a finer one, but you cannot draw a finer one
+ * you have not been told about.
+ */
+
+/**
+ * How long a content request may run before its slot is taken back.
+ *
+ * This is a safety net for a request that never settles, not a limit on how
+ * long a tile may take. It has to be longer than a slow tile on a slow
+ * connection or it will start cancelling work that was about to succeed.
+ */
+const CONTENT_TIMEOUT_MS = 30000;
+/**
+ * How long a tile that has left the view is kept before it may be evicted.
+ *
+ * Eviction used to be allowed the moment a tile was not wanted in one single
+ * frame, which is the frame you turned your head in. Turning back found the
+ * tile destroyed, so the coarse parent was drawn instead and the view went
+ * blurry until the re-download landed — then sharp, then blurry again on the
+ * next glance. That is the flicker, and it is a scheduling fault rather than
+ * anything to do with detail settings.
+ */
+const KEEP_AFTER_SIGHT_MS = 15000;
+/**
+ * How fine photogrammetry has to be before the terrain steps aside for it.
+ *
+ * The quadtree hides its own ground wherever a 3D tile covers it, which is
+ * right when the 3D really is the better picture and wrong when it is a coarse
+ * ancestor standing in for children that have not arrived. Then you get the
+ * worst of both: a blurry plate *and* no terrain under it.
+ *
+ * The terrain only steps aside from zoom 15 down, and a zoom 15 tile is about
+ * a kilometre across for 256 pixels of texture — call it five metres a texel
+ * at the equator, and the mesh is coarser than the texture. So a tile whose
+ * geometric error is a few metres is genuinely the better picture and one
+ * whose error is tens of metres is not. Ten metres is inside the first and
+ * well clear of the second.
+ */
+const COVER_MAX_ERROR_M = 10;
 const DEFAULT_DETAIL = 'high';
 /**
  * How long a piece of content that refused is left alone before asking again.
@@ -176,7 +225,12 @@ export class Tiles3D {
     this.pending = new Set();
     /** What refused, and when — see REFUSAL_REST_MS. */
     this.refused = new Map();
+    /** Content requests in flight. */
     this.active = 0;
+    /** Tileset requests in flight — see the note on DETAIL.tilesets. */
+    this.activeTilesets = 0;
+    /** The anisotropy already applied to loaded tiles, so a preset change shows. */
+    this._anisotropy = 0;
     this.session = '';
     this.bearer = '';
     this.base = '';
@@ -383,6 +437,18 @@ export class Tiles3D {
 
     this.syncFrame();
 
+    // A quality change has to reach the city you are already standing in, or
+    // turning the setting up appears to do nothing until you fly somewhere new.
+    const sharpness = this.anisotropy;
+    if (sharpness !== this._anisotropy) {
+      this._anisotropy = sharpness;
+      for (const entry of this.loaded.values()) {
+        entry.object.traverse((node) => {
+          if (node.isMesh && node.material) this.sharpen(node.material);
+        });
+      }
+    }
+
     // Where the camera is, in ECEF, so tiles can be measured against it.
     const inverse = this._matrix.copy(this._ecefToLocal).invert();
     const cameraEcef = new THREE.Vector3(camera.position.x, camera.position.y, camera.position.z)
@@ -413,27 +479,59 @@ export class Tiles3D {
     this.wanted.sort((a, b) => a.order - b.order);
     for (const item of this.wanted) {
       if (this.active >= this.budget.active) break;
-      this.requestContent(item.uri, item.transform);
+      this.requestContent(item.uri, item.transform, item.error);
     }
 
-    // Anything not wanted this frame goes, oldest first.
-    const maxLoaded = this.budget.loaded;
-    if (this.loaded.size > maxLoaded) {
-      for (const [uri, entry] of this.loaded) {
-        if (this.loaded.size <= maxLoaded) break;
-        if (this.visible.has(uri)) continue;
-        this.dispose(uri, entry);
-      }
-    }
+    // Everything drawn this frame is in use now, whatever order it arrived in.
+    // `used` was written once when a tile landed and then never read or
+    // refreshed, so eviction walked the map in arrival order — and the ground
+    // you had been standing on longest was the first thing destroyed.
+    const now = performance.now();
     for (const [uri, entry] of this.loaded) {
-      entry.object.visible = this.visible.has(uri);
+      const seen = this.visible.has(uri);
+      entry.object.visible = seen;
+      if (seen) entry.used = now;
     }
+    this.evict(now);
 
     this.buildCoverage();
 
     this.stats.loaded = this.loaded.size;
     this.stats.pending = this.active;
     this.stats.drawn = this.visible.size;
+  }
+
+  /**
+   * Hold the memory ceiling, giving up what you looked at longest ago.
+   *
+   * A tile was evictable the moment it was not wanted in one single frame,
+   * which is the frame you turned your head in — so a glance to the side
+   * destroyed what was behind you, turning back drew the coarse parent while
+   * the re-download ran, and the view went blurry, sharp, blurry again. The
+   * grace period is what makes a look around free.
+   *
+   * The ceiling is still a ceiling: if everything spare is inside its grace
+   * and we are over the cap, the grace yields — but it yields the tile you
+   * last looked at longest ago, which is the one you are least likely to want
+   * back.
+   */
+  evict(now) {
+    const cap = this.budget.loaded;
+    if (this.loaded.size <= cap) return;
+    const spare = [];
+    for (const [uri, entry] of this.loaded) {
+      if (!this.visible.has(uri)) spare.push([uri, entry]);
+    }
+    spare.sort((a, b) => a[1].used - b[1].used);
+    for (const [uri, entry] of spare) {
+      if (this.loaded.size <= cap) return;
+      if (now - entry.used < KEEP_AFTER_SIGHT_MS) break;
+      this.dispose(uri, entry);
+    }
+    for (const [uri, entry] of spare) {
+      if (this.loaded.size <= cap) return;
+      if (this.loaded.has(uri)) this.dispose(uri, entry);
+    }
   }
 
   /**
@@ -453,6 +551,11 @@ export class Tiles3D {
     const n = Math.pow(2, COVER_ZOOM);
     for (const [uri, entry] of this.loaded) {
       if (!this.visible.has(uri)) continue;
+      // A coarse ancestor being drawn in place of children that have not
+      // arrived is not a better picture of this ground than the terrain is,
+      // and hiding the terrain under it gives you a blurry plate with nothing
+      // beneath it. See COVER_MAX_ERROR_M.
+      if ((entry.error ?? 0) > COVER_MAX_ERROR_M) continue;
       if (!entry.bounds) {
         entry.object.updateWorldMatrix(true, true);
         entry.bounds = new THREE.Box3().setFromObject(entry.object);
@@ -546,7 +649,7 @@ export class Tiles3D {
     if (!uri) return true;
     this.visible.add(uri);
     if (this.loaded.has(uri)) return true;
-    this.want(uri, transform, centre);
+    this.want(uri, transform, centre, tile.geometricError ?? 0);
     return false;
   }
 
@@ -557,20 +660,21 @@ export class Tiles3D {
    * counted nearer than the ground behind you, so the city builds outwards
    * from under your feet in the direction you are going.
    */
-  want(uri, transform, centreEcef) {
+  want(uri, transform, centreEcef, error = 0) {
     if (this.pending.has(uri)) return;
     const local = this._matrix2.copy(centreEcef).applyMatrix4(this._ecefToLocal);
     const dx = local.x - this._camX;
     const dz = local.z - this._camZ;
     const len = Math.hypot(dx, dz);
     const facing = len < 1 ? 1 : (dx * this._viewX + dz * this._viewZ) / len;
-    this.wanted.push({ uri, transform, order: len * (1.6 - facing * 0.6) });
+    this.wanted.push({ uri, transform, error, order: len * (1.6 - facing * 0.6) });
   }
 
   requestTileset(uri) {
-    if (this.pending.has(uri) || this.resting(uri) || this.active >= this.budget.active) return;
+    const slots = this.budget.tilesets ?? this.budget.active;
+    if (this.pending.has(uri) || this.resting(uri) || this.activeTilesets >= slots) return;
     this.pending.add(uri);
-    this.active++;
+    this.activeTilesets++;
     fetch(this.absolute(uri), { headers: this.headers() })
       .then((response) => {
         if (!response.ok) throw new Error(`tileset ${response.status}`);
@@ -587,14 +691,44 @@ export class Tiles3D {
       })
       .finally(() => {
         this.pending.delete(uri);
-        this.active--;
+        this.activeTilesets = Math.max(0, this.activeTilesets - 1);
       });
   }
 
-  requestContent(uri, transform) {
+  requestContent(uri, transform, error = 0) {
     if (this.pending.has(uri) || this.resting(uri) || this.active >= this.budget.active) return;
     this.pending.add(uri);
     this.active++;
+
+    /**
+     * Release the slot when the request settles, and only then.
+     *
+     * It used to be released fifty milliseconds after the request *started*,
+     * on the reasoning that the loader's callbacks are asynchronous and a slot
+     * must not leak if one never fires. That does prevent the leak, and it also
+     * removes the limit: four slots recycled every fifty milliseconds is eighty
+     * requests a second with no ceiling on how many are in flight at once. The
+     * `pending` mark went with it, so a tile still downloading no longer
+     * counted as asked for and was asked for again on the very next frame, and
+     * again on the one after that. The browser's handful of connections to the
+     * host then filled with copies of tiles that were already arriving, and the
+     * tiles you did not have yet queued behind them. That is the download that
+     * takes for ever, and it gets worse the more of the city you can see.
+     *
+     * GLTFLoader calls exactly one of onLoad or onError, so settling on both is
+     * the honest release. The timer stays as what it was meant to be — a net
+     * under a request that never answers at all — at a length a real tile on a
+     * real connection can finish inside.
+     */
+    let settled = false;
+    const release = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      this.pending.delete(uri);
+      this.active = Math.max(0, this.active - 1);
+    };
+    const timer = setTimeout(release, CONTENT_TIMEOUT_MS);
 
     this.loader.load(
       this.absolute(uri),
@@ -611,27 +745,62 @@ export class Tiles3D {
         object.traverse((node) => {
           if (node.isMesh) {
             node.frustumCulled = true;
-            if (node.material) node.material.side = THREE.FrontSide;
+            if (node.material) {
+              node.material.side = THREE.FrontSide;
+              this.sharpen(node.material);
+            }
           }
         });
         this.group.add(object);
-        this.loaded.set(uri, { object, used: performance.now() });
+        this.loaded.set(uri, { object, used: performance.now(), error });
         this.refused.delete(uri);
         if (gltf.parser?.json?.asset?.copyright) {
           this.copyrights.add(gltf.parser.json.asset.copyright);
         }
+        release();
       },
       undefined,
       () => {
         this.stats.failed++;
         this.refused.set(uri, performance.now());
+        release();
       },
     );
+  }
 
-    // GLTFLoader's callbacks fire asynchronously; free the slot either way.
-    setTimeout(() => {
-      if (this.pending.delete(uri)) this.active = Math.max(0, this.active - 1);
-    }, 50);
+  /** How sharply textures may be sampled here: the preset, within the hardware. */
+  get anisotropy() {
+    const wanted = settings.preset().anisotropy ?? 1;
+    const most = this.renderer?.capabilities?.getMaxAnisotropy?.() ?? 1;
+    return Math.max(1, Math.min(wanted, most));
+  }
+
+  /**
+   * Sample this material's textures the way the ground textures are sampled.
+   *
+   * Nothing set anisotropy on photogrammetry, so every one of these textures
+   * was sampled at 1 while the flat imagery beside it used 8 or 16 and the
+   * hardware offered 16. Measured, on a live tileset: eight textures loaded,
+   * eight of them at anisotropy 1.
+   *
+   * At 1 the GPU picks its mip level from the *larger* of the two on-screen
+   * derivatives, so a surface seen at a slant is sampled from a mip chosen for
+   * its stretched axis — several levels coarser than the axis you are actually
+   * reading. Standing in a street, almost every surface is at a slant: the road
+   * underfoot, the pavement, every facade running away from you. That is why
+   * the minimap looked sharper than the world it is a map of. The minimap is
+   * drawn flat, face-on, at one texel per pixel, and never pays this at all.
+   */
+  sharpen(material) {
+    const level = this.anisotropy;
+    for (const slot of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap']) {
+      const texture = material[slot];
+      if (!texture || texture.anisotropy === level) continue;
+      texture.anisotropy = level;
+      // Sampler state is set when the texture is uploaded, so a texture that
+      // has already been to the GPU needs telling.
+      texture.needsUpdate = true;
+    }
   }
 
   /**
