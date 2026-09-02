@@ -103,7 +103,7 @@ function climateBand(lat, meanC) {
  * It was being handed `avgC` instead, which already has the lapse rate applied
  * for the ground under your feet — so the rate went in twice and the answer
  * depended on how high *you* were standing rather than on where you were. Up on
- * the Jungfrau massif at 3,970 m that put the snow line at −400 m, the clamp,
+ * the Jungfrau massif at 3,970 m that put the snow line at -400 m, the clamp,
  * and the shader duly mixed 45% flat white over every piece of flat ground
  * above 600 m in view: the valley floors, the forests, the villages. Measured
  * from the same spot, sea-level August at 46.5°N gives 3,255 m instead, which

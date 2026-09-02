@@ -98,7 +98,7 @@ export const IMAGERY_PROVIDERS = [
   },
   {
     id: 'gibs',
-    label: 'NASA GIBS (this week\u2019s Earth)',
+    label: 'NASA GIBS (this week\'s Earth)',
     kind: 'xyz',
     needsKey: null,
     maxZoom: 9,
@@ -144,7 +144,7 @@ export const IMAGERY_PROVIDERS = [
       '&tilesetId=microsoft.imagery&zoom={z}&x={x}&y={y}&subscription-key={key}',
     attribution: 'Imagery © Microsoft, Airbus DS, Maxar',
     note:
-      'Microsoft\u2019s current satellite imagery, on an Azure Maps subscription key. ' +
+      'Microsoft\'s current satellite imagery, on an Azure Maps subscription key. ' +
       'This is where Bing Maps is being retired to. Imagery only \u2014 Azure serves no ' +
       'photogrammetry, so it cannot drive the 3D option.',
   },
@@ -160,7 +160,7 @@ export const IMAGERY_PROVIDERS = [
       '&FORMAT=image/jpeg&TileMatrixSet=EPSG:3857&TileMatrix=EPSG:3857:{z}&TileRow={y}&TileCol={x}',
     attribution: 'Imagery © Maxar Technologies',
     note:
-      'Maxar\u2019s own service, on a SecureWatch connect ID. That is an enterprise '
+      'Maxar\'s own service, on a SecureWatch connect ID. That is an enterprise '
       + 'credential rather than something you sign up for in an afternoon \u2014 and if '
       + 'you have not got one you are not missing the imagery, only the direct '
       + 'route to it: Esri, Bing and Google all serve Maxar scenes and all three '
@@ -302,7 +302,7 @@ export const ELEVATION_PROVIDERS = [
     maxZoom: 12,
     attribution: 'Elevation © Microsoft',
     note:
-      'Bing\u2019s Elevation service, on a Bing Maps key. It answers with a grid of '
+      'Bing\'s Elevation service, on a Bing Maps key. It answers with a grid of '
       + 'heights rather than a picture, one request per tile against your own quota, '
       + 'and it is coarser than the raster sources \u2014 pick it because you have the '
       + 'key, not because it is sharper.',
@@ -431,7 +431,7 @@ async function googleReason(res) {
     /* not JSON; fall through */
   }
   if (res.status === 403) {
-    return 'check that the Map Tiles API is enabled on the project and that the key\u2019s '
+    return 'check that the Map Tiles API is enabled on the project and that the key\'s '
       + 'referrer restrictions allow this page';
   }
   return 'no explanation given';

@@ -106,12 +106,12 @@ const SECTIONS = [
         ],
         help: 'How deep to walk the tile tree, and so how many triangles arrive. Photogrammetry is far heavier than the ordinary world, so drop this before turning 3D off entirely.',
       },
-      { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Photorealistic 3D Tiles, Street View Static and Geocoding APIs \u2014 each has to be enabled on the project separately, and a key restricted to some of them refuses the rest with a 403. If the key has HTTP-referrer restrictions, list this page\u2019s address in them; a page opened from a file:// URL sends no referrer at all and a restricted key can never work there.' },
+      { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Photorealistic 3D Tiles, Street View Static and Geocoding APIs \u2014 each has to be enabled on the project separately, and a key restricted to some of them refuses the rest with a 403. If the key has HTTP-referrer restrictions, list this page\'s address in them; a page opened from a file:// URL sends no referrer at all and a restricted key can never work there.' },
       { key: 'bingKey', label: 'Bing Maps key', type: 'secret', help: 'Bing aerial imagery. Microsoft is retiring this into Azure Maps, but the coverage is not identical yet.' },
       { key: 'azureKey', label: 'Azure Maps key', type: 'secret', help: 'Azure Maps subscription key, for Microsoft satellite imagery. Azure serves no 3D data.' },
-      { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation. If the token has URL restrictions, add this page\u2019s address; a file:// page sends no referrer and will be refused.' },
+      { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation. If the token has URL restrictions, add this page\'s address; a file:// page sends no referrer and will be refused.' },
       { key: 'appleMapsToken', label: 'Apple Maps token', type: 'secret', help: 'A MapKit JS token from your Apple Developer account. Used for addresses and place search.' },
-      { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'One token, two uses: the Cesium route into photorealistic 3D, and ion imagery below. It needs the assets:read scope and the asset itself has to be in your account \u2014 the sample ones are not, until you add them. \u201cCould not be reached\u201d rather than a refusal means the request never arrived, which is the network or the page\u2019s origin rather than the token.' },
+      { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'One token, two uses: the Cesium route into photorealistic 3D, and ion imagery below. It needs the assets:read scope and the asset itself has to be in your account \u2014 the sample ones are not, until you add them. "Could not be reached" rather than a refusal means the request never arrived, which is the network or the page\'s origin rather than the token.' },
       { key: 'cesiumImageryAsset', label: 'Cesium ion imagery asset', type: 'range', min: 1, max: 10000, step: 1, showWhen: () => settings.get('imageryProvider') === 'cesium-ion', help: 'The number ion gives a raster layer in your account — open My Assets on'
         + ' the ion dashboard and it is the ID column, also the last part of the asset\'s own URL.'
         + ' It must be an *imagery* asset: terrain and 3D Tiles have IDs too and will simply'
@@ -120,7 +120,7 @@ const SECTIONS = [
         + ' Get it wrong and nothing is invented — the ground falls back through the other'
         + ' providers and says so.' },
       { key: 'mapillaryToken', label: 'Mapillary token', type: 'secret' },
-      { key: 'maxarConnectId', label: 'Maxar SecureWatch connect ID', type: 'secret', help: 'Maxar\u2019s own imagery service. An enterprise credential \u2014 Esri, Bing and Google all serve Maxar scenes without one.' },
+      { key: 'maxarConnectId', label: 'Maxar SecureWatch connect ID', type: 'secret', help: 'Maxar\'s own imagery service. An enterprise credential \u2014 Esri, Bing and Google all serve Maxar scenes without one.' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },
       { key: 'buildings', label: 'OpenStreetMap buildings', type: 'toggle', help: 'Extrudes real footprints near the ground to their surveyed height. Solid \u2014 there is no invented inside.' },
       { key: 'woodlandRelief', label: 'Woodland canopy relief', type: 'toggle', help: 'Slight relief over woods OpenStreetMap has surveyed, so a forest reads as a canopy instead of green paint. Shading only — the ground you walk on does not move, and where nothing is mapped nothing changes.' },
@@ -157,7 +157,7 @@ const SECTIONS = [
       { key: 'speedFovKick', label: 'Widen view with speed', type: 'toggle' },
       { key: 'fog', label: 'Distance haze', type: 'toggle' },
       { key: 'weather', label: 'Clouds and rain', type: 'toggle', help: 'Cloud cover and precipitation for where and when you are, from the same climate model as the temperature.' },
-      { key: 'resolutionScale', label: 'Render scale', type: 'range', min: 0.5, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%`, help: 'How many pixels the world is drawn with, against your screen\u2019s own. A hundred per cent is native \u2014 every pixel your display has. Above that is supersampling: sharper still, and expensive.' },
+      { key: 'resolutionScale', label: 'Render scale', type: 'range', min: 0.5, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%`, help: 'How many pixels the world is drawn with, against your screen\'s own. A hundred per cent is native \u2014 every pixel your display has. Above that is supersampling: sharper still, and expensive.' },
       { key: 'detailLimit', label: 'Detail limit', type: 'range', min: 25, max: 100, step: 5, format: (v) => `${v}%`, help: 'Scales tile detail, mesh detail and how deep the ground zooms, all together. One dial to pull when the frame rate is short instead of five. A hundred per cent is the preset as designed.' },
       { key: 'fpsTarget', label: 'Frame rate target', type: 'range', min: 30, max: 144, step: 5, unit: ' fps' },
       { key: 'showFps', label: 'Show performance readout', type: 'toggle' },

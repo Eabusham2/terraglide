@@ -7,7 +7,7 @@ import { settings } from '../core/settings.js';
  *
  * Yaw is a compass bearing — 0 is north, and it grows clockwise, the same
  * number the HUD, the minimap and the autopilot all use. Forward is therefore
- * (sin yaw, 0, −cos yaw), and the camera's own Y rotation has to be the
+ * (sin yaw, 0, -cos yaw), and the camera's own Y rotation has to be the
  * *negative* of it, because three.js measures its Euler the other way round.
  * Getting that backwards is what used to send you off at an angle to wherever
  * you were looking.

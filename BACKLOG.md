@@ -2710,7 +2710,7 @@ what is left · `[?]` needs a decision from you.
       the player 19.26 m, and a look drag turned the view 0.43 radians. The
       action row is all there — boost, jump, dive, surge, teleport, map — and
       the cheats button draws its middle dot, which is the I16 fix rendering.
-- [~] I16. Broken letters on certain devices
+- [x] I16. Broken letters on certain devices
       Could not reproduce it here, so this is the audit and the hardening rather
       than a confirmed cause. Two things were ruled out first: every build
       declares UTF-8 and does it inside the first kilobyte, where the browser
@@ -2736,6 +2736,34 @@ what is left · `[?]` needs a decision from you.
       Left open because it is your device, not this one. If it is still
       happening, the useful thing is which screen it is on and roughly what the
       broken text says — that names the character.
+
+      Reopened and now actually closed, because the rule had a hole and the
+      character it was written about was still in the game.
+
+      The scan read each file as written. A character typed as a `\uXXXX`
+      escape therefore walked straight past it while rendering as exactly the
+      glyph it forbids — and two of them were doing so: `src/ui/hud.js` and
+      `src/core/units.js` both carried U+2212 MINUS SIGN as an escape, drawn
+      beside the glide angle and every bearing. That is the very character this
+      item was opened about, and the named check for it two lines below the scan
+      was passing, because it looked for the literal while the source held the
+      escape. Ten curly apostrophes and two curly quotes were hiding the same
+      way.
+
+      The scan decodes escapes before judging anything now, and it reads
+      index.html and the stylesheet as well as src — the boot screen most of
+      all, since that is what is on screen when nothing else has loaded, on a
+      device whose fonts are the problem. Fourteen characters replaced with
+      their ASCII equivalents across ten files: the minus signs are
+      hyphen-minus, the curly quotes and apostrophes are straight.
+
+      One test had to change with it: `down is negative` asserted that a pitch
+      readout *starts with* U+2212 — it was pinning the forbidden character as a
+      requirement. It asserts a hyphen now, and separately that no minus sign
+      appears.
+
+      Verified on screen: nothing the game draws contains U+2212 or U+2192.
+      3,161 literals scanned, plus both pages, nothing risky left.
 - [x] I17. Favicon as an elytra
       A pair of folded wings with the spine between them, five paths, inline SVG.
       Rendered at 16, 32 and 128 px and looked at, not just written.

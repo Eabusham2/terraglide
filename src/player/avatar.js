@@ -11,7 +11,7 @@ import { ROCKET_COLOURS } from './player.js';
  * see your own body in first person too: legs below you, arms out in front when
  * the wings are open, which is what makes strafing and flying read as yours.
  *
- * The model faces −Z, the direction three.js treats as forward, so the root
+ * The model faces -Z, the direction three.js treats as forward, so the root
  * yaw is simply the negative of the compass bearing. Getting that wrong is what
  * used to lay the character out backwards in a glide and look upside down.
  *
@@ -440,7 +440,7 @@ export class Avatar {
     // Eyes. Two blocks and nothing else, but they are the difference between a
     // head and a tan box: a box has no front, so without them there was no
     // telling which way the figure faced at any distance at all. The model
-    // faces −Z, so they sit a whisker proud of the front face and are children
+    // faces -Z, so they sit a whisker proud of the front face and are children
     // of the head, which turns under them when you look about.
     const eyeGeo = new THREE.BoxGeometry(0.024, 0.017, 0.006);
     const eyeMat = mat(0x25201c);
@@ -506,7 +506,7 @@ export class Avatar {
     this.cloth.jacket.push(this.armL.limb.material, this.armR.limb.material);
     this.cloth.trousers.push(this.legL.limb.material, this.legR.limb.material);
 
-    // Toes point forward, which is −Z.
+    // Toes point forward, which is -Z.
     //
     // A boot is a child of its leg, and the leg mesh is centred on itself, so
     // the offset that puts the boot's top against the leg's bottom is half the
@@ -572,7 +572,7 @@ export class Avatar {
     this.noseMat = mat(0xffffff);
     this.rocket = this.makeRocket(rocketMat, this.noseMat, mat(0x6b5334));
     // The limb mesh is a box of its own length centred on its origin, so the
-    // hand is at −length/2. The grip goes there; which way the rocket then
+    // hand is at -length/2. The grip goes there; which way the rocket then
     // points is decided every frame by aimRocket.
     // In the fist, not up the sleeve: the grip sits at the centre of the hand
     // that closes around it, which is where the hand now is.
@@ -1048,7 +1048,7 @@ export class Avatar {
     }
     this.bodyYaw = dampAngle(this.bodyYaw, target, BODY_TURN, dt);
 
-    // The model faces −Z, so the root turns by the negative of the bearing.
+    // The model faces -Z, so the root turns by the negative of the bearing.
     this.root.rotation.set(0, -this.bodyYaw, 0);
     // Whatever the shoulders did not turn, the neck does.
     const neck = wrapAngle(lookYaw - this.bodyYaw);
@@ -1129,11 +1129,11 @@ export class Avatar {
     // From outside they go wider still: a glider seen from behind is mostly
     // silhouette, and arms tight to the body turn it into a blob.
     //
-    // Out, not across. An arm hangs along −Y from its shoulder, so a positive
+    // Out, not across. An arm hangs along -Y from its shoulder, so a positive
     // Z rotation swings it toward +X — which for the *left* arm is over the
     // chest and out the other side. Both signs were that way round, so a
     // gliding figure crossed its arms in front of itself: the left hand
-    // finished at x +0.26 and the right at −0.26, mirrored from where they
+    // finished at x +0.26 and the right at -0.26, mirrored from where they
     // stand, and the firework held in the right hand appeared on the left of
     // the body with nothing near it. Which is a thing you can see in a
     // screenshot and cannot see in a wireframe, and is why the hands are

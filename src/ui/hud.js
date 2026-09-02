@@ -261,7 +261,7 @@ export class HUD {
     const flying = player.mode === 'glide' || player.mode === 'fall' || player.mode === 'fly';
     this.setHidden('glide', !flying);
     this.setHidden('pitch', !flying);
-    this.setText('glide', `${angle >= 0 ? '+' : '\u2212'}${Math.abs(angle).toFixed(1)}\u00b0`);
+    this.setText('glide', `${angle >= 0 ? '+' : '-'}${Math.abs(angle).toFixed(1)}\u00b0`);
     this.setText('heading', formatBearing(player.yaw));
     // The compass says where you are pointed on the ground and said nothing
     // about the other axis, which is half of flying.

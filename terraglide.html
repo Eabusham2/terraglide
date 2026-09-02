@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta name="terraglide-sources" content="b100daba566ba65d">
+<meta name="terraglide-sources" content="e67debe9bcddee6f">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
 <meta name="color-scheme" content="dark light" />
@@ -82983,7 +82983,7 @@ function formatPitch(radians) {
   if (!Number.isFinite(radians)) return '—';
   const deg = Math.round((radians * 180) / Math.PI);
   if (deg === 0) return 'level';
-  return `${deg > 0 ? '+' : '\u2212'}${Math.abs(deg)}\u00b0`;
+  return `${deg > 0 ? '+' : '-'}${Math.abs(deg)}\u00b0`;
 }
 
 function formatHeight(metres, units) {
@@ -83384,7 +83384,7 @@ const IMAGERY_PROVIDERS = [
   },
   {
     id: 'gibs',
-    label: 'NASA GIBS (this week\u2019s Earth)',
+    label: 'NASA GIBS (this week\'s Earth)',
     kind: 'xyz',
     needsKey: null,
     maxZoom: 9,
@@ -83430,7 +83430,7 @@ const IMAGERY_PROVIDERS = [
       '&tilesetId=microsoft.imagery&zoom={z}&x={x}&y={y}&subscription-key={key}',
     attribution: 'Imagery © Microsoft, Airbus DS, Maxar',
     note:
-      'Microsoft\u2019s current satellite imagery, on an Azure Maps subscription key. ' +
+      'Microsoft\'s current satellite imagery, on an Azure Maps subscription key. ' +
       'This is where Bing Maps is being retired to. Imagery only \u2014 Azure serves no ' +
       'photogrammetry, so it cannot drive the 3D option.',
   },
@@ -83446,7 +83446,7 @@ const IMAGERY_PROVIDERS = [
       '&FORMAT=image/jpeg&TileMatrixSet=EPSG:3857&TileMatrix=EPSG:3857:{z}&TileRow={y}&TileCol={x}',
     attribution: 'Imagery © Maxar Technologies',
     note:
-      'Maxar\u2019s own service, on a SecureWatch connect ID. That is an enterprise '
+      'Maxar\'s own service, on a SecureWatch connect ID. That is an enterprise '
       + 'credential rather than something you sign up for in an afternoon \u2014 and if '
       + 'you have not got one you are not missing the imagery, only the direct '
       + 'route to it: Esri, Bing and Google all serve Maxar scenes and all three '
@@ -83588,7 +83588,7 @@ const ELEVATION_PROVIDERS = [
     maxZoom: 12,
     attribution: 'Elevation © Microsoft',
     note:
-      'Bing\u2019s Elevation service, on a Bing Maps key. It answers with a grid of '
+      'Bing\'s Elevation service, on a Bing Maps key. It answers with a grid of '
       + 'heights rather than a picture, one request per tile against your own quota, '
       + 'and it is coarser than the raster sources \u2014 pick it because you have the '
       + 'key, not because it is sharper.',
@@ -83717,7 +83717,7 @@ async function googleReason(res) {
     /* not JSON; fall through */
   }
   if (res.status === 403) {
-    return 'check that the Map Tiles API is enabled on the project and that the key\u2019s '
+    return 'check that the Map Tiles API is enabled on the project and that the key\'s '
       + 'referrer restrictions allow this page';
   }
   return 'no explanation given';
@@ -85977,7 +85977,7 @@ const { settings } = __tg_require("src/core/settings.js");
  *
  * Yaw is a compass bearing — 0 is north, and it grows clockwise, the same
  * number the HUD, the minimap and the autopilot all use. Forward is therefore
- * (sin yaw, 0, −cos yaw), and the camera's own Y rotation has to be the
+ * (sin yaw, 0, -cos yaw), and the camera's own Y rotation has to be the
  * *negative* of it, because three.js measures its Euler the other way round.
  * Getting that backwards is what used to send you off at an angle to wherever
  * you were looking.
@@ -88390,7 +88390,7 @@ const { ROCKET_COLOURS } = __tg_require("src/player/player.js");
  * see your own body in first person too: legs below you, arms out in front when
  * the wings are open, which is what makes strafing and flying read as yours.
  *
- * The model faces −Z, the direction three.js treats as forward, so the root
+ * The model faces -Z, the direction three.js treats as forward, so the root
  * yaw is simply the negative of the compass bearing. Getting that wrong is what
  * used to lay the character out backwards in a glide and look upside down.
  *
@@ -88819,7 +88819,7 @@ class Avatar {
     // Eyes. Two blocks and nothing else, but they are the difference between a
     // head and a tan box: a box has no front, so without them there was no
     // telling which way the figure faced at any distance at all. The model
-    // faces −Z, so they sit a whisker proud of the front face and are children
+    // faces -Z, so they sit a whisker proud of the front face and are children
     // of the head, which turns under them when you look about.
     const eyeGeo = new THREE.BoxGeometry(0.024, 0.017, 0.006);
     const eyeMat = mat(0x25201c);
@@ -88885,7 +88885,7 @@ class Avatar {
     this.cloth.jacket.push(this.armL.limb.material, this.armR.limb.material);
     this.cloth.trousers.push(this.legL.limb.material, this.legR.limb.material);
 
-    // Toes point forward, which is −Z.
+    // Toes point forward, which is -Z.
     //
     // A boot is a child of its leg, and the leg mesh is centred on itself, so
     // the offset that puts the boot's top against the leg's bottom is half the
@@ -88951,7 +88951,7 @@ class Avatar {
     this.noseMat = mat(0xffffff);
     this.rocket = this.makeRocket(rocketMat, this.noseMat, mat(0x6b5334));
     // The limb mesh is a box of its own length centred on its origin, so the
-    // hand is at −length/2. The grip goes there; which way the rocket then
+    // hand is at -length/2. The grip goes there; which way the rocket then
     // points is decided every frame by aimRocket.
     // In the fist, not up the sleeve: the grip sits at the centre of the hand
     // that closes around it, which is where the hand now is.
@@ -89427,7 +89427,7 @@ class Avatar {
     }
     this.bodyYaw = dampAngle(this.bodyYaw, target, BODY_TURN, dt);
 
-    // The model faces −Z, so the root turns by the negative of the bearing.
+    // The model faces -Z, so the root turns by the negative of the bearing.
     this.root.rotation.set(0, -this.bodyYaw, 0);
     // Whatever the shoulders did not turn, the neck does.
     const neck = wrapAngle(lookYaw - this.bodyYaw);
@@ -89508,11 +89508,11 @@ class Avatar {
     // From outside they go wider still: a glider seen from behind is mostly
     // silhouette, and arms tight to the body turn it into a blob.
     //
-    // Out, not across. An arm hangs along −Y from its shoulder, so a positive
+    // Out, not across. An arm hangs along -Y from its shoulder, so a positive
     // Z rotation swings it toward +X — which for the *left* arm is over the
     // chest and out the other side. Both signs were that way round, so a
     // gliding figure crossed its arms in front of itself: the left hand
-    // finished at x +0.26 and the right at −0.26, mirrored from where they
+    // finished at x +0.26 and the right at -0.26, mirrored from where they
     // stand, and the firework held in the right hand appeared on the left of
     // the body with nothing near it. Which is a thing you can see in a
     // screenshot and cannot see in a wireframe, and is why the hands are
@@ -97167,7 +97167,7 @@ function climateBand(lat, meanC) {
  * It was being handed `avgC` instead, which already has the lapse rate applied
  * for the ground under your feet — so the rate went in twice and the answer
  * depended on how high *you* were standing rather than on where you were. Up on
- * the Jungfrau massif at 3,970 m that put the snow line at −400 m, the clamp,
+ * the Jungfrau massif at 3,970 m that put the snow line at -400 m, the clamp,
  * and the shader duly mixed 45% flat white over every piece of flat ground
  * above 600 m in view: the valley floors, the forests, the villages. Measured
  * from the same spot, sea-level August at 46.5°N gives 3,255 m instead, which
@@ -97593,7 +97593,7 @@ class Terrain {
   /**
    * Ground height (metres, sea clamped) at a normalised mercator point.
    *
-   * The clamp is why the Dead Sea shore reads 0 m here and is −430 m in life,
+   * The clamp is why the Dead Sea shore reads 0 m here and is -430 m in life,
    * and it is a decision rather than an oversight. AWS Terrain Tiles carry
    * bathymetry: without the clamp the ocean stops being a surface and becomes
    * a canyon, kilometres deep, with the sea shading — which keys off ground at
@@ -101240,7 +101240,7 @@ class HUD {
     const flying = player.mode === 'glide' || player.mode === 'fall' || player.mode === 'fly';
     this.setHidden('glide', !flying);
     this.setHidden('pitch', !flying);
-    this.setText('glide', `${angle >= 0 ? '+' : '\u2212'}${Math.abs(angle).toFixed(1)}\u00b0`);
+    this.setText('glide', `${angle >= 0 ? '+' : '-'}${Math.abs(angle).toFixed(1)}\u00b0`);
     this.setText('heading', formatBearing(player.yaw));
     // The compass says where you are pointed on the ground and said nothing
     // about the other axis, which is half of flying.
@@ -101759,12 +101759,12 @@ const SECTIONS = [
         ],
         help: 'How deep to walk the tile tree, and so how many triangles arrive. Photogrammetry is far heavier than the ordinary world, so drop this before turning 3D off entirely.',
       },
-      { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Photorealistic 3D Tiles, Street View Static and Geocoding APIs \u2014 each has to be enabled on the project separately, and a key restricted to some of them refuses the rest with a 403. If the key has HTTP-referrer restrictions, list this page\u2019s address in them; a page opened from a file:// URL sends no referrer at all and a restricted key can never work there.' },
+      { key: 'googleKey', label: 'Google Maps key', type: 'secret', help: 'Map Tiles, Photorealistic 3D Tiles, Street View Static and Geocoding APIs \u2014 each has to be enabled on the project separately, and a key restricted to some of them refuses the rest with a 403. If the key has HTTP-referrer restrictions, list this page\'s address in them; a page opened from a file:// URL sends no referrer at all and a restricted key can never work there.' },
       { key: 'bingKey', label: 'Bing Maps key', type: 'secret', help: 'Bing aerial imagery. Microsoft is retiring this into Azure Maps, but the coverage is not identical yet.' },
       { key: 'azureKey', label: 'Azure Maps key', type: 'secret', help: 'Azure Maps subscription key, for Microsoft satellite imagery. Azure serves no 3D data.' },
-      { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation. If the token has URL restrictions, add this page\u2019s address; a file:// page sends no referrer and will be refused.' },
+      { key: 'mapboxKey', label: 'Mapbox token', type: 'secret', help: 'Used for satellite imagery and Terrain-RGB elevation. If the token has URL restrictions, add this page\'s address; a file:// page sends no referrer and will be refused.' },
       { key: 'appleMapsToken', label: 'Apple Maps token', type: 'secret', help: 'A MapKit JS token from your Apple Developer account. Used for addresses and place search.' },
-      { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'One token, two uses: the Cesium route into photorealistic 3D, and ion imagery below. It needs the assets:read scope and the asset itself has to be in your account \u2014 the sample ones are not, until you add them. \u201cCould not be reached\u201d rather than a refusal means the request never arrived, which is the network or the page\u2019s origin rather than the token.' },
+      { key: 'cesiumToken', label: 'Cesium ion access token', type: 'secret', help: 'One token, two uses: the Cesium route into photorealistic 3D, and ion imagery below. It needs the assets:read scope and the asset itself has to be in your account \u2014 the sample ones are not, until you add them. "Could not be reached" rather than a refusal means the request never arrived, which is the network or the page\'s origin rather than the token.' },
       { key: 'cesiumImageryAsset', label: 'Cesium ion imagery asset', type: 'range', min: 1, max: 10000, step: 1, showWhen: () => settings.get('imageryProvider') === 'cesium-ion', help: 'The number ion gives a raster layer in your account — open My Assets on'
         + ' the ion dashboard and it is the ID column, also the last part of the asset\'s own URL.'
         + ' It must be an *imagery* asset: terrain and 3D Tiles have IDs too and will simply'
@@ -101773,7 +101773,7 @@ const SECTIONS = [
         + ' Get it wrong and nothing is invented — the ground falls back through the other'
         + ' providers and says so.' },
       { key: 'mapillaryToken', label: 'Mapillary token', type: 'secret' },
-      { key: 'maxarConnectId', label: 'Maxar SecureWatch connect ID', type: 'secret', help: 'Maxar\u2019s own imagery service. An enterprise credential \u2014 Esri, Bing and Google all serve Maxar scenes without one.' },
+      { key: 'maxarConnectId', label: 'Maxar SecureWatch connect ID', type: 'secret', help: 'Maxar\'s own imagery service. An enterprise credential \u2014 Esri, Bing and Google all serve Maxar scenes without one.' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },
       { key: 'buildings', label: 'OpenStreetMap buildings', type: 'toggle', help: 'Extrudes real footprints near the ground to their surveyed height. Solid \u2014 there is no invented inside.' },
       { key: 'woodlandRelief', label: 'Woodland canopy relief', type: 'toggle', help: 'Slight relief over woods OpenStreetMap has surveyed, so a forest reads as a canopy instead of green paint. Shading only — the ground you walk on does not move, and where nothing is mapped nothing changes.' },
@@ -101810,7 +101810,7 @@ const SECTIONS = [
       { key: 'speedFovKick', label: 'Widen view with speed', type: 'toggle' },
       { key: 'fog', label: 'Distance haze', type: 'toggle' },
       { key: 'weather', label: 'Clouds and rain', type: 'toggle', help: 'Cloud cover and precipitation for where and when you are, from the same climate model as the temperature.' },
-      { key: 'resolutionScale', label: 'Render scale', type: 'range', min: 0.5, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%`, help: 'How many pixels the world is drawn with, against your screen\u2019s own. A hundred per cent is native \u2014 every pixel your display has. Above that is supersampling: sharper still, and expensive.' },
+      { key: 'resolutionScale', label: 'Render scale', type: 'range', min: 0.5, max: 2, step: 0.05, format: (v) => `${Math.round(v * 100)}%`, help: 'How many pixels the world is drawn with, against your screen\'s own. A hundred per cent is native \u2014 every pixel your display has. Above that is supersampling: sharper still, and expensive.' },
       { key: 'detailLimit', label: 'Detail limit', type: 'range', min: 25, max: 100, step: 5, format: (v) => `${v}%`, help: 'Scales tile detail, mesh detail and how deep the ground zooms, all together. One dial to pull when the frame rate is short instead of five. A hundred per cent is the preset as designed.' },
       { key: 'fpsTarget', label: 'Frame rate target', type: 'range', min: 30, max: 144, step: 5, unit: ' fps' },
       { key: 'showFps', label: 'Show performance readout', type: 'toggle' },
@@ -112556,7 +112556,7 @@ __tg_modules["src/geo/ecef.js"] = function (__tg_exports) {
  * speaks OGC 3D Tiles — is published in ECEF: a right-handed frame with its
  * origin at the centre of the Earth, X through the Greenwich meridian at the
  * equator, Z through the north pole. The game runs in a small local frame with
- * +X east, +Y up and −Z north, so every tile has to be moved from one to the
+ * +X east, +Y up and -Z north, so every tile has to be moved from one to the
  * other. That is all this file does, and it is kept free of three.js so the
  * maths can be checked without a browser.
  *
@@ -112623,7 +112623,7 @@ function enuBasis(lat, lon) {
 
 /**
  * A 4x4 column-major matrix taking ECEF metres into the game's local frame
- * anchored at (lat, lon): +X east, +Y up, −Z north, origin at ground level
+ * anchored at (lat, lon): +X east, +Y up, -Z north, origin at ground level
  * under the anchor.
  *
  * Column-major so it can be handed straight to a three.js Matrix4.

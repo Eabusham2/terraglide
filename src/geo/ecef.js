@@ -5,7 +5,7 @@
  * speaks OGC 3D Tiles — is published in ECEF: a right-handed frame with its
  * origin at the centre of the Earth, X through the Greenwich meridian at the
  * equator, Z through the north pole. The game runs in a small local frame with
- * +X east, +Y up and −Z north, so every tile has to be moved from one to the
+ * +X east, +Y up and -Z north, so every tile has to be moved from one to the
  * other. That is all this file does, and it is kept free of three.js so the
  * maths can be checked without a browser.
  *
@@ -72,7 +72,7 @@ export function enuBasis(lat, lon) {
 
 /**
  * A 4x4 column-major matrix taking ECEF metres into the game's local frame
- * anchored at (lat, lon): +X east, +Y up, −Z north, origin at ground level
+ * anchored at (lat, lon): +X east, +Y up, -Z north, origin at ground level
  * under the anchor.
  *
  * Column-major so it can be handed straight to a three.js Matrix4.

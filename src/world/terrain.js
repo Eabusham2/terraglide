@@ -176,7 +176,7 @@ export class Terrain {
   /**
    * Ground height (metres, sea clamped) at a normalised mercator point.
    *
-   * The clamp is why the Dead Sea shore reads 0 m here and is −430 m in life,
+   * The clamp is why the Dead Sea shore reads 0 m here and is -430 m in life,
    * and it is a decision rather than an oversight. AWS Terrain Tiles carry
    * bathymetry: without the clamp the ocean stops being a surface and becomes
    * a canyon, kilometres deep, with the sea shading — which keys off ground at

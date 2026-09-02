@@ -153,7 +153,7 @@ export function formatPitch(radians) {
   if (!Number.isFinite(radians)) return '—';
   const deg = Math.round((radians * 180) / Math.PI);
   if (deg === 0) return 'level';
-  return `${deg > 0 ? '+' : '\u2212'}${Math.abs(deg)}\u00b0`;
+  return `${deg > 0 ? '+' : '-'}${Math.abs(deg)}\u00b0`;
 }
 
 export function formatHeight(metres, units) {

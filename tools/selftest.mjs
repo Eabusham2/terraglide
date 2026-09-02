@@ -1051,29 +1051,65 @@ console.log('\nno text the player sees needs a font they may not have');
   // contain Latin-1, plus the three pieces of punctuation that are in
   // effectively every font shipped anywhere.
   const SAFE_BEYOND_LATIN1 = new Set(['\u2014', '\u2013', '\u2026']); // em dash, en dash, ellipsis
-  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const strip = (t) => t
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+    .replace(/<!--[\s\S]*?-->/g, '');
+  /*
+    Escapes are decoded before anything is judged, and that is the whole point.
+
+    The rule used to read the file as written, so a character typed as \uXXXX
+    walked straight past it while rendering as exactly the glyph it forbids. It
+    was not hypothetical: `src/ui/hud.js` and `src/core/units.js` both carried
+    U+2212 MINUS SIGN as an escape, drawn beside the glide angle and every
+    bearing — the very character I16 was opened about — while the named check
+    for it two lines below passed, because it looked for the literal and the
+    source held the escape. Ten curly apostrophes and two curly quotes were
+    hiding the same way.
+  */
+  const decode = (t) => t.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
   const LITERAL = /'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`(?:[^`\\]|\\.)*`/g;
   const files = readdirSync(new URL('../src/', import.meta.url), { recursive: true })
-    .map(String).filter((f) => f.endsWith('.js'));
+    .map(String).filter((f) => f.endsWith('.js')).map((f) => `src/${f}`);
+  // The boot screen and the stylesheet are read by players too, and the boot
+  // screen most of all on a device whose fonts are the problem: it is what is
+  // on screen when nothing else has loaded.
+  const pages = ['index.html', 'styles/main.css'];
   const risky = new Map();
   let scanned = 0;
+  const note = (ch, where) => {
+    const cp = ch.codePointAt(0);
+    if (cp <= 0xFF || SAFE_BEYOND_LATIN1.has(ch)) return;
+    const key = `U+${cp.toString(16).toUpperCase().padStart(4, '0')} in ${where}`;
+    risky.set(key, (risky.get(key) ?? 0) + 1);
+  };
   for (const f of files) {
-    const body = strip(readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8'));
+    const body = strip(readFileSync(new URL(`../${f}`, import.meta.url), 'utf8'));
     for (const m of body.matchAll(LITERAL)) {
       scanned++;
-      for (const ch of m[0]) {
-        const cp = ch.codePointAt(0);
-        if (cp <= 127 || cp <= 0xFF || SAFE_BEYOND_LATIN1.has(ch)) continue;
-        const key = `U+${cp.toString(16).toUpperCase().padStart(4, '0')} in ${f}`;
-        risky.set(key, (risky.get(key) ?? 0) + 1);
-      }
+      for (const ch of decode(m[0])) note(ch, f);
     }
   }
+  for (const f of pages) {
+    // No literal-matching here: an HTML page's visible text is not in quotes.
+    const body = decode(strip(readFileSync(new URL(`../${f}`, import.meta.url), 'utf8')));
+    scanned++;
+    for (const ch of body) note(ch, f);
+  }
   ok(`the scan reads the strings, not the comments  (${scanned} literals)`, scanned > 500);
+  ok(`it covers the boot screen and the stylesheet too  (${pages.join(', ')})`,
+    files.length > 40 && pages.length === 2);
   ok(`nothing the player sees needs an unusual glyph  (${[...risky.keys()].slice(0, 4).join(', ') || 'none'})`,
     risky.size === 0);
-  // The one that was actually wrong, named, so this cannot regress quietly.
-  const seen = files.map((f) => strip(readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8')))
+
+  // Proof the decoding works, so this cannot quietly go back to reading the
+  // file as written and passing for free.
+  ok('an escaped glyph is caught, not just a literal one',
+    decode("'\\u2212'").includes('\u2212'));
+
+  // The two that were actually wrong, named, checked after decoding.
+  const seen = [...files, ...pages]
+    .map((f) => decode(strip(readFileSync(new URL(`../${f}`, import.meta.url), 'utf8'))))
     .join('\n');
   ok('no rightwards arrow in anything the player reads', !seen.includes('\u2192'));
   ok('and no minus sign either', !seen.includes('\u2212'));
@@ -2516,7 +2552,12 @@ console.log('\nSpeed and look angle read in the units you asked for');
   // the other axis, which is half of flying.
   ok(`level reads as level  (${formatPitch(0)})`, formatPitch(0) === 'level');
   ok('up is positive', formatPitch(0.5).startsWith('+'));
-  ok('down is negative', /^\u2212/.test(formatPitch(-0.5)));
+  // Was pinned to U+2212 MINUS SIGN, which is the character I16 was opened
+  // about: it is absent from some Android and embedded font sets and draws as
+  // an empty box. A pitch readout is a number, and a number's sign is the
+  // hyphen-minus every font has.
+  ok(`down is negative  (${formatPitch(-0.5)})`, /^-/.test(formatPitch(-0.5)));
+  ok('and not with a glyph a phone may not have', !formatPitch(-0.5).includes('\u2212'));
   ok(`and it is degrees  (${formatPitch(Math.PI / 4)})`, formatPitch(Math.PI / 4) === '+45\u00b0');
 
   const hud = readFileSync(new URL('../src/ui/hud.js', import.meta.url), 'utf8');
@@ -4147,7 +4188,7 @@ console.log('\nThe boot watchdog asks whether the game started, not whether it e
   // itself — and the answers only separate causes if they cover both this
   // origin and a provider.
   ok('the dead screen probes this site and a provider',
-    code.includes("probe('this site’s code'") && /probe\('Esri imagery'/.test(code));
+    /probe\('this site\\?'s code'/.test(code) && /probe\('Esri imagery'/.test(code));
   ok('every probe is bounded, so a silent network still reports',
     /AbortController/.test(code) && /abort\(\), 10000\)/.test(code));
   ok('and the report can be copied off the machine', /clipboard\.writeText/.test(code));

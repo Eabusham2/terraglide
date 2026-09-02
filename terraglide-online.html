@@ -163,9 +163,9 @@
           ? 'A script failed to load: ' + window.__terraglideLoadError
           : stage
             ? 'The game loaded and started, then stopped while it was still '
-              + '\u201c' + stage + '\u201d. The code got here, so this is not the '
+              + '"' + stage + '". The code got here, so this is not the '
               + 'network in the way \u2014 the report below says what did answer.'
-            : 'The game\u2019s code did not finish arriving. Something between here and '
+            : 'The game\'s code did not finish arriving. Something between here and '
               + 'the files is blocking or rewriting one of them \u2014 a filtered network, '
               + 'a proxy, an extension \u2014 rather than a fault in the game.';
         status.textContent = 'Could not start';
@@ -248,8 +248,8 @@
             .catch((e) => done('failed: ' + (e.name === 'AbortError' ? 'no answer in 10 s' : e.message)));
         };
         Promise.all([
-          probe('this site’s code', './src/main.js'),
-          probe('this site’s textures', './assets/manifest.json'),
+          probe('this site\'s code', './src/main.js'),
+          probe('this site\'s textures', './assets/manifest.json'),
           probe('Esri imagery', 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/3/3/4'),
         ]).then(() => { lines.push('\u2014 end of report \u2014'); draw(); });
 
