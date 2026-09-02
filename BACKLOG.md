@@ -6,7 +6,15 @@ is ticked, so the record of what was asked survives alongside the record of
 what was built.
 
 Status: `[ ]` open · `[x]` done, with the evidence · `[~]` partly done, with
-what is left · `[?]` needs a decision from you.
+what is left · `[?]` needs a decision from you · `[=]` a standing instruction,
+which has no end condition and is never ticked — the entry is the running
+record of how it is being kept.
+
+`[~]` is used for two different things and it is worth saying which is which
+in each entry: work that is genuinely half-finished, and work that is finished
+on this side and waiting on something only you have — a key, a token, or the
+machine it happens on. Every `[~]` below names its blocker in its last
+paragraph.
 
 ---
 
@@ -99,6 +107,10 @@ what is left · `[?]` needs a decision from you.
       request failing, over four minutes: four requests, gaps of 96, 75 and 63
       seconds. About one a minute against a provider answering nothing, and no
       invented buildings in the meantime — it simply draws none.
+
+      Waiting on: a network that can reach Overpass. Not yours to fix and not a
+      fault in the game — this container kills the connection after seven
+      seconds and their queries take longer. Untested, not broken.
 
 - [x] A20. Antarctica was unplayable because every photograph of it was
       thrown away
@@ -511,6 +523,10 @@ what is left · `[?]` needs a decision from you.
       What it did find is A7's real cause: the texture cache holding 1,731
       textures against its own budget of 160, which is about 440 MB on a machine
       with two gigabytes. That is a tab being killed, and it is fixed. See A7.
+
+      Waiting on: the machine. Three causes were found and fixed and none of the
+      three failures reproduced here. If it still fails on the Chromebook, the
+      boot screen now copies a report that says which of them it is.
 - [x] A10. Online single file broken; single file missing things
       Two causes. The zip's index.html runs from file://, where browsers refuse
       ES modules, so main.js never ran and the watchdog blamed the network after
@@ -836,6 +852,10 @@ what is left · `[?]` needs a decision from you.
 
       Second time this session a single stochastic run has produced a finding
       that repeats destroyed. One run of a random process is not a measurement.
+
+      Waiting on: seeing it again. Nothing was ever drawn bare under any condition
+      tried, including a lossy line. If it happens, whether the missing ground
+      is black or grey separates the two remaining candidates.
 - [x] B4. Floating on invisible ground above the imagery
       Two causes, and this was the second one. You are no longer *set down* on
       ground the game has not measured — that was the first.
@@ -876,6 +896,9 @@ what is left · `[?]` needs a decision from you.
       Left open rather than closed because two photographs of one place are
       still not the same as it never happening. If you see it again, where
       matters — over water or over land tells the two candidate causes apart.
+
+      Waiting on: seeing it again, and where. Over water or over land tells the two
+      candidate causes apart.
 - [~] B6. Randomly starts disappearing, getting patchy, falling apart, coming back in chunks
       Three separate things were behind this and two are now measured out.
 
@@ -903,6 +926,9 @@ what is left · `[?]` needs a decision from you.
       on how many squares may be drawn never bound after the fixes, so nothing
       went undrawn for want of budget. That is the condition this was most
       likely to happen under, and it did not.
+
+      Waiting on: seeing it again. Same measurements as B3 — nothing drawn bare,
+      the draw cap never binding. F4 copies what is needed to tell it apart.
 - [x] B7. Random refresh of textures
       Not random — it is ground you looked away from for more than twenty
       seconds, and the trigger is exactly that.
@@ -1091,7 +1117,7 @@ what is left · `[?]` needs a decision from you.
       view was never drawn. The freecam is usually pointed at exactly that. The
       frustum now comes from the camera the frame is drawn through; priority and
       level of detail still come from the player.
-- [~] B14. Debug and remove glitches generally
+- [=] B14. Debug and remove glitches generally
       Standing rather than closable, so here is the account rather than a tick.
       Glitches found and fixed by going looking, in this pass alone:
 
@@ -3025,7 +3051,7 @@ what is left · `[?]` needs a decision from you.
       with no use for them, and dropped you into a glide the moment you turned
       the cheat off, from wherever you were. Fixed at the cause: while the
       cheat is on, jump means ascend and nothing else.
-- [~] J3. Fix causes, not symptoms — no papering over
+- [=] J3. Fix causes, not symptoms — no papering over
       The rule, and the way to tell whether it is being kept: every fix in here
       names the thing that was wrong, not the thing that looked wrong. A few
       from this pass, each stated as cause rather than remedy:
@@ -3205,7 +3231,7 @@ what is left · `[?]` needs a decision from you.
 
 ## L. Standing instructions
 
-- [~] L1. Improve it all
+- [=] L1. Improve it all
       Standing, and the record is the answer: every item in this file is done,
       partly done with the remaining half named, or waiting on something only
       you can supply — a machine, a key, or a one-line decision. Each carries
@@ -3219,7 +3245,7 @@ what is left · `[?]` needs a decision from you.
       end condition.
 
       The useful input is which part is worst now — or a paste of F4.
-- [~] L2. Bug-test properly before saying something is fixed
+- [=] L2. Bug-test properly before saying something is fixed
       The rule that produced most of the numbers in this file. What "properly"
       has come to mean here, learned mostly by getting it wrong:
 
@@ -3468,6 +3494,10 @@ what is left · `[?]` needs a decision from you.
       against 40 on a two-gigabyte machine. Memory pressure at that scale is
       felt as everything being slow before it is felt as a tab dying, so this
       may be part of what "so laggy" was. Fixed and bounded — see A7.
+
+      Waiting on: a frame rate from your machine. This sandbox renders in software
+      at about 1.4 frames a second, so no number it produces about speed means
+      anything for yours. F4 carries the frame rate and the graphics tier.
 - [x] M4. The quality is bad; zooming in on the map looks better than the ground
       Two answers, and the second was a real bug.
 
@@ -3623,11 +3653,28 @@ what is left · `[?]` needs a decision from you.
       uses. That is a stronger reason to delete it than tidiness, and it is new
       since this item was written.
 
+      Tried, and this environment will not do it. `git push origin --delete`
+      hangs up mid-transfer every time, five attempts across two syntaxes, and
+      the proxy's own log records no failure for github at all — so it is the
+      git relay refusing ref deletions rather than a network fault. The GitHub
+      tools available here have create-branch and delete-file but no
+      delete-branch. Normal pushes work; ten went out this session.
+
+      So it is two commands, and they are yours:
+
+        git push origin --delete online-singlefile
+        git push origin --delete claude/world-exploration-game-962wpo
+
+      Verified safe before asking: `online-singlefile` holds nothing main does
+      not, and the claude branch holds exactly one file main lacks —
+      src/tiles/procedural.js, the invented-terrain generator you asked to be
+      removed. Restore points if ever wanted: 83108cf and 13d8e43.
+
       One caution against acting on that alone: this session's own instructions
       name that branch as the one to develop on, even though the work has all
       gone to main at your direction. So it is not merely stale — it is named,
       which is a second reason it is your word rather than mine.
-- [~] M17. Stop patching with bandaids — fix the system
+- [=] M17. Stop patching with bandaids — fix the system
       Same rule as J3, and the clearest example of it being obeyed is the one
       where it had previously been broken. D7 stopped a weak rocket braking you
       by clamping half of vanilla's push vector — a patch on the symptom. It
