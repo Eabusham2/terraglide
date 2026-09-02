@@ -12,6 +12,25 @@ what is left · `[?]` needs a decision from you.
 
 ## A. Stops you playing
 
+- [~] A21. Buildings could not be tested here, and the sandbox is why
+      Manhattan, Reykjavik and Paris all reported zero buildings at Ultra, with
+      the failure count climbing. That looked like a serious fault and is not
+      one: Overpass is unreachable from this container. The agent proxy's own
+      log names it — `overpass-api.de:443, tunnel closed (code 1006) after 7s,
+      517 B sent, 39 B received` — and Overpass queries routinely take five to
+      thirty seconds, so the relay kills every one of them. Two other mirrors
+      return an identical 21-byte "Internal Server Error", which is the relay
+      rather than two different servers agreeing.
+
+      So buildings are untested rather than broken, and I am not going to claim
+      either way without a network that can reach the provider.
+
+      What could be tested is the thing that matters if a player's network is
+      the same: a dead provider must not be hammered. Driven with every Overpass
+      request failing, over four minutes: four requests, gaps of 96, 75 and 63
+      seconds. About one a minute against a provider answering nothing, and no
+      invented buildings in the meantime — it simply draws none.
+
 - [x] A20. Antarctica was unplayable because every photograph of it was
       thrown away
       Found by sweeping Ultra rather than by looking for it. Twelve stops round
@@ -67,6 +86,23 @@ what is left · `[?]` needs a decision from you.
       If Esri ever changes the card this stops recognising it and the card gets
       drawn again — which is the right way round. A grey rectangle is a blemish;
       discarding real ground is a continent that does not load.
+
+      The same test was used in three other places, and each was quietly wrong
+      in the same way. The minimap and world map dropped the same tiles. The
+      coverage probe in providers.js concluded a provider had no imagery where
+      it plainly did. And the water test in water.js threw the tile away before
+      it could look at it — which matters most, because land you cannot
+      photograph is land random teleport will not put you on. Checked after the
+      fix, on the ground that used to fail:
+
+        Antarctic plateau   land, land fraction 1.00
+        Greenland interior  land, 1.00      Salar de Uyuni   land, 1.00
+        Sahara dunes        land, 1.00      Alps             land, 1.00
+        Manhattan           land, 0.63      mid Pacific      water, 0.00
+                                            mid Atlantic     water, 0.00
+
+      Eight for eight. The pixel test itself was always right — it rejects snow
+      and cloud explicitly — it just never got to see the picture.
 
 - [~] A19. Black spikes over Reykjavik — the elevation provider is wrong there
       Found by looking at Ultra rather than measuring it. Flying over Reykjavik
