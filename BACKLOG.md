@@ -2097,13 +2097,27 @@ paragraph.
       photograph I took. And ground that ought to be photogrammetry reads as a
       flat plane, which is "the terrain becomes flat".
 
-      What is not yet established. Two of the four sample points read about
-      -199 m rather than -26 m; those two are the pair nearest the spawn, which
-      is inside a building, and I have not explained them. And one city is one
-      city: the test that settles this is measuring the same difference at
-      several places whose geoid heights differ sharply — London is about +46 m,
-      the Maldives about -100 m — and seeing whether the difference tracks the
-      geoid or stays near thirty-three.
+      One city is one city, so the same measurement was taken in three, with a
+      grid of forty-odd columns each, taking the deepest hit in each column as
+      the ground:
+
+        place            EGM96      measured (p25 / median / p75)
+        San Francisco    -32.3      -33.0 / -32.8 / -32.5
+        Denver           -17.4      -18.1 / -17.9 / -17.7
+        London           +46.6      -344.5 / -63.0 / -35.1
+
+      Two places whose geoid heights differ by fifteen metres each match their
+      own value to within half a metre, and neither matches the other. That is
+      the geoid, not a constant.
+
+      London is not a counter-example so much as an unusable reading: 186 of 220
+      tiles drawn and quartiles spanning three hundred metres, which is what
+      "deepest hit in the column" returns when the tree is half loaded and the
+      columns have holes in them. Being re-measured settled.
+
+      Still unexplained: two of the four original sample points read about
+      -199 m rather than -26 m. Both are the pair nearest the spawn, which is
+      inside a building.
 
       How it would be fixed. Either bring the terrain onto the ellipsoid or the
       tiles onto the geoid; either way it needs a geoid model. EGM96 as a
