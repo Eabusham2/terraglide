@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta name="terraglide-sources" content="75b7bd6c90f4174f">
+<meta name="terraglide-sources" content="a577db39fb528b11">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
 <meta name="color-scheme" content="dark light" />
@@ -83066,51 +83066,68 @@ function makeCanvas(width, height) {
  * The availability endpoint does not help — it reports the placeholder as
  * present, because it *is* present.
  *
- * So look at it, and weigh it. Measured against the real thing:
+ * This used to weigh the picture: bright, colourless, flat and under six
+ * kilobytes was taken to mean a card, on the reasoning that nothing real sits
+ * in that corner of the space. Something real does. Antarctica sits in it.
  *
- *   the card        1.8–2.6 kB   mean 205–232   spread 0–19   variance 0.6–34
- *   London          22 kB        mean 76        spread 26     variance 1225
- *   Sahara          13 kB        mean 174       spread 110    variance 176
- *   Greenland       2.6 kB       mean 53        spread 54     variance 2.8
+ *   Antarctica z6    2,564 bytes   mean 239   spread 17   variance 0.4
+ *   Antarctica z8    2,488 bytes   mean 235   spread 17   variance 0.3
+ *   Antarctica z10   2,420 bytes   mean 232   spread 17   variance 0
+ *   Antarctica z12   1,688 bytes   mean 230   spread 17   variance 0
+ *   the card         2,521 bytes   mean 205   spread  0   variance 34
  *
- * Bright, colourless, flat *and* tiny is a corner of that space nothing real
- * sits in. The size test carries most of the weight — a 256-pixel JPEG of
- * anything with texture in it does not compress to two kilobytes — and the
- * pixels stop a genuinely featureless snowfield being thrown away for it.
+ * Every one of those Antarctic tiles is a real satellite photograph of the
+ * polar plateau, and every one was being thrown away. The comment here claimed
+ * the pixel test "stops a genuinely featureless snowfield being thrown away",
+ * and the snowfield it was checked against was Greenland at mean 53 — coastal
+ * rock and water, dark. A bright one had never been tried.
+ *
+ * What that cost: over the plateau the streamer recorded 561 imagery failures
+ * against 8 loads, 291 squares went barren, the depth limit stuck at zoom 5 for
+ * over two minutes, and the world drew two tiles. Antarctica was unplayable
+ * because every photograph of it was being read as a placeholder.
+ *
+ * So it is identified instead of guessed at. The card is one fixed image:
+ * 2,521 bytes, byte-identical at zooms 14 through 18 and everywhere it was
+ * sampled. Matching the bytes cannot reject a photograph, however bland. The
+ * length is checked first, so the hash is only ever computed for a candidate —
+ * every real tile costs one integer comparison.
+ *
+ * If Esri ever changes the card, this stops recognising it and the card gets
+ * drawn again, which is the fault this was written to fix. That is the right
+ * way round: showing a placeholder is a blemish, and discarding real ground is
+ * a continent that does not load.
  */
-function isNoDataCard(bitmap, bytes) {
-  if (bytes > 6000) return false;
-  try {
-    const size = 8;
-    const canvas = makeCanvas(size, size);
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return false;
-    ctx.drawImage(bitmap, 0, 0, size, size);
-    const { data } = ctx.getImageData(0, 0, size, size);
-    let sum = 0;
-    let sumSq = 0;
-    let maxSpread = 0;
-    const n = size * size;
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      const lum = (r + g + b) / 3;
-      sum += lum;
-      sumSq += lum * lum;
-      maxSpread = Math.max(maxSpread, Math.max(r, g, b) - Math.min(r, g, b));
-    }
-    const mean = sum / n;
-    const variance = sumSq / n - mean * mean;
-    return mean > 195 && maxSpread <= 24 && variance < 80;
-  } catch {
-    return false;
+
+/** Lengths worth hashing. Nothing else can be a known placeholder. */
+const CARD_BYTES = new Set([2521]);
+
+/** FNV-1a, 32-bit, as eight hex digits. */
+function fingerprint(bytes) {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) {
+    hash ^= bytes[i];
+    hash = Math.imul(hash, 0x01000193) >>> 0;
   }
+  return hash.toString(16).padStart(8, '0');
+}
+
+/** Esri World Imagery, "Map data not yet available". */
+const CARDS = new Set(['92d9118f']);
+
+function isNoDataCard(data) {
+  if (!data) return false;
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  if (!CARD_BYTES.has(bytes.length)) return false;
+  return CARDS.has(fingerprint(bytes));
 }
 
 
 __tg_exports["makeCanvas"] = makeCanvas;
 __tg_exports["isNoDataCard"] = isNoDataCard;
+__tg_exports["fingerprint"] = fingerprint;
+__tg_exports["CARDS"] = CARDS;
+__tg_exports["CARD_BYTES"] = CARD_BYTES;
 };
 __tg_modules["src/tiles/elevationGrid.js"] = function (__tg_exports) {
 const { normXToLon, normYToLat } = __tg_require("src/geo/mercator.js");
@@ -84205,12 +84222,13 @@ async function bestProviderFor(list, values, at, onProgress) {
       try {
         const res = await fetch(url, { cache: 'no-store' });
         if (!res.ok) continue;
-        const blob = await res.blob();
-        if (blob.size < 100) continue;
-        const bitmap = await createImageBitmap(blob);
-        const blank = isNoDataCard(bitmap, blob.size);
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        if (bytes.length < 100) continue;
+        if (isNoDataCard(bytes)) continue;
+        // Decoded only to prove it really is an image; the card test no longer
+        // needs the pixels.
+        const bitmap = await createImageBitmap(new Blob([bytes]));
         bitmap.close();
-        if (blank) continue;
         const keyed = descriptor.needsKey ? 1 : 0;
         if (!best || z > best.zoom || (z === best.zoom && keyed > best.keyed)) {
           best = { id: descriptor.id, label: descriptor.label, zoom: z, keyed };
@@ -87032,9 +87050,9 @@ class WaterMap {
       try {
         const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
         if (!res.ok) throw new Error(`probe ${res.status}`);
-        const blob = await res.blob();
-        const candidate = await createImageBitmap(blob);
-        if (isNoDataCard(candidate, blob.size)) {
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        const candidate = await createImageBitmap(new Blob([bytes]));
+        if (isNoDataCard(bytes)) {
           candidate.close();
           continue;
         }
@@ -92131,11 +92149,13 @@ async function fetchBitmap(jobKey, url) {
   inflight.set(jobKey, controller);
   const res = await fetch(url, { signal: controller.signal, mode: 'cors', credentials: 'omit' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const blob = await res.blob();
-  const bitmap = await createImageBitmap(blob);
-  // The byte count comes back too: it is the cheapest half of telling a
-  // photograph from a provider's "nothing here" card. See looksLikeNoDataCard.
-  return { bitmap, bytes: blob.size };
+  // The bytes themselves come back, not just their count: a provider's
+  // "nothing here" card is now identified by its content rather than guessed at
+  // from how bland the picture looks. See isNoDataCard.
+  const buffer = await res.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const bitmap = await createImageBitmap(new Blob([bytes]));
+  return { bitmap, bytes };
 }
 
 /** Same cancellation handling as fetchBitmap, for the JSON elevation services. */
@@ -92152,7 +92172,7 @@ async function handleImagery(msg, jobKey, post) {
   // more, so a job without a URL is a caller bug and is reported as one.
   if (!msg.url) throw new Error('no imagery URL for this tile');
   const { bitmap, bytes } = await fetchBitmap(jobKey, msg.url);
-  if (msg.checkBlank !== false && isNoDataCard(bitmap, bytes)) {
+  if (msg.checkBlank !== false && isNoDataCard(bytes)) {
     bitmap.close();
     // Reported as a failure so the streamer moves down its standby list. A
     // provider saying "not available" is exactly what standbys are for, and
@@ -93493,14 +93513,14 @@ class MapTileCache {
         if (source.decode === 'vector') {
           bitmap = await renderVectorTile(await res.arrayBuffer(), tile.z);
         } else {
-          const blob = await res.blob();
-          bitmap = await createImageBitmap(blob);
+          const bytes = new Uint8Array(await res.arrayBuffer());
+          bitmap = await createImageBitmap(new Blob([bytes]));
           // Esri answers ground it has never imaged with a picture of the
           // words "Map data not yet available" and an HTTP 200. That is the
           // grey lettered rectangle across the map, and it is why the next
           // provider was never asked: as far as everything else was concerned
           // the tile arrived perfectly.
-          if (isNoDataCard(bitmap, blob.size)) {
+          if (isNoDataCard(bytes)) {
             bitmap.close();
             throw noCoverage('no imagery here');
           }

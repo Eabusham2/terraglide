@@ -138,9 +138,9 @@ export class WaterMap {
       try {
         const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
         if (!res.ok) throw new Error(`probe ${res.status}`);
-        const blob = await res.blob();
-        const candidate = await createImageBitmap(blob);
-        if (isNoDataCard(candidate, blob.size)) {
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        const candidate = await createImageBitmap(new Blob([bytes]));
+        if (isNoDataCard(bytes)) {
           candidate.close();
           continue;
         }

@@ -435,14 +435,14 @@ export class MapTileCache {
         if (source.decode === 'vector') {
           bitmap = await renderVectorTile(await res.arrayBuffer(), tile.z);
         } else {
-          const blob = await res.blob();
-          bitmap = await createImageBitmap(blob);
+          const bytes = new Uint8Array(await res.arrayBuffer());
+          bitmap = await createImageBitmap(new Blob([bytes]));
           // Esri answers ground it has never imaged with a picture of the
           // words "Map data not yet available" and an HTTP 200. That is the
           // grey lettered rectangle across the map, and it is why the next
           // provider was never asked: as far as everything else was concerned
           // the tile arrived perfectly.
-          if (isNoDataCard(bitmap, blob.size)) {
+          if (isNoDataCard(bytes)) {
             bitmap.close();
             throw noCoverage('no imagery here');
           }

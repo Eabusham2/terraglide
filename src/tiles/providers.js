@@ -941,12 +941,13 @@ export async function bestProviderFor(list, values, at, onProgress) {
       try {
         const res = await fetch(url, { cache: 'no-store' });
         if (!res.ok) continue;
-        const blob = await res.blob();
-        if (blob.size < 100) continue;
-        const bitmap = await createImageBitmap(blob);
-        const blank = isNoDataCard(bitmap, blob.size);
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        if (bytes.length < 100) continue;
+        if (isNoDataCard(bytes)) continue;
+        // Decoded only to prove it really is an image; the card test no longer
+        // needs the pixels.
+        const bitmap = await createImageBitmap(new Blob([bytes]));
         bitmap.close();
-        if (blank) continue;
         const keyed = descriptor.needsKey ? 1 : 0;
         if (!best || z > best.zoom || (z === best.zoom && keyed > best.keyed)) {
           best = { id: descriptor.id, label: descriptor.label, zoom: z, keyed };

@@ -3852,6 +3852,48 @@ console.log('\nThe tab icon is the thing you fly with');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nA provider\u2019s placeholder is identified, not guessed at');
+{
+  const { isNoDataCard, fingerprint, CARDS, CARD_BYTES } = await import('../src/tiles/noData.js');
+
+  // What went wrong: the old test called a tile a placeholder when it was
+  // bright, colourless, flat and under six kilobytes. Antarctica is all four.
+  // Real photographs of the plateau, all thrown away:
+  //   z6 2,564 bytes  z8 2,488  z10 2,420  z12 1,688 — mean 230-239, spread 17
+  // The card itself is 2,521 bytes. So the sizes below must all be kept, and
+  // the point is that length alone is what saves them.
+  for (const size of [1688, 2420, 2488, 2564, 3374, 6259, 20887, 672]) {
+    ok(`a ${size}-byte tile is not a placeholder`, isNoDataCard(new Uint8Array(size)) === false);
+  }
+
+  // The card is one fixed image, byte-identical at zooms 14 through 18.
+  ok('the card\u2019s length is the measured one', CARD_BYTES.has(2521) && CARD_BYTES.size === 1);
+  ok('and its fingerprint is the measured one', CARDS.has('92d9118f') && CARDS.size === 1);
+
+  // Length is a gate, not the test: something else of exactly that size is kept.
+  const impostor = new Uint8Array(2521);
+  for (let i = 0; i < impostor.length; i++) impostor[i] = (i * 7) & 0xff;
+  ok('a different 2,521-byte tile is kept', isNoDataCard(impostor) === false);
+  ok('so length alone never condemns a tile', fingerprint(impostor) !== '92d9118f');
+
+  // The hash is FNV-1a and has to stay that, or the stored fingerprint means
+  // nothing. Checked against the reference value for a known string.
+  const abc = new Uint8Array([...'abc'].map((c) => c.charCodeAt(0)));
+  ok(`FNV-1a is unchanged  (${fingerprint(abc)})`, fingerprint(abc) === '1a47e90b');
+
+  ok('nothing is condemned without data', isNoDataCard(null) === false);
+
+  // Every caller must hand over the bytes. Passing a decoded bitmap and a size
+  // is the old signature, and it would silently always answer false.
+  for (const rel of ['src/tiles/tileJobs.js', 'src/ui/mapTiles.js', 'src/geo/water.js', 'src/tiles/providers.js']) {
+    const src = readFileSync(new URL('../' + rel, import.meta.url), 'utf8');
+    const calls = src.match(/isNoDataCard\([^)]*\)/g) ?? [];
+    ok(`${rel} passes the bytes  (${calls.join(', ')})`,
+      calls.length > 0 && calls.every((c) => /isNoDataCard\(\s*bytes\s*\)/.test(c)));
+  }
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nImpossible ground is refused; steep ground is not');
 {
   const { despike, SPIKE_LIMIT_M, SPIKE_RATIO, SPIKE_FLOOR_M } = await import('../src/tiles/tileJobs.js');

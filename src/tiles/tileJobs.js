@@ -61,11 +61,13 @@ async function fetchBitmap(jobKey, url) {
   inflight.set(jobKey, controller);
   const res = await fetch(url, { signal: controller.signal, mode: 'cors', credentials: 'omit' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const blob = await res.blob();
-  const bitmap = await createImageBitmap(blob);
-  // The byte count comes back too: it is the cheapest half of telling a
-  // photograph from a provider's "nothing here" card. See looksLikeNoDataCard.
-  return { bitmap, bytes: blob.size };
+  // The bytes themselves come back, not just their count: a provider's
+  // "nothing here" card is now identified by its content rather than guessed at
+  // from how bland the picture looks. See isNoDataCard.
+  const buffer = await res.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const bitmap = await createImageBitmap(new Blob([bytes]));
+  return { bitmap, bytes };
 }
 
 /** Same cancellation handling as fetchBitmap, for the JSON elevation services. */
@@ -82,7 +84,7 @@ async function handleImagery(msg, jobKey, post) {
   // more, so a job without a URL is a caller bug and is reported as one.
   if (!msg.url) throw new Error('no imagery URL for this tile');
   const { bitmap, bytes } = await fetchBitmap(jobKey, msg.url);
-  if (msg.checkBlank !== false && isNoDataCard(bitmap, bytes)) {
+  if (msg.checkBlank !== false && isNoDataCard(bytes)) {
     bitmap.close();
     // Reported as a failure so the streamer moves down its standby list. A
     // provider saying "not available" is exactly what standbys are for, and

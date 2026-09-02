@@ -12,6 +12,62 @@ what is left · `[?]` needs a decision from you.
 
 ## A. Stops you playing
 
+- [x] A20. Antarctica was unplayable because every photograph of it was
+      thrown away
+      Found by sweeping Ultra rather than by looking for it. Twelve stops round
+      the world, watching invariants, and one row was wrong: Antarctica drew
+      **two tiles** where everywhere else drew three to seven hundred. Held
+      there for two and a half minutes — depth limit pinned at zoom 5, deepest
+      request zoom 5, imagery 8 loaded against 561 failed, 291 squares barren.
+      Elevation was fine throughout: 707 tiles, nothing failed, ground 2,867 m,
+      which is right for the plateau. So it was imagery, and only imagery.
+
+      Not the provider. Esri serves Antarctic imagery at every zoom tried — 6,
+      8, 10, 12 — all HTTP 200, all JPEG, 1.7 to 2.6 kB.
+
+      It was us. `isNoDataCard` called a tile a placeholder when it was bright,
+      colourless, flat and under six kilobytes, on the reasoning that nothing
+      real sits in that corner. Something real does:
+
+        Antarctica z6    2,564 bytes   mean 239   spread 17   variance 0.4
+        Antarctica z8    2,488 bytes   mean 235   spread 17   variance 0.3
+        Antarctica z10   2,420 bytes   mean 232   spread 17   variance 0
+        Antarctica z12   1,688 bytes   mean 230   spread 17   variance 0
+        the actual card  2,521 bytes   mean 205   spread  0   variance 34
+
+      Every one of those Antarctic rows is a real satellite photograph of the
+      plateau, and every one was being discarded. The comment in that file
+      claimed the pixel test "stops a genuinely featureless snowfield being
+      thrown away for it" — and the snowfield it had been checked against was
+      Greenland at mean 53, which is dark coastal rock. A bright one had never
+      been tried.
+
+      Fixed by identifying the card instead of guessing at it. It is one fixed
+      image: 2,521 bytes, byte-identical at zooms 14, 15, 16, 17 and 18 and
+      everywhere else sampled, sha256 9eafd300…, and it says "Map data not yet
+      available" in grey. Matching the bytes cannot reject a photograph however
+      bland it is. The length is checked first, so the hash only runs for a
+      candidate and every real tile costs one integer comparison. All four
+      callers now hand over the bytes rather than a decoded picture and a size.
+
+      Checked that this does not swing the other way: a 2,521-byte buffer of
+      anything else is kept, so the length is a gate and not the verdict. And
+      the 672-byte tile that turned up while sampling is deep ocean — flat dark
+      navy, entirely real — and is kept.
+
+      Standing on the plateau, before and after:
+
+                        drawn   depth limit   deepest asked   loaded   own
+        before              2   zoom 5              5              8   70%
+        after             748   none               18            951   85%
+
+      Photographed: a white plateau under a low sun at 9,406 ft, which is what
+      Antarctica looks like. It was two tiles and an empty world before.
+
+      If Esri ever changes the card this stops recognising it and the card gets
+      drawn again — which is the right way round. A grey rectangle is a blemish;
+      discarding real ground is a continent that does not load.
+
 - [~] A19. Black spikes over Reykjavik — the elevation provider is wrong there
       Found by looking at Ultra rather than measuring it. Flying over Reykjavik
       the city erupts in black shards hundreds of metres tall, standing over a
