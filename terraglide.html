@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta name="terraglide-sources" content="2b4c1ac326cd2295">
+<meta name="terraglide-sources" content="b2f592aa434c17f2">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
 <meta name="color-scheme" content="dark light" />
@@ -112877,22 +112877,26 @@ const CONTENT_TIMEOUT_MS = 30000;
  * anything to do with detail settings.
  */
 const KEEP_AFTER_SIGHT_MS = 15000;
-/**
- * How fine photogrammetry has to be before the terrain steps aside for it.
+/*
+ * There was a rule here requiring photogrammetry to be at least as fine as the
+ * ground it replaces before the terrain would step aside for it — ten metres of
+ * geometric error, reasoned from a zoom-15 texel being about five.
  *
- * The quadtree hides its own ground wherever a 3D tile covers it, which is
- * right when the 3D really is the better picture and wrong when it is a coarse
- * ancestor standing in for children that have not arrived. Then you get the
- * worst of both: a blurry plate *and* no terrain under it.
+ * It is gone, because it was reasoned and not measured, and measuring it went
+ * badly. In downtown San Francisco with the tileset settled it took the terrain
+ * from 98 tiles drawn to 319 — three and a third times the ground work in the
+ * one place the ground is least needed — and the rendered frame was identical,
+ * pixel for pixel, with it and without it. A cost that size buys nothing here.
  *
- * The terrain only steps aside from zoom 15 down, and a zoom 15 tile is about
- * a kilometre across for 256 pixels of texture — call it five metres a texel
- * at the equator, and the mesh is coarser than the texture. So a tile whose
- * geometric error is a few metres is genuinely the better picture and one
- * whose error is tens of metres is not. Ten metres is inside the first and
- * well clear of the second.
+ * The fault it was aimed at is real: one coarse ancestor's box can blank the
+ * terrain over hundreds of cells while drawing them coarsely. But that happens
+ * during loading, and the settled frame is all this measured, so the benefit
+ * stayed unproven while the cost did not. If "the terrain goes flat" survives
+ * the other three fixes, the thing to measure is the loading transient, and the
+ * edge wall is the better suspect: it closes the world where the quadtree drew
+ * nothing, and photogrammetry coverage is exactly a place the quadtree draws
+ * nothing.
  */
-const COVER_MAX_ERROR_M = 10;
 /**
  * How many already-loaded tiles have their sampling changed per frame.
  *
@@ -113259,7 +113263,7 @@ class Tiles3D {
     this.wanted.sort((a, b) => a.order - b.order);
     for (const item of this.wanted) {
       if (this.active >= this.budget.active) break;
-      this.requestContent(item.uri, item.transform, item.error);
+      this.requestContent(item.uri, item.transform);
     }
 
     // Everything drawn this frame is in use now, whatever order it arrived in.
@@ -113339,11 +113343,6 @@ class Tiles3D {
     const n = Math.pow(2, COVER_ZOOM);
     for (const [uri, entry] of this.loaded) {
       if (!this.visible.has(uri)) continue;
-      // A coarse ancestor being drawn in place of children that have not
-      // arrived is not a better picture of this ground than the terrain is,
-      // and hiding the terrain under it gives you a blurry plate with nothing
-      // beneath it. See COVER_MAX_ERROR_M.
-      if ((entry.error ?? 0) > COVER_MAX_ERROR_M) continue;
       if (!entry.bounds) {
         entry.object.updateWorldMatrix(true, true);
         entry.bounds = new THREE.Box3().setFromObject(entry.object);
@@ -113437,7 +113436,7 @@ class Tiles3D {
     if (!uri) return true;
     this.visible.add(uri);
     if (this.loaded.has(uri)) return true;
-    this.want(uri, transform, centre, tile.geometricError ?? 0);
+    this.want(uri, transform, centre);
     return false;
   }
 
@@ -113448,14 +113447,14 @@ class Tiles3D {
    * counted nearer than the ground behind you, so the city builds outwards
    * from under your feet in the direction you are going.
    */
-  want(uri, transform, centreEcef, error = 0) {
+  want(uri, transform, centreEcef) {
     if (this.pending.has(uri)) return;
     const local = this._matrix2.copy(centreEcef).applyMatrix4(this._ecefToLocal);
     const dx = local.x - this._camX;
     const dz = local.z - this._camZ;
     const len = Math.hypot(dx, dz);
     const facing = len < 1 ? 1 : (dx * this._viewX + dz * this._viewZ) / len;
-    this.wanted.push({ uri, transform, error, order: len * (1.6 - facing * 0.6) });
+    this.wanted.push({ uri, transform, order: len * (1.6 - facing * 0.6) });
   }
 
   requestTileset(uri) {
@@ -113483,7 +113482,7 @@ class Tiles3D {
       });
   }
 
-  requestContent(uri, transform, error = 0) {
+  requestContent(uri, transform) {
     if (this.pending.has(uri) || this.resting(uri) || this.active >= this.budget.active) return;
     this.pending.add(uri);
     this.active++;
@@ -113544,7 +113543,7 @@ class Tiles3D {
           }
         });
         this.group.add(object);
-        this.loaded.set(uri, { object, used: performance.now(), error });
+        this.loaded.set(uri, { object, used: performance.now() });
         this.refused.delete(uri);
         if (gltf.parser?.json?.asset?.copyright) {
           this.copyrights.add(gltf.parser.json.asset.copyright);

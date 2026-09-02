@@ -244,16 +244,42 @@ paragraph.
          still a cap: when everything spare is inside its grace it yields, but
          it yields what you looked at longest ago.
 
-      4. Mega blurry and the terrain goes flat. The quadtree hides its own
-         ground wherever a 3D tile covers it, and coverage was claimed by
-         whatever was visible at whatever depth. When a coarse ancestor is
-         standing in for children that have not arrived, the terrain stepped
-         aside for a blurry plate and you got both faults at once — no relief
-         underneath and nothing sharp on top. Coverage now requires the tile to
-         be at least as fine as the ground it replaces: the terrain only steps
-         aside from zoom 15, which is about five metres a texel, so ten metres
-         of geometric error is the line. The old guard only rejected tiles whose
-         box spanned a continent.
+      4. Mega blurry and the terrain goes flat. NOT FIXED, and the attempt was
+         reverted. Written out in full because I nearly shipped it.
+
+         The theory was that the quadtree hides its own ground wherever a 3D
+         tile covers it, and coverage is claimed by whatever is visible at
+         whatever depth — so a coarse ancestor standing in for children that
+         have not arrived would take the terrain with it and leave a blurry
+         plate with no relief underneath. I required the tile to be at least as
+         fine as the ground it replaces: ten metres of geometric error, reasoned
+         from a zoom-15 texel being about five.
+
+         Measured in downtown San Francisco with the tileset settled, same
+         camera, one frame apart: the shipped rule left the terrain drawing 319
+         tiles, the old rule 98. Three and a third times the ground work in the
+         one place the ground is least needed. And the two frames were
+         identical, pixel for pixel. A cost that size buying nothing is not a
+         fix, so it is out.
+
+         The fault it was aimed at is still real — one coarse box can blank
+         hundreds of cells — but it happens during loading and the settled frame
+         is all I measured, so the benefit stayed unproven while the cost did
+         not.
+
+         What the flat plane actually is, I do not yet know, and two attempts to
+         find out were wrong in a way worth recording. Raycasting says the
+         "edge-wall" is 1.2 m from the camera and the photogrammetry 200 m below
+         the heightfield. Both are artefacts: the wall's radius is applied in
+         its vertex shader (`position.x * aRadius`) so its CPU geometry is a
+         unit ring, and the ground is bent by curvature in its shader too. A
+         raycaster reads neither. The one honest test is to hide a thing and
+         look, which is what the next attempt does.
+
+         The edge wall is still the better suspect. It closes the world where
+         the quadtree drew nothing, and photogrammetry coverage is precisely a
+         place the quadtree draws nothing — so in a photorealistic city the
+         thing that paints "here be nothing" may be painting the city.
 
       Regression tests for all four, driving the real methods rather than
       asserting on source text.

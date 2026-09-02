@@ -6348,40 +6348,45 @@ console.log('\na glance to the side does not destroy the view');
     !glance.loaded.has('t2'), `dropped ${glance.disposed.join(',')}`);
 }
 
-console.log('\nthe terrain only steps aside for a better picture');
+console.log('\nthe terrain steps aside for photogrammetry, and the record of a rule that did not earn its place');
 {
-  // The quadtree hides its own ground wherever a 3D tile covers it. That is
-  // right when the photogrammetry really is finer and wrong when it is a coarse
-  // ancestor standing in for children that have not arrived — then you get a
-  // blurry plate with no terrain under it, which is what "mega blurry and the
-  // terrain goes flat" is.
+  // A rule requiring the photogrammetry to be at least as fine as the ground it
+  // replaces was written, measured, and removed. In downtown San Francisco with
+  // the tileset settled it took the terrain from 98 tiles drawn to 319 and the
+  // frame was identical pixel for pixel. This pins the revert so the rule does
+  // not quietly return without the measurement that would justify it.
+  const source = readFileSync(new URL('../src/world/tiles3d.js', import.meta.url), 'utf8');
+  ok('coverage does not gate on geometric error',
+    !/COVER_MAX_ERROR_M/.test(source));
+  ok('and the reason it does not is written down where the rule was',
+    /98 tiles drawn to 319/.test(source) && /identical,\n \* pixel for pixel/.test(source));
+
   const { Tiles3D } = await import('../src/world/tiles3d.js');
   const THREE = await import('../vendor/three/three.module.js');
-  const box = (x, z) => Object.assign(new THREE.Box3(), {
-    min: new THREE.Vector3(x - 40, 0, z - 40),
-    max: new THREE.Vector3(x + 40, 10, z + 40),
-  });
-  const rig = (error) => ({
+  const rig = {
     coverage: new Set(),
     visible: new Set(['tile']),
-    loaded: new Map([['tile', { object: {}, error, bounds: box(0, 0) }]]),
+    loaded: new Map([['tile', { object: {}, bounds: Object.assign(new THREE.Box3(), {
+      min: new THREE.Vector3(-40, 0, -40), max: new THREE.Vector3(40, 10, 40) }) }]]),
     frame: { worldToNorm: (x, z) => ({ nx: 0.5 + x / 4e7, ny: 0.5 + z / 4e7 }) },
     buildCoverage: Tiles3D.prototype.buildCoverage,
-  });
+  };
+  rig.buildCoverage();
+  ok(`drawn photogrammetry claims the ground under it  (${rig.coverage.size} cells)`,
+    rig.coverage.size > 0);
 
-  const fine = rig(1.5);
-  fine.buildCoverage();
-  ok(`street-level photogrammetry claims its ground  (${fine.coverage.size} cells)`,
-    fine.coverage.size > 0);
-
-  const coarse = rig(400);
-  coarse.buildCoverage();
-  ok('a coarse ancestor claims nothing, so the terrain stays',
-    coarse.coverage.size === 0);
-
-  const edge = rig(10);
-  edge.buildCoverage();
-  ok('and the threshold is inclusive at the limit', edge.coverage.size > 0);
+  // The one guard that stays: a root tile's box can span a continent and says
+  // nothing about what is actually loaded underneath it.
+  const huge = {
+    coverage: new Set(),
+    visible: new Set(['root']),
+    loaded: new Map([['root', { object: {}, bounds: Object.assign(new THREE.Box3(), {
+      min: new THREE.Vector3(-2e6, 0, -2e6), max: new THREE.Vector3(2e6, 1e4, 2e6) }) }]]),
+    frame: rig.frame,
+    buildCoverage: Tiles3D.prototype.buildCoverage,
+  };
+  huge.buildCoverage();
+  ok('a continent-sized box still claims nothing', huge.coverage.size === 0);
 }
 
 console.log('\ndescending the tree does not queue behind the downloads');
