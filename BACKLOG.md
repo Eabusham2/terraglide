@@ -920,6 +920,13 @@ what is left · `[?]` needs a decision from you.
       note remain: a provider refusing one square, and the first moments after a
       teleport. If it happens again, whether it clears by itself within a few
       seconds now tells the two apart.
+
+      One of the original candidates is answered now, and it was the provider
+      test rather than the streamer. Over bright ground — snow, ice, salt flats,
+      desert — every photograph was being thrown away as a placeholder, so those
+      squares had nothing to draw and fell back to the relief, which is exactly
+      "everything becomes a solid colour". It would have followed you to any
+      pale landscape and cleared when you left. See A20.
 - [x] B12. Randomly blurring depending on where I look
       Real, not random, and proportional to how far you turn. The ground behind
       you is outside the frustum, so it is never drawn and never asked for;
@@ -2204,7 +2211,7 @@ what is left · `[?]` needs a decision from you.
       green share x how broken that green is at crown scale. On real Esri tiles —
       rainforest 0.765, conifer 0.842, broadleaf 0.803, scrub with trees 0.403,
       uniform green fields 0.129, ploughed field 0.000, desert 0.000.
-- [~] H3. Improve Antarctica
+- [x] H3. Improve Antarctica
       The launch-into-Antarctica throw is fixed. Going after how it *looks*
       turned up three real bugs, none of them about Antarctica, and one honest
       limit.
@@ -2291,6 +2298,19 @@ what is left · `[?]` needs a decision from you.
       below zoom 13, and the game now shows exactly that rather than grey. If
       there is something specific you want it to look like instead, say which
       and it becomes a real item again.
+
+      Reopened and now closed, because the analysis above was right about the
+      card and wrong about everything else being fine. It established that Esri
+      has real photographs down to zoom 13 and the card from 14 — and the card
+      *detector* was condemning those real zoom 6 to 13 tiles too. Bright,
+      colourless, flat and under six kilobytes described the polar plateau
+      exactly. See A20 for the measurements.
+
+      With the card identified by its bytes instead of guessed at from how bland
+      the picture is, standing on the plateau: 748 tiles drawn against 2, no
+      depth limit against one pinned at zoom 5, 951 imagery tiles loaded against
+      8, own-picture 85 per cent. Photographed. Antarctica is a place you can
+      fly over now.
 - [x] H4. Improve above the clouds
       There was nothing above the clouds, because there were no clouds. Flying
       at 5,000 m over a valley floor at 1,000 with the cover forced to 0.85 and
