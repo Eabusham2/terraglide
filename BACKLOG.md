@@ -258,7 +258,7 @@ paragraph.
       Regression tests for all four, driving the real methods rather than
       asserting on source text.
 
-- [~] A19. Black spikes over Reykjavik — the elevation provider is wrong there
+- [x] A19. Black spikes over Reykjavik — the elevation provider is wrong there
       Found by looking at Ultra rather than measuring it. Flying over Reykjavik
       the city erupts in black shards hundreds of metres tall, standing over a
       correct aerial photograph. It is the thing B3, B5 and B6 describe.
@@ -387,8 +387,31 @@ paragraph.
       not a cleverer filter over this one.
 
       The other remedy is a different dataset: the provider list already carries
-      Mapbox terrain-RGB, and the game will use it with a token. That is worth
-      trying with yours, and is the one part of this I cannot test without it.
+      Mapbox terrain-RGB, and the game will use it with a token.
+
+      Tested with the token you sent, at zoom 12, decoding both providers'
+      tiles byte for byte at the same coordinates:
+
+                                       truth    Terrarium    Mapbox
+        a km from downtown               ~0 m       879 m       0 m
+        Reykjavik harbour                ~0 m        73 m       1 m
+        Hallgrimskirkja                 ~40 m       106 m      10 m
+        Vatnajokull (control)         ~1693 m      1592 m    1587 m
+
+      Terrarium's Reykjavik tile spans -211 m to 893 m over ground that runs
+      sea level to about a hundred; Mapbox's spans 0 to 39. On Vatnajokull the
+      two agree to within five metres, so this is not a north-of-60 problem and
+      not a decoding difference — it is that one dataset is wrong over
+      Iceland's lowlands and the other is not.
+
+      So this closes, and it closes as a data problem with a working remedy
+      rather than as something to be filtered. Nothing is switched by default,
+      because the default has to work without an account. What has changed is
+      that the settings panel now says which provider is wrong where, and by
+      how much, instead of leaving you to find black shards and guess.
+
+      Rotate that token: it was pasted into a chat log. The secret-scope one
+      especially, which can create and delete tokens on the account.
 
 - [x] A18. Everything was measured on a tier your machines never run
       You said the boot hang, and every other thing I could not reproduce,

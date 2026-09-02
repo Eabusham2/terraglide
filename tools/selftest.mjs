@@ -6454,9 +6454,40 @@ console.log('\nphotogrammetry is sampled as sharply as the ground beside it');
   humble.sharpen(plain);
   ok('and hardware that cannot do it is not asked to', plain.map.anisotropy === 1);
 
+  // A preset change has to reach tiles that are already here, and changing a
+  // texture's sampling means re-uploading it — so three hundred of them in one
+  // frame would be a stall you feel. They go a few at a time.
+  const { settings } = await import('../src/core/settings.js');
+  const many = {
+    renderer: { capabilities: { getMaxAnisotropy: () => 16 } },
+    loaded: new Map(),
+    _anisotropy: 1,
+    _resharpen: [],
+    sharpen: Tiles3D.prototype.sharpen,
+  };
+  Object.defineProperty(many, 'anisotropy', { get: Object.getOwnPropertyDescriptor(Tiles3D.prototype, 'anisotropy').get });
+  let touched = 0;
+  for (let i = 0; i < 300; i++) {
+    many.loaded.set(`t${i}`, { object: { traverse: (fn) => { touched++; fn({ isMesh: true, material: { map: { anisotropy: 1 } } }); } } });
+  }
+  // The part of update() that does this, run on its own.
+  const step = () => {
+    const level = many.anisotropy;
+    if (level !== many._anisotropy) { many._anisotropy = level; many._resharpen = [...many.loaded.values()]; }
+    for (let i = 0; i < 8 && many._resharpen.length; i++) {
+      many._resharpen.pop().object.traverse((n) => { if (n.isMesh && n.material) many.sharpen(n.material); });
+    }
+  };
+  step();
+  ok(`a quality change does not re-upload the whole city at once  (${touched})`,
+    touched === 8 && many._resharpen.length === 292);
+  for (let i = 0; i < 40; i++) step();
+  ok(`and finishes it over the next second  (${touched} of 300)`,
+    touched === 300 && many._resharpen.length === 0);
+
   const source = readFileSync(new URL('../src/world/tiles3d.js', import.meta.url), 'utf8');
   ok('a quality change reaches the city you are already standing in',
-    /sharpness !== this\._anisotropy/.test(source));
+    /sharpness !== this\._anisotropy/.test(source) && /RESHARPEN_PER_FRAME/.test(source));
 }
 
 console.log('\nstreet level merges rather than switching on');

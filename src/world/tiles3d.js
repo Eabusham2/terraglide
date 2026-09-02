@@ -132,6 +132,15 @@ const KEEP_AFTER_SIGHT_MS = 15000;
  * well clear of the second.
  */
 const COVER_MAX_ERROR_M = 10;
+/**
+ * How many already-loaded tiles have their sampling changed per frame.
+ *
+ * Changing a texture's anisotropy means re-uploading it, and a city can easily
+ * be three hundred textures. Doing all of them in the frame the setting changed
+ * is a stall you would feel, so they go a few at a time and the view sharpens
+ * over the next second instead of stopping for it.
+ */
+const RESHARPEN_PER_FRAME = 8;
 const DEFAULT_DETAIL = 'high';
 /**
  * How long a piece of content that refused is left alone before asking again.
@@ -231,6 +240,8 @@ export class Tiles3D {
     this.activeTilesets = 0;
     /** The anisotropy already applied to loaded tiles, so a preset change shows. */
     this._anisotropy = 0;
+    /** Tiles still waiting for a changed sampler — see RESHARPEN_PER_FRAME. */
+    this._resharpen = [];
     this.session = '';
     this.bearer = '';
     this.base = '';
@@ -442,11 +453,13 @@ export class Tiles3D {
     const sharpness = this.anisotropy;
     if (sharpness !== this._anisotropy) {
       this._anisotropy = sharpness;
-      for (const entry of this.loaded.values()) {
-        entry.object.traverse((node) => {
-          if (node.isMesh && node.material) this.sharpen(node.material);
-        });
-      }
+      this._resharpen = [...this.loaded.values()];
+    }
+    for (let i = 0; i < RESHARPEN_PER_FRAME && this._resharpen.length; i++) {
+      const entry = this._resharpen.pop();
+      entry.object.traverse((node) => {
+        if (node.isMesh && node.material) this.sharpen(node.material);
+      });
     }
 
     // Where the camera is, in ECEF, so tiles can be measured against it.

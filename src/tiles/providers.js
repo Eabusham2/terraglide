@@ -287,7 +287,11 @@ export const ELEVATION_PROVIDERS = [
     needsKey: 'mapboxKey',
     maxZoom: 15,
     template: 'https://api.mapbox.com/v4/mapbox.terrain-rgb/{z}/{x}/{y}.pngraw?access_token={key}',
-    attribution: '© Mapbox',
+    attribution: '\u00a9 Mapbox',
+    note:
+      'Sharper than the keyless default and right in places the default is '
+      + 'wrong \u2014 Reykjavik reads 0 m here against Terrarium\'s 879 m, with '
+      + 'the real ground at sea level. Needs a Mapbox token.',
   },
   {
     id: 'bing-elevation',
@@ -316,7 +320,15 @@ export const ELEVATION_PROVIDERS = [
     maxZoom: 14,
     template: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
     attribution: 'Elevation: AWS Terrain Tiles, SRTM/GMTED',
-    note: 'Public dataset; availability is not guaranteed.',
+    note:
+      'Public dataset, no key needed, and the default for that reason. '
+      + 'Availability is not guaranteed, and its coverage is not uniformly good: '
+      + 'over Reykjavik it is badly wrong, reading 879 m a kilometre from '
+      + 'downtown where the ground is at sea level, which is what the black '
+      + 'spikes over that city are. Measured against Mapbox at the same '
+      + 'coordinate, which reads 0 m; the two agree within five metres on '
+      + 'Vatnajokull, so it is Iceland\'s lowlands specifically. If you fly '
+      + 'there often, a Mapbox token is the fix.',
   },
 ];
 

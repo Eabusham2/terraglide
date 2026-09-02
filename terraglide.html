@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta name="terraglide-sources" content="6024b33f197bcbe2">
+<meta name="terraglide-sources" content="a1c03bcaba0c239d">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
 <meta name="color-scheme" content="dark light" />
@@ -83573,7 +83573,11 @@ const ELEVATION_PROVIDERS = [
     needsKey: 'mapboxKey',
     maxZoom: 15,
     template: 'https://api.mapbox.com/v4/mapbox.terrain-rgb/{z}/{x}/{y}.pngraw?access_token={key}',
-    attribution: '© Mapbox',
+    attribution: '\u00a9 Mapbox',
+    note:
+      'Sharper than the keyless default and right in places the default is '
+      + 'wrong \u2014 Reykjavik reads 0 m here against Terrarium\'s 879 m, with '
+      + 'the real ground at sea level. Needs a Mapbox token.',
   },
   {
     id: 'bing-elevation',
@@ -83602,7 +83606,15 @@ const ELEVATION_PROVIDERS = [
     maxZoom: 14,
     template: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
     attribution: 'Elevation: AWS Terrain Tiles, SRTM/GMTED',
-    note: 'Public dataset; availability is not guaranteed.',
+    note:
+      'Public dataset, no key needed, and the default for that reason. '
+      + 'Availability is not guaranteed, and its coverage is not uniformly good: '
+      + 'over Reykjavik it is badly wrong, reading 879 m a kilometre from '
+      + 'downtown where the ground is at sea level, which is what the black '
+      + 'spikes over that city are. Measured against Mapbox at the same '
+      + 'coordinate, which reads 0 m; the two agree within five metres on '
+      + 'Vatnajokull, so it is Iceland\'s lowlands specifically. If you fly '
+      + 'there often, a Mapbox token is the fix.',
   },
 ];
 
@@ -112881,6 +112893,15 @@ const KEEP_AFTER_SIGHT_MS = 15000;
  * well clear of the second.
  */
 const COVER_MAX_ERROR_M = 10;
+/**
+ * How many already-loaded tiles have their sampling changed per frame.
+ *
+ * Changing a texture's anisotropy means re-uploading it, and a city can easily
+ * be three hundred textures. Doing all of them in the frame the setting changed
+ * is a stall you would feel, so they go a few at a time and the view sharpens
+ * over the next second instead of stopping for it.
+ */
+const RESHARPEN_PER_FRAME = 8;
 const DEFAULT_DETAIL = 'high';
 /**
  * How long a piece of content that refused is left alone before asking again.
@@ -112980,6 +113001,8 @@ class Tiles3D {
     this.activeTilesets = 0;
     /** The anisotropy already applied to loaded tiles, so a preset change shows. */
     this._anisotropy = 0;
+    /** Tiles still waiting for a changed sampler — see RESHARPEN_PER_FRAME. */
+    this._resharpen = [];
     this.session = '';
     this.bearer = '';
     this.base = '';
@@ -113191,11 +113214,13 @@ class Tiles3D {
     const sharpness = this.anisotropy;
     if (sharpness !== this._anisotropy) {
       this._anisotropy = sharpness;
-      for (const entry of this.loaded.values()) {
-        entry.object.traverse((node) => {
-          if (node.isMesh && node.material) this.sharpen(node.material);
-        });
-      }
+      this._resharpen = [...this.loaded.values()];
+    }
+    for (let i = 0; i < RESHARPEN_PER_FRAME && this._resharpen.length; i++) {
+      const entry = this._resharpen.pop();
+      entry.object.traverse((node) => {
+        if (node.isMesh && node.material) this.sharpen(node.material);
+      });
     }
 
     // Where the camera is, in ECEF, so tiles can be measured against it.
