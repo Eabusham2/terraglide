@@ -798,6 +798,44 @@ what is left · `[?]` needs a decision from you.
       on how many squares may be drawn never bound after the fixes, so nothing
       went undrawn for want of budget. That is the condition this was most
       likely to happen under, and it did not.
+
+      Tried on the network the boot hang proved you have. A0 established that
+      one per cent packet loss is enough to kill the boot, so tiles are dropping
+      too — and this item is the shape that would take. Same valley, seventy
+      seconds, four loss rates:
+
+        packet loss   squares drawn   own picture   drawn bare
+          0 per cent       324            95%           0%
+          1 per cent       315            95%           0%
+          5 per cent       196            93%           0%
+         15 per cent        64            96%           0%
+
+      At one per cent — your measured rate — the ground is unaffected. It thins
+      above that, and nothing is ever drawn *bare*: what degrades is how finely
+      the tree subdivides, not whether a square has a photograph. So on a lossy
+      line the ground gets coarse, never holey.
+
+      A fix was built for it and reverted, and the reason is worth keeping. One
+      run at fifteen per cent drew eight squares against a black screen, which
+      is this item almost word for word, and the cause looked obvious: every
+      failure that was not our own abort was recorded as "nobody has this
+      square", so a dropped connection told the quadtree the ground was
+      unphotographed and `barren` stopped it descending. Making that conditional
+      on the provider having actually answered is more correct semantically. It
+      is also worse. Three runs each way:
+
+                                      5 per cent loss    15 per cent loss
+        barren on any failure         234 268 279        105 125 161
+        barren only on a real answer  121 204 210        107 141 170
+
+      Worse at five per cent, inside the noise at fifteen. And the eight-square
+      run that started it was an outlier — the same build repeated gives 105 to
+      161. The mechanism, seen afterwards: writing off a square that keeps
+      failing frees throughput for squares that can succeed, so on a bad line
+      the blunt rule is the better one.
+
+      Second time this session a single stochastic run has produced a finding
+      that repeats destroyed. One run of a random process is not a measurement.
 - [x] B4. Floating on invisible ground above the imagery
       Two causes, and this was the second one. You are no longer *set down* on
       ground the game has not measured — that was the first.
@@ -1132,7 +1170,7 @@ what is left · `[?]` needs a decision from you.
       Ticked: both halves are now so. Where you are and where you are looking
       was already the queue's order, and more chunks in parallel is real rather
       than nominal.
-- [~] C2. Load high res more, long-range low res less
+- [x] C2. Load high res more, long-range low res less
       Measured first, and the picture is not what it looks like from the code.
 
       Flying at 400 m, the share of drawn ground at its own resolution rather
@@ -2780,7 +2818,7 @@ what is left · `[?]` needs a decision from you.
       ran, and since horizontalSpeed now includes the multiplier that counted the
       same boost twice: 22 degrees where 16 was meant. One input now.
       0 standing, 0.8 walking, 5.3 gliding, 16 at a rocket, and it stops there.
-- [~] I20. Seed hacks, custom rockets, custom size and more in the cheat panel
+- [x] I20. Seed hacks, custom rockets, custom size and more in the cheat panel
       Custom size found a real bug rather than needing a new control. Both size
       keys did nothing, in every build, and did it quietly: `player.scale` reads
       cheats.playerScale — size moved there deliberately — and the keybind was
