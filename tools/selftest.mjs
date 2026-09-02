@@ -3852,6 +3852,64 @@ console.log('\nThe tab icon is the thing you fly with');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nImpossible ground is refused; steep ground is not');
+{
+  const { despike, SPIKE_LIMIT_M, SPIKE_RATIO, SPIKE_FLOOR_M } = await import('../src/tiles/tileJobs.js');
+  const W = 24;
+  const make = (fn) => {
+    const g = new Float32Array(W * W);
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) g[y * W + x] = fn(x, y);
+    return g;
+  };
+  const at = (g, x, y) => g[y * W + x];
+
+  // The constants are measurements, not preferences — see the comment they sit
+  // under. Pinning them means a future change has to go and re-measure rather
+  // than nudge a number until a picture looks nicer.
+  ok(`the absolute limit is the measured one  (${SPIKE_LIMIT_M} m, worst real 331)`, SPIKE_LIMIT_M === 500);
+  ok(`the ratio is the measured one  (${SPIKE_RATIO}x, worst real 2.7)`, SPIKE_RATIO === 5);
+  ok(`and small disagreements are left alone  (${SPIKE_FLOOR_M} m)`, SPIKE_FLOOR_M === 60);
+
+  // A needle standing out of flat ground: Reykjavik at zoom 13, 140 m out of
+  // neighbours that span thirteen.
+  const needle = make(() => 0);
+  needle[12 * W + 12] = 140;
+  ok('a needle in flat ground is refused', despike(needle, W, W) === 1 && at(needle, 12, 12) === 0);
+
+  // A whole bad row: the Colca and Yarlung tiles, 254 cells each.
+  const row = make((x, y) => (y === 12 ? 900 : 0));
+  const rowRejected = despike(row, W, W);
+  ok(`a bad row is refused  (${rowRejected} cells)`, rowRejected === W - 2 && at(row, 12, 12) === 0);
+
+  // A real cliff, four hundred metres of it, must survive untouched. This is
+  // the case a plain "reject anything steep" rule would destroy.
+  const cliff = make((x) => (x < 12 ? 0 : 400));
+  const before = cliff.slice();
+  ok('a 400 m cliff is left alone', despike(cliff, W, W) === 0 && cliff.every((v, i) => v === before[i]));
+
+  // Rugged ground is allowed a big step, because its neighbours are big steps
+  // too — that is why the ratio exists and why K2's 331 m cell survives.
+  const rugged = make((x, y) => ((x * 137 + y * 79) % 7) * 60);
+  const ruggedBefore = rugged.slice();
+  ok('rugged ground keeps its own roughness', despike(rugged, W, W) === 0 && rugged.every((v, i) => v === ruggedBefore[i]));
+
+  // Edges have no ring to judge them by, so they are never touched.
+  const edge = make(() => 0);
+  edge[0] = 5000;
+  edge[W - 1] = -5000;
+  despike(edge, W, W);
+  ok('edge cells are left alone, having nothing to be judged against',
+    edge[0] === 5000 && edge[W - 1] === -5000);
+
+  // Once cleaned, a second run finds nothing: the passes converge rather than
+  // grinding away at the terrain.
+  const twice = make(() => 0);
+  twice[10 * W + 10] = 900;
+  despike(twice, W, W);
+  ok('a cleaned tile is stable', despike(twice, W, W) === 0);
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe height cache is sized for the grid it has to cover');
 {
   const { ElevationField } = await import('../src/tiles/elevation.js');

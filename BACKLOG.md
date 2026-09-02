@@ -68,11 +68,57 @@ what is left · `[?]` needs a decision from you.
       then editing real measurements with it — which is the thing this project
       refuses everywhere else.
 
-      Left open rather than papered over. The remedy that exists today is a
-      different elevation source: the provider list already carries Mapbox
-      terrain-RGB, a different dataset, and the game will use it with a token.
-      That is worth trying with yours, and is the one part of this I cannot
-      test without it.
+      Partly fixed, and I am going to be exact about which part, because the
+      part that is not fixed is the one that started this.
+
+      There are three shapes of corruption in this dataset, not one. Isolated
+      needles standing out of flat ground. Whole bad rows — the Colca Canyon and
+      Yarlung Tsangpo tiles at zoom 14 carry exactly 254 bad cells each, which
+      is one full row of a 256-wide tile. And blobs, where a patch of cells is
+      wrong together.
+
+      The first two are now refused, by a despike calibrated against real ground
+      rather than against taste. The question asked was: how far does a cell of
+      genuine terrain ever stand from the median of its eight neighbours? Twenty
+      locations at zooms 12, 13 and 14 — Nanga Parbat's Rupal face, Mount Thor,
+      K2, Everest, El Capitan, Half Dome, the Cliffs of Moher, Trollveggen,
+      Denali, Torres del Paine, the Grand Canyon and the rest. The worst genuine
+      cell on Earth is K2 on the Baltoro at 331 m, and nothing anywhere reaches
+      400. So the absolute limit is 500.
+
+      That alone was not enough, and the failure is worth recording. A cell is
+      also refused if it stands more than five times its neighbours' own spread
+      out of them — because K2 earns its 331 m by sitting in ground that is
+      rugged in every direction, while Reykjavik's neighbours span thirteen
+      metres and one cell stands 140 m out of them. Worst ratio in real terrain:
+      2.7. But the ratio collapses to about 1 wherever corruption is contiguous,
+      since a spike's neighbours are spikes too — which is exactly where the
+      absolute limit does the work. Neither test alone covers both.
+
+      Verified both ways. Across all twenty control locations: zero cells
+      altered, and every worst-case reading identical to the byte. On the broken
+      tiles: Colca 7,166 m to 13 m, the Yarlung Tsangpo 8,647 m to 15 m. Cost
+      2.4-2.6 ms a tile on clean ground in this software-rendered sandbox, in a
+      worker, with an exact fast path that skips the sort where the whole ring
+      is flatter than the floor.
+
+      What it does not fix is Reykjavik. The numbers move — 899 m to 463 — and
+      the picture does not: re-shot from the same place and altitude, the black
+      shards are still there. The corruption there is a blob, internally
+      consistent, and no filter that judges a cell by its neighbours can tell
+      that from a real plateau. It reached the game (the height at the old spike
+      moved 918 to 895); it simply cannot see this.
+
+      What would see it is the dataset contradicting itself across zooms: the
+      same ground reads -2 m at zoom 10 and 913 m at zoom 11. That is two real
+      measurements disagreeing, so choosing between them invents nothing — but
+      the honest tolerance has to scale with local relief, since a coarse cell
+      in the Himalaya legitimately averages away hundreds of metres, and that is
+      a bigger calibration than this one. It is the next thing to try.
+
+      The other remedy is a different dataset: the provider list already carries
+      Mapbox terrain-RGB, and the game will use it with a token. That is worth
+      trying with yours, and is the one part of this I cannot test without it.
 
 - [x] A18. Everything was measured on a tier your machines never run
       You said the boot hang, and every other thing I could not reproduce,
