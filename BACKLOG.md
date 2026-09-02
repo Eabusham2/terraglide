@@ -258,6 +258,14 @@ paragraph.
       Regression tests for all four, driving the real methods rather than
       asserting on source text.
 
+      What the live run does and does not prove, because I nearly overclaimed
+      here. Anisotropy is a property of a texture, not a rate, so 8 of 8 at 1
+      before and 319 of 319 at 16 after is a fair comparison whatever else
+      differed between the runs. Throughput is not: the run before the fix spent
+      331 seconds on the handshake and had no settling time left, and the run
+      after spent 59 and then settled for 260. Comparing their tile counts
+      would be comparing the wait, not the fix. Measured properly below.
+
 - [x] A19. Black spikes over Reykjavik — the elevation provider is wrong there
       Found by looking at Ultra rather than measuring it. Flying over Reykjavik
       the city erupts in black shards hundreds of metres tall, standing over a
@@ -2025,6 +2033,33 @@ paragraph.
       the compass and scale bar inside carry on unchanged.
 
 ## G. Providers and 3D
+
+- [~] G21. Test the street view merge
+      Asked alongside the blur. The merge rule is the part I could test without
+      a key, and I drove the real update() rather than reading it: standing on a
+      capture point gives opacity 1.00, a hundred metres off gives 0.00, halfway
+      gives 0.65 — a blend that arrives rather than a switch that flips. Taking
+      off to 40 m kills it, so does 30 mph, and the three conditions multiply
+      rather than vote, so being on the spot but sprinting is correctly not a
+      moment a still photograph can describe. With no provider the dome is off
+      rather than merely transparent.
+
+      Testing it turned up a fault that had nothing to do with the blend.
+      Every wait in that path was unbounded — the stitch handshake with the
+      worker, the equirect image load, the coverage lookup — and maybeSearch
+      refuses to look again while `loading` is true, a flag only cleared in the
+      promise chain's finally. So one stitch the worker never answered, or one
+      image request that hung rather than failing, left that flag true for the
+      rest of the session: street level searched once, could not finish, and
+      never tried again anywhere in the world. Silence is not a failure; a
+      failure has to settle. Everything is bounded at twenty seconds now, and
+      clear() settles whatever was still waiting.
+
+      What is not tested is the network half — the actual Street View or
+      Mapillary fetch and the four-way stitch into an equirect. That needs a
+      Google Maps Platform key or a Mapillary token, and the tokens you sent
+      are Mapbox, which does not serve street-level imagery. Send either one and
+      I will finish it.
 
 - [~] G1. Google session failed (403) — maps_api.tas.BootstrapService.Bootstrap blocked
       That message is Google's own and it is about a *project*, not about this
