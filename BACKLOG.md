@@ -12,6 +12,68 @@ what is left · `[?]` needs a decision from you.
 
 ## A. Stops you playing
 
+- [~] A19. Black spikes over Reykjavik — the elevation provider is wrong there
+      Found by looking at Ultra rather than measuring it. Flying over Reykjavik
+      the city erupts in black shards hundreds of metres tall, standing over a
+      correct aerial photograph. It is the thing B3, B5 and B6 describe.
+
+      Chased properly, because three plausible explanations were wrong first.
+
+      Not the imagery, not buildings, not woodland, not the edge wall or the sea
+      floor: with all of those hidden the shards remained, and a triangle count
+      settled it — terrain 8,023,752 triangles, everything else in the scene
+      1,300 between them. (The buildings toggle was vacuous, incidentally:
+      buildings.group holds nothing at all over Reykjavik.)
+
+      Not the decode. Heights arrive as a PNG where red is the high byte, one
+      unit being 256 metres, and tileJobs.js calls createImageBitmap with no
+      options and reads back through a 2D canvas — so colour management or alpha
+      premultiplication would land as hundreds of metres. Decoding the same
+      tiles both ways, with and without colorSpaceConversion/premultiplyAlpha
+      set to none: maximum difference 0 metres, on all three tiles tried.
+
+      Not corrupt vertices either, though the numbers looked damning: 1,332
+      terrain meshes with a median height range of 5 m and a worst of 1,665 m.
+      The worst one is Vatnajokull, 250 km east, where the game says 1,625 m and
+      the provider says 1,693 m. Correct to within four per cent. Distance was
+      the thing that made the statistic look like a fault.
+
+      It is the data. At 64.15284, -21.92219 — a kilometre from downtown, ground
+      truth about zero — the provider's own tiles read:
+
+        zoom      8     9    10     11     12     13     14     15
+        metres   -1    -2    -2    835    879    913    916    917
+
+      An 840-metre step between zoom 10 and zoom 11, and the z13 tile there
+      holds values from -1,224 m to +913 m over ground that runs -50 to +100.
+      The Alps read 1,123 / 1,126 / 1,134 / 1,133 across the same zooms, so the
+      method is sound. Open-Meteo, reading Copernicus DEM, says 0 m at that
+      point; the game's own height field agrees with the provider to within
+      1 metre across sixteen points nearby, median 0. The pipeline is faithful.
+      What it is faithful to is wrong.
+
+      Not a latitude rule, which was the tempting fix. Iceland is north of 60N
+      and so outside SRTM, but checked against Copernicus at twelve places:
+
+        Reykjavik harbour   +913      Anchorage US    +11
+        Akureyri IS          +80      Murmansk RU      +5
+        Reykjavik centre     +64      Edinburgh GB     +3
+        Nuuk GL              +37      Denver US        -2
+        Oslo NO              -16      Alps CH          -5
+        Bergen NO             -9      Tromso NO        -8
+
+      Tromso at 70N and Murmansk at 69N are fine. So capping elevation zoom by
+      latitude would wreck a dozen correct places to rescue one, and picking a
+      threshold to reject "implausible" heights would be inventing a number and
+      then editing real measurements with it — which is the thing this project
+      refuses everywhere else.
+
+      Left open rather than papered over. The remedy that exists today is a
+      different elevation source: the provider list already carries Mapbox
+      terrain-RGB, a different dataset, and the game will use it with a token.
+      That is worth trying with yours, and is the one part of this I cannot
+      test without it.
+
 - [x] A18. Everything was measured on a tier your machines never run
       You said the boot hang, and every other thing I could not reproduce,
       happens on all seven of your machines — Mac, Windows, Chrome, Edge,
