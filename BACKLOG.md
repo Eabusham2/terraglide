@@ -2154,13 +2154,23 @@ paragraph.
       detail — the construction site on Stevenson Street, the lower storeys, the
       road surface — appears where there had been a blank plane.
 
-      Left open, which is why this is `[~]` and not `[x]`. A pale band remains
-      across the near field, lower in frame than before and much smaller, and I
-      have not isolated it. It is either photogrammetry that has not reached the
-      finest level under the camera yet — likely here, where the relay makes
-      everything slow — or the sea-floor sheet still. The test is the one that
-      found the sheet in the first place: hide it and look. Not run again since
-      the lift went in, because the container restarted twice underneath it.
+      The pale band that remains across the near field is not the sheet any
+      more. Same test that found it — hide it and look — re-run with the lift in
+      place at a measured 32.6 m: the two frames are the same picture. Before
+      the lift, hiding the sheet was the difference between a blank plane and a
+      city with streets in it.
+
+      So what is left is the near ground itself not having arrived: at fourteen
+      metres over a street the tiles directly underfoot want the finest level in
+      the tree, and this sandbox reaches the city through a relay that makes
+      everything slow. That is a loading-speed matter, which is what the
+      concurrency fix in A24 is for, and not a placement fault.
+
+      Still `[~]` rather than `[x]` for two honest reasons. The lift is verified
+      in one city live and in two by raycast, and the third — London — has never
+      given a usable reading because the City has no open ground to measure
+      over; a park would settle it. And the two sample points that read -199 m
+      instead of -26 m are still unexplained.
 
 - [ ] G22. In a photorealistic city you can stand inside a building
       Noticed while photographing the blur, not reported — so it goes in the
