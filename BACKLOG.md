@@ -3264,6 +3264,19 @@ what is left · `[?]` needs a decision from you.
       cliff is beside the player rather than under the camera — which is why a
       screenshot could not settle it either way and the probe could.
 
+
+      Measured rather than argued, since it was worth knowing whether the render
+      was adding anything. Flown against a shadowed valley wall at Murren, the
+      worst pixel the render produces on that face is [27, 27, 15]; the worst in
+      Esri's own photograph of the same ground is [26, 29, 10]. The faint
+      magenta and green mottling on a dark cliff is in the picture, not put
+      there by us — the render is faithful to within a couple of levels of
+      8-bit quantisation.
+
+      That does not make it look better, and it does not settle your question.
+      It does mean the only way to change it is to grade the photograph, which
+      is the thing refused everywhere else in this project. Still yours to
+      decide.
 - [~] M3. It is so laggy
       One real cause found and fixed, and it is not the one it looks like: the
       cap on how many squares may be drawn in a frame was keyed on the raw
