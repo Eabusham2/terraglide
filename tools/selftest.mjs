@@ -6617,6 +6617,112 @@ console.log('\na panorama that never arrives is a failure, not a silence');
   ok('and lets street level search again', pending.loading === false);
 }
 
+console.log('\nthe photogrammetry and the height field are put on one datum');
+{
+  // 3D Tiles are ECEF, which is ellipsoidal. Terrarium, SRTM and Mapbox heights
+  // are orthometric — above the geoid. Nothing reconciled them, so the city sat
+  // low by the geoid height of wherever you were: measured -32.8 m in San
+  // Francisco against an EGM96 value of -32.3, and -17.9 in Denver against
+  // -17.4. This drives the real estimator against a ground it knows the answer
+  // for, with the roofs and the holes that make the naive version fail.
+  const { Tiles3D } = await import('../src/world/tiles3d.js');
+  const THREE = await import('../vendor/three/three.module.js');
+
+  const city = (groundY, { roofs = 40, holes = 0 } = {}) => {
+    const group = new THREE.Group();
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(2000, 2000).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial(),
+    );
+    ground.position.y = groundY;
+    group.add(ground);
+    // Roofs at assorted heights, which is what a downward ray mostly hits.
+    for (let i = 0; i < roofs; i++) {
+      const angle = i * 2.399963;
+      const radius = 220 * Math.sqrt((i + 0.5) / roofs);
+      const roof = new THREE.Mesh(
+        new THREE.PlaneGeometry(70, 70).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial(),
+      );
+      roof.position.set(Math.cos(angle) * radius, groundY + 20 + (i % 9) * 11, Math.sin(angle) * radius);
+      group.add(roof);
+    }
+    // Shells with the far side missing, which is how a ray ends up hundreds of
+    // metres below the street and why "the lowest hit" is not the answer.
+    for (let i = 0; i < holes; i++) {
+      const deep = new THREE.Mesh(
+        new THREE.PlaneGeometry(120, 120).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial(),
+      );
+      deep.position.set(-150 + i * 40, groundY - 260 - i * 30, -120 + i * 35);
+      group.add(deep);
+    }
+    group.updateMatrixWorld(true);
+    return group;
+  };
+
+  const rig = (group, tiles = 40) => {
+    const loaded = new Map();
+    for (let i = 0; i < tiles; i++) loaded.set(`t${i}`, { object: {}, used: 0, bounds: {} });
+    return {
+      group, loaded,
+      groundHeightAt: () => 0,
+      datum: 0, _datumAt: 0, _camX: 0, _camZ: 0,
+      _ray: new THREE.Raycaster(),
+      _rayFrom: new THREE.Vector3(),
+      _down: new THREE.Vector3(0, -1, 0),
+      measureDatum: Tiles3D.prototype.measureDatum,
+    };
+  };
+
+  // San Francisco's number, with the height field at zero.
+  const sf = rig(city(-32.8));
+  sf.measureDatum(100000);
+  ok(`the lift found matches the separation  (${sf.datum.toFixed(1)} m)`,
+    Math.abs(sf.datum - 32.8) < 1.5);
+  ok('and it is applied to the group', Math.abs(sf.group.position.y - sf.datum) < 1e-6);
+  ok('and the cached world boxes are dropped, since they moved',
+    [...sf.loaded.values()].every((e) => e.bounds === null));
+
+  // The other sign, which is most of Europe and Africa.
+  const high = rig(city(46.6));
+  high.measureDatum(100000);
+  ok(`a positive separation lifts the other way  (${high.datum.toFixed(1)} m)`,
+    Math.abs(high.datum + 46.6) < 1.5);
+
+  // Holes in the shells: the naive "lowest hit" answer is hundreds of metres out.
+  const holed = rig(city(-32.8, { holes: 6 }));
+  holed.measureDatum(100000);
+  ok(`holes through the shells do not drag it down  (${holed.datum.toFixed(1)} m)`,
+    Math.abs(holed.datum - 32.8) < 1.5);
+
+  // Too little loaded to say anything, and nothing is said.
+  const bare = rig(city(-32.8), 4);
+  bare.measureDatum(100000);
+  ok('with almost nothing loaded it declines to answer', bare.datum === 0);
+
+  // An answer outside the geoid's range is not a geoid separation.
+  const absurd = rig(city(-400));
+  absurd.measureDatum(100000);
+  ok('and an impossible separation is refused', absurd.datum === 0);
+
+  // It does not re-measure every frame; that would be two dozen raycasts a frame.
+  const settled = rig(city(-32.8));
+  settled.measureDatum(100000);
+  const first = settled.datum;
+  settled.group.position.y = 999;
+  settled.measureDatum(100100);
+  ok('and it does not re-measure on every frame',
+    settled.datum === first && settled.group.position.y === 999);
+
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  ok('the game tells the tiles what the height field says',
+    /tiles3d\.groundHeightAt = \(x, z\) => this\.terrain\.heightAt\(x, z\)/.test(game));
+  const src = readFileSync(new URL('../src/world/tiles3d.js', import.meta.url), 'utf8');
+  ok('and a teleport drops the measurement, because the geoid moves with you',
+    /this\.datum = 0;[\s\S]{0,120}this\.group\.position\.y = 0;/.test(src));
+}
+
 console.log('\ngraded as one photograph');
 {
   const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');

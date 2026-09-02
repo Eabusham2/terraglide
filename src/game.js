@@ -1046,6 +1046,13 @@ export class Game {
     // tile, whether this exact square is already drawn as photogrammetry, and
     // only that square steps aside.
     this.terrain.covered3d = this.tiles3d ? (x, z) => this.tiles3d.covers(x, z) : null;
+    // And back the other way: the tiles need to know what the height field says
+    // the ground is, because the two are measured against different surfaces —
+    // the tiles against the ellipsoid, the heights against the geoid — and the
+    // difference is tens of metres nearly everywhere. See measureDatum().
+    if (this.tiles3d && !this.tiles3d.groundHeightAt) {
+      this.tiles3d.groundHeightAt = (x, z) => this.terrain.heightAt(x, z);
+    }
     this.terrain.group.visible = true;
 
     // Scenery and extruded footprints are decided in one go rather than per

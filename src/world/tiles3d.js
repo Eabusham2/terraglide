@@ -145,6 +145,66 @@ const KEEP_AFTER_SIGHT_MS = 15000;
  * over the next second instead of stopping for it.
  */
 const RESHARPEN_PER_FRAME = 8;
+/**
+ * Putting the photogrammetry on the same vertical datum as the ground.
+ *
+ * These are two different surfaces measured against two different references
+ * and nothing was reconciling them. 3D Tiles are ECEF, which is ellipsoidal by
+ * definition. Terrarium, SRTM and Mapbox heights are orthometric — metres above
+ * the geoid, which is the lumpy equipotential surface the sea would settle into.
+ * The local frame is tangent to the ellipsoid, so the two get placed against
+ * different surfaces and end up separated by the geoid height of wherever you
+ * are standing.
+ *
+ * Measured, by raycasting the photogrammetry against the height field on a grid
+ * and taking the median per city:
+ *
+ *   San Francisco   EGM96 -32.3    measured -32.8
+ *   Denver          EGM96 -17.4    measured -17.9
+ *
+ * Two places whose geoid heights differ by fifteen metres, each matching its own
+ * value to within half a metre. Worldwide the separation runs from about -107 m
+ * to +85 m, so untreated this is tens of metres of error nearly everywhere and a
+ * hundred in places.
+ *
+ * What that looked like: the city's streets sat below the sea-floor sheet, which
+ * is drawn twelve metres under sea level, so the sheet covered them and you got
+ * a flat pale plane where San Francisco should be. Standing on the height field
+ * put you thirty metres above the photogrammetric street, which is inside the
+ * ground floor of a building. Both went away when the tiles were lifted.
+ *
+ * It is measured rather than modelled. A geoid model would be a megabyte of
+ * grid to carry and would still be a model; the two datasets the game is
+ * actually drawing can be asked directly, and their difference is the truth for
+ * this pair of providers — it absorbs anything else systematic between them as
+ * well. The estimator has to be careful, because a ray fired down through a city
+ * hits roofs, canopies and the occasional hole in a shell as well as the street.
+ * So every hit from every ray goes into a histogram of its distance above the
+ * height field, and the answer is the lowest dense cluster: the ground is the
+ * one surface present in every column at the same offset, and it is below the
+ * roofs. Measured in the City of London, every column had between seven and
+ * twenty surfaces stacked in it and not one had a single hit — which is why
+ * "the lowest hit" on its own is not good enough.
+ */
+const DATUM_INTERVAL_MS = 3000;
+/** Below this there is not enough loaded to measure anything from. */
+const DATUM_MIN_TILES = 12;
+/** Rays per measurement, spread over a disc around the camera. */
+const DATUM_SAMPLES = 24;
+const DATUM_RADIUS_M = 220;
+/**
+ * How far above and below the height field to look. It has to clear the whole
+ * geoid range in both directions plus anything tall standing on the ground.
+ */
+const DATUM_WINDOW_M = 420;
+/** Histogram bin. Fine enough to be worth having, coarse enough to cluster. */
+const DATUM_BIN_M = 2;
+/** A cluster this dense relative to the densest counts as ground. */
+const DATUM_CLUSTER_SHARE = 0.4;
+/** Below this many samples in the winning cluster, say nothing. */
+const DATUM_MIN_SAMPLES = 8;
+/** Beyond this the answer is not a geoid separation and is not believed. */
+const DATUM_LIMIT_M = 120;
 const DEFAULT_DETAIL = 'high';
 /**
  * How long a piece of content that refused is left alone before asking again.
@@ -252,6 +312,21 @@ export class Tiles3D {
     this._anisotropy = 0;
     /** Tiles still waiting for a changed sampler — see RESHARPEN_PER_FRAME. */
     this._resharpen = [];
+    /**
+     * Metres the tiles are lifted by to stand on the same ground the height
+     * field describes. Zero until it has been measured; see the note above
+     * DATUM_INTERVAL_MS.
+     */
+    this.datum = 0;
+    this._datumAt = 0;
+    this._ray = new THREE.Raycaster();
+    this._rayFrom = new THREE.Vector3();
+    this._down = new THREE.Vector3(0, -1, 0);
+    /**
+     * How to ask what the ground is here. The game wires this to the terrain,
+     * the same way it wires the terrain's `covered3d` back to this object.
+     */
+    this.groundHeightAt = null;
     this.session = '';
     this.bearer = '';
     this.base = '';
@@ -435,9 +510,15 @@ export class Tiles3D {
     this._anchorSerial = this.frame.anchorSerial;
     this._ecefToLocal.fromArray(ecefToLocalMatrix(this.frame.anchorLat, this.frame.anchorLon, 0));
     // Everything already placed is now in the wrong place — including the
-    // world-space boxes the coverage map is built from.
+    // world-space boxes the coverage map is built from, and the datum, which
+    // belonged to where you were: the geoid at the far end of a teleport is a
+    // different number.
     this.clear();
     this.coverage.clear();
+    this.datum = 0;
+    this._datumAt = 0;
+    this.group.position.y = 0;
+    this.group.updateMatrix();
   }
 
   update(camera, player) {
@@ -517,11 +598,85 @@ export class Tiles3D {
     }
     this.evict(now);
 
+    this.measureDatum(now);
     this.buildCoverage();
 
     this.stats.loaded = this.loaded.size;
     this.stats.pending = this.active;
     this.stats.drawn = this.visible.size;
+  }
+
+  /**
+   * Work out how far the photogrammetry has to move to stand on the same ground
+   * the height field describes, and move it. See the note above
+   * DATUM_INTERVAL_MS for why the two disagree at all.
+   *
+   * Every hit from every ray is counted, not just the lowest — a column in a
+   * city has roofs and canopies above the street and sometimes a hole through
+   * it, and the street is the surface that turns up in every column at the same
+   * height. So: histogram the offsets, find the densest bins, take the lowest
+   * one that is dense enough. Ground is below roofs, and roofs do not agree with
+   * each other the way the ground does. Measured in the City of London, every
+   * column had between seven and twenty surfaces stacked in it and not one had a
+   * single hit, which is why "the lowest hit" on its own is not good enough.
+   */
+  measureDatum(now) {
+    if (!this.groundHeightAt) return;
+    if (this.loaded.size < DATUM_MIN_TILES) return;
+    if (now - this._datumAt < DATUM_INTERVAL_MS) return;
+    this._datumAt = now;
+
+    this.group.updateMatrixWorld(true);
+    const offsets = [];
+    for (let i = 0; i < DATUM_SAMPLES; i++) {
+      // A spiral rather than a ring, so the samples are spread over the disc
+      // instead of all landing along one row of buildings.
+      const angle = i * 2.399963;
+      const radius = DATUM_RADIUS_M * Math.sqrt((i + 0.5) / DATUM_SAMPLES);
+      const x = this._camX + Math.cos(angle) * radius;
+      const z = this._camZ + Math.sin(angle) * radius;
+      const field = this.groundHeightAt(x, z);
+      if (!Number.isFinite(field)) continue;
+      this._ray.set(this._rayFrom.set(x, field + DATUM_WINDOW_M, z), this._down);
+      this._ray.far = DATUM_WINDOW_M * 2;
+      for (const hit of this._ray.intersectObject(this.group, true)) {
+        // Undo the lift already applied, so what is measured is the whole
+        // disagreement rather than whatever is left of it.
+        offsets.push(hit.point.y - this.group.position.y - field);
+      }
+    }
+    if (offsets.length < DATUM_MIN_SAMPLES) return;
+
+    const bins = new Map();
+    for (const offset of offsets) {
+      const bin = Math.round(offset / DATUM_BIN_M);
+      bins.set(bin, (bins.get(bin) ?? 0) + 1);
+    }
+    let densest = 0;
+    for (const count of bins.values()) if (count > densest) densest = count;
+    let ground = null;
+    for (const [bin, count] of bins) {
+      if (count < densest * DATUM_CLUSTER_SHARE) continue;
+      if (ground === null || bin < ground) ground = bin;
+    }
+    if (ground === null) return;
+
+    // The median of that cluster and its neighbours, so the answer is not
+    // quantised to the bin width.
+    const near = offsets.filter((o) => Math.abs(Math.round(o / DATUM_BIN_M) - ground) <= 1);
+    if (near.length < DATUM_MIN_SAMPLES) return;
+    near.sort((a, b) => a - b);
+    const measured = near[Math.floor(near.length / 2)];
+    if (!Number.isFinite(measured) || Math.abs(measured) > DATUM_LIMIT_M) return;
+
+    // The tiles are low by `measured`, so they go up by it.
+    const lift = -measured;
+    if (Math.abs(lift - this.datum) < 0.5) return;
+    this.datum = lift;
+    this.group.position.y = lift;
+    this.group.updateMatrix();
+    // Cached world-space boxes belong to the height the tiles used to be at.
+    for (const entry of this.loaded.values()) entry.bounds = null;
   }
 
   /**
