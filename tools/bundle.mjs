@@ -142,15 +142,22 @@ async function load(path) {
   }
 
   let body = out.join('\n');
-  // `import.meta` is a syntax error in a classic script; nothing in the bundle
-  // reaches for a worker URL because the inline flag is set.
+  // `import.meta` is a syntax error in a classic script, so it becomes the
+  // module's own address — computed from its path, not the document's.
   //
-  // The document's own address rather than an empty string, because an empty
-  // string is not a valid base and `new URL(path, '')` throws. Three's Draco
-  // loader builds three of those at module scope, so the empty string turned
-  // the whole module into an exception the moment it was required — which is
-  // exactly the module the photorealistic tiles need.
-  body = body.replace(/import\.meta\.url/g, '__tg_base');
+  // It used to be the document's address for every module alike. That was
+  // enough while the only consumer was the double-clickable build, where the
+  // in-page worker flag means nobody asks for a worker URL and Three's Draco
+  // loader only needs *a* valid base (an empty string is not one: `new URL(x,
+  // '')` throws, and Draco builds three at module scope, so an empty base
+  // turned the whole module into an exception the moment it was required).
+  //
+  // The hosted bundle does ask. `createTileWorker` resolves './tileWorker.js'
+  // against this, and from the document's address that is
+  // <site>/tileWorker.js, which does not exist — a worker that 404s silently
+  // and a tile pipeline that never starts. From the module's own address it is
+  // <site>/src/tiles/tileWorker.js, which is where the file is.
+  body = body.replace(/import\.meta\.url/g, `__tg_url(${JSON.stringify(id)})`);
 
   modules.set(
     id,
@@ -195,6 +202,11 @@ var __tg_modules = {};
 var __tg_cache = {};
 // Stands in for import.meta.url, which a classic script has no equivalent of.
 var __tg_base = (typeof document !== 'undefined' && document.baseURI) || 'about:blank';
+// Each module's own address, so anything resolving a path against it lands
+// where the file actually is rather than beside the page.
+function __tg_url(id) {
+  try { return new URL(id, __tg_base).href; } catch (e) { return __tg_base; }
+}
 function __tg_require(id) {
   var cached = __tg_cache[id];
   if (cached) return cached.exports;
@@ -265,3 +277,46 @@ const stamped = bundle.replace('<head>', `<head>\n<meta name="terraglide-sources
 await writeFile(OUT, stamped);
 const kb = Math.round(Buffer.byteLength(stamped) / 1024);
 console.log(`wrote ${relative(ROOT, OUT)} — ${order.length} modules, ${kb} KB, sources ${fingerprint}`);
+
+/*
+  The same modules again, as one script for the hosted page.
+
+  index.html asked the browser for seventy-seven separate ES modules, and a
+  browser does not retry a module fetch that fails. So one dropped response —
+  one flaky moment on wifi — ended the boot for good, with the screen still
+  reading "Starting engine...". Measured, dropping requests at random:
+
+    perfect connection    booted 3 of 3, in 2.3 s
+    0.5 per cent dropped  booted 2 of 3
+    1 per cent dropped    booted 0 of 3
+    2 per cent dropped    booted 0 of 3
+    5 per cent dropped    booted 0 of 3
+
+  One per cent loss is an ordinary evening on home wifi, and it takes down
+  every machine on that network at once, whatever the operating system or
+  browser — which is the report that came back from seven of them.
+
+  So the page loads this instead: one request rather than seventy-seven, and
+  because it is a classic script the page can watch it fail and ask again,
+  which is the thing the module loader will not do. No CSS or assets are
+  inlined — those sit beside it on the server — so it is a fraction of the
+  size of the double-clickable build.
+*/
+const JS_OUT = join(ROOT, 'terraglide.bundle.js');
+const script = `/*
+ TerraGlide, built from src/ by \`node tools/bundle.mjs\`. Do not edit.
+ sources ${fingerprint}
+*/
+${runtime}
+${order.map((id) => modules.get(id)).join('\n')}
+window.__TERRAGLIDE_REQUIRE__ = function (id) {
+  var path = String(id);
+  while (path.indexOf('../') === 0) path = path.slice(3);
+  if (path.indexOf('./') === 0) path = path.slice(2);
+  return __tg_require(path);
+};
+window.__TERRAGLIDE_BUNDLE__ = ${JSON.stringify(fingerprint)};
+__tg_require(${JSON.stringify(entryId)});
+`;
+await writeFile(JS_OUT, script);
+console.log(`wrote ${relative(ROOT, JS_OUT)} — ${Math.round(Buffer.byteLength(script) / 1024)} KB, one request instead of ${order.length}`);

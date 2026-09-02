@@ -362,7 +362,7 @@ what is left · `[?]` needs a decision from you.
       re-reading in that light.
 
 
-- [~] A0. Stuck on "Starting engine" — game never boots
+- [x] A0. Stuck on "Starting engine" — game never boots
       — could not reproduce: the deployed index, the single file and the online
       single file all boot here, and every Pages deploy has succeeded. Two
       causes removed anyway. Booting no longer waits on the network (picking a
@@ -437,6 +437,57 @@ what is left · `[?]` needs a decision from you.
 
       Still open, and now it is one paste from being closed: play it until it
       hangs, wait twenty seconds, and send what the box says.
+
+      **Found, and fixed at the cause.** You said it happens on all seven
+      machines, so I stopped looking for something wrong with a machine and
+      asked what all seven share: a network. The hosted page asked the browser
+      for seventy-seven separate ES modules, and **a browser does not retry a
+      module fetch that fails**. One dropped response — one flaky moment on the
+      wifi — and the graph never finishes, main.js never runs, and the screen
+      sits on "Starting engine..." exactly as reported.
+
+      Measured, dropping requests at random:
+
+                              before          after
+        perfect line          3 of 3, 2.3 s   3 of 3, 0.4-0.9 s
+        0.5 per cent dropped  2 of 3          3 of 3
+        1 per cent dropped    0 of 3          3 of 3
+        2 per cent dropped    0 of 3          3 of 3
+        5 per cent dropped    0 of 3          3 of 3
+
+      One per cent packet loss is an unremarkable evening on home wifi, and it
+      takes down every device on that network at once, whatever the operating
+      system or browser. That is seven machines from Mac to Windows to Safari,
+      and it is why nothing reproduced here on a perfect local connection.
+
+      The page now loads one script — `terraglide.bundle.js`, the same modules
+      resolved into a single classic script by the same bundler that builds the
+      double-clickable file. One request instead of seventy-seven is seventy-
+      seven times less exposure, and because a classic script is not a module
+      the page can *watch it fail and ask again*, which is the thing the module
+      loader will not do. Three goes, backing off, and only then the old module
+      path — which stays, because a plain checkout has no built bundle beside it
+      and the repository is meant to be the site. Runs where the bundle itself
+      was dropped and the retry recovered it are in the 3-of-3 above.
+
+      Verified end to end rather than by the boot flag: the game runs from the
+      bundle, with the *real* Web Worker rather than the in-page fallback, 94.5
+      per cent of ground on its own photograph, nothing bare, ground 1,135 m at
+      Murren. Photographed. All three editions still start — hosted page 1.5 s
+      via the bundle, double-clickable file 1.0 s, online single file 3.8 s. The
+      online edition gets the same fix, which matters most: it is the page whose
+      code always comes over the network.
+
+      One real bug came out of building it. `import.meta.url` became the
+      *document's* address for every bundled module alike, which was harmless
+      while the only bundle was the file:// one — but in a hosted bundle
+      `createTileWorker` resolves './tileWorker.js' against it and gets
+      <site>/tileWorker.js, which does not exist: a worker that 404s in silence
+      and a tile pipeline that never starts. It is each module's own address
+      now, and the real worker is confirmed running.
+
+      The build refuses to publish a site without the bundle, because falling
+      back to seventy-seven requests is the fault this removes.
 - [~] A9. Does not work on Chromebook
       — two causes found and fixed. There was no handling for the graphics
       context being lost, which on a low-memory machine is not an edge case:

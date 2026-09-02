@@ -1791,6 +1791,11 @@ var __tg_modules = {};
 var __tg_cache = {};
 // Stands in for import.meta.url, which a classic script has no equivalent of.
 var __tg_base = (typeof document !== 'undefined' && document.baseURI) || 'about:blank';
+// Each module's own address, so anything resolving a path against it lands
+// where the file actually is rather than beside the page.
+function __tg_url(id) {
+  try { return new URL(id, __tg_base).href; } catch (e) { return __tg_base; }
+}
 function __tg_require(id) {
   var cached = __tg_cache[id];
   if (cached) return cached.exports;
@@ -87561,7 +87566,7 @@ function moduleRelative(path, fallback) {
   // bundler and by nothing else.
   if (globalThis.__TERRAGLIDE_INLINE_WORKER__) return fallback;
   try {
-    return new URL(path, __tg_base).href;
+    return new URL(path, __tg_url("src/core/paths.js")).href;
   } catch {
     return fallback;
   }
@@ -92590,7 +92595,7 @@ const INLINE_JOBS = 6;
 function createTileWorker() {
   if (!globalThis.__TERRAGLIDE_INLINE_WORKER__ && typeof Worker === 'function') {
     try {
-      const url = new URL('./tileWorker.js', __tg_base);
+      const url = new URL('./tileWorker.js', __tg_url("src/tiles/workerHost.js"));
       if (url.protocol !== 'file:') {
         const worker = new Worker(workerUrl(url), { type: 'module' });
         worker.inline = false;
@@ -111784,13 +111789,13 @@ const { BufferAttribute, BufferGeometry, Color, ColorManagement, FileLoader, Loa
 
 const _taskCache = new WeakMap();
 
-const WASM_BIN_URL = new URL( '../libs/draco/draco_decoder.wasm', __tg_base ).toString();
-const WASM_JS_URL = new URL( '../libs/draco/draco_wasm_wrapper.js', __tg_base ).toString();
-const JS_URL = new URL( '../libs/draco/draco_decoder.js', __tg_base ).toString();
+const WASM_BIN_URL = new URL( '../libs/draco/draco_decoder.wasm', __tg_url("vendor/three/loaders/DRACOLoader.js") ).toString();
+const WASM_JS_URL = new URL( '../libs/draco/draco_wasm_wrapper.js', __tg_url("vendor/three/loaders/DRACOLoader.js") ).toString();
+const JS_URL = new URL( '../libs/draco/draco_decoder.js', __tg_url("vendor/three/loaders/DRACOLoader.js") ).toString();
 
 const DRACO_GLTF_CONFIG = {
-	js: new URL( '../libs/draco/gltf/draco_wasm_wrapper.js', __tg_base ).toString(),
-	wasm: new URL( '../libs/draco/gltf/draco_decoder.wasm', __tg_base ).toString(),
+	js: new URL( '../libs/draco/gltf/draco_wasm_wrapper.js', __tg_url("vendor/three/loaders/DRACOLoader.js") ).toString(),
+	wasm: new URL( '../libs/draco/gltf/draco_decoder.wasm', __tg_url("vendor/three/loaders/DRACOLoader.js") ).toString(),
 };
 
 /**

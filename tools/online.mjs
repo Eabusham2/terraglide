@@ -49,7 +49,10 @@ const html = await readFile(join(ROOT, 'index.html'), 'utf8');
 // index.html grows next, this has it.
 const page = html
   .replace('href="./styles/main.css"', `href="${base}styles/main.css"`)
-  .replace('src="./src/main.js"', `src="${base}src/main.js"`)
+  .replace("window.__TERRAGLIDE_PACK__ = './terraglide.bundle.js';",
+    `window.__TERRAGLIDE_PACK__ = ${JSON.stringify(base + 'terraglide.bundle.js')};`)
+  .replace("window.__TERRAGLIDE_ENTRY__ = './src/main.js';",
+    `window.__TERRAGLIDE_ENTRY__ = ${JSON.stringify(base + 'src/main.js')};`)
   // The offline bundle the watchdog offers is not next to this file — this file
   // could be anywhere. Point at the published copy.
   .replace(/"\.\/terraglide\.html"/g, `"${base}terraglide.html"`)

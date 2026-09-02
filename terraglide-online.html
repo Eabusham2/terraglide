@@ -30,7 +30,13 @@
         </div>
       </div>
     </div>
-    <script type="module" src="https://eabusham2.github.io/terraglide/src/main.js"></script>
+    <script>
+      /* Where the game's code lives. tools/online.mjs rewrites both of these to
+         absolute URLs on the published site, which is the whole trick that
+         makes the online single-file edition work. */
+      window.__TERRAGLIDE_PACK__ = "https://eabusham2.github.io/terraglide/terraglide.bundle.js";
+      window.__TERRAGLIDE_ENTRY__ = "https://eabusham2.github.io/terraglide/src/main.js";
+    </script>
     <script>
       /*
         Opened by double-clicking, out of the zip.
@@ -47,17 +53,63 @@
         refuse. So go there, at once, rather than explaining a browser rule to
         somebody who wanted to play a game.
 
-        Only when the modules themselves are local files. The online edition is
-        this same page with its script pointing at the published site, and that
-        loads from file:// perfectly well — sending it away would swap a working
-        page for a three-megabyte download.
+        Only when the code itself is local files. The online edition is this same
+        page with its entry pointing at the published site, and that loads from
+        file:// perfectly well — sending it away would swap a working page for a
+        three-megabyte download.
       */
-      var moduleTag = document.querySelector('script[type=module]');
-      if (location.protocol === 'file:' && (moduleTag ? moduleTag.src : '').indexOf('file:') === 0) {
+      if (location.protocol === 'file:' && window.__TERRAGLIDE_ENTRY__.indexOf('http') !== 0) {
         var status = document.getElementById('boot-status');
         if (status) status.textContent = 'Opening the single-file copy\u2026';
         location.replace('./terraglide.html');
       }
+
+      /*
+        One request for the code, and ask again if it does not arrive.
+
+        This page used to load seventy-seven separate ES modules, and a browser
+        does not retry a module fetch that fails. One dropped response — a
+        single flaky moment on the wifi — ended the boot for good, with the
+        screen still reading "Starting engine...". Measured, dropping requests
+        at random:
+
+          perfect connection    booted 3 of 3, in 2.3 s
+          0.5 per cent dropped  booted 2 of 3
+          1 per cent dropped    booted 0 of 3
+          2 per cent dropped    booted 0 of 3
+          5 per cent dropped    booted 0 of 3
+
+        One per cent loss is an ordinary evening on home wifi, and it takes
+        every machine on that network down at once — whatever the operating
+        system or the browser, which is the report that came back from seven of
+        them.
+
+        A classic script is not a module, so the page can watch this one fail
+        and ask again, which is the thing the module loader will not do. Three
+        goes, backing off, and only then the old module path — which still has
+        to be there, because a plain checkout of this repository has no built
+        bundle beside it and the repository is supposed to be the site.
+      */
+      var packTries = 0;
+      function loadModules() {
+        var m = document.createElement('script');
+        m.type = 'module';
+        m.src = window.__TERRAGLIDE_ENTRY__;
+        document.head.appendChild(m);
+      }
+      function loadPack() {
+        var s = document.createElement('script');
+        // A fresh query on each retry, so a failure the browser has cached as
+        // a failure is not simply handed back.
+        s.src = window.__TERRAGLIDE_PACK__ + (packTries ? '?retry=' + packTries : '');
+        s.onerror = function () {
+          packTries += 1;
+          if (packTries < 3) setTimeout(loadPack, 400 * packTries);
+          else loadModules();
+        };
+        document.head.appendChild(s);
+      }
+      loadPack();
 
       /*
         A watchdog for the one failure that says nothing.

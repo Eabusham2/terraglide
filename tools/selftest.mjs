@@ -2568,14 +2568,22 @@ console.log('\nAll three ways of opening the game can say what went wrong');
   // file that works is in the same folder, out of the same zip.
   ok('opened as a local file, it goes to the copy that works',
     /location\.protocol === 'file:'/.test(index) && /location\.replace\('\.\/terraglide\.html'\)/.test(index));
-  // The guard has to see the module tag, and a classic script only sees what
-  // the parser has already reached.
-  ok('and the watchdog can see the module tag',
-    index.indexOf('type="module"') < index.indexOf('<script>'));
-  // Only when the modules themselves are local. The online edition is this same
-  // page pointed at the published site and loads from file:// perfectly well.
-  ok('but not when the modules come from a site',
-    /moduleTag \? moduleTag\.src : ''\)\.indexOf\('file:'\) === 0/.test(index));
+  // The guard has to know where the code is coming from, and a classic script
+  // only sees what the parser has already reached — so the entry points are
+  // declared above it.
+  //
+  // This used to check that the module tag appeared before the first plain
+  // <script>, which passed for free the moment the module tag was removed:
+  // indexOf returns -1 for something absent, and -1 is less than everything.
+  // A check that cannot fail is not a check.
+  const entryAt = index.indexOf('__TERRAGLIDE_ENTRY__');
+  const redirectAt = index.indexOf("location.protocol === 'file:'");
+  ok(`the entry is declared before the guard reads it  (${entryAt} then ${redirectAt})`,
+    entryAt > 0 && redirectAt > 0 && entryAt < redirectAt);
+  // Only when the code itself is local. The online edition is this same page
+  // pointed at the published site and loads from file:// perfectly well.
+  ok('but not when the code comes from a site',
+    /__TERRAGLIDE_ENTRY__\.indexOf\('http'\) !== 0/.test(index));
 
   // The online edition used to be a second copy of the page with every script
   // stripped out, which threw away the watchdog along with the module tag — so
@@ -4058,6 +4066,45 @@ console.log('\nThe height cache is sized for the grid it has to cover');
   const src = readFileSync(new URL('../src/tiles/elevation.js', import.meta.url), 'utf8');
   ok('the floor is the live set, not a constant', /const limit = Math\.max\(this\.cacheLimit, live\)/.test(src));
   settings.set('graphics', was ?? 'high');
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nThe hosted page bets the boot on one request, not seventy-seven');
+{
+  const index = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const bundler = readFileSync(new URL('../tools/bundle.mjs', import.meta.url), 'utf8');
+  const online = readFileSync(new URL('../tools/online.mjs', import.meta.url), 'utf8');
+  const flow = readFileSync(new URL('../.github/workflows/deploy-gh-pages.yml', import.meta.url), 'utf8');
+
+  // The fault: a browser does not retry a module fetch that fails, so one
+  // dropped response out of seventy-seven ended the boot for good. Measured by
+  // dropping requests at random — booted 3/3 on a clean line, 2/3 at half a per
+  // cent, and 0/3 at one, two and five per cent. One per cent is ordinary home
+  // wifi, and it takes every machine on that network down at once.
+  ok('no static module tag is left to fetch the graph anyway',
+    !/<script[^>]*type="module"[^>]*src=/.test(index));
+  ok('the page asks for the bundle first', index.includes("__TERRAGLIDE_PACK__ = './terraglide.bundle.js'"));
+  ok('and asks again when it does not arrive', /packTries \+= 1;[\s\S]{0,120}setTimeout\(loadPack/.test(index));
+  ok('three goes before giving up', /packTries < 3/.test(index));
+  ok('a retry is not served from the cached failure', /\?retry=/.test(index));
+  ok('the module graph is still there as a fallback',
+    /function loadModules\(\)[\s\S]{0,200}type = 'module'/.test(index) && index.includes('__TERRAGLIDE_ENTRY__'));
+
+  ok('the bundler emits it', bundler.includes("join(ROOT, 'terraglide.bundle.js')"));
+  ok('the online edition rewrites both entry points',
+    online.includes('__TERRAGLIDE_PACK__') && online.includes('__TERRAGLIDE_ENTRY__'));
+  ok('the site publishes it', /cp -r[^\n]*terraglide\.bundle\.js/.test(flow));
+  // Publishing without it silently reinstates the fault, so the build must fail
+  // rather than ship a site that still has it.
+  ok('and refuses to publish without it', /test -f _site\/terraglide\.bundle\.js/.test(flow));
+  ok('while still publishing src for the fallback', /test -f _site\/src\/main\.js/.test(flow));
+
+  // import.meta.url has to become each module's own address. From the
+  // document's, createTileWorker resolves './tileWorker.js' to <site>/
+  // tileWorker.js, which does not exist — a worker that 404s in silence and a
+  // tile pipeline that never starts.
+  ok('a bundled module knows its own address',
+    bundler.includes('__tg_url(${JSON.stringify(id)})') && !/replace\(\/import\\.meta\\.url\/g, '__tg_base'\)/.test(bundler));
 }
 
 // ---------------------------------------------------------------------------

@@ -38,10 +38,19 @@ jobs:
         run: |
           rm -rf _site
           mkdir _site
-          cp -r index.html terraglide.html terraglide-online.html src styles vendor assets LICENSE THIRD-PARTY.md README.md _site/
+          cp -r index.html terraglide.html terraglide-online.html terraglide.bundle.js src styles vendor assets LICENSE THIRD-PARTY.md README.md _site/
           # The textures are part of the served game — without assets/ the site
           # silently falls back to flat colour and nobody can tell why.
           test -f _site/assets/manifest.json
+          # The page asks for the bundle first and only falls back to seventy-
+          # seven separate module requests if it is not there. That fallback is
+          # the failure this was built to remove — at one per cent packet loss
+          # it booted zero times out of three — so a site published without the
+          # bundle is a site that still has the bug. Fail the build instead.
+          test -f _site/terraglide.bundle.js
+          # src/ is still published: the module fallback needs it, and so does
+          # the online single-file edition.
+          test -f _site/src/main.js
           # Stop GitHub's Jekyll pass from touching plain static files.
           touch _site/.nojekyll
 
