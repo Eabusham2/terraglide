@@ -2027,7 +2027,7 @@ paragraph.
       or fails several hosts outright, so a provider that "does not work" here
       may work perfectly for you. That is what made this one look environmental
       until the rotation was read.
-- [~] G5. No 3D terrain for buildings, infrastructure or vegetation
+- [x] G5. No 3D terrain for buildings, infrastructure or vegetation
       Buildings: there already are, and with no account at all. Every
       OpenStreetMap footprint near you is extruded to its surveyed height, and
       infrastructure comes with it — masts, pylons and turbines are asked for by
@@ -2065,6 +2065,38 @@ paragraph.
       loader, the scene insertion, both attribution paths and the handshake with
       the quadtree all work. What a real token adds is their servers, their
       data and their quota — not any of this.
+
+      Finished with your token, and it found two real bugs that no stub could
+      have. Both were in the half this entry said only a credential could
+      reach, and the entry's confidence that "the handshake, the bearer header,
+      the tileset walk ... all work" was wrong on two of those three.
+
+      **The handshake read the wrong field.** ion answers in two shapes: an
+      asset it hosts itself returns `url` and a short-lived `accessToken`; an
+      *external* one returns `externalType: '3DTILES'` and puts the real tileset
+      under `options.url`. Google's photorealistic tiles — asset 2275207, the
+      thing anybody turning this on actually wants — are the second shape. The
+      code read only `grant.url`, got undefined, fetched it, and told the player
+      "root 404" with a perfectly good token. The stub it had been tested
+      against answered in the first shape.
+
+      **Then every child tile was refused.** With the root loading, `absolute()`
+      branched on which provider was chosen in the settings rather than on where
+      the tiles actually live — so a Google tileset reached *through* ion took
+      the ion path and had its children resolved as bare relative paths, with no
+      key and no session. Google refuses those. Measured: root 200, and all
+      twenty-four child requests 403 with no query string on any of them. It
+      resolves by host now, and carries the key forward from the tileset URL —
+      which is where ion's Google key arrives, since `this.key` there is the ion
+      token and Google has never heard of it.
+
+      After both: 227 requests, every one 200, no refusals at all. 119 tiles,
+      167 meshes, 221,180 triangles standing on Market Street in San Francisco,
+      with Google and Maxar credited in the attribution line. Photographed.
+
+      The token was used only from /tmp at run time and is not in the repository
+      — checked. It is still live and should be rotated, since it has been
+      sitting in a chat log since 25 August.
 - [x] G6. Why can I see 3D houses in MSFS (Azure) but not here
       Because that data is not published. Microsoft Flight Simulator's cities
       are Bing's aerial photogrammetry, delivered through a private pipeline
@@ -2076,7 +2108,7 @@ paragraph.
       What you *can* have is the same shape of thing from Google's
       Photorealistic 3D Tiles or from Cesium ion, both of which are already
       wired up and both of which need an account. See G5.
-- [~] G7. Mapbox supports 3D buildings + terrain — why is there none here
+- [x] G7. Mapbox supports 3D buildings + terrain — why is there none here
       There is, and it is the same data — the difference is how it arrives.
 
       Terrain: Mapbox Terrain-RGB is already one of the elevation providers, on
@@ -2127,6 +2159,38 @@ paragraph.
       loader, the scene insertion, both attribution paths and the handshake with
       the quadtree all work. What a real token adds is their servers, their
       data and their quota — not any of this.
+
+      Finished with your token, and it found two real bugs that no stub could
+      have. Both were in the half this entry said only a credential could
+      reach, and the entry's confidence that "the handshake, the bearer header,
+      the tileset walk ... all work" was wrong on two of those three.
+
+      **The handshake read the wrong field.** ion answers in two shapes: an
+      asset it hosts itself returns `url` and a short-lived `accessToken`; an
+      *external* one returns `externalType: '3DTILES'` and puts the real tileset
+      under `options.url`. Google's photorealistic tiles — asset 2275207, the
+      thing anybody turning this on actually wants — are the second shape. The
+      code read only `grant.url`, got undefined, fetched it, and told the player
+      "root 404" with a perfectly good token. The stub it had been tested
+      against answered in the first shape.
+
+      **Then every child tile was refused.** With the root loading, `absolute()`
+      branched on which provider was chosen in the settings rather than on where
+      the tiles actually live — so a Google tileset reached *through* ion took
+      the ion path and had its children resolved as bare relative paths, with no
+      key and no session. Google refuses those. Measured: root 200, and all
+      twenty-four child requests 403 with no query string on any of them. It
+      resolves by host now, and carries the key forward from the tileset URL —
+      which is where ion's Google key arrives, since `this.key` there is the ion
+      token and Google has never heard of it.
+
+      After both: 227 requests, every one 200, no refusals at all. 119 tiles,
+      167 meshes, 221,180 triangles standing on Market Street in San Francisco,
+      with Google and Maxar credited in the attribution line. Photographed.
+
+      The token was used only from /tmp at run time and is not in the repository
+      — checked. It is still live and should be rotated, since it has been
+      sitting in a chat log since 25 August.
 - [x] G8. Bing has satellite and a 3D mode — add the 3D
       Bing's satellite is here — the `bing` provider, on a Bing Maps key, and
       also reachable through Cesium ion as asset 2. Its 3D is not, and cannot

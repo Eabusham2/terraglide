@@ -4110,6 +4110,60 @@ console.log('\nThe height cache is sized for the grid it has to cover');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nPhotorealistic 3D resolves by where the tiles live, not which button was pressed');
+{
+  const { Tiles3D } = await import('../src/world/tiles3d.js');
+  const abs = (state, uri) => Tiles3D.prototype.absolute.call(state, uri);
+
+  /*
+    Both of these were found with a real Cesium ion token and neither could
+    have been found without one, because the stub they were tested against
+    answered in a shape ion does not use for the asset anybody actually wants.
+
+    ion answers in two shapes. An asset it hosts itself returns `url` and a
+    short-lived `accessToken`. An external one — Google's photorealistic tiles,
+    asset 2275207, the reason this route exists — returns `externalType` and
+    puts the tileset under `options.url`. Reading only `url` gave undefined and
+    the player was told "root 404" with a perfectly good token.
+
+    Then, with the root loading, every child came back 403: `absolute` branched
+    on the provider *setting* rather than on the host, so a Google tileset
+    reached through ion had its children resolved as bare relative paths with
+    no key and no session. Measured: root 200, twenty-four children 403. After:
+    227 requests, all 200, 119 tiles, 221,180 triangles over San Francisco.
+  */
+  const ionBase = 'https://assets.ion.cesium.com/asset/1/tileset.json';
+  ok('an ion-hosted tileset resolves plainly',
+    abs({ base: ionBase, provider: 'cesium', session: '', key: 'ion-token' }, 'sub/0.b3dm')
+      === 'https://assets.ion.cesium.com/asset/1/sub/0.b3dm');
+
+  // The one that was broken: Google's tiles, reached with provider 'cesium'.
+  const gBase = 'https://tile.googleapis.com/v1/3dtiles/root.json?key=GKEY';
+  const child = abs({ base: gBase, provider: 'cesium', session: '', key: 'ion-token' },
+    '/v1/3dtiles/datasets/CgIYAQ/files/AJVs');
+  ok(`through ion, a Google child still carries the key  (${child.slice(-24)})`,
+    child.includes('key=GKEY'));
+  ok('and never the ion token, which Google has never heard of', !child.includes('ion-token'));
+
+  // The session arrives inside a child URI and has to stick to every one after.
+  const state = { base: gBase, provider: 'cesium', session: '', key: 'ion-token' };
+  abs(state, '/v1/3dtiles/x?session=SESS');
+  ok(`the session is remembered  (${state.session})`, state.session === 'SESS');
+  ok('and carried onto the next child', abs(state, '/v1/3dtiles/y').includes('session=SESS'));
+
+  // Direct Google, unchanged.
+  ok('a direct Google key still works',
+    abs({ base: '', provider: 'google', session: '', key: 'DIRECT' }, 'https://tile.googleapis.com/v1/3dtiles/z')
+      .includes('key=DIRECT'));
+
+  const src = readFileSync(new URL('../src/world/tiles3d.js', import.meta.url), 'utf8');
+  ok('the handshake reads the external tileset URL', /grant\.externalType \? grant\.options\?\.url/.test(src));
+  ok('and refuses to fetch nothing', src.includes("throw new Error('ion gave no tileset URL')"));
+  ok('the bearer is not sent to a server it does not belong to',
+    /this\.bearer = external \? '' :/.test(src));
+}
+
+// ---------------------------------------------------------------------------
 console.log('\nThe hosted page bets the boot on one request, not seventy-seven');
 {
   const index = readFileSync(new URL('../index.html', import.meta.url), 'utf8');

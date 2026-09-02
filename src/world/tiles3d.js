@@ -243,6 +243,9 @@ export class Tiles3D {
     this._connectedAs = `${this.provider}:${this.key}`;
     try {
       let rootUrl = `${GOOGLE_ROOT}?key=${encodeURIComponent(this.key)}`;
+      // Recorded for both providers: absolute() resolves children against it
+      // and carries its query forward, so it cannot be set on one path only.
+      this.base = rootUrl;
 
       if (this.provider === 'cesium') {
         // ion hands out a short-lived token and the real tileset URL; every
@@ -258,13 +261,36 @@ export class Tiles3D {
           );
         }
         const grant = await endpoint.json();
-        this.bearer = grant.accessToken ?? '';
-        rootUrl = grant.url;
+        /*
+          ion answers in two shapes and only one of them has a `url`.
+
+          An asset ion hosts itself hands back `url` plus a short-lived
+          `accessToken`, and every request after this carries that as a bearer.
+          An *external* asset — Google's photorealistic tiles, which are the
+          reason this route exists at all — hands back `externalType: '3DTILES'`
+          and puts the real tileset under `options.url`, already carrying its
+          own credential in the query string.
+
+          Reading only `grant.url` there gives undefined, `fetch(undefined)`
+          resolves against the page and 404s, and the player is told "root 404"
+          with a token that is perfectly good. Every earlier test of this path
+          used a stub that answered in the first shape, so the handshake was
+          reported as working while the asset anybody would actually point it at
+          could not load. It took a real token to see it.
+
+          The bearer is deliberately not set for an external tileset: that
+          credential is ion's, the server is Google's, and handing one service's
+          token to another is at best ignored and at worst a refusal.
+        */
+        const external = grant.externalType ? grant.options?.url : null;
+        rootUrl = external ?? grant.url;
+        if (!rootUrl) throw new Error('ion gave no tileset URL');
+        this.bearer = external ? '' : (grant.accessToken ?? '');
         this.base = rootUrl;
         for (const credit of grant.attributions ?? []) {
           if (credit.html) this.copyrights.add(stripTags(credit.html));
         }
-        this.loader.setRequestHeader({ Authorization: `Bearer ${this.bearer}` });
+        if (this.bearer) this.loader.setRequestHeader({ Authorization: `Bearer ${this.bearer}` });
       }
 
       const response = await fetchWithin(rootUrl, { headers: this.headers() });
@@ -295,14 +321,33 @@ export class Tiles3D {
    * Google hands back a session token inside the child URIs. Every subsequent
    * request has to carry it along with the key, or it is refused. ion instead
    * signs with the bearer header, so its URIs resolve plainly.
+   *
+   * Which of those applies is decided by where the tiles actually live, not by
+   * which provider was chosen in the settings — and that distinction is the
+   * whole bug this replaced.
+   *
+   * Choosing 'cesium' took the ion branch unconditionally, so a Google tileset
+   * reached *through* ion — which is what asset 2275207 is, and the thing
+   * anybody turning this on actually wants — had its children resolved as bare
+   * relative paths with no key and no session. Google refuses those: measured
+   * against a real token, the root came back 200 and every one of the
+   * twenty-four child requests came back 403, with no query string on any of
+   * them. The tileset walk was reported as working because the stub it was
+   * tested against did not care what the URL carried.
+   *
+   * The key for a Google tileset reached through ion is ion's own Google key,
+   * which arrives inside the tileset URL rather than in any field, so it is
+   * carried forward from the base rather than taken from `this.key` — that one
+   * is the ion token and Google has never heard of it.
    */
   absolute(uri) {
-    if (this.provider === 'cesium') {
-      // ion tilesets are plain relative URIs against the tileset's own folder.
-      return new URL(uri, this.base ?? 'https://assets.ion.cesium.com/').toString();
+    const base = this.base || 'https://assets.ion.cesium.com/';
+    const url = new URL(uri, base);
+    if (!/(^|\.)googleapis\.com$/.test(url.hostname)) return url.toString();
+    if (!url.searchParams.has('key')) {
+      const key = new URL(base).searchParams.get('key') || (this.provider === 'google' ? this.key : '');
+      if (key) url.searchParams.set('key', key);
     }
-    const url = new URL(uri, 'https://tile.googleapis.com');
-    if (!url.searchParams.has('key')) url.searchParams.set('key', this.key);
     const session = url.searchParams.get('session');
     if (session) this.session = session;
     else if (this.session) url.searchParams.set('session', this.session);
