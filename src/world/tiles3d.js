@@ -167,6 +167,12 @@ const REFUSAL_REST_MS = 8000;
  */
 const CONNECT_TIMEOUT_MS = 15000;
 
+/** A mesh's materials, however many it happens to have. */
+function asMaterials(material) {
+  if (!material) return [];
+  return Array.isArray(material) ? material : [material];
+}
+
 /** fetch that gives up rather than hanging. */
 async function fetchWithin(url, options = {}, timeout = CONNECT_TIMEOUT_MS) {
   const controller = new AbortController();
@@ -458,7 +464,7 @@ export class Tiles3D {
     for (let i = 0; i < RESHARPEN_PER_FRAME && this._resharpen.length; i++) {
       const entry = this._resharpen.pop();
       entry.object.traverse((node) => {
-        if (node.isMesh && node.material) this.sharpen(node.material);
+        if (node.isMesh) for (const m of asMaterials(node.material)) this.sharpen(m);
       });
     }
 
@@ -527,6 +533,14 @@ export class Tiles3D {
    * and we are over the cap, the grace yields — but it yields the tile you
    * last looked at longest ago, which is the one you are least likely to want
    * back.
+   *
+   * What is never given up is something on screen, so the real bound is the
+   * larger of the cap and what the view is asking for — measured at High in a
+   * city centre, 285 tiles drawn against a cap of 220, settling at exactly the
+   * cap because tiles leave the visible set as their children replace them.
+   * The view's own demand is bounded by the error threshold and the render
+   * distance rather than by this, and that is the right way round: evicting
+   * something you are looking at is how the flicker started.
    */
   evict(now) {
     const cap = this.budget.loaded;
@@ -758,9 +772,13 @@ export class Tiles3D {
         object.traverse((node) => {
           if (node.isMesh) {
             node.frustumCulled = true;
-            if (node.material) {
-              node.material.side = THREE.FrontSide;
-              this.sharpen(node.material);
+            // A mesh with several primitive groups carries an array here, which
+            // dispose() has always known about and this did not: assigning
+            // `side` to the array set a property on the array and sharpened
+            // nothing at all.
+            for (const material of asMaterials(node.material)) {
+              material.side = THREE.FrontSide;
+              this.sharpen(material);
             }
           }
         });

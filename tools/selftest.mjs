@@ -6454,6 +6454,13 @@ console.log('\nphotogrammetry is sampled as sharply as the ground beside it');
   humble.sharpen(plain);
   ok('and hardware that cannot do it is not asked to', plain.map.anisotropy === 1);
 
+  // A mesh with several primitive groups carries an array of materials, which
+  // dispose() has always known about and the sharpening path did not.
+  const src2 = readFileSync(new URL('../src/world/tiles3d.js', import.meta.url), 'utf8');
+  ok('a mesh with several materials has all of them treated',
+    /function asMaterials/.test(src2) &&
+    /for \(const material of asMaterials\(node\.material\)\)/.test(src2));
+
   // A preset change has to reach tiles that are already here, and changing a
   // texture's sampling means re-uploading it — so three hundred of them in one
   // frame would be a stall you feel. They go a few at a time.
