@@ -20,6 +20,38 @@ paragraph.
 
 ## A. Stops you playing
 
+- [x] A25. "wtf is this" — a screenshot of code that had already been fixed
+      You sent a phone screenshot of Stevenson Street filled with huge grey
+      slabs. Reproduced at your exact coordinates, on foot, facing NE 45 as your
+      HUD read, on current main: a city, with streets. Not the same picture.
+
+      The reason is that your phone was not running current main. The page asks
+      for `terraglide.bundle.js` at a URL that never changes, and GitHub Pages
+      serves it with `cache-control: max-age=600`. So for ten minutes after a
+      deploy — longer on a phone holding the response for its own reasons — a
+      device that had the site open recently keeps running the old three
+      megabytes and sees none of the change. Confirmed against the live site:
+      no version in the URL, max-age 600, and the fix present in the deployed
+      file while the page that asks for it is cached separately.
+
+      This has cost real time in both directions. It is why a fix could be
+      tested against code that did not contain it, and why you can watch me
+      describe a change you cannot see.
+
+      Fixed at the point of publication rather than in the page: the deploy now
+      stamps the bundle's own fingerprint into the URL the published page asks
+      for, and fails rather than publishing an unstamped page. A new build is a
+      new URL, so it cannot be served from cache; an unchanged build keeps its
+      URL, so the cache still does its job. The checked-in page is left plain,
+      so local use and the file:// editions are unaffected.
+
+      One thing it broke and how: the boot retry appended a hard-coded
+      `?retry=N`, which on a stamped URL would have produced two question marks.
+      It picks its separator now, with a test for each case.
+
+      To see a change immediately without waiting on any of this: hard-reload,
+      or open the site with `?v=` and anything on the end.
+
 - [x] A22. Ground eleven kilometres below the deepest place on Earth
       Found by driving the coordinate edges — poles, the Mercator limit, the
       antimeridian — looking for NaN. No NaN anywhere, latitude clamped to

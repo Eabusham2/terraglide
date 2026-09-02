@@ -4181,7 +4181,10 @@ console.log('\nThe hosted page bets the boot on one request, not seventy-seven')
   ok('the page asks for the bundle first', index.includes("__TERRAGLIDE_PACK__ = './terraglide.bundle.js'"));
   ok('and asks again when it does not arrive', /packTries \+= 1;[\s\S]{0,120}setTimeout\(loadPack/.test(index));
   ok('three goes before giving up', /packTries < 3/.test(index));
-  ok('a retry is not served from the cached failure', /\?retry=/.test(index));
+  // The separator used to be a hard-coded question mark. It cannot be, now
+  // that the published page carries the bundle's fingerprint as a query.
+  ok('a retry is not served from the cached failure',
+    /'retry=' \+ packTries/.test(index) && /indexOf\('\?'\)/.test(index));
   ok('the module graph is still there as a fallback',
     /function loadModules\(\)[\s\S]{0,200}type = 'module'/.test(index) && index.includes('__TERRAGLIDE_ENTRY__'));
 
@@ -6721,6 +6724,43 @@ console.log('\nthe photogrammetry and the height field are put on one datum');
   const src = readFileSync(new URL('../src/world/tiles3d.js', import.meta.url), 'utf8');
   ok('and a teleport drops the measurement, because the geoid moves with you',
     /this\.datum = 0;[\s\S]{0,120}this\.group\.position\.y = 0;/.test(src));
+}
+
+console.log('\na deploy has to actually reach the machine that asks for it');
+{
+  // The page asks for terraglide.bundle.js at a URL that never changes, and
+  // GitHub Pages serves it with max-age=600. So for ten minutes after a deploy
+  // — longer on a phone holding the response for its own reasons — anyone who
+  // had the site open recently keeps running the old three megabytes and sees
+  // none of the change. That has already cost real time: fixes tested against
+  // code that did not contain them.
+  const flow = readFileSync(new URL('../.github/workflows/deploy-gh-pages.yml', import.meta.url), 'utf8');
+  ok('the published page asks for the bundle by fingerprint',
+    /terraglide\.bundle\.js\?v=\$STAMP/.test(flow));
+  ok('and the fingerprint comes from the bundle rather than the clock',
+    /__TERRAGLIDE_BUNDLE__/.test(flow) && !/date \+%s/.test(flow));
+  ok('and the deploy fails rather than publishing an unstamped page',
+    /grep -q "terraglide\.bundle\.js\?v=\$STAMP" _site\/index\.html/.test(flow)
+    || /grep -q "terraglide\.bundle\.js\\?v=\$STAMP" _site\/index\.html/.test(flow));
+
+  // The stamp has to be findable in what the bundler actually writes.
+  const bundle = readFileSync(new URL('../terraglide.bundle.js', import.meta.url), 'utf8');
+  const stamp = /__TERRAGLIDE_BUNDLE__ = "([0-9a-f]{8,})"/.exec(bundle);
+  ok(`the bundle carries a fingerprint the deploy can read  (${stamp ? stamp[1] : 'none'})`,
+    Boolean(stamp));
+
+  // An unchanged build keeps its URL, so the cache still does its job.
+  const index = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  ok('and the source page is left plain, so local use is unaffected',
+    /__TERRAGLIDE_PACK__ = '\.\/terraglide\.bundle\.js'/.test(index));
+  // The retry appends a query of its own, and the published URL already has
+  // one, so the separator cannot be a hard-coded question mark.
+  ok('the boot retry joins onto a URL that may already carry a query',
+    /pack\.indexOf\('\?'\) < 0 \? '\?' : '&'/.test(index));
+  const join = (pack, tries) => (tries ? pack + (pack.indexOf('?') < 0 ? '?' : '&') + 'retry=' + tries : pack);
+  ok('a plain URL gets a question mark', join('./b.js', 1) === './b.js?retry=1');
+  ok('and a stamped one gets an ampersand', join('./b.js?v=abc', 2) === './b.js?v=abc&retry=2');
+  ok('and the first attempt adds nothing at all', join('./b.js?v=abc', 0) === './b.js?v=abc');
 }
 
 console.log('\ngraded as one photograph');

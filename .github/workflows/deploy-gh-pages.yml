@@ -51,6 +51,22 @@ jobs:
           # src/ is still published: the module fallback needs it, and so does
           # the online single-file edition.
           test -f _site/src/main.js
+          # Stamp the bundle's own fingerprint into the URL the page asks for.
+          #
+          # Without this the page requests `terraglide.bundle.js` at a URL that
+          # never changes, and GitHub Pages serves it with max-age=600. So for
+          # ten minutes after a deploy — longer on a phone that is holding the
+          # response for its own reasons — anyone who had opened the site
+          # recently keeps running the old three megabytes and sees none of the
+          # change. That has cost real time already: a fix was tested against
+          # code that did not contain it, twice.
+          #
+          # The fingerprint is over the sources, so an unchanged deploy keeps
+          # the same URL and the cache still does its job.
+          STAMP=$(grep -o '__TERRAGLIDE_BUNDLE__ = "[0-9a-f]*"' _site/terraglide.bundle.js | head -1 | grep -o '[0-9a-f]\{8,\}')
+          test -n "$STAMP"
+          sed -i "s|'./terraglide.bundle.js'|'./terraglide.bundle.js?v=$STAMP'|" _site/index.html
+          grep -q "terraglide.bundle.js?v=$STAMP" _site/index.html
           # Stop GitHub's Jekyll pass from touching plain static files.
           touch _site/.nojekyll
 
