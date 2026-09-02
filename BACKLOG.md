@@ -2060,6 +2060,62 @@ paragraph.
 
 ## G. Providers and 3D
 
+- [ ] G23. The photorealistic city is sitting about thirty metres too low
+      Found by chasing the flat pale plane in A24, and it is very likely the
+      root cause of that, of G22, and of some of what you photographed.
+
+      What the pictures show. Standing at Market Street, the lower half of the
+      frame is a featureless pale plane with the city behind it. Hiding the edge
+      wall changes nothing. Hiding the sea-floor sheet reveals downtown San
+      Francisco in full: roads, crossings, cars, pavements. So the sheet — a
+      disc at twelve metres below sea level that paints where the mask says sea
+      — is drawn in front of the streets. It should be far underneath them.
+
+      Why it is in front. Raycasting the photogrammetry (valid: those meshes are
+      placed by matrix and have no vertex-shader displacement, unlike the ground
+      and the wall) against the height field at the same points:
+
+        point        photogrammetry     height field    difference
+        200, 200          -26.6 m            6.8 m         33.4 m
+        -120, 80          -23.2 m            9.5 m         32.7 m
+
+      Two independent points agreeing at about thirty-three metres. The geoid to
+      ellipsoid separation at San Francisco is about thirty-two.
+
+      That is the whole explanation and it is a units mismatch, not a bug in any
+      one file. 3D Tiles are ECEF, which is ellipsoidal by definition. Terrarium
+      and SRTM heights are orthometric — metres above the geoid. The local frame
+      is built tangent to the ellipsoid, so the two are placed against different
+      surfaces and end up separated by the geoid height wherever you are. At San
+      Francisco that is thirty-two metres down. Globally the separation runs from
+      about -107 m to +85 m, so elsewhere it is worse and can be either way.
+
+      What it explains. The city's streets sit below a sheet at -12 m, so that
+      sheet covers them. You stand on the height field at street level while the
+      photogrammetric street is thirty metres beneath you, which puts you inside
+      the ground floor of a building — G22, and the grey mass in the first
+      photograph I took. And ground that ought to be photogrammetry reads as a
+      flat plane, which is "the terrain becomes flat".
+
+      What is not yet established. Two of the four sample points read about
+      -199 m rather than -26 m; those two are the pair nearest the spawn, which
+      is inside a building, and I have not explained them. And one city is one
+      city: the test that settles this is measuring the same difference at
+      several places whose geoid heights differ sharply — London is about +46 m,
+      the Maldives about -100 m — and seeing whether the difference tracks the
+      geoid or stays near thirty-three.
+
+      How it would be fixed. Either bring the terrain onto the ellipsoid or the
+      tiles onto the geoid; either way it needs a geoid model. EGM96 as a
+      compact spherical-harmonic set is real published data, a few hundred
+      coefficients, no network, and good to a few metres worldwide. The
+      alternative is deriving the offset at each anchor by measuring the loaded
+      photogrammetry against the height field, which needs no dataset but is
+      noisy because it has to tell a street from a roof.
+
+      Not started: this is a new subsystem rather than a tweak, and which of the
+      two it should be is worth a word from you first.
+
 - [ ] G22. In a photorealistic city you can stand inside a building
       Noticed while photographing the blur, not reported — so it goes in the
       record rather than being quietly fixed or quietly ignored.
