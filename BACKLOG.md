@@ -109,12 +109,36 @@ what is left · `[?]` needs a decision from you.
       that from a real plateau. It reached the game (the height at the old spike
       moved 918 to 895); it simply cannot see this.
 
-      What would see it is the dataset contradicting itself across zooms: the
-      same ground reads -2 m at zoom 10 and 913 m at zoom 11. That is two real
-      measurements disagreeing, so choosing between them invents nothing — but
-      the honest tolerance has to scale with local relief, since a coarse cell
-      in the Himalaya legitimately averages away hundreds of metres, and that is
-      a bigger calibration than this one. It is the next thing to try.
+      The cross-zoom idea was the obvious next thing, so it was built and
+      measured, and it failed twice over. Recorded here because it looked right
+      on paper and on the calibration, and was wrong in the game.
+
+      The idea: the dataset contradicts itself across zooms — the same ground
+      reads -2 m at zoom 10 and 913 m at zoom 11 — so prefer the coarse survey
+      where a fine cell departs from it by more than 300 m and more than ten
+      times the whole relief the coarse window covers. Calibrated on grids
+      subsampled exactly as the cache stores them, over forty-six places: the
+      twenty steepest faces on Earth plus twenty coastal cities with hills
+      behind them, which is the shape that produces the worst honest ratios.
+      Worst real ratio 6.23 at Anchorage, worst real departure 1,768 m at K2 but
+      at a ratio of 0.54; Reykjavik 66.5 and 26.2. Both thresholds had better
+      than fifty per cent margin.
+
+      In the running game it refused 496 cells at Anchorage and 8 at Wellington
+      — real ground, edited — and left Reykjavik at 895 m, exactly where it
+      started. Two lessons. A calibration on one tile per place says nothing
+      about a region: in play the check runs across hundreds of tiles at several
+      zoom pairings, so the worst case is far broader than any point sample
+      suggested. And the check cannot work here anyway, because it needs an
+      honest ancestor — over Reykjavik everything from zoom 11 down is wrong
+      together, so when the loaded ancestor is zoom 11 there is no contradiction
+      to find.
+
+      Reverted. A change that damages correct ground and does not fix the fault
+      is worse than the fault.
+
+      So Reykjavik stands unfixed and the honest remedy is a different dataset,
+      not a cleverer filter over this one.
 
       The other remedy is a different dataset: the provider list already carries
       Mapbox terrain-RGB, and the game will use it with a token. That is worth
