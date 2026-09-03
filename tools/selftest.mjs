@@ -6885,6 +6885,74 @@ console.log('\nthe provider is allowed to say what is wrong');
     budgets.length === 4 && budgets.every((n) => n >= 12) && budgets[3] > budgets[0]);
 }
 
+console.log('\nthe ground does not flicker to a flat colour');
+{
+  // uMap defaults to a white pixel, so a square with no photograph and nothing
+  // to stretch is drawn flat. evict() could take the photograph a tile was
+  // being drawn from in the very frame it was drawn: the second pass skipped
+  // only pending entries and said of itself that the protection was a
+  // preference rather than a promise, and the cover pass — which holds the
+  // coarse tiles everything else stretches from — had no protection at all.
+  const { ImageryStreamer, STATE_READY } = await import('../src/tiles/streamer.js');
+  const src = readFileSync(new URL('../src/tiles/streamer.js', import.meta.url), 'utf8');
+
+  ok('the shader really does draw a missing photograph as flat',
+    /uMap: \{ value: WHITE_PIXEL \}/.test(
+      readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8')));
+
+  const rig = (entries) => {
+    const r = {
+      frame: 100,
+      entries: new Map(entries.map((e) => [e.key, e])),
+      stats: {},
+      evict: ImageryStreamer.prototype.evict,
+      textureLimit: () => 2,
+    };
+    return r;
+  };
+  const entry = (key, { z = 14, used = 1, seen = 0, disposed = [] } = {}) => ({
+    key, tile: { z }, used, seen, state: STATE_READY,
+    texture: { dispose() { disposed.push(key); } },
+  });
+
+  // Four ordinary tiles, a limit of two, and one of them is on screen now.
+  const dropped = [];
+  const live = entry('live', { used: 100, disposed: dropped });   // this frame
+  const old1 = entry('old1', { used: 1, disposed: dropped });
+  const old2 = entry('old2', { used: 2, disposed: dropped });
+  const old3 = entry('old3', { used: 3, disposed: dropped });
+  const r = rig([live, old1, old2, old3]);
+  r.evict();
+  ok('what is on screen this frame is kept',
+    r.entries.has('live') && !dropped.includes('live'),
+    `dropped ${dropped.join(',') || 'nothing'}`);
+  ok('and the ones nothing is looking at go instead', dropped.length >= 2);
+
+  // The coarse tile everything stretches from is on screen too, by way of
+  // being the thing resolve() handed back.
+  const coverDropped = [];
+  const coverLive = entry('cover-live', { z: 5, used: 100, disposed: coverDropped });
+  const coverOld = entry('cover-old', { z: 5, used: 1, disposed: coverDropped });
+  const r2 = rig([coverLive, coverOld]);
+  r2.textureLimit = () => 99;
+  // Force the cover pool over its budget so the pass actually runs.
+  const budget = /const COVER_BUDGET = (\d+)/.exec(src);
+  ok('the cover pool has a budget worth guarding', Boolean(budget));
+  for (let i = 0; i < Number(budget[1]) + 2; i++) {
+    r2.entries.set(`filler${i}`, entry(`filler${i}`, { z: 5, used: 2, disposed: coverDropped }));
+  }
+  r2.evict();
+  ok('and a coarse tile being stretched right now is kept as well',
+    r2.entries.has('cover-live') && !coverDropped.includes('cover-live'),
+    `cover dropped ${coverDropped.length}`);
+  ok('while the cover pool still comes back under its budget',
+    coverDropped.length > 0);
+
+  ok('every pass goes through the one guard rather than disposing directly',
+    /const onScreen = \(entry\) => entry\.used === this\.frame/.test(src)
+    && !/(?<!if \()drop\(entry\);/.test(src));
+}
+
 console.log('\ngraded as one photograph');
 {
   const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');

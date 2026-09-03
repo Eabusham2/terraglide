@@ -922,9 +922,33 @@ export class ImageryStreamer extends Emitter {
     for (const entry of this.entries.values()) {
       (entry.tile.z <= COVER_ZOOM ? cover : rest).push(entry);
     }
+    /**
+     * Never take a photograph out from under the frame that is drawing it.
+     *
+     * `resolve` stamps `used` with the current frame on the one entry it hands
+     * back, so an entry stamped with *this* frame is on screen right now —
+     * either as a tile's own photograph or as the coarse one being stretched
+     * over it. Both passes below could drop those: the second skips only
+     * pending tiles and says of itself that the protection is a preference
+     * rather than a promise, and the cover pass has no protection at all.
+     *
+     * Dropping one is exactly the flicker to a flat plain colour. The comment
+     * above this function already describes the mechanism — "nothing to stretch
+     * means uHasTexture is zero, which is drawn as flat grey" — and then the
+     * eviction underneath it goes ahead and creates it.
+     *
+     * It cannot deadlock the budget: at most one entry per drawn tile carries
+     * the current frame, and the limit is floored at what the tier draws, by
+     * the reasoning in textureLimit. If a frame ever did protect everything,
+     * one frame over budget is worth incomparably more than a white flash, and
+     * the next eviction catches up as tiles leave the view.
+     */
+    const onScreen = (entry) => entry.used === this.frame;
     const drop = (entry) => {
+      if (onScreen(entry)) return false;
       if (entry.texture) entry.texture.dispose();
       this.entries.delete(entry.key);
+      return true;
     };
 
     let excess = rest.length - limit;
@@ -934,8 +958,7 @@ export class ImageryStreamer extends Emitter {
       for (const entry of rest) {
         if (excess <= 0) break;
         if (moment - (entry.seen ?? 0) < KEEP_SECONDS * 1000 || entry.state === STATE_PENDING) continue;
-        drop(entry);
-        excess--;
+        if (drop(entry)) excess--;
       }
       // Second pass: the protection is a preference, not a promise.
       //
@@ -961,8 +984,7 @@ export class ImageryStreamer extends Emitter {
           if (excess <= 0) break;
           if (entry.state === STATE_PENDING) continue;
           if (!this.entries.has(entry.key)) continue; // already dropped above
-          drop(entry);
-          excess--;
+          if (drop(entry)) excess--;
         }
       }
     }
@@ -975,8 +997,7 @@ export class ImageryStreamer extends Emitter {
       for (const entry of cover) {
         if (spare <= 0) break;
         if (entry.state === STATE_PENDING) continue;
-        drop(entry);
-        spare--;
+        if (drop(entry)) spare--;
       }
     }
   }

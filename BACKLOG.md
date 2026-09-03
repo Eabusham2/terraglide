@@ -20,6 +20,41 @@ paragraph.
 
 ## A. Stops you playing
 
+- [x] A28. It flickers to a flat plain colour
+      Found by reading rather than by watching, because this sandbox draws at
+      about one frame a second and cannot see a flicker that lasts a few frames
+      on your phone. Sixty-eight sampled frames caught nothing, which is a limit
+      of the instrument and not evidence of absence.
+
+      The ground shader's `uMap` defaults to a white pixel, so a square with no
+      photograph of its own and no coarser one to stretch is drawn flat. The
+      streamer's own comment already names this exactly — "nothing to stretch
+      means uHasTexture is zero, which is drawn as flat grey" — and then the
+      eviction directly underneath it went ahead and created the condition.
+
+      `resolve` stamps `used` with the current frame on the one entry it hands
+      back, so an entry carrying this frame is on screen right now, either as a
+      tile's own photograph or as the coarse one stretched over it. Eviction
+      could take those:
+
+        first pass    held anything seen in the last twenty seconds
+        second pass   skipped only pending entries, and says of itself that
+                      "the protection is a preference, not a promise"
+        cover pass    no protection at all — and cover is the pool everything
+                      else stretches from
+
+      So on a machine over its texture budget, a tile could have the photograph
+      it was being drawn from disposed in the frame it was drawn, and come out
+      white. Turn quickly and it is not one square, it is the view.
+
+      All three passes go through one guard now: an entry stamped with the
+      current frame is never dropped. It cannot deadlock the budget — at most
+      one entry per drawn tile carries the current frame, and textureLimit is
+      already floored at what the tier draws, for reasons its own comment sets
+      out. Tested with a limit of two against four tiles: the one on screen
+      survives and the others go; and a coarse tile being stretched right now
+      survives the cover pass while the pool still comes back under budget.
+
 - [~] A27. Flat, blurred ground on foot, with photorealistic 3D off
       You corrected me: this happens with 3D switched off, and I had wrongly
       folded it into the 3D work. Reproduced on the first try, standing in
