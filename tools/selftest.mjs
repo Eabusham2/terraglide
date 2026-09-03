@@ -6763,6 +6763,128 @@ console.log('\na deploy has to actually reach the machine that asks for it');
   ok('and the first attempt adds nothing at all', join('./b.js?v=abc', 0) === './b.js?v=abc');
 }
 
+console.log('\ngiving up is not the same as covering it');
+{
+  // traverse() returns "everything this subtree wants to draw is drawn", and a
+  // REPLACE parent stops drawing itself the moment its children all say yes.
+  // Four early exits answered yes when they meant "I gave up here": past the
+  // depth cap, an unreadable bounding volume, past the render distance, and no
+  // content. Each one is a parent dropped over ground nobody drew — a hole the
+  // exact shape of one tile, which is what the missing blocks in the city are.
+  const { Tiles3D } = await import('../src/world/tiles3d.js');
+  const THREE = await import('../vendor/three/three.module.js');
+  const { settings } = await import('../src/core/settings.js');
+
+  const probe = (loaded = []) => ({
+    budget: { sse: 16, active: 8, tilesets: 4 },
+    tilesets: new Map(),
+    loaded: new Map(loaded.map((u) => [u, {}])),
+    pending: new Set(),
+    copyrights: new Set(),
+    visible: new Set(),
+    wanted: [],
+    _matrix2: new THREE.Vector3(),
+    _ecefToLocal: new THREE.Matrix4(),
+    _camX: 0, _camZ: 0, _viewX: 1, _viewZ: 0,
+    requestTileset() {},
+    traverse: Tiles3D.prototype.traverse,
+    want: Tiles3D.prototype.want,
+  });
+  const cam = new THREE.Vector3(0, 0, 0);
+  const run = (rig, tree) => rig.traverse(tree, new THREE.Matrix4(), cam, 900, 1.2, 0);
+
+  // A parent whose children sit past the render distance. Its far half is never
+  // drawn, so letting it go leaves a hole there.
+  const reach = settings.get('renderDistanceKm') * 1000;
+  const straddling = {
+    boundingVolume: { sphere: [0, 0, 0, 500] },
+    geometricError: 900, refine: 'REPLACE', content: { uri: 'parent.glb' },
+    children: [
+      { boundingVolume: { sphere: [0, 0, 0, 100] }, geometricError: 2, content: { uri: 'near.glb' } },
+      { boundingVolume: { sphere: [reach * 4, 0, 0, 100] }, geometricError: 2, content: { uri: 'far.glb' } },
+    ],
+  };
+  const far = probe(['near.glb']);
+  const farReady = run(far, straddling);
+  ok('a child past the render distance does not claim to cover it',
+    !farReady && far.visible.has('parent.glb'), [...far.visible].join(','));
+
+  // Past the depth cap. Google's tree at street level goes deeper than the old
+  // cap of 24, counting the hops between tilesets, so this fired in ordinary
+  // play and every tile it stopped at was reported to its parent as covered.
+  const deep = probe();
+  const deepReady = deep.traverse(straddling, new THREE.Matrix4(), cam, 900, 1.2, 900);
+  ok('and neither does giving up at the depth cap', deepReady === false);
+
+  const src = readFileSync(new URL('../src/world/tiles3d.js', import.meta.url), 'utf8');
+  const cap = /const MAX_DEPTH = (\d+)/.exec(src);
+  ok(`the cap is a runaway guard rather than a limit hit in play  (${cap && cap[1]})`,
+    cap && Number(cap[1]) >= 48);
+
+  // A bounding volume in a shape we cannot read.
+  const unreadable = probe();
+  const unreadableReady = run(unreadable, {
+    boundingVolume: { nonsense: true }, geometricError: 900, content: { uri: 'x.glb' },
+  });
+  ok('an unreadable bounding volume does not claim to cover it either',
+    unreadableReady === false);
+
+  // And the case that must still answer yes, or a parent is drawn for ever.
+  const arrived = probe(['near.glb', 'far.glb']);
+  const closeTree = {
+    boundingVolume: { sphere: [0, 0, 0, 500] },
+    geometricError: 900, refine: 'REPLACE', content: { uri: 'parent.glb' },
+    children: [
+      { boundingVolume: { sphere: [-200, 0, 0, 100] }, geometricError: 2, content: { uri: 'near.glb' } },
+      { boundingVolume: { sphere: [200, 0, 0, 100] }, geometricError: 2, content: { uri: 'far.glb' } },
+    ],
+  };
+  ok('children that really did arrive still release the parent',
+    run(arrived, closeTree) === true && !arrived.visible.has('parent.glb'));
+}
+
+console.log('\nthe provider is allowed to say what is wrong');
+{
+  // Google answers a bad key with 400, not 401 or 403, so every real key
+  // problem came out as "root 400" — a number that tells you nothing and points
+  // nowhere. Confirmed against the live endpoint: no key gives 403 "Method
+  // doesn't allow unregistered callers", a bad key gives 400 "API key not
+  // valid". The commonest real answer is that the Map Tiles API was never
+  // enabled on the project, which names the project and the fix.
+  const { explain, rebase } = await import('../src/world/tiles3d.js');
+  const answer = (status, body) => new Response(JSON.stringify(body), { status });
+
+  ok('Google\'s own words come through',
+    (await explain(answer(400, { error: { message: 'API key not valid. Please pass a valid API key.' } })))
+      === 'API key not valid. Please pass a valid API key.');
+  ok('and so does the one that names the API to switch on',
+    /Map Tiles API has not been used/.test(
+      await explain(answer(403, { error: { message: 'Map Tiles API has not been used in project 12345 before or it is disabled.' } }))));
+  ok('a body with nothing useful falls back to something readable',
+    (await explain(new Response('', { status: 500 }))) === 'the tileset server answered 500');
+  ok('and a refusal still says it is the key',
+    (await explain(new Response('', { status: 403 }))) === 'that key was refused');
+
+  // A child tileset's contents are relative to that tileset, not to the root.
+  const tree = {
+    content: { uri: 'a.glb' },
+    children: [{ content: { uri: 'sub/b.glb' } }, { content: { url: '../c.glb' } }],
+  };
+  rebase(tree, 'https://tiles.example.com/deep/set.json?session=abc');
+  ok('a child tileset\'s contents resolve against itself',
+    tree.content.uri === 'https://tiles.example.com/deep/a.glb'
+    && tree.children[0].content.uri === 'https://tiles.example.com/deep/sub/b.glb'
+    && tree.children[1].content.url === 'https://tiles.example.com/c.glb',
+    tree.content.uri);
+
+  // Enough in flight to be worth having on a connection that multiplexes.
+  const src = readFileSync(new URL('../src/world/tiles3d.js', import.meta.url), 'utf8');
+  const budgets = [...src.matchAll(/(low|medium|high|ultra): \{[^}]*active: (\d+)/g)]
+    .map((m) => Number(m[2]));
+  ok(`the request budget is not a leftover HTTP/1.1 six  (${budgets.join(', ')})`,
+    budgets.length === 4 && budgets.every((n) => n >= 12) && budgets[3] > budgets[0]);
+}
+
 console.log('\ngraded as one photograph');
 {
   const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');

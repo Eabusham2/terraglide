@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta name="terraglide-sources" content="bbfd42d27a382ef4">
+<meta name="terraglide-sources" content="8805c37096437bc7">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
 <meta name="color-scheme" content="dark light" />
@@ -112846,11 +112846,26 @@ const ION_ENDPOINT = 'https://api.cesium.com/v1/assets';
  * than one hard-coded compromise.
  */
 const DETAIL = {
-  low: { sse: 48, loaded: 90, active: 4, tilesets: 3 },
-  medium: { sse: 32, loaded: 160, active: 6, tilesets: 4 },
-  high: { sse: 24, loaded: 220, active: 6, tilesets: 4 },
-  ultra: { sse: 16, loaded: 340, active: 8, tilesets: 6 },
+  low: { sse: 48, loaded: 90, active: 12, tilesets: 6 },
+  medium: { sse: 32, loaded: 160, active: 20, tilesets: 8 },
+  high: { sse: 24, loaded: 220, active: 28, tilesets: 10 },
+  ultra: { sse: 16, loaded: 340, active: 40, tilesets: 14 },
 };
+/*
+ * Why those numbers went up, and an admission.
+ *
+ * They were four to eight, and they were never a real limit: the slot was
+ * released fifty milliseconds after a request *started*, so the pipe was
+ * effectively unbounded and full of duplicate requests for tiles already on
+ * their way. Fixing that made the number mean what it says — and turned an
+ * unbounded pipe into a strictly-six one, which on a phone is slower than what
+ * it replaced. That is my doing and this is the correction.
+ *
+ * Six is the browser's per-host limit for HTTP/1.1. Both of these servers speak
+ * HTTP/2, where requests are multiplexed over one connection and a few dozen in
+ * flight is ordinary rather than aggressive. With duplicates actually
+ * suppressed there is nothing to gain from holding the queue back.
+ */
 /**
  * Why descending the tree has its own slots rather than sharing the content
  * ones.
@@ -112913,6 +112928,17 @@ const KEEP_AFTER_SIGHT_MS = 15000;
  * over the next second instead of stopping for it.
  */
 const RESHARPEN_PER_FRAME = 8;
+/**
+ * How deep the walk may go before it is treated as runaway.
+ *
+ * This counts tiles and the hops between the tilesets they are spread across,
+ * both. Google's photorealistic tree reaches street level well past twenty-four
+ * of those, which is what the cap used to be, so it was being hit in ordinary
+ * play and every tile it stopped at was reported to its parent as covered.
+ * Sixty-four is still a guard against a cyclic tileset and is far past anything
+ * a real tree uses.
+ */
+const MAX_DEPTH = 64;
 /**
  * Putting the photogrammetry on the same vertical datum as the ground.
  *
@@ -113003,6 +113029,47 @@ const CONNECT_TIMEOUT_MS = 15000;
 function asMaterials(material) {
   if (!material) return [];
   return Array.isArray(material) ? material : [material];
+}
+
+/**
+ * Make a fetched tileset's content URIs absolute against its own URL.
+ *
+ * Walks the tile tree once, when it lands, so nothing downstream has to know
+ * which tileset a tile came from.
+ */
+function rebase(tile, base) {
+  if (!tile) return;
+  const content = tile.content;
+  const uri = content?.uri ?? content?.url;
+  if (uri) {
+    try {
+      const absolute = new URL(uri, base).toString();
+      if (content.uri !== undefined) content.uri = absolute;
+      else content.url = absolute;
+    } catch { /* leave it alone rather than replace it with something worse */ }
+  }
+  for (const child of tile.children ?? []) rebase(child, base);
+}
+
+/**
+ * Say what actually went wrong, in the provider's own words where it has any.
+ *
+ * Both APIs answer failures with a JSON body containing a plain-English reason.
+ * Throwing away the reason and reporting the status code turned "the Map Tiles
+ * API has not been used in project 12345 before or it is disabled" — which
+ * names the project and the fix — into "root 400".
+ */
+async function explain(response) {
+  let detail = '';
+  try {
+    const body = await response.clone().json();
+    detail = body?.error?.message || body?.message || '';
+  } catch {
+    try { detail = (await response.text()).slice(0, 300); } catch { detail = ''; }
+  }
+  if (detail) return detail.replace(/\s+/g, ' ').trim();
+  if (response.status === 401 || response.status === 403) return 'that key was refused';
+  return `the tileset server answered ${response.status}`;
 }
 
 /** fetch that gives up rather than hanging. */
@@ -113175,7 +113242,7 @@ class Tiles3D {
           throw new Error(
             endpoint.status === 401 || endpoint.status === 403
               ? 'Cesium ion rejected that token'
-              : `ion ${endpoint.status}`,
+              : `Cesium ion: ${await explain(endpoint)}`,
           );
         }
         const grant = await endpoint.json();
@@ -113213,11 +113280,13 @@ class Tiles3D {
 
       const response = await fetchWithin(rootUrl, { headers: this.headers() });
       if (!response.ok) {
-        throw new Error(
-          response.status === 401 || response.status === 403
-            ? 'that key was refused'
-            : `root ${response.status}`,
-        );
+        // Google answers a bad key with 400, not 401 or 403, so every real
+        // key problem came out as "root 400" — a number that tells you
+        // nothing and points nowhere. It also says exactly what is wrong in
+        // the body, and the commonest answer by far is that the Map Tiles API
+        // has never been enabled on that project, which is a thing you fix in
+        // the Cloud console and could not possibly guess from a status code.
+        throw new Error(await explain(response));
       }
       const tileset = await response.json();
       this.root = tileset.root;
@@ -113550,21 +113619,39 @@ class Tiles3D {
    * go now once the tiles that replace it are really there.
    */
   traverse(tile, parentTransform, cameraEcef, screenHeight, fov, depth) {
-    if (!tile || depth > 24) return true;
+    // The return value means "everything this subtree wants to draw is drawn",
+    // and a REPLACE parent stops drawing itself the moment its children all say
+    // yes. So every early exit that answers `true` is a parent dropped over
+    // ground nobody drew — a hole exactly the shape of one tile.
+    //
+    // There were four of them: past the depth cap, an unreadable bounding
+    // volume, past the render distance, and no content. The first three are
+    // "I gave up here", which is the opposite of "I covered this", and they are
+    // why whole blocks of the city are missing with a flat plate underneath.
+    // They answer `false` now, so the coarse parent keeps drawing — which is
+    // the rule the rest of this function already follows.
+    if (!tile) return true;
+    // And the cap itself was far too shallow. Depth counts tiles *and* the hops
+    // between the tilesets they are spread across, and Google's tree at street
+    // level is deeper than twenty-four of those combined, so the cap was being
+    // hit in ordinary play rather than as the runaway guard it is meant to be.
+    if (depth > MAX_DEPTH) return false;
 
     const transform = tile.transform
       ? new THREE.Matrix4().fromArray(tile.transform).premultiply(parentTransform)
       : parentTransform.clone();
 
     const sphere = boundingSphereOf(tile.boundingVolume);
-    if (!sphere) return true;
+    if (!sphere) return false;
 
     const centre = new THREE.Vector3(sphere.x, sphere.y, sphere.z).applyMatrix4(transform);
     const distance = Math.max(1, centre.distanceTo(cameraEcef) - sphere.radius);
 
-    // Beyond the render distance there is no point even considering it.
+    // Beyond the render distance there is no point even considering it — but
+    // saying so is not the same as covering it, and a parent that straddles the
+    // edge used to be dropped over the half that was never drawn.
     const reach = settings.get('renderDistanceKm') * 1000;
-    if (distance > reach) return true;
+    if (distance > reach) return false;
 
     const error = screenSpaceError(tile.geometricError ?? 0, distance, screenHeight, fov);
     const wantsChildren = error > this.budget.sse && Array.isArray(tile.children) && tile.children.length > 0;
@@ -113630,6 +113717,12 @@ class Tiles3D {
         return response.json();
       })
       .then((json) => {
+        // A child tileset's contents are relative to *that* tileset, not to the
+        // root. Resolving them against the root works for Google, whose URIs are
+        // absolute paths, and is wrong for anything that uses relative ones —
+        // including ion's own OSM Buildings, which this offers in the settings.
+        // Fixing it here means everything downstream sees absolute URIs.
+        rebase(json.root, this.absolute(uri));
         this.tilesets.set(uri, json);
         this.refused.delete(uri);
         if (json.asset?.copyright) this.copyrights.add(json.asset.copyright);
@@ -113832,6 +113925,8 @@ function stripTags(html) {
 }
 
 __tg_exports["ION_ASSETS"] = ION_ASSETS;
+__tg_exports["rebase"] = rebase;
+__tg_exports["explain"] = explain;
 __tg_exports["Tiles3D"] = Tiles3D;
 };
 // Everything the game loads on demand is in here too. Code that would say
