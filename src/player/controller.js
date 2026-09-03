@@ -567,26 +567,46 @@ export class PlayerController {
     // gave up and dropped you through the world. The mesh is what exists.
     if (this.terrain.meshHeightAt) {
       const drawn = this.terrain.meshHeightAt(x, z);
-      // Normally the higher of the two, which is the rule that stops the field
-      // reading sea level and dropping you through a mountain.
+      // Where there is a drawn surface, that *is* the ground. Not the higher of
+      // the two, which is what it used to be.
       //
-      // While the ground is settling, the drawn surface wins outright. Fresh
-      // elevation steps the field instantly and walks the surface over a third
-      // of a second, so taking the higher one means an upward correction lifts
-      // you the moment it lands while the hillside is still on its way up —
-      // you stand on nothing, above the imagery, until it catches up. Measured
-      // over two and a half minutes of flight: 55 corrections of more than a
-      // metre, 45 of more than five, the biggest 82.8 m. That is "floating on
-      // invisible ground" and, as the surface arrives under you, "the player
-      // glitches down".
-      const settling = this.terrain.settlingAt?.(x, z) ?? false;
-      if (drawn !== null && (settling || drawn > ground)) ground = drawn;
+      // The two answers are the same data at different ages. The field steps to
+      // new elevation the instant a tile lands; the mesh is rebuilt from it
+      // afterwards and then walks to the new heights over a third of a second.
+      // So the field is always the one running ahead, and "take the higher"
+      // meant "take the one that has not been drawn yet" every time the ground
+      // was getting taller.
+      //
+      // Traced live over a stationary player while the relief streamed in,
+      // sampling both twice a second:
+      //
+      //   t=35.9  field 227.25   mesh 172.16   elevation zoom 7
+      //   t=37.4  field 397.87   mesh 227.25   elevation zoom 7
+      //   t=57.8  field 377.03   mesh 384.70   elevation zoom 9
+      //   t=85.5  field 374.00   mesh 375.23   elevation zoom 13
+      //   t=119.2 field 373.88   mesh 374.00   elevation zoom 14
+      //
+      // The mesh is one refinement behind the field at every step, and the
+      // field's biggest single jump was 170.62 m. Under the old rule the player
+      // stood at 397.87 while the ground beneath them was drawn at 227.25 —
+      // a hundred and seventy metres up, on nothing. Then the mesh caught up
+      // and they dropped. That is "the ground moves up and down", "terrain goes
+      // away then moves back up", and the small steps at the end of that trace
+      // — 375.23, 374.00, 373.88 — are the "small height gaps".
+      //
+      // Standing on the drawn surface cannot produce that gap in either
+      // direction, because there is only one surface left in the answer. When
+      // the mesh refines it morphs, and the player rides the morph.
+      if (drawn !== null) {
+        ground = drawn;
+        this.lastKnownFloor = ground;
+      }
       // Nothing drawn here at all — the tile has not been built yet. Sea level
       // is a guess, and it is the one guess that drops you inside a mountain,
       // so carry the last floor we actually stood on instead until the ground
       // arrives. Only while it is genuinely unknown: real sea is measured, and
       // measured sea reads as data.
-      else if (drawn === null && !this.terrain.hasElevationAt(x, z)) {
+      else if (!this.terrain.hasElevationAt(x, z)) {
         if (Number.isFinite(this.lastKnownFloor)) ground = Math.max(ground, this.lastKnownFloor);
       } else {
         this.lastKnownFloor = ground;

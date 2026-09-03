@@ -1301,19 +1301,6 @@ export class Terrain {
     return best;
   }
 
-  /**
-   * True while the ground under a point is still walking to a new height.
-   *
-   * Anything standing on the ground needs this: for the third of a second a
-   * correction takes, the elevation field has already stepped and the surface
-   * has not, so the two are different answers and only one of them is the one
-   * you can see.
-   */
-  settlingAt(x, z) {
-    const node = this.nodeAt(x, z);
-    return !!node && (node.material?.uniforms?.uMorph?.value ?? 1) < 1;
-  }
-
   meshHeightAt(x, z) {
     const best = this.nodeAt(x, z);
     if (!best) return null;

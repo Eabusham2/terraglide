@@ -604,6 +604,90 @@ console.log('\nand then asks who is really deepest where you are standing');
   ok('winning by staying put is not a swap', told === 0);
 }
 
+console.log('\nyou stand on the ground you can see, and the hold lets go of you');
+{
+  const THREE = await import('../vendor/three/three.module.js');
+  const { PlayerController } = await import('../src/player/controller.js');
+
+  // The field and the mesh are the same data at different ages: the field
+  // steps the instant a tile lands, the mesh is rebuilt from it afterwards.
+  // Traced live over a stationary player, the mesh was one refinement behind
+  // the field at every step and the field's biggest jump was 170.62 m.
+  const ages = { field: 397.87, mesh: 227.25 };
+  const terrain = {
+    heightAt: () => ages.field,
+    meshHeightAt: () => ages.mesh,
+    hasElevationAt: () => true,
+    settlingAt: () => false,
+  };
+  const player = {
+    position: new THREE.Vector3(),
+    velocity: new THREE.Vector3(),
+    radius: 0.35, height: 1.8, scale: 1,
+  };
+  const controller = new PlayerController({ player, terrain, buildings: null });
+
+  const stood = controller.groundHeightAt(0, 0, 500);
+  ok(`the drawn surface is the floor, not the field running ahead of it  (${stood})`,
+    stood === 227.25);
+  ok('which is a hundred and seventy metres of not standing on nothing',
+    Math.abs(ages.field - stood) > 170);
+
+  // And the other direction, which is the one the old rule got right: a field
+  // reading sea level because nothing has arrived must not drop you through a
+  // mountain that is drawn.
+  ages.field = 0;
+  ages.mesh = 400;
+  ok('a drawn mountain still wins over a field that has no data yet',
+    controller.groundHeightAt(0, 0, 500) === 400);
+
+  // Nothing drawn at all, and no elevation either: carry the last real floor
+  // rather than guessing sea level.
+  ages.mesh = null;
+  terrain.hasElevationAt = () => false;
+  ok('and with nothing drawn and nothing known, the last real floor is kept',
+    controller.groundHeightAt(0, 0, 500) === 400);
+}
+
+console.log('\nthe arrival hold is released by the branch that calls it');
+{
+  // releaseSettle was guarded on `settling` being true, and the game loop calls
+  // it from the one branch where `settling` is false. So the only call that
+  // ever reached the body was the early one from a keypress; when the hold
+  // ended on its own cap instead, `arrivalHeld` stayed true for the rest of the
+  // session. `settling` is `arrivalHeld && !groundIsReal && within the cap`, so
+  // a stuck latch means every dip in groundIsReal switches the hold back on and
+  // re-pins the player to a held height.
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  const body = game.slice(game.indexOf('  releaseSettle() {'));
+  const guard = body.slice(0, body.indexOf('\n  }'));
+  ok('it no longer refuses to run when the hold is not active',
+    !/if \(!this\.settling\) return;/.test(guard));
+  ok('and it guards on there being a hold to release instead',
+    /if \(!this\.arrivalHeld && !this\.settleUntil\) return;/.test(guard));
+  ok('the loop calls it from the branch where settling is false',
+    /} else {\n\s*this\.releaseSettle\(\);/.test(game));
+}
+
+console.log('\nthe first spawn of all is not mid-flight');
+{
+  // "Arrive doing what you were doing" reads what you were doing off the
+  // player: `!onGround || elytraDeployed`. A player who has existed for one
+  // frame and touched nothing is not on the ground, so a brand new save read as
+  // flying and was dropped SPAWN_HEIGHT_M up — over ground that had not
+  // streamed in, which is why looking down at spawn showed a void.
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  ok('the first spawn says it was not flying',
+    /randomTeleport\(\{ quiet: true, flying: false, reason: 'spawn' \}\)/.test(game));
+  ok('and randomTeleport passes that through to the teleport',
+    /randomTeleport\(\{ quiet = false, flying, reason = 'rtp' \} = \{\}\)/.test(game)
+    && /teleportTo\(destination\.lat, destination\.lon, \{ reason, quiet: true, flying \}\)/.test(game));
+  // The rule it feeds: `airborne` only when the setting is on AND you were
+  // flying. flying:false must therefore land you on your feet.
+  ok('and the sky-spawn rule reads that flag for a spawn',
+    /reason === 'spawn' \? flyingBefore/.test(game));
+}
+
 console.log('\nthe scanned city is something you stand on, not something you fall through');
 {
   const THREE = await import('../vendor/three/three.module.js');
@@ -8350,14 +8434,16 @@ console.log('\nThe floor is the ground you can see, while it is still moving');
   ok('a tile that is not settling is untouched',
     terrain.drawnY(plain, hit) === 100);
 
-  // And the controller has to prefer the drawn surface while it moves, or the
-  // "take the higher of the two" rule lifts you to the new height the instant
-  // it lands and leaves you above the hillside until it arrives.
+  // And the controller stands on the drawn surface outright — not "the higher
+  // of the two", and not "the drawn one only while it is moving". Both of
+  // those leave the player at a height that is not drawn anywhere: the field
+  // runs ahead of the mesh at every refinement, so taking the higher one takes
+  // the undrawn one every time the ground gets taller.
   const controllerSrc = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');
-  ok('the controller asks whether the ground is settling',
-    /const settling = this\.terrain\.settlingAt\?\.\(x, z\) \?\? false;/.test(controllerSrc));
-  ok('and lets the drawn surface win while it is',
-    /if \(drawn !== null && \(settling \|\| drawn > ground\)\) ground = drawn;/.test(controllerSrc));
+  ok('the controller stands on the drawn surface whenever there is one',
+    /if \(drawn !== null\) \{\n\s*ground = drawn;/.test(controllerSrc));
+  ok('and nothing asks whether the ground is settling any more',
+    !/settlingAt/.test(controllerSrc));
 }
 
 console.log('\nEvery hand-written shader writes depth on the same scale');

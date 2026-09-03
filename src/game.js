@@ -816,7 +816,17 @@ export class Game {
       // First run: somewhere new, not the same Swiss valley for everybody
       // forever. The same search a random teleport uses, so it lands on
       // land, near something, and not in the middle of an ocean.
-      await this.patiently(this.randomTeleport({ quiet: true }));
+      //
+      // On your feet, and this is the whole of that bug. "Arrive doing what you
+      // were doing" reads what you were doing off the player — `!onGround ||
+      // elytraDeployed` — and a player who has existed for one frame and has
+      // never touched anything is not on the ground, so a brand new save was
+      // read as *mid-flight* and dropped four hundred and twenty metres up.
+      // Over ground that has not streamed in yet, which is why looking down
+      // there showed a void and read as having been teleported somewhere
+      // empty. There is no before on the first spawn; standing is the honest
+      // answer to a question with no answer.
+      await this.patiently(this.randomTeleport({ quiet: true, flying: false, reason: 'spawn' }));
     }
 
     this.running = true;
@@ -1351,7 +1361,24 @@ export class Game {
    * window did nothing at all. Anything you press now ends it instead.
    */
   releaseSettle() {
-    if (!this.settling) return;
+    // Guarded on there being a hold to release, not on the hold still being
+    // *active*. It used to read `if (!this.settling) return`, and the loop
+    // calls this from the one branch where `settling` is false — so the only
+    // call that ever reached the body was the early one, from a keypress. When
+    // the hold ended on its own cap instead, nothing released it: `arrivalHeld`
+    // stayed true for the rest of the session, `_holdY` was never handed back,
+    // and `finishArrival` never ran.
+    //
+    // That latch is what pins you in the air. `settling` is
+    // `arrivalHeld && !groundIsReal && within the cap`, and `groundIsReal`
+    // flaps — traced live, it went true at 54.8 s, false at 64.3 s, true again
+    // at 65.5 s as tiles refined under a stationary player. With `arrivalHeld`
+    // stuck on, every one of those dips switched the hold back on, and
+    // `settle()` pinned the player to a `_holdY` that rises with the ground and
+    // never sinks with it. Measured: held at 4065.37 m with the ground at
+    // 4070.58 m and the velocity zeroed every frame — which is exactly "I
+    // cannot stop flying", and it is not flight at all.
+    if (!this.arrivalHeld && !this.settleUntil) return;
     this.settleUntil = 0;
     this.arrivalHeld = false;
     // Hand over at exactly the height we were holding, so the release is not
@@ -1593,13 +1620,20 @@ export class Game {
     if (slow) this.onStatus('Still looking for the map — starting anyway');
   }
 
-  async randomTeleport({ quiet = false } = {}) {
+  /**
+   * @param {object} [options]
+   * @param {boolean} [options.flying] what you were doing before, for the
+   *   arrivals where the player object cannot say — the first spawn of all,
+   *   where there is no before.
+   * @param {string} [options.reason]
+   */
+  async randomTeleport({ quiet = false, flying, reason = 'rtp' } = {}) {
     if (this.rtpBusy) return;
     this.rtpBusy = true;
     if (!quiet) this.toast('Looking for somewhere to land…');
     try {
       const destination = await pickRandomDestination({ waterMap });
-      await this.teleportTo(destination.lat, destination.lon, { reason: 'rtp', quiet: true });
+      await this.teleportTo(destination.lat, destination.lon, { reason, quiet: true, flying });
       const where = formatLatLon(destination.lat, destination.lon, 4);
       if (quiet) {
         /* the first arrival of a session announces itself in the HUD already */
