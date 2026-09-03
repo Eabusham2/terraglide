@@ -20,6 +20,59 @@ paragraph.
 
 ## A. Stops you playing
 
+- [~] A26. Missing buildings, a flat floor, and "why so slow"
+      You drew circles on my own screenshots. They were my screenshots, on
+      current code, and I had described that view as rendering properly. It was
+      not, and the right thing was to look rather than to explain it away.
+
+      Four faults, and one of them was mine.
+
+      1. traverse() returns "everything this subtree wants to draw is drawn",
+         and a REPLACE parent stops drawing itself the moment its children all
+         say yes. Four early exits answered yes when they meant "I gave up
+         here": past the depth cap, an unreadable bounding volume, past the
+         render distance, and no content. Each is a parent dropped over ground
+         nobody drew — a hole the exact shape of one tile. They answer no now.
+
+      2. The depth cap was 24, and depth counts tiles *and* the hops between
+         the tilesets they are spread across. Google's tree reaches street
+         level well past that, so the cap was firing in ordinary play rather
+         than as the runaway guard it is meant to be, and every tile it stopped
+         at was reported to its parent as covered. 64 now.
+
+      3. Google answers a bad key with 400, not 401 or 403 — checked against
+         the live endpoint, along with 403 "Method doesn't allow unregistered
+         callers" for no key at all. Only 401 and 403 were special-cased, so
+         every real key problem came out as "root 400". Google says exactly
+         what is wrong in the body, and the commonest answer names the project
+         and the API you have to enable. It comes through now, ion's too. Also
+         a child tileset's contents were resolved against the root rather than
+         against that tileset — fine for Google, whose URIs are absolute, wrong
+         for ion's OSM Buildings, which this offers in the settings.
+
+      4. The slowness was mine. The request budget was 4 to 8 and was never a
+         real limit, because the slot was released fifty milliseconds after a
+         request started. Fixing that made the number mean what it says — and
+         turned an unbounded pipe into a strictly-six one, which on a phone is
+         slower than what it replaced. Six is the HTTP/1.1 per-host limit and
+         both these servers speak HTTP/2. 12 to 40 now.
+
+      Measured at the viewpoint you circled, 120 m over Market Street:
+
+                        before            after
+        at 60 s         48 loaded         272 loaded, 116 tilesets, 390k tris
+        settled         253 drawn         331 drawn, 420 meshes, 478k tris
+
+      And looked at, which is the part I skipped last time: solid buildings to
+      the ground, no missing blocks, no flat plate. One small green patch
+      remains near the centre of the frame that I have not chased.
+
+      Still `[~]`: the datum estimator drifted from 32.4 to 38.6 over that run,
+      against a known 32.8, so it is picking up something it should not — a roof
+      cluster, most likely. And "the terrain goes flat" you have seen with
+      photorealistic 3D switched *off*, which none of this touches and which I
+      had wrongly folded into the 3D work.
+
 - [x] A25. "wtf is this" — a screenshot of code that had already been fixed
       You sent a phone screenshot of Stevenson Street filled with huge grey
       slabs. Reproduced at your exact coordinates, on foot, facing NE 45 as your
