@@ -1045,6 +1045,79 @@ console.log('\nthe scanned city is something you stand on, not something you fal
     Math.abs(player.position.x - 6.2) < 0.01);
 }
 
+console.log('\na banked wing turns the flight path, not just the head');
+{
+  const THREE = await import('../vendor/three/three.module.js');
+  const { PlayerController } = await import('../src/player/controller.js');
+
+  const flat = { heightAt: () => 0, meshHeightAt: () => null, hasElevationAt: () => true };
+  const makePlayer = () => ({
+    position: new THREE.Vector3(0, 500, 0),
+    renderPosition: new THREE.Vector3(0, 500, 0),
+    velocity: new THREE.Vector3(0, 0, -40),
+    radius: 0.35, height: 1.8, scale: 1,
+    yaw: 0, pitch: 0, roll: 0.6,
+    onGround: false, swimming: false, elytraDeployed: true,
+    horizontalSpeed: 40, airborneSeconds: 0, groundSlope: 0, groundBank: 0,
+    rockets: [], rocketTicksLeft: 0, speedBlend: 1,
+    lookVector(out = new THREE.Vector3()) {
+      const cp = Math.cos(this.pitch);
+      return out.set(cp * Math.sin(this.yaw), Math.sin(this.pitch), -cp * Math.cos(this.yaw));
+    },
+    burnRockets() {}, tickTimers() {}, snapRender() {}, syncGeo() {},
+  });
+
+  const player = makePlayer();
+  const controller = new PlayerController({ player, terrain: flat, buildings: null });
+  const look = new THREE.Vector3();
+  const none = { forward: 0, right: 0, up: 0, sprint: false, crouch: false, jump: false };
+  const slip = () => {
+    player.lookVector(look);
+    const v = player.velocity.clone().normalize();
+    return (Math.acos(Math.max(-1, Math.min(1, look.dot(v)))) * 180) / Math.PI;
+  };
+  const trace = [];
+  for (let t = 0; t < 40; t++) {
+    // update() is what refreshes this each frame; tickGlide reads it. Feeding
+    // it a stale one is a broken measurement, not a broken game — that mistake
+    // was made once here and reported 54.9 degrees where the truth was 13.0.
+    player.lookVector(controller.look);
+    controller.tickGlide(1 / 20, none);
+    player.horizontalSpeed = Math.hypot(player.velocity.x, player.velocity.z);
+    trace.push(slip());
+  }
+
+  const settled = trace[trace.length - 1];
+  // Before this, banking moved yaw alone and left the momentum where it was:
+  // the slip climbed to 13.0 degrees and the speed fell 40.0 to 33.5. What is
+  // left is the glider's own sink angle — a wing in a steady glide always
+  // meets the air slightly nose-up — so it settles rather than growing.
+  ok(`the slip settles small  (${settled.toFixed(1)} deg, was 13.0)`, settled < 7);
+  ok('and it settles rather than growing',
+    Math.abs(trace[trace.length - 1] - trace[trace.length - 6]) < 0.2);
+  ok(`the turn still happens  (yaw ${((player.yaw * 180) / Math.PI).toFixed(0)} deg after two seconds)`,
+    player.yaw > 0.7 && player.yaw < 1.1);
+  ok(`and it costs less speed  (${player.velocity.length().toFixed(1)} m/s, was 33.5)`,
+    player.velocity.length() > 34.5);
+
+  // A pure rotation about the vertical does no work: banking cannot be a way
+  // of gaining speed, whichever way you roll.
+  {
+    const p = makePlayer();
+    const c = new PlayerController({ player: p, terrain: flat, buildings: null });
+    p.roll = -0.6;
+    let top = 40;
+    for (let t = 0; t < 400; t++) {
+      p.lookVector(c.look);
+      c.tickGlide(1 / 20, none);
+      p.horizontalSpeed = Math.hypot(p.velocity.x, p.velocity.z);
+      top = Math.max(top, p.velocity.length());
+    }
+    ok(`rolling the other way for twenty seconds gains nothing  (peak ${top.toFixed(1)} m/s)`,
+      top <= 40.001);
+  }
+}
+
 console.log('\na firework may turn you and may not brake you');
 {
   const { stepRocket, stepGlide, rocketTicks, rocketPowerFor } = await import('../src/player/elytra.js');

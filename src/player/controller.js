@@ -252,7 +252,49 @@ export class PlayerController {
     // turns nothing, and capped so a full inversion does not spin you.
     if (player.roll) {
       const bite = Math.min(1, player.horizontalSpeed / 28);
-      player.yaw += Math.sin(player.roll) * BANK_TURN * bite * step;
+      const swing = Math.sin(player.roll) * BANK_TURN * bite * step;
+      player.yaw += swing;
+      /*
+        And the velocity comes round with it. This is the whole of the turn.
+
+        It used to move `yaw` alone — where you are *looking* — and leave the
+        momentum pointing wherever it already pointed. A banked wing does not
+        turn your head, it curves your flight path; turning only the head means
+        you end up looking one way and travelling another, which is a slip, not
+        a turn. Driving the real tickGlide through two seconds of a 0.6 rad
+        bank at 40 m/s, and measuring the angle between the look vector and the
+        velocity:
+
+                        before            after
+          t=0.4          7.8 deg          2.9 deg
+          t=0.8         11.0              4.0
+          t=1.2         12.2              4.5
+          t=1.6         12.8              4.7
+          t=2.0         13.0              4.8
+          speed      40.0 -> 33.5      40.0 -> 35.2
+
+        Thirteen degrees of permanent slip, and the speed goes with it: the
+        glide is computing lift and drag for a wing that is not pointing along
+        the airflow. What is left afterwards is the glider's own sink angle,
+        which is not slip at all — a wing in a steady glide always meets the
+        air slightly nose-up, and 4.8 degrees is that, settling rather than
+        growing.
+
+        It compounded with the firework, too. A rocket lit while looking far
+        enough off your line of travel used to brake you hard, and a turn was
+        what put you at that angle — so banking and then lighting one hit both
+        faults at once, which is "turning breaks".
+
+        A pure rotation about the vertical, so it redirects and never adds:
+        lift turns a flight path, it does not do work on it. The vertical
+        component is left alone because a yaw turn is horizontal.
+      */
+      const cos = Math.cos(swing);
+      const sin = Math.sin(swing);
+      const vx = player.velocity.x;
+      const vz = player.velocity.z;
+      player.velocity.x = vx * cos - vz * sin;
+      player.velocity.z = vx * sin + vz * cos;
     }
 
     // Crouch pulls the nose down a touch — handy for shedding altitude.
