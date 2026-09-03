@@ -1045,6 +1045,28 @@ console.log('\nthe scanned city is something you stand on, not something you fal
     Math.abs(player.position.x - 6.2) < 0.01);
 }
 
+console.log('\nyour own legs are there when you look down mid-glide');
+{
+  const avatar = readFileSync(new URL('../src/player/avatar.js', import.meta.url), 'utf8');
+  // The legs were hidden along with the arms in a first-person glide, and the
+  // arms had a reason the legs never shared: prone, the pose turns about your
+  // eye, so the shoulder arrives at the camera and an arm drawn from there is
+  // a slab across a fifth of the screen. A leg trails behind and below you —
+  // measured in the running game at 1.23 m from the eye, against a
+  // too-close limit of 0.12 — so there was nothing to hide it from.
+  ok('the legs are no longer hidden when prone',
+    !/this\.legL\.pivot\.visible = !prone;/.test(avatar));
+  ok('they are drawn in first person like the mod this copies',
+    /this\.legL\.pivot\.visible = true;\n\s*this\.legR\.pivot\.visible = true;/.test(avatar));
+  // The arms stay off in a glide: that one really is inside the camera.
+  ok('and the arms are still the view model in a glide',
+    /this\.armL\.pivot\.visible = !prone;/.test(avatar)
+    && /this\.viewModel\.visible = prone;/.test(avatar));
+  // Guarded anyway, for the attitude no pose number predicts.
+  ok('with the in-your-eye backstop extended to cover them',
+    /for \(const leg of \[this\.legL, this\.legR\]\)/.test(avatar));
+}
+
 console.log('\nthe figure stands in the weather, not on top of it');
 {
   const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');

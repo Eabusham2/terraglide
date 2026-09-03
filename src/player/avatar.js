@@ -1232,8 +1232,23 @@ export class Avatar {
     const inside = this.firstPerson;
     const prone = inside && this.glideBlend > 0.5;
     this.torso.visible = true;
-    this.legL.pivot.visible = !prone;
-    this.legR.pivot.visible = !prone;
+    /*
+      Your legs stay on when you are gliding.
+
+      They were hidden with the arms, and the arms had a reason: prone, the
+      pose turns about your eye, so the shoulder arrives *at* the camera and
+      an arm drawn from there is a slab across a fifth of the screen. None of
+      that is true of a leg. A leg in a prone glide trails behind and below
+      you, a good metre from the eye, which is exactly where the mod this
+      copies puts it — look down while flying and your own boots are the thing
+      that tells you you are a body in the air rather than a floating camera.
+      Hiding them is why "can't see body when flying".
+
+      hideWhatIsInYourEye is still the backstop, so an attitude nobody
+      predicted cannot put a boot through the lens.
+    */
+    this.legL.pivot.visible = true;
+    this.legR.pivot.visible = true;
 
     // Which arms you get depends on where your shoulders have ended up.
     //
@@ -1299,6 +1314,14 @@ export class Avatar {
       if (!part) continue;
       part.getWorldPosition(this._world);
       part.visible = this._world.distanceTo(camera.position) > limit;
+    }
+    // The legs are drawn in first person now, so they are guarded too — a hard
+    // pull-up while looking over your shoulder is exactly the attitude no
+    // single pose number predicts.
+    for (const leg of [this.legL, this.legR]) {
+      if (!leg?.pivot?.visible) continue;
+      leg.limb.getWorldPosition(this._world);
+      if (this._world.distanceTo(camera.position) <= limit) leg.pivot.visible = false;
     }
   }
 
