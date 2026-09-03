@@ -55,16 +55,22 @@ function autoHelp(kind, list) {
     ? liveAuto.decided(kind, settings.values, at.lat, at.lon)
     : null;
   if (local) {
+    const sharp = local.pixels ? `, ${local.pixels} px a tile` : '';
+    const when = local.year ? `, ${local.year} imagery` : '';
     return `Asked, not guessed: every provider you can use was asked how deep it`
       + ` really goes over the square you are in, and ${local.label} got furthest`
-      + ` — zoom ${local.zoom}. Fly about 150 km and it asks again; come back`
-      + ` and it remembers. By published depth alone it would be ${ranked}.`;
+      + ` — zoom ${local.zoom}${sharp}${when}. Ties go to the sharper tile, then`
+      + ` to the more recent photograph. Fly about 150 km and it asks again;`
+      + ` come back and it remembers. By published depth alone it would be`
+      + ` ${ranked}.`;
   }
   return `Whichever provider actually serves the sharpest ground where you are.`
-    + ` Each one is asked, over the square you are in, how deep it will really go,`
-    + ` and the deepest wins — coverage is patchy and different for every one of`
-    + ` them, so the answer changes as you fly. Nothing has been asked about this`
-    + ` square yet, so ${ranked} is drawing, on published depth, until it has.`;
+    + ` Each one is asked, over the square you are in, how deep it will really go;`
+    + ` the deepest wins, and at the same depth the one with the bigger tile,`
+    + ` and at the same size the more recent photograph. Coverage is patchy and`
+    + ` different for every one of them, so the answer changes as you fly.`
+    + ` Nothing has been asked about this square yet, so ${ranked} is drawing,`
+    + ` on published depth, until it has.`;
 }
 
 const SECTIONS = [

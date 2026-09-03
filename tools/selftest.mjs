@@ -799,6 +799,86 @@ console.log('\nthe first spawn of all is not mid-flight');
     /reason === 'spawn' \? flyingBefore/.test(game));
 }
 
+console.log('\nat the same depth it asks how sharp, then how recent');
+{
+  const prov = await import('../src/tiles/providers.js');
+  const { bestProviderFor } = prov;
+
+  // A stand-in world: each provider answers at a depth, a tile size and a
+  // vintage that the test dictates, so the ordering is what is under test
+  // rather than anybody's live coverage.
+  const world = new Map();
+  const list = [
+    { id: 'a', label: 'A', kind: 'xyz', needsKey: null, maxZoom: 18, template: 'https://a/{z}/{x}/{y}' },
+    { id: 'b', label: 'B', kind: 'xyz', needsKey: null, maxZoom: 18, template: 'https://b/{z}/{x}/{y}' },
+  ];
+  const realFetch = globalThis.fetch;
+  const realBitmap = globalThis.createImageBitmap;
+  globalThis.fetch = async (url) => {
+    const who = String(url).includes('//a/') ? 'a' : 'b';
+    const z = Number(String(url).match(/\/\/[ab]\/(\d+)\//)?.[1] ?? 0);
+    const entry = world.get(who);
+    const ok = z <= entry.zoom;
+    globalThis.__pixels = entry.pixels;
+    return { ok, arrayBuffer: async () => new Uint8Array(200).buffer };
+  };
+  globalThis.createImageBitmap = async () => ({
+    width: globalThis.__pixels, height: globalThis.__pixels, close() {},
+  });
+
+  const race = async (a, b) => {
+    world.set('a', a);
+    world.set('b', b);
+    const winner = await bestProviderFor(list, {}, { lat: 10, lon: 10 });
+    return winner?.id;
+  };
+
+  // Depth still beats everything: a deeper provider wins however coarse and
+  // however old its tiles are.
+  ok('a deeper provider wins outright',
+    await race({ zoom: 18, pixels: 256 }, { zoom: 16, pixels: 512 }) === 'a');
+
+  // Same depth: the sharper tile. Same square of ground, twice the pixels.
+  ok('at the same depth the bigger tile wins',
+    await race({ zoom: 17, pixels: 256 }, { zoom: 17, pixels: 512 }) === 'b');
+
+  // Same depth and same tile size: the newer photograph.
+  list[0].imageryYear = 2015;
+  list[1].imageryYear = 2023;
+  ok('at the same depth and size the newer photograph wins',
+    await race({ zoom: 17, pixels: 256 }, { zoom: 17, pixels: 256 }) === 'b');
+  list[0].imageryYear = 2023;
+  list[1].imageryYear = 2015;
+  ok('and the other way round',
+    await race({ zoom: 17, pixels: 256 }, { zoom: 17, pixels: 256 }) === 'a');
+
+  // An unknown vintage is not evidence of being old. USGS publishes none, and
+  // it must not lose a tie it would otherwise have won on the next rule.
+  delete list[1].imageryYear;
+  list[0].imageryYear = 2023;
+  ok('an unknown date neither wins nor loses; the incumbent does',
+    await race({ zoom: 17, pixels: 256 }, { zoom: 17, pixels: 256 }) === 'a');
+  {
+    world.set('a', { zoom: 17, pixels: 256 });
+    world.set('b', { zoom: 17, pixels: 256 });
+    const held = await bestProviderFor(list, {}, { lat: 10, lon: 10 }, null, { prefer: 'b' });
+    ok('which is to say the one already drawing keeps it', held?.id === 'b');
+  }
+
+  // Resolution is measured, not published: it comes off the decoded tile.
+  {
+    world.set('a', { zoom: 17, pixels: 512 });
+    world.set('b', { zoom: 17, pixels: 256 });
+    const winner = await bestProviderFor(list, {}, { lat: 10, lon: 10 });
+    ok(`and the winner reports what it measured  (${winner.pixels} px at z${winner.zoom})`,
+      winner.pixels === 512 && winner.zoom === 17);
+  }
+
+  globalThis.fetch = realFetch;
+  globalThis.createImageBitmap = realBitmap;
+  delete globalThis.__pixels;
+}
+
 console.log('\nthe scanned city is something you stand on, not something you fall through');
 {
   const THREE = await import('../vendor/three/three.module.js');
@@ -949,19 +1029,20 @@ console.log('\nthe probe bisects, so a provider is not written off six levels up
     const body = new Uint8Array(200);
     return { ok: z <= 16, arrayBuffer: async () => body.buffer };
   };
-  globalThis.createImageBitmap = async () => ({ close() {} });
+  globalThis.createImageBitmap = async () => ({ width: 256, height: 256, close() {} });
   const source = {
     descriptor: { maxZoom: 23 },
     decode: 'imagery',
     urlFor: (t) => `https://example.test/${t.z}/${t.x}/${t.y}.jpg`,
   };
   const found = await deepestZoomAt(source, { lat: 37.77, lon: -122.42 });
-  ok(`it finds the real floor rather than giving up  (z${found})`, found === 16);
+  ok(`it finds the real floor rather than giving up  (z${found.zoom})`, found.zoom === 16);
+  ok(`and reports the tile size it measured  (${found.pixels} px)`, found.pixels === 256);
   ok(`and asks a handful of times, not twenty  (${asked.length})`, asked.length <= 7);
   const shallow = await deepestZoomAt(
     { ...source, descriptor: { maxZoom: 9 } }, { lat: 0, lon: 0 },
   );
-  ok(`an honest provider costs one request  (z${shallow})`, shallow === 9);
+  ok(`an honest provider costs one request  (z${shallow.zoom})`, shallow.zoom === 9);
   delete globalThis.fetch;
   delete globalThis.createImageBitmap;
 }

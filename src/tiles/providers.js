@@ -1,6 +1,7 @@
 import { latToNormY, lonToNormX, quadKey } from '../geo/mercator.js';
 import { localeRegion } from '../core/units.js';
 import { isNoDataCard } from './noData.js';
+import { imageryAt } from '../geo/imageryAge.js';
 import { BING_SIDE, GOOGLE_SIDE, encodePolyline, googleSamplePoints, tileBounds } from './elevationGrid.js';
 
 /**
@@ -74,6 +75,8 @@ export const IMAGERY_PROVIDERS = [
     kind: 'xyz',
     needsKey: null,
     maxZoom: 16,
+    // The year is in the product name, and it is a fixed annual mosaic.
+    imageryYear: 2020,
     template: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg',
     attribution: 'Sentinel-2 cloudless by EOX IT Services, from modified Copernicus Sentinel data',
     note:
@@ -102,6 +105,8 @@ export const IMAGERY_PROVIDERS = [
     kind: 'xyz',
     needsKey: null,
     maxZoom: 9,
+    // Asked for by date and served a few days behind, so its vintage is now.
+    imageryYear: 'live',
     template:
       'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor' +
       '/default/{date}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg',
@@ -950,6 +955,16 @@ export async function bestProviderFor(list, values, at, onProgress, options = {}
   const candidates = list.filter(
     (p) => !p.hidden && (!p.needsKey || values[p.needsKey]),
   );
+  // Ask for the capture date now rather than at the moment of comparing.
+  //
+  // It is a cached lookup that answers null the first time and fires a request
+  // behind itself, so asking at the end of the probe reliably got null: the
+  // ranking happened in the same breath as the question. Asked here it has the
+  // dozen probe requests' worth of time to come back, and by the time two
+  // providers are being separated it usually has. Nothing waits for it — a
+  // date that has not arrived is simply an unknown one, and an unknown date
+  // does not lose a tie.
+  imageryYearFor({ id: 'esri', kind: 'xyz' }, at);
   let best = null;
   for (const descriptor of candidates) {
     if (signal?.aborted) break;
@@ -961,26 +976,77 @@ export async function bestProviderFor(list, values, at, onProgress, options = {}
     } catch {
       continue;
     }
-    const zoom = await deepestZoomAt(source, at, signal);
-    if (zoom < 0) continue;
-    const rank = [zoom, descriptor.id === prefer ? 1 : 0, descriptor.needsKey ? 1 : 0];
-    if (!best || outranks(rank, best.rank)) {
-      best = {
-        id: descriptor.id, label: descriptor.label, zoom, keyed: rank[2], rank,
-      };
-    }
+    const found = await deepestZoomAt(source, at, signal);
+    if (!found || found.zoom < 0) continue;
+    const candidate = {
+      id: descriptor.id,
+      label: descriptor.label,
+      zoom: found.zoom,
+      // How many pixels the answering tile actually held, measured rather than
+      // published. Two providers can serve the same zoom at different tile
+      // sizes, and a 512-pixel tile is twice the ground resolution of a
+      // 256-pixel one over the same square.
+      pixels: found.pixels,
+      year: imageryYearFor(descriptor, at),
+      incumbent: descriptor.id === prefer ? 1 : 0,
+      keyed: descriptor.needsKey ? 1 : 0,
+    };
+    if (!best || outranks(candidate, best)) best = candidate;
   }
   onProgress?.(null);
-  if (best) delete best.rank;
+  if (best) {
+    delete best.incumbent;
+  }
   return best;
 }
 
-/** Lexicographic: deepest wins, then the incumbent, then whoever you pay for. */
+/**
+ * Which of two answers is the better ground to fly over.
+ *
+ * Depth first, because a provider that serves this square one zoom deeper is
+ * showing you twice the detail and nothing else competes with that. Then, at
+ * the same zoom, the two things that still separate them:
+ *
+ *  - **Resolution.** Measured, not published: the probe decoded the tile, so
+ *    its pixel width is known. Two providers at zoom 17 are covering the same
+ *    ground, and the one handing back 512 pixels for it is handing back twice
+ *    the detail of the one handing back 256.
+ *  - **Date.** A photograph is of a particular day, and a 2011 picture of a
+ *    city is a different city. Only compared when *both* answers have a
+ *    vintage — Esri publishes one per square, Sentinel-2's is in the product
+ *    name, GIBS is a few days old by construction, and USGS says nothing. An
+ *    unknown date is not evidence of being old, so it does not lose on one;
+ *    the comparison is simply skipped and the next rule decides.
+ *
+ * Then the incumbent, so a border between two equal providers cannot start a
+ * swap every time you cross it, and last whoever you hold a key for.
+ */
 function outranks(a, b) {
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return a[i] > b[i];
+  if (a.zoom !== b.zoom) return a.zoom > b.zoom;
+  if (a.pixels !== b.pixels) return a.pixels > b.pixels;
+  if (a.year && b.year && a.year !== b.year) return a.year > b.year;
+  if (a.incumbent !== b.incumbent) return a.incumbent > b.incumbent;
+  return a.keyed > b.keyed;
+}
+
+/**
+ * The year the ground under a provider was photographed, or null.
+ *
+ * Three of the four keyless providers can say. Esri publishes a capture date
+ * per square through its own metadata layer, which is what the attribution
+ * line already shows; asking here is the same cached question, and it answers
+ * null until that request comes back rather than waiting for it. Sentinel-2
+ * cloudless is an annual mosaic with the year in its name. GIBS is asked for
+ * by date and served a few days behind, so its vintage is now. USGS publishes
+ * no vintage at all, and saying nothing is not the same as being old.
+ */
+function imageryYearFor(descriptor, at) {
+  if (descriptor.imageryYear === 'live') return new Date().getUTCFullYear();
+  if (Number.isFinite(descriptor.imageryYear)) return descriptor.imageryYear;
+  if (descriptor.kind === 'xyz' && descriptor.id === 'esri') {
+    return imageryAt(at.lat, at.lon)?.date?.getUTCFullYear() ?? null;
   }
-  return false;
+  return null;
 }
 
 /** The floor of the search. Below this a provider is no use to stand on. */
@@ -996,15 +1062,17 @@ const PROBE_FLOOR_Z = 3;
  */
 export async function deepestZoomAt(source, at, signal) {
   const top = source.descriptor.maxZoom ?? 16;
-  if (await tileAnswers(source, tileAt(at, top), signal)) return top;
+  const deep = await tileAnswers(source, tileAt(at, top), signal);
+  if (deep) return { zoom: top, pixels: deep.pixels };
   let lo = PROBE_FLOOR_Z;
   let hi = top - 1;
-  let found = -1;
+  let found = { zoom: -1, pixels: 0 };
   while (lo <= hi) {
     if (signal?.aborted) return found;
     const mid = Math.floor((lo + hi) / 2);
-    if (await tileAnswers(source, tileAt(at, mid), signal)) {
-      found = mid;
+    const answer = await tileAnswers(source, tileAt(at, mid), signal);
+    if (answer) {
+      found = { zoom: mid, pixels: answer.pixels };
       lo = mid + 1;
     } else {
       hi = mid - 1;
@@ -1024,39 +1092,49 @@ function tileAt(at, z) {
 }
 
 /**
- * Did a real tile come back?
+ * Did a real tile come back, and how many pixels was it?
  *
  * A picture has to decode, which is the only test a server answering 200 with
  * an error page cannot pass. An elevation *grid* is not a picture — Bing
  * answers with JSON — so it is read as JSON and judged on whether there are
  * heights in it. Being lenient here would let a provider win the probe and
  * then draw nothing.
+ *
+ * The decode was already happening as that proof, so the tile's width comes
+ * back with it and costs nothing extra. It is the honest measure of what a
+ * provider is serving at a zoom: the square of ground is the same for
+ * everybody at zoom 17, and a 512-pixel tile of it holds twice the detail of a
+ * 256-pixel one.
+ *
+ * @returns {null | { pixels: number }} null when nothing real came back
  */
 async function tileAnswers(source, tile, signal) {
   const url = source.urlFor(tile);
-  if (!url) return false;
+  if (!url) return null;
   try {
     const res = await fetch(url, { cache: 'no-store', signal });
-    if (!res.ok) return false;
+    if (!res.ok) return null;
     const bytes = new Uint8Array(await res.arrayBuffer());
-    if (bytes.length < 100) return false;
-    if (isNoDataCard(bytes)) return false;
+    if (bytes.length < 100) return null;
+    if (isNoDataCard(bytes)) return null;
     const kind = source.decode;
     if (kind === 'bing-elevation' || kind === 'google-elevation') {
       const body = JSON.parse(new TextDecoder().decode(bytes));
       const heights = kind === 'bing-elevation'
         ? body?.resourceSets?.[0]?.resources?.[0]?.elevations
         : body?.results;
-      return Array.isArray(heights) && heights.length > 0;
+      // A grid's "resolution" is how many samples it holds across the tile.
+      return Array.isArray(heights) && heights.length > 0
+        ? { pixels: Math.round(Math.sqrt(heights.length)) }
+        : null;
     }
-    if (kind === 'vector') return true;
-    // Decoded only to prove it really is an image; the card test no longer
-    // needs the pixels.
+    if (kind === 'vector') return { pixels: 0 };
     const bitmap = await createImageBitmap(new Blob([bytes]));
+    const pixels = bitmap.width;
     bitmap.close();
-    return true;
+    return { pixels };
   } catch {
-    return false;
+    return null;
   }
 }
 
