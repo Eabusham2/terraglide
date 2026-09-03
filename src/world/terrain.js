@@ -505,6 +505,17 @@ export class Terrain {
   get renderDistance() {
     const setting = settings.get('renderDistanceKm') * 1000;
     const horizon = Math.sqrt(2 * EARTH_RADIUS_M * Math.max(1, this.eyeAboveGround ?? 0));
+    // With the haze switched off, the ceiling comes off with it.
+    //
+    // The six-times cap is there because the haze hides the edge of the drawn
+    // world: past it the ground is thick enough with air that stopping is not
+    // visible, so drawing further is cost for nothing. Turn the haze off and
+    // that reasoning goes with it — there is now nothing between you and the
+    // edge, and the world simply ends in a line, which is most of "the ground
+    // is a different colour far away". So with the tick off it reaches the
+    // real horizon instead, which from four hundred metres up is seventy
+    // kilometres and from four thousand is two hundred and twenty.
+    if (!settings.get('fog')) return Math.max(setting, horizon);
     return clamp(horizon, setting, setting * 6);
   }
 

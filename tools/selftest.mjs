@@ -633,6 +633,35 @@ console.log('\nthe fog draws what you explored, not a pixel more');
     oneCell < four / 2);
 }
 
+console.log('\nturning the haze off takes the distance ceiling with it');
+{
+  const { settings } = await import('../src/core/settings.js');
+  const terrainSrc = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+
+  ok('the render distance asks whether the haze is on',
+    /if \(!settings\.get\('fog'\)\) return Math\.max\(setting, horizon\);/.test(terrainSrc));
+
+  // The arithmetic, without a terrain: the cap is six times the setting when
+  // the haze is on, and the true horizon when it is off. sqrt(2*R*h).
+  const R = 6378137;
+  const horizon = (h) => Math.sqrt(2 * R * Math.max(1, h));
+  const capped = (km, h) => Math.min(Math.max(horizon(h), km * 1000), km * 1000 * 6);
+  const open = (km, h) => Math.max(km * 1000, horizon(h));
+
+  const km = 8;
+  ok(`on the ground the cap does not bind  (${(capped(km, 2) / 1000).toFixed(0)} km either way)`,
+    Math.abs(capped(km, 2) - open(km, 2)) < 1);
+  ok(`at four hundred metres it does  (${(capped(km, 400) / 1000).toFixed(0)} against ${(open(km, 400) / 1000).toFixed(0)} km)`,
+    open(km, 400) > capped(km, 400) * 1.4);
+  ok(`and at four thousand it binds hard  (${(capped(km, 4000) / 1000).toFixed(0)} against ${(open(km, 4000) / 1000).toFixed(0)} km)`,
+    open(km, 4000) > capped(km, 4000) * 4);
+  // Never *shorter* with the haze off — the setting is still a floor.
+  for (const h of [0, 2, 50, 400, 4000, 20000]) {
+    ok(`never shorter than the setting at ${h} m`, open(km, h) >= km * 1000);
+  }
+  settings.set('fog', true);
+}
+
 console.log('\nthe quality dial can climb back, not only fall');
 {
   const { settings } = await import('../src/core/settings.js');
