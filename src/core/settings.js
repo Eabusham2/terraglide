@@ -167,6 +167,15 @@ export const DEFAULT_SETTINGS = {
   seaDistanceKm: 501,
   /** Random teleport arrives high with the wings out. */
   rtpSkySpawn: true,
+  /**
+   * Whether fireworks are a thing you carry or a thing you have.
+   *
+   * 'limited' is Minecraft's: a stack of 64 per slot, one spent per launch,
+   * refilling a few seconds at a time because there is nothing to craft them
+   * from in a world made of photographs. 'unlimited' is what this was before
+   * anyone asked, and it is still one tick away.
+   */
+  rocketSupply: 'limited',
 
   /** 'anywhere' | 'populated' — where random teleport is allowed to drop you. */
   rtpTarget: 'anywhere',

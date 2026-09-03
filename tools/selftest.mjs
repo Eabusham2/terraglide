@@ -1045,6 +1045,59 @@ console.log('\nthe scanned city is something you stand on, not something you fal
     Math.abs(player.position.x - 6.2) < 0.01);
 }
 
+console.log('\nfireworks are a thing you carry, and they come back');
+{
+  const { settings } = await import('../src/core/settings.js');
+  const { cheats } = await import('../src/core/cheats.js');
+  const { Player, ROCKET_STACK, ROCKET_REFILL_S, HOTBAR } = await import('../src/player/player.js');
+
+  settings.set('rocketSupply', 'limited');
+  cheats.rocketFree = false;
+  const frame = { toLocal: () => ({ x: 0, z: 0 }), toGeo: () => ({ lat: 0, lon: 0 }) };
+  const player = new Player(frame);
+  player.elytraDeployed = true;
+  player.selectSlot(0);
+
+  ok(`you start with a stack in every slot  (${ROCKET_STACK} x ${HOTBAR.length})`,
+    player.stock.length === HOTBAR.length && player.stock.every((n) => n === ROCKET_STACK));
+
+  // Each launch spends one, the way it does in Minecraft.
+  player.fireRocket();
+  player.fireRocket();
+  ok(`two launches spend two  (${player.stock[0]})`, player.stock[0] === ROCKET_STACK - 2);
+  ok('and only from the slot you fired', player.stock[1] === ROCKET_STACK);
+
+  // Run one dry and it says so rather than failing silently.
+  player.stock[0] = 1;
+  ok('the last one still fires', player.fireRocket() === true && player.stock[0] === 0);
+  let told = 0;
+  player.on('outOfRockets', () => { told++; });
+  ok('the next does not', player.fireRocket() === false);
+  ok('and you are told which slot ran dry', told === 1);
+  ok('while a slot you have not touched still works',
+    (player.selectSlot(1), player.fireRocket()) === true);
+
+  // They come back, per slot, and never past a stack.
+  player.selectSlot(0);
+  player.tickRefill(ROCKET_REFILL_S * 3 + 0.1);
+  ok(`three refill periods earn three back  (${player.stock[0]})`, player.stock[0] === 3);
+  player.stock[0] = ROCKET_STACK;
+  player.tickRefill(ROCKET_REFILL_S * 10);
+  ok('and a full slot does not overflow', player.stock[0] === ROCKET_STACK);
+
+  // Both escape hatches: the setting and the cheat.
+  player.stock[0] = 0;
+  settings.set('rocketSupply', 'unlimited');
+  ok('endless by setting fires from an empty slot', player.fireRocket() === true);
+  settings.set('rocketSupply', 'limited');
+  ok('and limited again refuses', player.fireRocket() === false);
+  cheats.rocketFree = true;
+  ok('endless by cheat fires too', player.fireRocket() === true);
+  cheats.rocketFree = false;
+
+  settings.set('rocketSupply', 'limited');
+}
+
 console.log('\nyour own legs are there when you look down mid-glide');
 {
   const avatar = readFileSync(new URL('../src/player/avatar.js', import.meta.url), 'utf8');

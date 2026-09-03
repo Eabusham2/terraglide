@@ -436,8 +436,20 @@ export class HUD {
       // real numbers now — a bigger rocket pushes harder as well as longer, in
       // the same proportion — and the speed is formatted in whichever units
       // the player is using.
-      const hint = `${item.burnSeconds.toFixed(1)}s · ${formatSpeed(item.topSpeed, settings.get('units'))}`;
+      // How many you are carrying, then what one of them does. The count goes
+      // first because it is the thing that changes while you fly, and a slot
+      // you have run dry has to be readable at a glance from the hotbar rather
+      // than discovered by pressing the key.
+      const left = player.stock ? player.stock[index] : Infinity;
+      const endless = !Number.isFinite(player.rocketsLeft) || !player.stock;
+      // Written out rather than an infinity sign: a minimal font set draws
+      // U+221E as an empty box, and the hotbar is not the place to find that
+      // out. Same rule that caught the arrow in the map's zoom buttons.
+      const what = `${item.burnSeconds.toFixed(1)}s · ${formatSpeed(item.topSpeed, settings.get('units'))}`;
+      const hint = endless ? what : `${left} · ${what}`;
       if (meta.textContent !== hint) meta.textContent = hint;
+      const empty = !endless && left <= 0;
+      if (slot.classList.contains('empty') !== empty) slot.classList.toggle('empty', empty);
     });
   }
 

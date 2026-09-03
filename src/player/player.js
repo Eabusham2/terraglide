@@ -35,6 +35,24 @@ import { rocketPowerFor, rocketTicks, rocketTopSpeed } from './elytra.js';
 /** How many fireworks may burn at once. See fireRocket. */
 const MAX_LIT = 12;
 
+/**
+ * How many of each rocket you carry, and how fast they come back.
+ *
+ * They were infinite, which is not how you fly one in Minecraft: you carry a
+ * stack, each launch spends one, and running out is the thing that makes a
+ * long crossing a decision rather than a held key. A stack is 64 there, so it
+ * is 64 here.
+ *
+ * They refill because there is nothing to craft them from in a game made of
+ * satellite photographs — no gunpowder, no paper, no chest to go back to. A
+ * slot recovers one rocket every few seconds, per slot, so a spent Rocket V is
+ * a real cost paid over minutes while a Rocket I you barely touched is always
+ * there. Turn it off in Settings and they are endless again.
+ */
+export const ROCKET_STACK = 64;
+/** Seconds to earn one rocket back, in the slot it was spent from. */
+export const ROCKET_REFILL_S = 4;
+
 export const ROCKET_COLOURS = ['#8fb8d8', '#74c47a', '#e8c54a', '#e08a35', '#d23f2f'];
 
 export const HOTBAR = [1, 2, 3, 4, 5].map((duration) => ({
@@ -154,6 +172,10 @@ export class Player extends Emitter {
      * scrolled to.
      */
     this.rockets = [];
+    /** How many of each hotbar rocket you are carrying. See ROCKET_STACK. */
+    this.stock = HOTBAR.map(() => ROCKET_STACK);
+    /** Fractional progress towards the next one in each slot. */
+    this.refill = HOTBAR.map(() => 0);
     this.rocketDuration = 0;
     this.rocketsFired = 0;
 
@@ -368,10 +390,23 @@ export class Player extends Emitter {
    * you can light another one whenever you want, and lighting one mid-burn
    * simply restarts the burn.
    */
+  /** How many of the selected rocket are left, or Infinity when endless. */
+  get rocketsLeft() {
+    if (settings.get('rocketSupply') === 'unlimited' || cheats.rocketFree) return Infinity;
+    return this.stock[this.selectedSlot] ?? 0;
+  }
+
   fireRocket() {
     const item = this.selectedItem;
     const duration = item ? item.duration : 2;
     if (!this.elytraDeployed) return false;
+    // You have to have one. Spending the last of a slot is allowed; spending
+    // one you do not have is not, and it says so rather than failing silently.
+    if (this.rocketsLeft <= 0) {
+      this.emit('outOfRockets', { slot: this.selectedSlot });
+      return false;
+    }
+    if (Number.isFinite(this.rocketsLeft)) this.stock[this.selectedSlot] -= 1;
     const total = rocketTicks(duration);
     // Its own power, taken now: a firework in flight is the one you lit, not
     // whichever slot you have scrolled to since.
@@ -406,7 +441,29 @@ export class Player extends Emitter {
     return true;
   }
 
+  /**
+   * Earn spent rockets back, one slot at a time.
+   *
+   * Per slot rather than from a pool, so emptying the Rocket V does not cost
+   * you the Rocket I you never touched. Nothing accumulates past a stack.
+   */
+  tickRefill(dt) {
+    if (!Number.isFinite(this.rocketsLeft) && this.stock.every((n) => n >= ROCKET_STACK)) return;
+    for (let i = 0; i < this.stock.length; i++) {
+      if (this.stock[i] >= ROCKET_STACK) {
+        this.refill[i] = 0;
+        continue;
+      }
+      this.refill[i] += dt;
+      while (this.refill[i] >= ROCKET_REFILL_S && this.stock[i] < ROCKET_STACK) {
+        this.refill[i] -= ROCKET_REFILL_S;
+        this.stock[i] += 1;
+      }
+    }
+  }
+
   tickTimers(dt) {
+    this.tickRefill(dt);
     // Speed mode comes on like a switch and goes off like momentum. Dropping
     // it used to halve your ground speed between one frame and the next, which
     // is not what running out of anything feels like; now it bleeds away over

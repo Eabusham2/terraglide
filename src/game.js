@@ -278,6 +278,10 @@ export class Game {
     this.input.on('land', () => this.toggleWings());
     // Out of air. Somewhere you can breathe, which is what a random teleport
     // is for, and it says so rather than silently moving you.
+    // Running a slot dry is a thing that happened to you, so it says so.
+    this.player.on('outOfRockets', () => {
+      this.toast('Out of that rocket — it refills, or pick another', 'warn');
+    });
     this.player.on('drowned', () => {
       this.toast('Out of air — surfacing somewhere else', 'bad');
       this.randomTeleport();

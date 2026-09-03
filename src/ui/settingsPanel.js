@@ -327,6 +327,12 @@ const SECTIONS = [
         format: (v) => (v > 500 ? 'unlimited' : formatDistance(v * 1000, settings.get('units'), 0)),
         help: 'Unlimited by default, so mid-ocean is fair game; wind it down to stay within reach of a coast.',
       },
+      { key: 'rocketSupply', label: 'Fireworks', type: 'select',
+        options: () => [
+          { value: 'limited', label: 'A stack of 64 each, refilling' },
+          { value: 'unlimited', label: 'Endless' },
+        ],
+        help: 'Minecraft gives you a stack and each launch spends one. So does this: 64 per hotbar slot, one per launch, and a slot earns one back every four seconds — per slot, so emptying the big one does not cost you the small one. There is nothing to craft them from in a world made of photographs, which is why they refill rather than run out for good.' },
       { key: 'rtpSkySpawn', label: 'Teleport keeps you doing what you were doing', type: 'toggle', help: 'On: teleport while flying and you arrive high with the wings out; teleport from the ground and you arrive on your feet. Off: you always arrive standing.' },
 
       {

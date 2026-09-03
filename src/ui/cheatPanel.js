@@ -53,6 +53,7 @@ const SWITCHES = [
   { key: 'noclip', label: 'Noclip', help: 'Through walls, through the ground, through mountains.' },
   { key: 'mapUnlocked', label: 'Unlock the whole map', help: 'Shows every tile without having been there. Your real explored ground is untouched underneath.' },
   { key: 'speedFree', label: 'Unlimited surge', help: 'The boost never runs out and never needs to recharge.' },
+  { key: 'rocketFree', label: 'Endless fireworks', help: 'Every hotbar slot stays full, whatever the supply setting says.' },
 ];
 
 export class CheatPanel {
