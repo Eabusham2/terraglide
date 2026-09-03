@@ -197,9 +197,25 @@ export function stepRocket(velocity, look, power = 1, spent = 0, steer = true) {
   // lighting more gets you there faster. And steering never actually goes dead:
   // past the governor the glide's own swing takes over, which is the ten per
   // cent a turn an elytra has always had.
-  if (pull <= 0) return;
-
   if (!steer) {
+    /*
+      An extra firework pushes towards the governor; it does not push past it.
+
+      Minecraft's line carries a constant, `look * 0.1`, that lands whatever
+      your speed is, and applying it per firework was tried here: eight lit at
+      once multiply it eightfold and the result ran away — 39.6 m/s to 237 and
+      still climbing after a second, because drag never gets a chance against
+      eight of them. "A constant cannot run away" was wrong at that stack
+      depth.
+
+      What extra fireworks buy is time, not force. Below the governor they all
+      pull and you get there faster; at it, the pull is nought by construction
+      — the governor is exactly where `0.1 + (thrust - along) * 0.5` reaches
+      nought — so they hold you rather than shove you. The press still answers:
+      see the steering branch, where a firework lit past its governor turns you
+      even when it can no longer speed you up.
+    */
+    if (pull <= 0) return;
     /*
       Every firework after the first in a tick pushes and does not steer.
 
@@ -223,7 +239,32 @@ export function stepRocket(velocity, look, power = 1, spent = 0, steer = true) {
     return;
   }
 
+  /*
+    Past the governor, the steering rocket stops too.
+
+    Letting it keep steering was tried — a press that neither pushes nor turns
+    feels ignored, and turning is bounded work — and the dive guard caught it
+    inside a second: two minutes at twenty degrees down reached 7.6 million m/s.
+    That is the third time this exact term has run away (80,000 once, 1,895 on
+    the constant-push attempt, and this). The steering halves the part of your
+    velocity that is not along your look, which forces velocity onto the look
+    axis; the glide hands a tenth of the sink back as forward speed; and a gain
+    proportional to speed against a drag that is one per cent of it compounds.
+    Nothing about it is safe past the point where the forward term stops
+    opposing it. It stays skipped.
+
+    What a press does at cruise, then: below this slot's governor it pulls you
+    towards it, and at it, it holds you there. Measured against the same view
+    sweep with nothing lit, which keeps decaying — mashing a Rocket I holds
+    33.7 m/s where firing nothing falls away below it. Above the slot's own
+    governor a press cannot add speed, and that is true of Minecraft too: a
+    firework aimed at 1.5 blocks a tick has nothing to offer someone already
+    going faster.
+  */
+  if (pull <= 0) return;
+
   {
+    const forward = pull;
     // What is left of your velocity once the along-look part is taken out. This
     // is the component the swing acts on, and halving it is what the original
     // line does to it.
@@ -231,9 +272,9 @@ export function stepRocket(velocity, look, power = 1, spent = 0, steer = true) {
     const sy = vy - along * look.y;
     const sz = vz - along * look.z;
 
-    const nx = vx + look.x * pull - sx * 0.5;
-    const ny = vy + look.y * pull - sy * 0.5;
-    const nz = vz + look.z * pull - sz * 0.5;
+    const nx = vx + look.x * forward - sx * 0.5;
+    const ny = vy + look.y * forward - sy * 0.5;
+    const nz = vz + look.z * forward - sz * 0.5;
 
     /*
       A firework is thrust. It has no brakes.

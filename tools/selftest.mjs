@@ -1317,6 +1317,40 @@ console.log('\na firework may turn you and may not brake you');
       && Math.abs(smallOne.speed - smallTwelve.speed) < 0.01);
   }
 
+  // Holding the key has to answer. Not "accelerate for ever" — a firework
+  // cannot beat its own governor, in Minecraft either — but the speed with
+  // rockets lit must differ from the speed with none.
+  {
+    const sweep = ({ gap, d, ticks = 100, start = 40 }) => {
+      const v = { x: 0, y: 0, z: -start };
+      const burning = [];
+      for (let t = 0; t < ticks; t++) {
+        const yaw = (t * 1.5 * Math.PI) / 180;
+        const look = { x: Math.sin(yaw), y: 0, z: -Math.cos(yaw) };
+        if (t % gap === 0) {
+          burning.push({ left: rocketTicks(d), total: rocketTicks(d), power: rocketPowerFor(d) });
+        }
+        let one = true;
+        for (const r of burning) {
+          stepRocket(v, look, r.power, 1 - r.left / r.total, one);
+          one = false;
+          r.left -= 1;
+        }
+        for (let i = burning.length - 1; i >= 0; i--) if (burning[i].left <= 0) burning.splice(i, 1);
+        stepGlide(v, look, 0);
+      }
+      return speed(v);
+    };
+    const nothing = sweep({ gap: 1e9, d: 1 });
+    const mashed = sweep({ gap: 2, d: 1 });
+    ok(`mashing holds you up where firing nothing decays  (${mashed.toFixed(1)} against ${nothing.toFixed(1)} m/s)`,
+      mashed > nothing + 2);
+    // And below the governor it genuinely accelerates rather than only holding.
+    const climbed = sweep({ gap: 2, d: 5, start: 40 });
+    ok(`and from below, mashing a big one accelerates  (40 to ${climbed.toFixed(0)} m/s)`,
+      climbed > 100);
+  }
+
   // The governor still holds each slot at its own cruise.
   for (const [d, want] of [[1, 33.5], [3, 70.2], [5, 107.0]]) {
     const held = run({ d, every: rocketTicks(d), ticks: 1200, pitch: 0 });
