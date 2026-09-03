@@ -7072,6 +7072,73 @@ console.log('\nthe online single file finds the assets it was told to use');
     /__TERRAGLIDE_PACK__ = "https:\/\/[^"]*terraglide\.bundle\.js"/.test(online));
 }
 
+console.log('\nthe explored map answers at the zoom it is asked about');
+{
+  // "Explored on map still doesn't show exactly what u explored, it's extremely
+  // inaccurate" and "the explored being wrong especially zooming out".
+  // Levels are recorded at 8, 10, 12, 14 and 16, so half the zooms fall between
+  // two of them, and those were answered from the coarser one — at zoom 9 from
+  // level 8, at zoom 11 from level 10. One recorded cell answered for four
+  // squares of the zoom being drawn, and answered yes for all four.
+  const { Exploration, LEVELS } = await import('../src/ui/exploration.js');
+  const fresh = () => new Exploration({ load: () => null, save() {} });
+
+  // visit(lat, lon, altitudeAboveGround, seenRadius). Deliberately not at
+  // (0, 0): that is exactly the corner of four tiles at every zoom, so a disc
+  // there really does touch four of them and four is the right answer. Inside
+  // one tile is where over-reporting shows.
+  const record = fresh();
+  // The centre of a zoom-11 tile, which is comfortably inside its zoom 8, 9 and
+  // 10 parents too.
+  const NX = (1024 + 0.5) / 2048;
+  record.visit(-0.0878906, 0.0878906, 2, 1200);
+
+  // Count how many squares of each zoom the record claims.
+  const claimedAt = (z) => {
+    const n = 2 ** z;
+    let count = 0;
+    // A window around the origin is enough: nothing else was visited.
+    const cx = Math.floor(NX * n);
+    const cy = Math.floor(NX * n);
+    for (let y = cy - 6; y <= cy + 6; y++) {
+      for (let x = cx - 6; x <= cx + 6; x++) {
+        if (x < 0 || y < 0 || x >= n || y >= n) continue;
+        if (record.isExplored(z, x, y)) count++;
+      }
+    }
+    return count;
+  };
+
+  // Zoom 8 is exact: one square, because a level-8 tile is 157 km and the
+  // horizon here is 1.2 km.
+  ok(`zoom 8 claims one square  (${claimedAt(8)})`, claimedAt(8) === 1);
+  // Zoom 9 used to inherit that one answer for all four of its children.
+  ok(`zoom 9 no longer inherits it for four  (${claimedAt(9)})`, claimedAt(9) === 1);
+  ok(`and zoom 11 likewise  (${claimedAt(11)})`, claimedAt(11) === 1);
+
+  // The claim must never shrink as the squares get finer within a level pair,
+  // and a square must still be explored where you actually stood.
+  const tx = (z) => Math.floor(NX * 2 ** z);
+  const ty = (z) => Math.floor(NX * 2 ** z);
+  ok('the square you stood in is explored at the finest level',
+    record.isExplored(16, tx(16), ty(16)));
+  ok('and still explored at the coarsest',
+    record.isExplored(8, tx(8), ty(8)));
+
+  // Below the coarsest recorded level the old folding still applies.
+  ok('a whole continent counts as visited if any of it was',
+    record.isExplored(4, tx(4), ty(4)));
+
+  // Finer than anything recorded there is nothing better than the coarse cell,
+  // and saying nothing would hide ground you really did explore.
+  ok('past the finest recorded level it still answers from what it has',
+    record.isExplored(18, tx(18), ty(18)));
+
+  const src = readFileSync(new URL('../src/ui/exploration.js', import.meta.url), 'utf8');
+  ok('and the rule is stated where it is applied',
+    /at least as fine as/.test(src) && /folded\(z\)/.test(src));
+}
+
 console.log('\ngraded as one photograph');
 {
   const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');

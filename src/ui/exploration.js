@@ -172,7 +172,26 @@ export class Exploration extends Emitter {
       if (candidate <= z) level = candidate;
     }
     const shift = z - level;
-    if (shift < 0) return this.coarse(z).has(tileKey(z, x, y));
+    if (shift === 0) return this.cells.has(tileKey(z, x, y));
+    /*
+      Answer from something at least as fine as the square being asked about.
+
+      Levels are recorded at 8, 10, 12, 14 and 16, so half the zooms fall
+      between two of them, and this used to answer those from the coarser one:
+      at zoom 9 from level 8, at zoom 11 from level 10. One recorded cell then
+      answered for four squares of the zoom actually being drawn, and it
+      answered yes for all four — so standing in one spot lit up four times the
+      ground you had seen, at exactly the zooms you look at when you zoom out.
+
+      A square is explored if anything recorded *inside* it is, which is the
+      same rule `coarse` already used going up, applied at every zoom rather
+      than only below the coarsest level. Falling back to the coarser cell is
+      kept for zooms finer than anything recorded — past 16 there is nothing
+      better to say — but that is the one case where it is the best answer
+      available rather than the laziest.
+    */
+    const folded = this.folded(z);
+    if (folded) return folded.has(tileKey(z, x, y));
     return this.cells.has(tileKey(level, x >> shift, y >> shift));
   }
 
@@ -193,16 +212,32 @@ export class Exploration extends Emitter {
    * country.
    */
   coarse(z) {
-    let set = this.coarseCache.get(z);
-    if (set) return set;
-    set = new Set();
-    const base = LEVELS[0];
-    const shift = base - z;
-    const prefix = `${base}/`;
-    for (const key of this.cells) {
-      if (!key.startsWith(prefix)) continue;
-      const parts = key.split('/');
-      set.add(tileKey(z, Number(parts[1]) >> shift, Number(parts[2]) >> shift));
+    return this.folded(z) ?? new Set();
+  }
+
+  /**
+   * Every recorded cell at least as fine as `z`, folded up to `z`.
+   *
+   * Null when nothing recorded is that fine, which is the only case where the
+   * caller should fall back to a coarser cell. Cached until the record changes,
+   * because the map asks this for every square it draws.
+   */
+  folded(z) {
+    if (this.coarseCache.has(z)) return this.coarseCache.get(z);
+    const levels = LEVELS.filter((level) => level >= z);
+    if (levels.length === 0) {
+      this.coarseCache.set(z, null);
+      return null;
+    }
+    const set = new Set();
+    for (const level of levels) {
+      const shift = level - z;
+      const prefix = `${level}/`;
+      for (const key of this.cells) {
+        if (!key.startsWith(prefix)) continue;
+        const parts = key.split('/');
+        set.add(tileKey(z, Number(parts[1]) >> shift, Number(parts[2]) >> shift));
+      }
     }
     this.coarseCache.set(z, set);
     return set;

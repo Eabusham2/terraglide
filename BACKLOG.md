@@ -20,6 +20,41 @@ paragraph.
 
 ## A. Stops you playing
 
+- [x] A31. The explored map was wrong by four times at half the zooms
+      "Explored on map still doesn't show exactly what u explored, it's
+      extremely inaccurate", and "the explored being wrong especially zooming
+      out".
+
+      Levels are recorded at 8, 10, 12, 14 and 16, so half the map's zooms fall
+      between two of them — and those were answered from the coarser one: zoom 9
+      from level 8, zoom 11 from level 10. One recorded cell then answered for
+      four squares of the zoom actually being drawn, and answered yes for all
+      four. Standing in one spot lit up four times the ground you had seen, at
+      exactly the zooms you are looking at when you zoom out.
+
+      A square is explored if anything recorded inside it is. That was already
+      the rule going *up* — `coarse` folded level 8 up for the whole-planet view
+      — and it is the rule at every zoom now: fold every recorded level at least
+      as fine as the one being asked about. Falling back to a coarser cell is
+      kept only past level 16, where there is genuinely nothing better to say.
+
+      Counted, on a record made by standing at the centre of a zoom-11 tile with
+      a 1.2 km horizon:
+
+                        before   after
+        zoom 8            1        1
+        zoom 9            4        1
+        zoom 11           4        1
+
+      Checked against the old code rather than assumed: it returns 4 at both.
+
+      One earlier attempt at this entry was wrong and is worth recording. I read
+      a half-tile floor in `mark` as recording ground up to 78 km away and
+      "fixed" it — then the vacuity check passed with the floor restored, and
+      the arithmetic showed why: the nearest a neighbour's centre can ever be is
+      exactly half a tile, so that floor could never change an answer. It was
+      dead code, not a bug, and the change was reverted.
+
 - [x] A30. The online single file loaded no assets at all
       You asked for it twice — "online single file should use assets too like
       gen stuff", and "add the assets gened and other features via grab from
