@@ -205,9 +205,59 @@ export function stepRocket(velocity, look, power = 1, spent = 0) {
     const sy = vy - along * look.y;
     const sz = vz - along * look.z;
 
-    velocity.x = (vx + look.x * pull - sx * 0.5) * TO_SECOND;
-    velocity.y = (vy + look.y * pull - sy * 0.5) * TO_SECOND;
-    velocity.z = (vz + look.z * pull - sz * 0.5) * TO_SECOND;
+    const nx = vx + look.x * pull - sx * 0.5;
+    const ny = vy + look.y * pull - sy * 0.5;
+    const nz = vz + look.z * pull - sz * 0.5;
+
+    /*
+      A firework is thrust. It has no brakes.
+
+      The line above does two jobs at once — it drives your speed along your
+      look towards the rocket's target, and it halves whatever part of your
+      velocity points somewhere else, which is what makes a rocket steer. The
+      second job is subtraction, and at a large angle it subtracts a great
+      deal. Measured at a 40 m/s cruise, lighting one Rocket I while looking
+      away from the line you are actually travelling on:
+
+           0 to 30 degrees off    40.0 -> 40.0   nothing happens at all
+          45 degrees off          40.0 -> 34.2   5.8 lost
+          60 degrees off          40.0 -> 32.1   7.9 lost
+          90 degrees off          40.0 -> 26.2  13.8 lost
+
+      Both halves of that are the complaint. Under 45 degrees you are already
+      past this rocket's governor, so `pull` is nought or less and the whole
+      push is skipped: you press the key and nothing happens. Turn your head
+      further and `along` shrinks until `pull` goes positive again — so the
+      push fires, and what it mostly does at that angle is halve a large
+      sideways velocity. A cliff edge in the middle of an ordinary turn, with
+      braking on the far side of it. Over a whole burn at 30 degrees it took a
+      40 m/s cruise down to 33.5, and did the same for one rocket, four, or
+      twelve.
+
+      So the steering is kept and the braking is not: if the push would leave
+      you slower than it found you, the direction it turned you is kept and the
+      speed is put back. A rocket may turn you and it may speed you up, and it
+      may not slow you down.
+
+      This is the third attempt at this line and the other two are worth
+      remembering, because both broke the same thing. The original halved the
+      sideways component with no clamp at all, which forces velocity onto the
+      look axis; the glide then hands a tenth of the sink back as forward
+      speed, and a gain proportional to speed against a drag that is one per
+      cent of it compounds — held at twenty degrees down it passed 80,000 m/s.
+      A later attempt restored Minecraft's constant push past the governor and
+      reached 1,895 m/s the same way. Preserving the speed cannot do that: it
+      adds nothing, it only refuses to subtract. Checked at five dive angles
+      for two minutes each — the worst is 121 m/s at thirty degrees down,
+      against a level cruise of 107.
+    */
+    const was = Math.hypot(vx, vy, vz);
+    const now = Math.hypot(nx, ny, nz);
+    const keep = now < was && now > 1e-9 ? was / now : 1;
+
+    velocity.x = nx * keep * TO_SECOND;
+    velocity.y = ny * keep * TO_SECOND;
+    velocity.z = nz * keep * TO_SECOND;
   }
 }
 

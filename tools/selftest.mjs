@@ -1045,6 +1045,68 @@ console.log('\nthe scanned city is something you stand on, not something you fal
     Math.abs(player.position.x - 6.2) < 0.01);
 }
 
+console.log('\na firework may turn you and may not brake you');
+{
+  const { stepRocket, stepGlide, rocketTicks, rocketPowerFor } = await import('../src/player/elytra.js');
+  const speed = (v) => Math.hypot(v.x, v.y, v.z);
+
+  // Lighting one while looking off the line you are actually travelling on used
+  // to be a cliff with braking on the far side. Under 45 degrees you were past
+  // this rocket's governor, so the whole push was skipped and nothing happened;
+  // past it, `along` had shrunk enough for the push to fire, and what it mostly
+  // did at that angle was halve a large sideways velocity. Measured at 40 m/s:
+  // 40.0 at 30 degrees, 34.2 at 45, 32.1 at 60, 26.2 at 90.
+  const fire = (offDeg, n = 1, d = 1, start = 40) => {
+    const v = { x: 0, y: 0, z: -start };
+    const a = (offDeg * Math.PI) / 180;
+    const look = { x: Math.sin(a), y: 0, z: -Math.cos(a) };
+    for (let i = 0; i < n; i++) stepRocket(v, look, rocketPowerFor(d), 0);
+    return speed(v);
+  };
+  for (const off of [0, 30, 45, 60, 90]) {
+    const after = fire(off);
+    ok(`one lit at ${String(off).padStart(2)} degrees off does not slow you  (${after.toFixed(1)} m/s)`,
+      after >= 40 - 1e-6);
+  }
+  ok(`nor does a fistful of them  (${fire(90, 12).toFixed(1)} m/s)`, fire(90, 12) >= 40 - 1e-6);
+  ok(`and a big one aimed along your travel still pushes  (${fire(0, 1, 5, 100).toFixed(1)} m/s)`,
+    fire(0, 1, 5, 100) > 104);
+
+  const run = ({ d, every, ticks, pitch }) => {
+    const v = { x: 0, y: 0, z: 0 };
+    const look = { x: 0, y: Math.sin(pitch), z: -Math.cos(pitch) };
+    const burning = [];
+    let top = 0;
+    for (let t = 0; t < ticks; t++) {
+      if (t % every === 0) {
+        burning.push({ left: rocketTicks(d), total: rocketTicks(d), power: rocketPowerFor(d) });
+      }
+      for (const r of burning) { stepRocket(v, look, r.power, 1 - r.left / r.total); r.left -= 1; }
+      for (let i = burning.length - 1; i >= 0; i--) if (burning[i].left <= 0) burning.splice(i, 1);
+      stepGlide(v, look, pitch);
+      top = Math.max(top, speed(v));
+    }
+    return top;
+  };
+
+  // The governor still holds each slot at its own cruise.
+  for (const [d, want] of [[1, 33.5], [3, 70.2], [5, 107.0]]) {
+    const held = run({ d, every: rocketTicks(d), ticks: 1200, pitch: 0 });
+    ok(`Rocket ${d} still settles at its own cruise  (${held.toFixed(1)} against ${want})`,
+      Math.abs(held - want) < 2);
+  }
+  // The runaway this guards: the steering term forcing velocity onto the look
+  // axis while the glide hands sink back as forward speed, the two compounding.
+  // The original line reached 80,000 m/s at twenty degrees down; a later
+  // attempt at restoring Minecraft's constant push reached 1,895. Preserving
+  // the speed adds nothing, it only refuses to subtract.
+  for (const deg of [10, 20, 30, 45, 70]) {
+    const dived = run({ d: 5, every: 2, ticks: 2400, pitch: (-deg * Math.PI) / 180 });
+    ok(`two minutes at ${String(deg).padStart(2)} degrees down stays bounded  (${dived.toFixed(0)} m/s)`,
+      dived < 200);
+  }
+}
+
 console.log('\nthe probe bisects, so a provider is not written off six levels up');
 {
   const { deepestZoomAt } = await import('../src/tiles/providers.js');
