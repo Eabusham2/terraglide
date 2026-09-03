@@ -2412,6 +2412,54 @@ paragraph.
 
 ## G. Providers and 3D
 
+- [x] G24. Checking the Google code, because you said it was erroring
+      You asked me to read the code rather than guess, so here is what reading
+      it and then driving it found.
+
+      First: there is no Google key anywhere in this conversation. Two
+      AIza-shaped strings appear in the chatlog and both are rejected by Google
+      as invalid — one of them is a dummy I wrote myself in an earlier test. So
+      nothing here can be confirmed against a real key, and saying otherwise
+      would be a guess.
+
+      What can be checked is whether the requests this code makes are the ones
+      Google documents. A stub enforcing that contract — createSession must be
+      a POST carrying mapType, language and region; every 2dtiles request must
+      carry both session and key, and the session must be the one issued:
+
+        createSession body   {"mapType":"satellite","language":"en-US","region":"US"}
+        session issued       yes, and stored
+        2dtiles accepted     299
+        contract breaches    0
+        source state         ready, bare 0
+
+      So the 2D path is right. `region` is there — that was the G1 fix and it
+      holds — and every tile carries its session.
+
+      And against the *real* endpoint, with a deliberately invalid key, the
+      failure is now legible rather than a bare status code:
+
+        Google session failed (400) - API key not valid. Please pass a valid
+        API key.
+
+      which is Google's own sentence, passed through. The 3D path had the same
+      fault and now does the same thing; it also answers 400 rather than 401 or
+      403 for a bad key, which only 401 and 403 were special-cased for, so every
+      real key problem used to come out as "root 400".
+
+      What that leaves. If you are seeing a session failure with a key you
+      believe is good, the message now names the reason, and the three that
+      account for nearly all of them are: the Map Tiles API not enabled on that
+      Cloud project, an HTTP-referrer restriction on the key that does not list
+      the page's origin, or the key restricted to a different set of APIs. Send
+      me the sentence it prints, or a key, and I will finish it.
+
+      Three attempts at this test were wrong before it worked, which is worth
+      recording: the first had the stub registered where Playwright never
+      reached it, so it silently measured the real API; the second returned 404
+      because my relay re-issued every request as a GET and createSession is a
+      POST. Both looked like product faults and neither was.
+
 - [~] G23. The photorealistic city was sitting about thirty metres too low
       Found by chasing the flat pale plane in A24, and it is very likely the
       root cause of that, of G22, and of some of what you photographed.
