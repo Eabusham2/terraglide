@@ -1366,7 +1366,7 @@ paragraph.
       constraint; the refill cadence was. With the pump moved onto completion,
       the same probe on the same course took the stretched share from 23.7 per
       cent to 11.0.
-- [?] B11. Random times when looking, everything becomes a solid colour
+- [~] B11. Random times when looking, everything becomes a solid colour
       A solid colour is a tile with no texture at all — not even a coarser one
       stretched over it — because the shader then has only the relief to colour
       by. It is counted now, per frame, alongside the stretching, and over
@@ -1415,6 +1415,27 @@ paragraph.
       squares had nothing to draw and fell back to the relief, which is exactly
       "everything becomes a solid colour". It would have followed you to any
       pale landscape and cleared when you left. See A20.
+      Reopened, because you reported it again and the colour rules out the
+      explanation above: "it's not flat white, sometimes it's light or dark
+      green or tan". A square with no texture at all is drawn from
+      groundNotLoaded, which is grey. Green and tan are a photograph — the cover
+      pool at zoom 9, magnified about two thousand times over your feet, which
+      is a flat wash of whatever that square mostly is. Farmland green, desert
+      tan.
+
+      So the question is not "why is there no texture" but "why did a square
+      that had its own photograph fall back eleven levels", and there is a
+      second mechanism for that, found by reading: eviction could take the
+      photograph a square was being drawn from in the very frame it was drawn.
+      The second pass skipped only pending entries and says of itself that the
+      protection is a preference rather than a promise; the cover pass, which
+      holds the very tiles everything else stretches from, had no protection at
+      all. See A28 — all three passes go through one guard now.
+
+      Still `[~]` and not `[x]`: this sandbox draws at about a frame a second
+      and cannot see a flicker lasting a few frames, so the mechanism is proved
+      by test and the disappearance is not. It needs your eyes.
+
 - [x] B12. Randomly blurring depending on where I look
       Real, not random, and proportional to how far you turn. The ground behind
       you is outside the frustum, so it is never drawn and never asked for;

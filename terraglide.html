@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta name="terraglide-sources" content="685ab2d9a4358139">
+<meta name="terraglide-sources" content="06cae9a0a05b0016">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
 <meta name="color-scheme" content="dark light" />
@@ -113048,8 +113048,18 @@ const DATUM_RADIUS_M = 220;
 const DATUM_WINDOW_M = 420;
 /** Histogram bin. Fine enough to be worth having, coarse enough to cluster. */
 const DATUM_BIN_M = 2;
-/** A cluster this dense relative to the densest counts as ground. */
-const DATUM_CLUSTER_SHARE = 0.4;
+/**
+ * How dense a cluster has to be, against the densest, to be treated as the
+ * ground rather than as something under it.
+ *
+ * It was two fifths, and that let a pile of undersides seen through holes in
+ * the shells outvote the street by being lower: measured live, the answer
+ * drifted 32.4, 32.8, 38.6 as more of the city arrived, against a known 32.8.
+ * At nine tenths only a cluster genuinely as dense as the street can take the
+ * tie-break, which is the case the low-preference is actually for: roofs sit
+ * above the street and vary in height, so they never form one that dense.
+ */
+const DATUM_CLUSTER_SHARE = 0.9;
 /** Below this many samples in the winning cluster, say nothing. */
 const DATUM_MIN_SAMPLES = 8;
 /** Beyond this the answer is not a geoid separation and is not believed. */
@@ -113546,6 +113556,22 @@ class Tiles3D {
     }
     let densest = 0;
     for (const count of bins.values()) if (count > densest) densest = count;
+    /*
+      Take the densest cluster, not the lowest dense one.
+
+      "Lowest dense" was wrong and it drifted: measured live at Market Street it
+      went 32.4, 32.8, 38.6 as the city filled in, against a known 32.8. What
+      arrives late is not more street — it is more of the things below it. A ray
+      down a column can pass through a hole in a shell and hit an underside, and
+      once enough of those pile into one bin they clear a two-fifths share of
+      the densest and win the tie-break by being lower.
+
+      The street is the one surface present in every column, so it is the
+      densest bin, full stop. Undersides are sparse by nature: they need a hole
+      above them. Only among bins genuinely as dense as each other is being
+      lower still the better answer, since roofs sit above the street and vary
+      in height while the street does not.
+    */
     let ground = null;
     for (const [bin, count] of bins) {
       if (count < densest * DATUM_CLUSTER_SHARE) continue;

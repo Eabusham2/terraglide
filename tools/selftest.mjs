@@ -6759,6 +6759,34 @@ console.log('\nthe photogrammetry and the height field are put on one datum');
   ok(`holes through the shells do not drag it down  (${holed.datum.toFixed(1)} m)`,
     Math.abs(holed.datum - 32.8) < 1.5);
 
+  // The drift, pinned. Measured live at Market Street the answer went 32.4,
+  // 32.8, 38.6 as the city filled in, against a known 32.8 — because what
+  // arrives late is not more street, it is more of the things under it, and a
+  // pile of undersides seen through holes could clear a two-fifths share of the
+  // densest bin and then win the tie-break by being lower. Here they are given
+  // their own consistent depth so they form exactly that dense low cluster.
+  const undersides = new THREE.Group();
+  {
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(2000, 2000).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial());
+    ground.position.y = -32.8;
+    undersides.add(ground);
+    for (let i = 0; i < 16; i++) {
+      const angle = i * 2.399963;
+      const radius = 220 * Math.sqrt((i + 0.5) / 16);
+      // A sheet six metres lower, in more than half the columns.
+      const under = new THREE.Mesh(
+        new THREE.PlaneGeometry(90, 90).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial());
+      under.position.set(Math.cos(angle) * radius, -38.6, Math.sin(angle) * radius);
+      undersides.add(under);
+    }
+    undersides.updateMatrixWorld(true);
+  }
+  const drifted = rig(undersides);
+  drifted.measureDatum(100000);
+  ok(`a dense layer of undersides does not become the street  (${drifted.datum.toFixed(1)} m)`,
+    Math.abs(drifted.datum - 32.8) < 2);
+
   // Too little loaded to say anything, and nothing is said.
   const bare = rig(city(-32.8), 4);
   bare.measureDatum(100000);
