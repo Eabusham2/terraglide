@@ -4505,8 +4505,23 @@ console.log('\nGreen with holes in it is a wood; green that runs on is a field')
     && !/return greenShare \* brokenShare;/.test(canopy));
   ok('and a handful of green pixels is still not evidence',
     /green < MIN_GREEN_SAMPLES/.test(canopy));
+  // Checked on the shape of the measure rather than on one expression. What
+  // matters is that it is green as a *proportion* of the texel's own brightness
+  // and gated on there being light to judge by. The raw difference this
+  // replaced scored the median Black Forest texel 0.073 in linear light, so the
+  // relief under it came out below two per cent and never showed.
   ok('the shader applies it only where the pixel is actually green',
-    /float greenHere = clamp\(\(albedo\.g - max\(albedo\.r, albedo\.b\)\)/.test(shaders));
+    /float greenness = \(albedo\.g - rival\) \/ \(albedo\.g \+ rival/.test(shaders)
+    && /smoothstep\(0\.008, 0\.020, texelLuma\)/.test(shaders)
+    && !/clamp\(\(albedo\.g - max\(albedo\.r, albedo\.b\)\) \* 8\.0/.test(shaders));
+  // And the two knees are where the photographs put them, not where they felt
+  // right: greenness on texels bright enough to have a colour came out 0.000
+  // across bare rock in the Alps and 0.379 at the Black Forest's third quartile,
+  // so the foot has to sit above nothing and the shoulder below the crown tops.
+  const greenKnees = /float greenHere = smoothstep\(([\d.]+), ([\d.]+), greenness\)/.exec(shaders);
+  ok('and its two knees still bracket bare rock below and crown tops above',
+    !!greenKnees && Number(greenKnees[1]) > 0 && Number(greenKnees[1]) < 0.1
+    && Number(greenKnees[2]) > 0.1 && Number(greenKnees[2]) < 0.379);
 
   // Drive the real measure over three made squares whose answers are known:
   // an unbroken field, a broken canopy, and the mixed square that used to fail.
@@ -5791,7 +5806,15 @@ console.log('\nA wood reads as a canopy');
     /LEAF_WEIGHT/.test(wood) && /needleleaved: 0\.82/.test(wood));
 
   ok('the ground shader reads it at the photograph\u2019s own resolution',
-    /uniform sampler2D uWoodMask/.test(shaders) && /float canopyField\(vec2 world\)/.test(shaders));
+    /uniform sampler2D uWoodMask/.test(shaders)
+    && /vec3 crownRelief\(vec2 here, vec2 lo, vec2 hi, float e\)/.test(shaders)
+    && /texture2D\(uMap, clamp\(here \+ vec2\(e, 0\.0\)/.test(shaders));
+  // The crowns are in the photograph and reading them off it is the only way
+  // they can line up with actual trees. A noise field cannot, whatever its
+  // scale, which is exactly what "it is like a pattern on the ground, not a
+  // pattern of trees" was describing.
+  ok('and the crowns come off the photograph, not out of a noise field',
+    !/canopyField/.test(shaders) && !/cloudNoise\(world/.test(shaders));
   ok('and does nothing at all where nothing is mapped',
     /float wood = 0\.0;/.test(shaders) && /if \(uHasWood > 0\.5\)/.test(shaders)
     && /uWoodMask: \{ value: BLACK_PIXEL \}/.test(shaders));
@@ -5801,6 +5824,14 @@ console.log('\nA wood reads as a canopy');
     /this\.woodland\.enabled = !photoreal && settings\.get\('woodlandRelief'\)/.test(wiring));
   ok('and it can be turned off', /woodlandRelief: true/.test(
     readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8')));
+  // Off has to mean off. The toggle only ever governed the survey half, so
+  // across the ninety per cent of the world nobody has drawn a wood in, the
+  // photograph's own canopy score went on bumping the trees with the setting
+  // switched off. It governs the strength the shader multiplies by, which is
+  // both halves.
+  ok('and turning it off stops the photograph half as well',
+    /uWoodStrength\.value = !photoreal && settings\.get\('woodlandRelief'\) \? 1 : 0/.test(wiring)
+    && /float amount = wood \* uWoodStrength;/.test(shaders));
 }
 
 // ---------------------------------------------------------------------------

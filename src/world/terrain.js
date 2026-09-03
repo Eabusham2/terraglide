@@ -1226,6 +1226,7 @@ export class Terrain {
     node.mesh.updateMatrix();
     node.mesh.updateMatrixWorld(true);
     node.size = size;
+    node.material.uniforms.uTileSpan.value = size;
     node.geometry = geometry;
     node.grid = grid;
     node.tile = tile;

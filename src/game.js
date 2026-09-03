@@ -1158,6 +1158,13 @@ export class Game {
     this.shared.uWoodMask.value = this.woodland.texture;
     this.shared.uWoodOrigin.value.copy(this.woodland.origin);
     this.shared.uWoodSpan.value = this.woodland.span;
+    // The toggle has to turn the whole thing off, not just the survey half.
+    // It only ever governed the OpenStreetMap mask, so with the survey missing
+    // — which is most of the world — the photograph's own canopy score kept
+    // bumping the trees with the setting switched off. It reads "Woodland
+    // canopy relief", so it governs woodland canopy relief. The scanned world
+    // has its trees in the mesh already and gets none of it either way.
+    this.shared.uWoodStrength.value = !photoreal && settings.get('woodlandRelief') ? 1 : 0;
 
     this.panorama.update(
       {

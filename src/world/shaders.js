@@ -186,6 +186,8 @@ const TERRAIN_FRAG = /* glsl */ `
    * the ninety per cent of the world nobody has mapped a forest in.
    */
   uniform float uCanopy;
+  /** This tile's width on the ground, in metres. Set per node in Terrain.build. */
+  uniform float uTileSpan;
 
   varying vec2 vUv;
   varying vec3 vNormalW;
@@ -206,16 +208,51 @@ const TERRAIN_FRAG = /* glsl */ `
    */
 ${CLOUD_NOISE_GLSL}
 
+  /** Half a crown, in metres. A spruce is six to ten across, an oak more. */
+  const float CROWN_HALF_M = 4.5;
+  /** How far a crown stands above the gap beside it. */
+  const float CROWN_HEIGHT_M = 4.0;
+  /** How much of the photograph's own crown contrast to add again on top. */
+  const float CROWN_DEPTH = 0.55;
+
   /**
-   * Crown-scale relief for a wood, and where its hollows are.
+   * Crown-scale relief for a wood: where the crowns are and which way they
+   * slope, read off the photograph.
    *
-   * Two octaves of the same value noise the clouds use, at nine metres and at
-   * three — one crown and one branch — read straight off the world position, so
-   * it is at the photograph's own resolution rather than at the mesh's. It
-   * returns the height field; the shader takes its slope by differencing.
+   * This was two octaves of value noise, and the noise was the whole problem.
+   * It is a pattern nobody surveyed, laid over a photograph of a real place, so
+   * it could not line up with a single actual tree — which is exactly what it
+   * looked like: a texture on the ground rather than a wood. It was also the
+   * one thing in this project that was invented rather than measured.
+   *
+   * The crowns are already in the photograph. From above, a canopy is bright on
+   * the tops and dark in the gaps between, and that difference survives at the
+   * resolution the imagery is served at: measured on the Esri photograph of the
+   * Black Forest at zoom 16 — 1.59 metres a texel there — the luminance of a
+   * green texel against the average of its four neighbours nine metres apart
+   * runs from -62% at the fifth percentile to +99% at the ninety-fifth, with a
+   * standard deviation of 55%. That is a strong signal and it is in the right
+   * place by construction, because it *is* the trees.
+   *
+   * So: four taps half a crown out, in this tile's own texture coordinates. The
+   * centre against their average says whether this texel is a crown top or a
+   * gap; the two differences across say which way the crown slopes, and the
+   * shader turns that into a tilted normal so the sun catches the sunward side.
+   *
+   * Returns the neighbours' average and the two differences, all in luminance;
+   * main divides by the average so the measure has no scale in it.
+   *
+   * Where the photograph is a stretched ancestor rather than this tile's own,
+   * all four taps land inside one source texel, the differences go to zero and
+   * no relief appears — which is right. There is nothing there to read.
    */
-  float canopyField(vec2 world) {
-    return cloudNoise(world / 9.0) * 0.68 + cloudNoise(world / 3.0) * 0.32;
+  vec3 crownRelief(vec2 here, vec2 lo, vec2 hi, float e) {
+    vec3 W = vec3(0.299, 0.587, 0.114);
+    float xp = dot(texture2D(uMap, clamp(here + vec2(e, 0.0), lo, hi)).rgb, W);
+    float xm = dot(texture2D(uMap, clamp(here - vec2(e, 0.0), lo, hi)).rgb, W);
+    float zp = dot(texture2D(uMap, clamp(here + vec2(0.0, e), lo, hi)).rgb, W);
+    float zm = dot(texture2D(uMap, clamp(here - vec2(0.0, e), lo, hi)).rgb, W);
+    return vec3(0.25 * (xp + xm + zp + zm), xp - xm, zp - zm);
   }
 
 ${CLOUD_SHADOW_ONLY_GLSL}
@@ -320,30 +357,72 @@ ${CLOUD_SHADOW_ONLY_GLSL}
     // So: how green *this* texel is, against its own red and blue. Tan, rock,
     // road and water go to zero and stay flat; the wood inside the same square
     // gets the whole of the square's score.
-    float greenHere = clamp((albedo.g - max(albedo.r, albedo.b)) * 8.0, 0.0, 1.0);
+    //
+    // Green as a proportion of this texel's own brightness, not as a raw
+    // difference, and that distinction is the whole of it. In linear light a
+    // canopy is dark: over the Esri photograph of the Black Forest at zoom 16
+    // the median texel's green beats its own red and blue by 0.009 of full
+    // scale, so a raw difference scaled by eight scored it 0.073 and the relief
+    // under it came out below two per cent — which is why there were no bumps
+    // on the trees. By proportion the same texel is unmistakably green. The old
+    // form also had it backwards: the darker the wood, the flatter it went,
+    // when a dark wood is the denser one.
+    //
+    // Normalised against green plus its strongest rival, so there is no scale
+    // in the measure and it cannot run away — numerator and denominator carry
+    // the same terms. Tan, rock and road have red or blue on top and go to zero
+    // on the subtraction, as before.
+    //
+    // What a ratio cannot see is a texel too dark to have a colour. Deep water
+    // is nearly black and a hair green, and by proportion alone every texel of
+    // Lake Geneva came out a full one. So it is gated on there being light to
+    // judge by: over these same photographs open water sits at 0.0056 linear
+    // luminance and holds within a thousandth of that, while the Black Forest's
+    // median texel is 0.056 and Hyde Park's 0.034.
+    //
+    // The two knees are where the photographs put them. Measuring greenness on
+    // texels bright enough to have a colour, the Black Forest comes out
+    // *bimodal* — the shadowed gaps between crowns are not green at all
+    // (quarter percentile -0.079) and the crown tops emphatically are (three
+    // quarters 0.379, ninth tenth 0.484) — while bare rock in the Alps sits at
+    // 0.000 across the whole tile. A foot at 0.05 and a shoulder at 0.35 puts
+    // the crown tops at a full one and leaves rock, road and tan at nothing.
+    float rival = max(albedo.r, albedo.b);
+    float texelLuma = dot(albedo, vec3(0.299, 0.587, 0.114));
+    float greenness = (albedo.g - rival) / (albedo.g + rival + 1e-4);
+    float greenHere = smoothstep(0.05, 0.35, greenness)
+      * smoothstep(0.008, 0.020, texelLuma);
     wood = max(wood, uCanopy * flatness * greenHere * uHasTexture);
-    if (wood > 0.01) {
-      // Slope of the canopy by differencing, a metre and a half either way,
-      // which is about a quarter of a crown.
-      float e = 1.5;
-      float h = canopyField(vWorld.xz);
-      float dx = canopyField(vWorld.xz + vec2(e, 0.0)) - h;
-      float dz = canopyField(vWorld.xz + vec2(0.0, e)) - h;
+    // Branching on the tile's own score rather than on this texel's: it is
+    // uniform across the whole draw call, so the taps below keep well-defined
+    // derivatives. Every texel of a canopy tile pays for them; a tile with no
+    // wood on it anywhere pays for none. The amount is zero off the crowns, so
+    // the arithmetic is a no-op there.
+    if (uCanopy > 0.01 || uHasWood > 0.5) {
+      // Half a crown, in this tile's own texture coordinates: uTileSpan is how
+      // wide the tile is on the ground and uUvScale the slice of the texture it
+      // wears, so this holds at every zoom and every latitude.
+      float e = CROWN_HALF_M * uUvScale / max(uTileSpan, 1.0);
+      vec2 lo = uUvOffset + 0.002 * uUvScale;
+      vec2 hi = uUvOffset + 0.998 * uUvScale;
+      vec3 crown = crownRelief(uv, lo, hi, e);
+      float around = max(crown.x, 0.004);
       float amount = wood * uWoodStrength;
-      // The tilt is the smaller half of this on purpose. Tilting normals is
-      // what the second attempt did, and on its own it fights the light and
-      // shade the photograph already carries rather than adding to it — swept
-      // here, the tilt alone took crown-scale contrast *down*.
-      n = normalize(n + vec3(-dx, 0.0, -dz) * amount * 16.0);
-      // The gaps between crowns being darker than the tops is what actually
-      // makes a canopy read as a canopy from the air, and it is the half that
-      // works: around one, so a crown top is the photograph exactly and a gap
-      // is under it. Swept over the Black Forest at seventy metres, contrast at
-      // crown scale went 11.34 / 11.45 / 11.53 / 11.64 / 11.88 as this rose —
-      // monotonically up, where both earlier attempts went down — while
-      // pixel-scale contrast held at 3.07 to 3.09, so the photograph's own
-      // detail is not being traded away for it.
-      albedo *= 1.0 + (h - 0.5) * amount * 1.8;
+      // Two things, and the second is the one that reads. Tilting the normal
+      // along the crown's own slope is what makes the sunward side of a crown
+      // brighter than its far side; +u runs east and +v runs south on every
+      // tile, so the differences are already the height field's gradient once
+      // they are scaled from luminance into metres.
+      float slope = CROWN_HEIGHT_M / (2.0 * CROWN_HALF_M * around);
+      n = normalize(n + vec3(-crown.y, 0.0, -crown.z) * slope * amount);
+      // And deepening the gaps between the crowns, which is what actually makes
+      // a canopy read as a canopy from the air. Around one, so a crown top is
+      // the photograph a little lifted and a gap is the photograph a little
+      // under — the photograph's own crown contrast, added again at just over
+      // half strength. Clamped either side so a blown highlight or a black
+      // shadow next to one cannot invert it.
+      float lift = (texelLuma - crown.x) / around;
+      albedo *= clamp(1.0 + lift * amount * CROWN_DEPTH, 0.4, 1.8);
     }
 
     float lambert = max(dot(n, uSunDir), 0.0);
@@ -533,6 +612,9 @@ export function createTerrainMaterial(shared) {
       uWoodSpan: shared.uWoodSpan,
       uHasWood: shared.uHasWood,
       uCanopy: { value: 0 },
+      // How wide this tile is on the ground. Set per node in Terrain.build, so
+      // the canopy can be sampled at a crown's width whatever zoom it is at.
+      uTileSpan: { value: 1 },
       uWoodStrength: shared.uWoodStrength,
     },
     vertexShader: TERRAIN_VERT,
