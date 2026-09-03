@@ -2646,6 +2646,15 @@ paragraph.
 
       against the -32.8 measured independently by raycast and EGM96's -32.3.
 
+      One refinement since, from sampling it every three seconds rather than
+      every minute: between those three readings the lift does not converge
+      smoothly, it swings — 19.7, 41.9, 52, 61.3, 25.7, 42.3, 65.7, 52.5 —
+      before settling on 32.5 and staying there. Sampled a minute apart that
+      looks like 32.3, 32.8, 32.9; sampled properly it is forty-six metres of
+      movement first. It does not change this fix, and it does change what may
+      be built on top of it, which is why the collision floor in G22 waits for
+      the lift to hold still before the player stands on anything.
+
       What the picture does: the city comes down to the ground, and street-level
       detail — the construction site on Stevenson Street, the lower storeys, the
       road surface — appears where there had been a blank plane.
