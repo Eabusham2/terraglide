@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta name="terraglide-sources" content="9e976551e26625d7">
+<meta name="terraglide-sources" content="d903f1664826ced0">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
 <meta name="color-scheme" content="dark light" />
@@ -113822,6 +113822,46 @@ const DATUM_CLUSTER_SHARE = 0.9;
 const DATUM_MIN_SAMPLES = 8;
 /** Beyond this the answer is not a geoid separation and is not believed. */
 const DATUM_LIMIT_M = 120;
+
+/**
+ * How many measurements in a row have to agree before the ground you stand on
+ * is allowed to follow the tiles.
+ *
+ * The lift is worked out from what has loaded, and a city streams in. Traced
+ * live at Stevenson Street, every three seconds, while 238 tiles arrived:
+ *
+ *   0, 19.7 ×5, 41.9, 19.7, 42, 52, 61.3, 25.7, 25.7, 42.3, 52, 65.7,
+ *   52.5, 32, 32, then 32.5 for the remaining three minutes
+ *
+ * Forty-six metres of swing before it settles, and the settled answer agrees
+ * with the +32.9 measured for G23. That was harmless while the datum only
+ * moved the *drawing*. It is not harmless now the player stands on these
+ * surfaces: 65.7 against a true 32.5 would have put you thirty-three metres
+ * above the street, in the air.
+ *
+ * So the floor waits for the answer to hold still, and this is how long.
+ * Counting the run of agreeing measurements rather than eyeballing the trace:
+ * across the whole noisy stretch no wrong value ever got past three in a row —
+ * 19.7 reached three, 25.9 and 42.3 reached two, the rest one or none — while
+ * the settled 32.3 climbed 1, 3, 5, 7, 8, 10, 12, 14, 16 and kept going.
+ * Fifteen sits five times clear of the highest wrong run and is reached about
+ * forty-five seconds after the city stops moving.
+ *
+ * A number taken from that trace rather than derived, and conservative on
+ * purpose: being wrong here throws the player into the sky, and being slow
+ * here only means standing on the height field a little longer, which is
+ * exactly what the game did before any of this.
+ *
+ * Two things it is not. It is not a gate on the *walls* — a wall is vertical,
+ * and where it stands in plan does not depend on the datum, which is why you
+ * stop walking through buildings immediately. And it is not measured by how
+ * much of the city has loaded: that was tried, counting the share of the
+ * datum's own sample points that found any surface, and it read 1.00 from the
+ * first measurement to the last, because the coarse tiles cover the ground
+ * long before the detail that makes the answer right. It does not discriminate
+ * and it is not in the code.
+ */
+const DATUM_STEADY = 15;
 const DEFAULT_DETAIL = 'high';
 /**
  * How long a piece of content that refused is left alone before asking again.
@@ -113977,6 +114017,12 @@ class Tiles3D {
      */
     this.datum = 0;
     this._datumAt = 0;
+    /**
+     * How many datum measurements in a row have agreed. See DATUM_STEADY: the
+     * floor follows the tiles only once the lift has stopped moving, and an
+     * undefined counter here would open that gate on the first frame.
+     */
+    this.datumSteady = 0;
     this._ray = new THREE.Raycaster();
     this._rayFrom = new THREE.Vector3();
     this._down = new THREE.Vector3(0, -1, 0);
@@ -114191,6 +114237,7 @@ class Tiles3D {
     this.coverage.clear();
     this.datum = 0;
     this._datumAt = 0;
+    this.datumSteady = 0;
     this.group.position.y = 0;
     // The collision list points at objects that are about to go.
     this._near = [];
@@ -114364,7 +114411,12 @@ class Tiles3D {
 
     // The tiles are low by `measured`, so they go up by it.
     const lift = -measured;
-    if (Math.abs(lift - this.datum) < 0.5) return;
+    if (Math.abs(lift - this.datum) < 0.5) {
+      // Agreeing with itself is the signal the floor waits for.
+      this.datumSteady++;
+      return;
+    }
+    this.datumSteady = 0;
     this.datum = lift;
     this.group.position.y = lift;
     this.group.updateMatrix();
@@ -114520,6 +114572,10 @@ class Tiles3D {
    * not.
    */
   floorAt(x, z, ceiling, drop = FLOOR_DROP_M) {
+    // Not until the lift these surfaces sit on has stopped moving: standing on
+    // a surface whose height is still being worked out is standing on a moving
+    // floor. See DATUM_STEADY.
+    if (this.datumSteady < DATUM_STEADY) return null;
     const near = this.nearby(x, z);
     if (!near.length) return null;
     this._ray.set(this._rayFrom.set(x, ceiling, z), this._down);

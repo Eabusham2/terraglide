@@ -2751,9 +2751,48 @@ paragraph.
       and the five below are undersides seen through the shell.
 
       The walls, at the same spot: of eight directions probed, three are
-      blocked, at 0.18 to 0.26 m. A three metre step in each of those moves
-      0.00 to 0.04 m instead of three. The other five are open street and move
+      blocked, at 0.18 to 0.42 m. A three metre step in each of those moves
+      0.00 to 0.20 m instead of three. The other five are open street and move
       the full three.
+
+      **And a fault this work created, found by measuring rather than by
+      reasoning.** The datum lift is worked out from what has loaded, and while
+      a city streams in it does not merely creep — it swings. Traced live,
+      every three seconds, over 238 tiles arriving:
+
+        0, 19.7 x5, 41.9, 19.7, 42, 52, 61.3, 25.7, 25.7, 42.3, 52, 65.7,
+        52.5, 32, 32, then 32.5 for the remaining three minutes
+
+      Forty-six metres of swing, and the settled answer agrees with the +32.9
+      of G23. That was harmless while the datum only moved the drawing. It is
+      not harmless once the player *stands* on these surfaces: 65.7 against a
+      true 32.5 puts you thirty-three metres above the street, in mid-air.
+
+      So the floor waits for the lift to hold still, and the walls do not — a
+      wall is vertical and where it stands in plan does not depend on the
+      datum, which is why walking through buildings stops immediately while
+      standing on the scanned street arrives once the city has settled. Until
+      then the floor is the height field, which is exactly what the game did
+      before any of this, so the waiting costs nothing.
+
+      How long to wait was measured, not guessed. Counting runs of agreeing
+      measurements: no wrong value ever got past three in a row — 19.7 reached
+      three, 25.9 and 42.3 reached two, the rest one or none — while the
+      settled 32.3 climbed 1, 3, 5, 7, 8, 10, 12, 14, 16 and kept going.
+      Fifteen sits five times clear of the worst wrong run.
+
+      One negative result worth keeping, because it is the obvious idea and it
+      does not work: gating on *how much of the city has loaded*, measured as
+      the share of the datum's own sample points that find any surface. It
+      reads 1.00 from the first measurement to the last. The coarse tiles cover
+      the ground long before the detail that makes the answer right, so it
+      cannot tell a half-loaded city from a finished one. Not in the code.
+
+      And one process note, because it cost a wrong conclusion: index.html
+      prefers the built bundle over the module path, so a source edit that has
+      not been rebuilt is not what the browser runs. The first gate measurement
+      reported the gate open with the counter undefined, which read as the gate
+      not working; it was a stale bundle.
 
 - [~] G21. Test the street view merge
       Asked alongside the blur. The merge rule is the part I could test without

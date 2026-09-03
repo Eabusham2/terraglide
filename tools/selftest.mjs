@@ -618,6 +618,7 @@ console.log('\nthe scanned city is something you stand on, not something you fal
   tiles.loaded = new Map();
   tiles.visible = new Set();
   tiles.churn = 0;
+  tiles.datumSteady = 99;
   tiles._ray = new THREE.Raycaster();
   tiles._rayFrom = new THREE.Vector3();
   tiles._down = new THREE.Vector3(0, -1, 0);
@@ -644,6 +645,17 @@ console.log('\nthe scanned city is something you stand on, not something you fal
   tiles.loaded.set('a', { object: city, used: 0 });
   tiles.visible.add('a');
 
+  // The floor waits for the lift under these surfaces to stop moving: the
+  // datum is worked out from what has loaded and climbs as a city streams in,
+  // and a floor that follows a moving lift is a floor that moves under you.
+  tiles.datumSteady = 0;
+  ok('an unsettled datum means no scanned floor at all', tiles.floorAt(0, 0, 42) === null);
+  tiles.datumSteady = 3;
+  ok('and neither does one that has only just stopped moving — a wrong lift '
+    + 'holds still for three measurements while a city loads',
+    tiles.floorAt(0, 0, 42) === null);
+  tiles.datumSteady = 99;
+
   const floor = tiles.floorAt(0, 0, 42);
   ok(`the street is where you stand  (${floor})`, Math.abs(floor - 40) < 0.01);
   ok('and a surface over your head is not a floor', tiles.floorAt(0, 0, 30) === null);
@@ -656,8 +668,9 @@ console.log('\nthe scanned city is something you stand on, not something you fal
   tiles.floorAt(0, 0, 42);
   const cached = tiles._near.length;
   ok(`a short question fills the list to the full radius  (${cached})`, cached === 1);
-  ok('and a longer one than the radius is answered fresh',
-    tiles.nearby(0, 0, 400).length === 1 && tiles._nearAt.churn === tiles.churn);
+  const wide = tiles.nearby(0, 0, 400);
+  ok('and a longer one than the radius is answered fresh, without spoiling it',
+    wide.length === 1 && tiles._nearAt.x === 0 && tiles._near !== wide);
 
   // The wall. A ray going at it stops; the same wall behind you does not.
   const into = tiles.wallAt(3, 40.2, 0, 1, 0, 4);
