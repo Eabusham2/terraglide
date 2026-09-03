@@ -2668,7 +2668,7 @@ paragraph.
       over; a park would settle it. And the two sample points that read -199 m
       instead of -26 m are still unexplained.
 
-- [ ] G22. In a photorealistic city you can stand inside a building
+- [x] G22. In a photorealistic city you can stand inside a building
       Noticed while photographing the blur, not reported — so it goes in the
       record rather than being quietly fixed or quietly ignored.
 
@@ -2688,6 +2688,45 @@ paragraph.
       Not fixed, and not fixed quietly-in-passing either: making photogrammetry
       solid means raycasting against loaded tile meshes on a moving budget,
       which is a real piece of work and its own decision. Say the word.
+
+      **Said, and done.** Two questions, because they are the two a walker
+      asks, and a downward ray can only answer the first:
+
+        floorAt   what is under my feet — the street, or a roof I am on
+        wallAt    is there something between me and where I am walking
+
+      Raycasts against the loaded tiles, which is sound *here* and would not be
+      against the terrain: these meshes are placed by a matrix and nothing
+      about them is displaced in a shader, whereas the terrain's curvature and
+      its edge wall are applied in the vertex stage, and a raycast there reads
+      geometry that is not where it is drawn — the mistake that produced two
+      wrong conclusions earlier in this file. The datum lift lives on the
+      group, so world matrices carry it and a hit comes back at the height it
+      is drawn at.
+
+      The floor is the highest surface *at or below* where you could step, and
+      that qualifier is what makes it a floor rather than a roof: standing in
+      the street outside a tower, every surface of the tower is over your head
+      and none of them is what you are standing on. The caller passes its own
+      step-up allowance, so a kerb counts and a storey does not.
+
+      The wall is a swept test from where the tick started, not a push-out
+      after overlap. A push-out is not enough — these walls are a few
+      centimetres of shell, and anything faster than a walk crosses one inside
+      one tick; ending the tick beyond it, the only face still ahead points
+      away, so you would be through. Measured: a 5 m step at 300 m/s stops at
+      the face rather than passing it. A face pointing the way you are
+      travelling is ignored, or being spawned inside a shell would mean never
+      getting out of one — checked, and you can walk out. Only the speed going
+      *into* the surface is taken, so approaching a building at an angle
+      carries you along it rather than stopping dead.
+
+      Budget: the cast is against a short list of tiles whose cached world box
+      is near you, refreshed when you have moved eight metres or when any tile
+      has landed or been dropped — a tile's world box walks its whole subtree
+      to measure, so it is measured once and kept, and a stale list would point
+      at freed geometry. Nothing is asked at all when no photogrammetry is
+      loaded.
 
 - [~] G21. Test the street view merge
       Asked alongside the blur. The merge rule is the part I could test without
@@ -3046,6 +3085,52 @@ paragraph.
 
       The help text says which one it has landed on, so it is never a mystery
       what you are actually flying over.
+
+      **Then it was made to mean *here*, which is what was asked for.** The
+      ranking above is a statement about what providers *claim*, and what a
+      provider claims is not what it serves. So every provider you can use is
+      asked, over the square you are standing in, how deep it will really go,
+      and the deepest wins. Measured live, keyless, through the real APIs:
+
+          Kansas, USA       esri z19     terrarium z14
+          Kent, England     esri z19     terrarium z14
+          Sahara, Algeria   esri z17     terrarium z14
+          South Pacific     sentinel2 z16  terrarium z14
+
+      The last row is the whole point. Esri wins nearly everywhere and does not
+      answer at all over the open Pacific, where the published ranking would
+      have picked it and drawn nothing; asking gets Sentinel-2 instead. The
+      depth genuinely varies too — z19 over Kansas, z17 over the Sahara — and
+      the panel now reports the measured answer rather than reciting the rule.
+      Flown to Kansas in the running game: decided esri, drawing esri.
+
+      The unit is a zoom-8 square, about 150 km across, not a tile: a probe is
+      about a dozen requests and a tile is fifty metres, so per-tile would be
+      thousands of requests to cross a city against somebody's free server, to
+      answer a question whose boundaries are national. Crossing into a square
+      nobody has asked about costs one probe; coming back costs nothing, and
+      squares where *nothing* answered are remembered too, or the middle of the
+      Pacific gets asked about every six seconds. It keeps the incumbent on a
+      tie, so a border between two equally good providers cannot start a swap
+      every time you cross it, and it never touches a provider you chose by
+      hand.
+
+      **A bug found while wiring it up.** The probe walked down one zoom at a
+      time and gave up six levels below the published maximum. Esri publishes
+      23 and serves 16 across plenty of the world — the walk ran out at 17 and
+      reported Esri as having *nothing there*, ruling the best provider in the
+      list out of exactly the places worth asking about. It bisects now:
+      coverage pyramids are monotone, so the deepest level that answers is
+      found by halving rather than stepping, in about the same five or six
+      requests the old window cost. It also knows an elevation *grid* is not a
+      picture, and reads Bing's JSON for heights instead of failing to decode
+      it as an image.
+
+      The panel's button used to be the only way to get a local answer, and it
+      worked by writing the winner into the setting — which quietly took you
+      *off* Auto, so the next place you flew to kept a provider chosen for the
+      place you left. It now hurries the real mechanism along, for imagery and
+      elevation both.
 - [x] G14. Fallbacks
       Already: providerChain builds a standby list (keyed providers first, then
       free ones), a refused tile walks down it, and the flat maps fall back to the

@@ -604,6 +604,120 @@ console.log('\nand then asks who is really deepest where you are standing');
   ok('winning by staying put is not a swap', told === 0);
 }
 
+console.log('\nthe scanned city is something you stand on, not something you fall through');
+{
+  const THREE = await import('../vendor/three/three.module.js');
+  const { Tiles3D } = await import('../src/world/tiles3d.js');
+
+  // A slab of "street" at y = 40 with a wall standing on it, which is the
+  // shape of the fault: the heightfield under a scanned city is its bare
+  // landform, so the player stood at the terrain height and the buildings
+  // were scenery.
+  const tiles = Object.create(Tiles3D.prototype);
+  tiles.group = new THREE.Group();
+  tiles.loaded = new Map();
+  tiles.visible = new Set();
+  tiles.churn = 0;
+  tiles._ray = new THREE.Raycaster();
+  tiles._rayFrom = new THREE.Vector3();
+  tiles._down = new THREE.Vector3(0, -1, 0);
+  tiles._along = new THREE.Vector3();
+  tiles._normal = new THREE.Vector3();
+  tiles._near = [];
+  tiles._nearAt = null;
+
+  const street = new THREE.Mesh(
+    new THREE.BoxGeometry(60, 1, 60),
+    new THREE.MeshBasicMaterial(),
+  );
+  street.position.set(0, 39.5, 0);
+  // A wall across the street at x = 5, four metres of it.
+  const wall = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5, 8, 40),
+    new THREE.MeshBasicMaterial(),
+  );
+  wall.position.set(5, 44, 0);
+  const city = new THREE.Group();
+  city.add(street, wall);
+  tiles.group.add(city);
+  tiles.group.updateMatrixWorld(true);
+  tiles.loaded.set('a', { object: city, used: 0 });
+  tiles.visible.add('a');
+
+  const floor = tiles.floorAt(0, 0, 42);
+  ok(`the street is where you stand  (${floor})`, Math.abs(floor - 40) < 0.01);
+  ok('and a surface over your head is not a floor', tiles.floorAt(0, 0, 30) === null);
+  ok('nor is one you are nowhere near', tiles.floorAt(500, 500, 42) === null);
+
+  // The wall. A ray going at it stops; the same wall behind you does not.
+  const into = tiles.wallAt(3, 40.2, 0, 1, 0, 4);
+  ok(`walking at a wall meets it  (${into && into.distance.toFixed(2)} m)`,
+    !!into && Math.abs(into.distance - 1.75) < 0.2);
+  ok('and its face is turned towards you', !!into && into.nx < 0);
+  ok('a wall you have already passed does not stop you',
+    tiles.wallAt(6, 40.2, 0, 1, 0, 4) === null);
+  ok('and neither does open street', tiles.wallAt(-20, 40.2, 0, -1, 0, 4) === null);
+
+  // Now the controller, driven for real rather than read.
+  const { PlayerController } = await import('../src/player/controller.js');
+  const flat = {
+    heightAt: () => 0,
+    meshHeightAt: () => null,
+    hasElevationAt: () => true,
+    settlingAt: () => false,
+  };
+  const player = {
+    position: new THREE.Vector3(0, 40, 0),
+    velocity: new THREE.Vector3(4, 0, 0),
+    radius: 0.35, height: 1.8, scale: 1,
+  };
+  const controller = new PlayerController({ player, terrain: flat, buildings: null });
+
+  ok('with no scanned city the floor is the heightfield  (0)',
+    controller.groundHeightAt(0, 0, 42) === 0);
+  controller.scanned = tiles;
+  const stood = controller.groundHeightAt(0, 0, 42);
+  ok(`with one, it is the street you can see  (${stood})`, Math.abs(stood - 40) < 0.01);
+
+  // Walk into the wall and be stopped short of it. The wall's near face is at
+  // x = 4.75, so a 0.35 m capsule may stand at 4.40 and no further.
+  controller.prevPosition.set(4.0, 40, 0);
+  player.position.set(4.6, 40, 0);
+  player.velocity.set(4, 0, 0);
+  controller.resolveScanned(player, player.radius);
+  ok(`the wall stops you at its face  (x ${player.position.x.toFixed(2)})`,
+    Math.abs(player.position.x - 4.4) < 0.02);
+  ok('and takes away the speed going into it', player.velocity.x <= 0.001);
+
+  // A step long enough to clear the shell in one tick. A push-out on overlap
+  // would have found only the far face, pointing away, and let you through.
+  controller.prevPosition.set(4.0, 40, 0);
+  player.position.set(9.0, 40, 0);
+  player.velocity.set(300, 0, 0);
+  controller.resolveScanned(player, player.radius);
+  ok(`a fast step does not tunnel through it  (x ${player.position.x.toFixed(2)})`,
+    Math.abs(player.position.x - 4.4) < 0.02);
+
+  // Sliding along a wall keeps sliding: only the speed going into the face is
+  // taken, so walking at a building at an angle carries you along it.
+  controller.prevPosition.set(4.0, 40, 0);
+  player.position.set(4.6, 40, 0.3);
+  player.velocity.set(4, 0, 2);
+  controller.resolveScanned(player, player.radius);
+  ok(`movement along the face survives  (vx ${player.velocity.x.toFixed(2)}, vz ${player.velocity.z.toFixed(2)})`,
+    Math.abs(player.velocity.z - 2) < 0.01 && Math.abs(player.velocity.x) < 0.01);
+  ok(`and it did stop short of the wall  (x ${player.position.x.toFixed(2)})`,
+    player.position.x < 4.45 && player.position.z > 0);
+
+  // Spawned inside a shell, you can still walk out of it.
+  controller.prevPosition.set(5.6, 40, 0);
+  player.position.set(6.2, 40, 0);
+  player.velocity.set(4, 0, 0);
+  controller.resolveScanned(player, player.radius);
+  ok(`a face pointing away does not trap you  (x ${player.position.x.toFixed(2)})`,
+    Math.abs(player.position.x - 6.2) < 0.01);
+}
+
 console.log('\nthe probe bisects, so a provider is not written off six levels up');
 {
   const { deepestZoomAt } = await import('../src/tiles/providers.js');

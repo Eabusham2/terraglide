@@ -78,6 +78,13 @@ export class PlayerController {
     this.player = player;
     this.terrain = terrain;
     this.buildings = buildings;
+    /**
+     * The scanned city, when there is one, so you can stand on it and not walk
+     * through it. Set by the game when photorealistic 3D loads, and cleared
+     * when it is switched off — it is an optional dependency fetched on demand,
+     * so it cannot be a constructor argument. See world/tiles3d.js.
+     */
+    this.scanned = null;
     this.fixed = new FixedStep(TICK);
     this.look = new THREE.Vector3();
     this.tmp = new THREE.Vector3();
@@ -477,6 +484,9 @@ export class PlayerController {
       }
     }
 
+    // The scanned city's walls, on the same footing as the extruded ones.
+    this.resolveScanned(player, radius);
+
     const ground = this.groundHeightAt(
       player.position.x,
       player.position.z,
@@ -582,6 +592,20 @@ export class PlayerController {
         this.lastKnownFloor = ground;
       }
     }
+    // The scanned city is a surface too, and until now it was scenery you fell
+    // through: the terrain under a photogrammetric city is its bare landform,
+    // so standing on the heightfield in the middle of San Francisco puts you
+    // under the pavement and inside the buildings. Where there is a scanned
+    // surface at or below where you could step, that is the floor.
+    //
+    // At or below, because that is what makes it a floor rather than a roof —
+    // in the street outside a tower every surface of the tower is over your
+    // head and none of them is what you are standing on.
+    if (this.scanned?.floorAt && Number.isFinite(referenceY)) {
+      const scanned = this.scanned.floorAt(x, z, referenceY);
+      if (scanned !== null && scanned > ground) ground = scanned;
+    }
+
     const list =
       colliders ?? (this.buildings ? this.buildings.collidersNear(x, z, this.player.radius + 1) : []);
 
@@ -591,6 +615,56 @@ export class PlayerController {
       ground = Math.max(ground, collider.top);
     }
     return ground;
+  }
+
+  /**
+   * Do not walk through the scanned city.
+   *
+   * The floor above answers "what am I standing on"; this answers "is there
+   * something in the way", which a downward ray cannot see — a wall is thin,
+   * vertical, and entirely above the floor on both sides of it.
+   *
+   * Pushed out along the face's own normal rather than straight back along the
+   * approach, so sliding along a wall stays sliding instead of stopping dead,
+   * and only the part of the velocity going *into* the surface is taken away.
+   * A face turned the same way you are travelling is the back of something you
+   * are already past and is ignored, or being spawned inside a shell would
+   * mean never getting out of it.
+   */
+  resolveScanned(player, radius) {
+    if (!this.scanned?.wallAt) return;
+    // Swept, from where this tick started rather than from where it ended.
+    //
+    // A push-out on overlap alone is not enough: these walls are a few
+    // centimetres of shell, and anything faster than a walk crosses one inside
+    // a single tick. Ending the tick beyond it, the only face still ahead is
+    // the far side, which points away and is correctly ignored — so you would
+    // be through. Casting along the step actually taken cannot miss it however
+    // fast the step was.
+    const from = this.prevPosition;
+    const moveX = player.position.x - from.x;
+    const moveZ = player.position.z - from.z;
+    const travel = Math.hypot(moveX, moveZ);
+    if (travel < 1e-4) return;
+    const dx = moveX / travel;
+    const dz = moveZ / travel;
+    const hit = this.scanned.wallAt(from.x, from.y, from.z, dx, dz, travel + radius);
+    if (!hit) return;
+    // Where the capsule may stand: its own radius short of the face.
+    const allowed = Math.max(0, hit.distance - radius);
+    if (allowed >= travel) return;
+    player.position.x = from.x + dx * allowed;
+    player.position.z = from.z + dz * allowed;
+    const length = Math.hypot(hit.nx, hit.nz) || 1;
+    const nx = hit.nx / length;
+    const nz = hit.nz / length;
+    const into = player.velocity.x * nx + player.velocity.z * nz;
+    if (into < 0) {
+      // Only the part going into the surface: sliding along a wall stays
+      // sliding rather than stopping dead against it.
+      player.velocity.x -= into * nx;
+      player.velocity.z -= into * nz;
+    }
   }
 }
 

@@ -1094,6 +1094,11 @@ export class Game {
     if (this.tiles3d && !this.tiles3d.groundHeightAt) {
       this.tiles3d.groundHeightAt = (x, z) => this.terrain.heightAt(x, z);
     }
+    // And so you can stand on the scanned city rather than inside it. The
+    // controller collided with the heightfield alone, which under a
+    // photogrammetric city is its bare landform — so the ground was right and
+    // the walls were not there. See G22.
+    this.controller.scanned = this.tiles3d?.state === 'ready' ? this.tiles3d : null;
     this.terrain.group.visible = true;
 
     // Scenery and extruded footprints are decided in one go rather than per

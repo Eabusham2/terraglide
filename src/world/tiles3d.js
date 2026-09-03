@@ -212,6 +212,31 @@ const MAX_DEPTH = 64;
  * twenty surfaces stacked in it and not one had a single hit — which is why
  * "the lowest hit" on its own is not good enough.
  */
+/**
+ * Collision against the scanned city. See floorAt and wallAt.
+ *
+ * The near list is rebuilt when you have moved this far, or when a tile has
+ * landed or been dropped — measuring a tile's world box walks its whole
+ * subtree, so it is measured once and kept.
+ */
+const NEAR_REFRESH_M = 8;
+
+/**
+ * How far below the step-up ceiling to look for a floor. Deep enough to find
+ * the street from a first-floor window ledge, shallow enough that a ray down a
+ * light well does not find the basement of the building next door.
+ */
+const FLOOR_DROP_M = 60;
+
+/**
+ * Where to feel for a wall: shin and chest.
+ *
+ * One ray at waist height walks through a railing and steps over a parapet.
+ * Two is what makes a wall a thing you meet rather than a thing you notice
+ * from inside it.
+ */
+const WALL_HEIGHTS_M = [0.4, 1.5];
+
 const DATUM_INTERVAL_MS = 3000;
 /** Below this there is not enough loaded to measure anything from. */
 const DATUM_MIN_TILES = 12;
@@ -399,6 +424,20 @@ export class Tiles3D {
     this._ray = new THREE.Raycaster();
     this._rayFrom = new THREE.Vector3();
     this._down = new THREE.Vector3(0, -1, 0);
+    this._along = new THREE.Vector3();
+    this._normal = new THREE.Vector3();
+    /** Tiles near enough to collide with, and where that list was worked out. */
+    this._near = [];
+    this._nearAt = null;
+    /**
+     * Bumped every time a tile lands or is dropped.
+     *
+     * The near list holds object references, and a dropped tile's geometry is
+     * disposed — so "same number of tiles" is not the same as "same tiles", and
+     * one eviction plus one load between refreshes would leave the collision
+     * cast pointed at freed geometry.
+     */
+    this.churn = 0;
     /**
      * How to ask what the ground is here. The game wires this to the terrain,
      * the same way it wires the terrain's `covered3d` back to this object.
@@ -597,6 +636,9 @@ export class Tiles3D {
     this.datum = 0;
     this._datumAt = 0;
     this.group.position.y = 0;
+    // The collision list points at objects that are about to go.
+    this._near = [];
+    this._nearAt = null;
     this.group.updateMatrix();
   }
 
@@ -854,6 +896,114 @@ export class Tiles3D {
     }
   }
 
+  /**
+   * Make the scanned city solid.
+   *
+   * The player has always collided with the terrain heightfield and never with
+   * the photogrammetry, so the ground you stood on was right and the walls were
+   * not there: teleport to Stevenson Street in San Francisco and you are inside
+   * a building's shell, looking at a large near featureless surface with no
+   * terrain under it. That is G22, and it is also one of the things that reads
+   * as "it becomes mega blurry and the terrain goes flat".
+   *
+   * Two questions answered here, because they are the two a walker asks:
+   *
+   *   floorAt   what is under my feet — the street, or a roof I am standing on
+   *   wallAt    is there something between me and where I am walking
+   *
+   * Both are raycasts against the loaded tiles, which is sound because these
+   * meshes are placed by a matrix and nothing about them is displaced in a
+   * shader — unlike the terrain, where the curvature and the edge wall are
+   * applied in the vertex stage and a raycast reads geometry that is not where
+   * it is drawn. The datum lift lives on `this.group`, so world matrices carry
+   * it and a hit comes back at the height it is drawn at.
+   *
+   * The cost is kept down by casting against a short list of tiles whose cached
+   * world box is near you, rather than against the whole city, and by giving
+   * the caller a budget: a floor sample per frame and a wall sample per frame
+   * is what walking needs, and neither is asked for at all when there is no
+   * photogrammetry loaded.
+   */
+  nearby(x, z, reach) {
+    if (this._nearAt && Math.abs(this._nearAt.x - x) < NEAR_REFRESH_M
+      && Math.abs(this._nearAt.z - z) < NEAR_REFRESH_M
+      && this._nearAt.churn === this.churn) {
+      return this._near;
+    }
+    const list = [];
+    for (const [uri, entry] of this.loaded) {
+      if (!this.visible.has(uri)) continue;
+      if (!entry.bounds) {
+        entry.object.updateWorldMatrix(true, true);
+        entry.bounds = new THREE.Box3().setFromObject(entry.object);
+      }
+      const box = entry.bounds;
+      if (x < box.min.x - reach || x > box.max.x + reach) continue;
+      if (z < box.min.z - reach || z > box.max.z + reach) continue;
+      list.push(entry.object);
+    }
+    this._near = list;
+    this._nearAt = { x, z, churn: this.churn };
+    return list;
+  }
+
+  /**
+   * The highest scanned surface at or below `ceiling`, or null.
+   *
+   * "At or below" is what makes this the floor rather than the roof: standing
+   * in the street outside a tower, every surface of the tower is above your
+   * head and none of them is what you are standing on. The caller passes its
+   * own step-up allowance as the ceiling, so a kerb counts and a storey does
+   * not.
+   */
+  floorAt(x, z, ceiling, drop = FLOOR_DROP_M) {
+    const near = this.nearby(x, z, 4);
+    if (!near.length) return null;
+    this._ray.set(this._rayFrom.set(x, ceiling, z), this._down);
+    this._ray.far = drop;
+    let best = null;
+    for (const hit of this._ray.intersectObjects(near, true)) {
+      if (hit.point.y > ceiling) continue;
+      if (best === null || hit.point.y > best) best = hit.point.y;
+    }
+    return best;
+  }
+
+  /**
+   * Something solid between a point and a step in a direction.
+   *
+   * Returns how far along the step it is and which way its face points, or
+   * null. The direction must be normalised; `distance` is how far you are
+   * about to move plus the width you take up.
+   *
+   * Cast at two heights rather than one: a single waist-high ray walks through
+   * a railing and over a parapet, and the two together are what stops a wall
+   * from being a thing you notice only after you are inside it.
+   */
+  wallAt(x, y, z, dx, dz, distance) {
+    const near = this.nearby(x, z, distance + 2);
+    if (!near.length) return null;
+    let best = null;
+    for (const lift of WALL_HEIGHTS_M) {
+      this._ray.set(this._rayFrom.set(x, y + lift, z), this._along.set(dx, 0, dz));
+      this._ray.far = distance;
+      for (const hit of this._ray.intersectObjects(near, true)) {
+        if (best !== null && hit.distance >= best.distance) continue;
+        // A face pointing the same way we are travelling is the back of
+        // something we are already past; only a face turned towards us stops
+        // us. Without this, leaving a shell you were spawned inside is
+        // impossible.
+        const normal = hit.face
+          ? this._normal.copy(hit.face.normal)
+            .transformDirection(hit.object.matrixWorld)
+          : null;
+        if (normal && normal.x * dx + normal.z * dz > 0) continue;
+        best = { distance: hit.distance, nx: normal?.x ?? -dx, nz: normal?.z ?? -dz };
+      }
+    }
+    return best;
+  }
+
   /** Is this patch of ground already drawn as photogrammetry? */
   covers(x, z) {
     if (!this.coverage.size) return false;
@@ -1057,6 +1207,7 @@ export class Tiles3D {
         });
         this.group.add(object);
         this.loaded.set(uri, { object, used: performance.now() });
+        this.churn++;
         this.refused.delete(uri);
         if (gltf.parser?.json?.asset?.copyright) {
           this.copyrights.add(gltf.parser.json.asset.copyright);
@@ -1132,11 +1283,13 @@ export class Tiles3D {
       }
     });
     this.loaded.delete(uri);
+    this.churn++;
   }
 
   clear() {
     for (const [uri, entry] of [...this.loaded]) this.dispose(uri, entry);
     this.loaded.clear();
+    this.churn++;
   }
 
   /**
