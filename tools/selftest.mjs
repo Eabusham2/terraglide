@@ -7284,6 +7284,42 @@ console.log('\nthe mesh is no finer than the elevation under it');
     /this\.elevation\?\.maxZoom/.test(src));
 }
 
+console.log('\nadding a key moves the ground as well as the picture');
+{
+  // "Add auto provider finds most detailed at that location." It existed for
+  // imagery and not for elevation, so a Mapbox token bought sharper photographs
+  // and left the shape of the ground on the keyless default — which is the half
+  // you stand on, and the half that decides how flat it looks close up.
+  const { createElevationSource, resolveAuto, IMAGERY_PROVIDERS, ELEVATION_PROVIDERS } =
+    await import('../src/tiles/providers.js');
+  const { DEFAULT_SETTINGS } = await import('../src/core/settings.js');
+
+  const pick = (values) => createElevationSource(values).descriptor;
+
+  ok('elevation understands auto at all',
+    pick({ elevationProvider: 'auto' })?.id === 'terrarium');
+  const withKey = pick({ elevationProvider: 'auto', mapboxKey: 'pk.test' });
+  ok(`and a key moves it to the deeper provider  (${withKey?.id}, z${withKey?.maxZoom})`,
+    withKey?.id === 'mapbox' && withKey.maxZoom === 15);
+  ok('an explicit choice is still obeyed over the key',
+    pick({ elevationProvider: 'terrarium', mapboxKey: 'pk.test' })?.id === 'terrarium');
+  ok('and an explicit choice you have no key for still falls back keyless',
+    pick({ elevationProvider: 'mapbox' })?.id === 'terrarium');
+
+  // Defaulting to auto is only safe because with no keys it lands exactly where
+  // the old named defaults did. Checked rather than assumed.
+  ok('auto with no keys is the old imagery default',
+    resolveAuto(IMAGERY_PROVIDERS, {}) === 'esri');
+  ok('auto with no keys is the old elevation default',
+    resolveAuto(ELEVATION_PROVIDERS, {}) === 'terrarium');
+  ok('so both may default to it',
+    DEFAULT_SETTINGS.imageryProvider === 'auto' && DEFAULT_SETTINGS.elevationProvider === 'auto');
+
+  const panel = readFileSync(new URL('../src/ui/settingsPanel.js', import.meta.url), 'utf8');
+  ok('and the panel offers it for elevation, not only for imagery',
+    /options: \(\) => \[\s*\{ value: AUTO_PROVIDER[\s\S]{0,120}ELEVATION_PROVIDERS/.test(panel));
+}
+
 console.log('\ngraded as one photograph');
 {
   const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');

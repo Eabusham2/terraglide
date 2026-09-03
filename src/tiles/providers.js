@@ -899,7 +899,17 @@ export function createImagerySource(settingsValues) {
 }
 
 export function createElevationSource(settingsValues) {
-  const descriptor = findProvider(ELEVATION_PROVIDERS, settingsValues.elevationProvider);
+  // "Auto" is resolved here, exactly as it is for imagery. It was offered for
+  // the picture and not for the shape of the ground, which is the half you
+  // actually stand on: elevation stayed on the keyless default however many
+  // keys were added, so a Mapbox token bought sharper photographs and left the
+  // relief alone. Mapbox terrain-RGB reaches zoom 15 against Terrarium's 14 —
+  // half the sample spacing, about 3 m instead of 6.5 — and with the mesh grid
+  // now following the data that also moves the whole grid curve a zoom deeper.
+  const chosen = effectiveProvider(
+    ELEVATION_PROVIDERS, settingsValues.elevationProvider, settingsValues,
+  );
+  const descriptor = findProvider(ELEVATION_PROVIDERS, chosen);
   return withKeylessFallback(ELEVATION_PROVIDERS, descriptor, settingsValues);
 }
 

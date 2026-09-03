@@ -23,8 +23,20 @@ import { readJSON, removeKey, writeJSON } from './storage.js';
  */
 export const DEFAULT_SETTINGS = {
   /* providers */
-  imageryProvider: 'esri',
-  elevationProvider: 'terrarium',
+  /*
+    Both default to "auto", which asks for the best provider you can actually
+    use: one you hold a key for first, then the free ones, deepest first.
+
+    Safe as a default because with no keys at all it resolves to exactly what
+    these used to name — esri and terrarium — so nothing changes for anyone who
+    has not added one. Add a key and it moves by itself, which is what was asked
+    for and what was not happening: elevation in particular stayed on the
+    keyless default however many keys were set, so a Mapbox token bought
+    sharper photographs and left the shape of the ground alone. That is the half
+    you stand on, and Mapbox reaches a zoom deeper than Terrarium does.
+  */
+  imageryProvider: 'auto',
+  elevationProvider: 'auto',
   panoramaProvider: 'none',
   /**
    * 'off'    — real imagery, real elevation, real OSM footprints and land cover,

@@ -2448,6 +2448,30 @@ paragraph.
 
 ## G. Providers and 3D
 
+- [x] G26. Adding a key moved the picture and left the ground alone
+      "Add auto provider finds most detailed at that location." It existed for
+      imagery and not for elevation, and elevation is the half you stand on.
+
+      So a Mapbox token bought sharper photographs and left the shape of the
+      ground on the keyless default for ever. That matters more than it sounds:
+      Terrarium stops at zoom 14, a sample every 6.5 m, and A27 is the entry
+      about the ground close to you being as flat as its spacing. Mapbox
+      terrain-RGB reaches zoom 15 — half the spacing, about 3 m — and with the
+      mesh grid now following the data it also moves the whole grid curve a zoom
+      deeper.
+
+      Elevation resolves "auto" the same way imagery does now, and the panel
+      offers it. Both settings default to it, which is safe because with no keys
+      at all it resolves to exactly what the old named defaults were:
+
+        auto, no keys             imagery esri        elevation terrarium
+        auto, with a mapbox key   imagery mapbox      elevation mapbox  (z15)
+        explicitly terrarium      obeyed, key or not
+        explicitly mapbox, no key falls back keyless
+
+      Checked rather than assumed — a default that quietly changed what everyone
+      is flying over would not be worth the improvement.
+
 - [x] G25. Does changing the imagery provider actually change the ground
       "Ensure the switch works on all." Asked of the code, per provider, without
       moving the player at all — because moving would hide the question by

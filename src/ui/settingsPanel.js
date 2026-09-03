@@ -53,8 +53,18 @@ const SECTIONS = [
         key: 'elevationProvider',
         label: 'Elevation',
         type: 'select',
-        options: () => ELEVATION_PROVIDERS.map((p) => ({ value: p.id, label: providerLabel(p) })),
-        help: (value) => providerNote(ELEVATION_PROVIDERS, value),
+        options: () => [
+          { value: AUTO_PROVIDER, label: 'Auto — the best one you can use' },
+          ...ELEVATION_PROVIDERS.map((p) => ({ value: p.id, label: providerLabel(p) })),
+        ],
+        help: (value) => (value === AUTO_PROVIDER
+          ? `The same rule as the imagery: one you hold a key for first, then the`
+            + ` free ones, deepest first. Right now that is`
+            + ` ${providerLabel(findProvider(ELEVATION_PROVIDERS, resolveAuto(ELEVATION_PROVIDERS, settings.values)))}.`
+            + ` It matters more here than it does for the picture — the finest`
+            + ` elevation anyone serves is a sample every few metres, and the`
+            + ` ground close to you is as flat as its spacing.`
+          : providerNote(ELEVATION_PROVIDERS, value)),
         test: 'elevation',
       },
       {

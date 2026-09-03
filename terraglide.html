@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta name="terraglide-sources" content="279eb045008ee23a">
+<meta name="terraglide-sources" content="d1bd4709d535b639">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
 <meta name="color-scheme" content="dark light" />
@@ -84204,7 +84204,17 @@ function createImagerySource(settingsValues) {
 }
 
 function createElevationSource(settingsValues) {
-  const descriptor = findProvider(ELEVATION_PROVIDERS, settingsValues.elevationProvider);
+  // "Auto" is resolved here, exactly as it is for imagery. It was offered for
+  // the picture and not for the shape of the ground, which is the half you
+  // actually stand on: elevation stayed on the keyless default however many
+  // keys were added, so a Mapbox token bought sharper photographs and left the
+  // relief alone. Mapbox terrain-RGB reaches zoom 15 against Terrarium's 14 —
+  // half the sample spacing, about 3 m instead of 6.5 — and with the mesh grid
+  // now following the data that also moves the whole grid curve a zoom deeper.
+  const chosen = effectiveProvider(
+    ELEVATION_PROVIDERS, settingsValues.elevationProvider, settingsValues,
+  );
+  const descriptor = findProvider(ELEVATION_PROVIDERS, chosen);
   return withKeylessFallback(ELEVATION_PROVIDERS, descriptor, settingsValues);
 }
 
@@ -84477,8 +84487,20 @@ const { readJSON, removeKey, writeJSON } = __tg_require("src/core/storage.js");
  */
 const DEFAULT_SETTINGS = {
   /* providers */
-  imageryProvider: 'esri',
-  elevationProvider: 'terrarium',
+  /*
+    Both default to "auto", which asks for the best provider you can actually
+    use: one you hold a key for first, then the free ones, deepest first.
+
+    Safe as a default because with no keys at all it resolves to exactly what
+    these used to name — esri and terrarium — so nothing changes for anyone who
+    has not added one. Add a key and it moves by itself, which is what was asked
+    for and what was not happening: elevation in particular stayed on the
+    keyless default however many keys were set, so a Mapbox token bought
+    sharper photographs and left the shape of the ground alone. That is the half
+    you stand on, and Mapbox reaches a zoom deeper than Terrarium does.
+  */
+  imageryProvider: 'auto',
+  elevationProvider: 'auto',
   panoramaProvider: 'none',
   /**
    * 'off'    — real imagery, real elevation, real OSM footprints and land cover,
@@ -102019,8 +102041,18 @@ const SECTIONS = [
         key: 'elevationProvider',
         label: 'Elevation',
         type: 'select',
-        options: () => ELEVATION_PROVIDERS.map((p) => ({ value: p.id, label: providerLabel(p) })),
-        help: (value) => providerNote(ELEVATION_PROVIDERS, value),
+        options: () => [
+          { value: AUTO_PROVIDER, label: 'Auto — the best one you can use' },
+          ...ELEVATION_PROVIDERS.map((p) => ({ value: p.id, label: providerLabel(p) })),
+        ],
+        help: (value) => (value === AUTO_PROVIDER
+          ? `The same rule as the imagery: one you hold a key for first, then the`
+            + ` free ones, deepest first. Right now that is`
+            + ` ${providerLabel(findProvider(ELEVATION_PROVIDERS, resolveAuto(ELEVATION_PROVIDERS, settings.values)))}.`
+            + ` It matters more here than it does for the picture — the finest`
+            + ` elevation anyone serves is a sample every few metres, and the`
+            + ` ground close to you is as flat as its spacing.`
+          : providerNote(ELEVATION_PROVIDERS, value)),
         test: 'elevation',
       },
       {
