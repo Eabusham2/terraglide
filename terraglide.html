@@ -1790,7 +1790,26 @@ window.__TERRAGLIDE_INLINE_WORKER__ = true;
 var __tg_modules = {};
 var __tg_cache = {};
 // Stands in for import.meta.url, which a classic script has no equivalent of.
-var __tg_base = (typeof document !== 'undefined' && document.baseURI) || 'about:blank';
+//
+// Where the *bundle* came from, not where the page is. Those are the same
+// thing for the offline one-file build, and they are not the same thing for the
+// online one: that page is a small local file and the bundle it pulls in comes
+// from the published site. Resolving against the document there sent every
+// module-relative path — the assets folder, the Draco decoder — at the folder
+// beside a file:// page, which does not exist. Measured: the player model never
+// loaded in the online edition, and the console said so, with
+// assets/manifest.json fetched from file:// and blocked by CORS.
+//
+// document.currentScript is the script being executed, which is this one, and
+// it carries the URL it was fetched from. An inlined bundle has no src, and
+// falls back to the document as before.
+var __tg_base = (function () {
+  try {
+    var self = document.currentScript;
+    if (self && self.src) return self.src;
+  } catch (e) { /* no document, or no currentScript: fall through */ }
+  return (typeof document !== 'undefined' && document.baseURI) || 'about:blank';
+})();
 // Each module's own address, so anything resolving a path against it lands
 // where the file actually is rather than beside the page.
 function __tg_url(id) {

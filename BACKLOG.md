@@ -20,6 +20,38 @@ paragraph.
 
 ## A. Stops you playing
 
+- [x] A30. The online single file loaded no assets at all
+      You asked for it twice — "online single file should use assets too like
+      gen stuff", and "add the assets gened and other features via grab from
+      GitHub to the single file and fallback if unavailable" — and it was ticked
+      because the file starts and reaches Ready. It does. The player model never
+      arrived in it, and nothing said so except the console.
+
+      Driven from `file://` with the network reachable, which is how you open
+      it: started true, stage Ready, bundle loaded true, and
+
+        Access to fetch at 'file:///.../assets/manifest.json' from origin
+        'null' has been blocked by CORS policy
+
+      The bundle stood in for `import.meta.url` with `document.baseURI` — the
+      page. For the offline one-file build the page and the bundle are the same
+      thing, so that was right there and it is what got tested. For the online
+      one they are not: that page is a small local file and the bundle it pulls
+      comes from the published site. So every module-relative path — the assets
+      folder, the Draco decoder — was resolved against a folder beside a file://
+      page, which does not exist.
+
+      It resolves against `document.currentScript.src` now: where the bundle
+      actually came from. An inlined bundle has no `src` and falls back to the
+      document exactly as before, so the offline edition is untouched.
+
+      Verified by pointing the online page at a locally served copy of this
+      build rather than at whatever is deployed — which matters, because the
+      first run of this test was measuring the old published bundle and said the
+      fix had not worked. Asset requests now go to
+      `https://eabusham2.github.io/terraglide/assets/...` and not one goes to
+      `file://`.
+
 - [x] A29. The bumps on the green, asked for four times and never delivered
       Your words, across four messages: "on areas with big contrast like tan or
       orange and there is green slightly elevated green"; "the bumps on tree

@@ -7041,6 +7041,37 @@ console.log('\nthe ground does not flicker to a flat colour');
     && !/(?<!if \()drop\(entry\);/.test(src));
 }
 
+console.log('\nthe online single file finds the assets it was told to use');
+{
+  // You asked for it twice: "online single file should use assets too like gen
+  // stuff" and "add the assets gened and other features via grab from GitHub to
+  // the single file". It started and looked right, and the player model never
+  // arrived, because every module-relative path went at the folder beside a
+  // file:// page instead of at the site the bundle came from.
+  const bundler = readFileSync(new URL('../tools/bundle.mjs', import.meta.url), 'utf8');
+  ok('the bundle resolves paths against where the bundle came from',
+    /document\.currentScript/.test(bundler) && /self && self\.src/.test(bundler));
+  ok('and falls back to the document when it is inlined and has no src',
+    /return \(typeof document !== 'undefined' && document\.baseURI\) \|\| 'about:blank';/.test(bundler));
+
+  // The same arithmetic the runtime does, so the expectation is checked rather
+  // than described: a module inside a bundle served from the site resolves the
+  // assets folder onto that site.
+  const tgUrl = (id, base) => new URL(id, base).href;
+  const site = 'https://eabusham2.github.io/terraglide/';
+  const fromSite = new URL('../../assets/', tgUrl('src/core/paths.js', site + 'terraglide.bundle.js')).href;
+  ok(`a bundle served from the site points assets at the site  (${fromSite})`,
+    fromSite === site + 'assets/');
+  // And the failure it replaces, spelled out so it cannot come back quietly.
+  const fromPage = new URL('../../assets/', tgUrl('src/core/paths.js', 'file:///downloads/terraglide-online.html')).href;
+  ok('where resolving against the page put them somewhere that does not exist',
+    fromPage.startsWith('file://'));
+
+  const online = readFileSync(new URL('../terraglide-online.html', import.meta.url), 'utf8');
+  ok('and the online page still asks for the published bundle by absolute URL',
+    /__TERRAGLIDE_PACK__ = "https:\/\/[^"]*terraglide\.bundle\.js"/.test(online));
+}
+
 console.log('\ngraded as one photograph');
 {
   const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');

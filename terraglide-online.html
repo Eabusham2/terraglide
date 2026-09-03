@@ -100,8 +100,12 @@
       function loadPack() {
         var s = document.createElement('script');
         // A fresh query on each retry, so a failure the browser has cached as
-        // a failure is not simply handed back.
-        s.src = window.__TERRAGLIDE_PACK__ + (packTries ? '?retry=' + packTries : '');
+        // a failure is not simply handed back. The published page already
+        // carries the bundle's fingerprint as a query — that is what stops a
+        // deploy being invisible to a phone that has the old one cached — so
+        // the separator has to be chosen rather than assumed.
+        var pack = window.__TERRAGLIDE_PACK__;
+        s.src = packTries ? pack + (pack.indexOf('?') < 0 ? '?' : '&') + 'retry=' + packTries : pack;
         s.onerror = function () {
           packTries += 1;
           if (packTries < 3) setTimeout(loadPack, 400 * packTries);
