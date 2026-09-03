@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta name="terraglide-sources" content="387994a8d2720096">
+<meta name="terraglide-sources" content="279eb045008ee23a">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
 <meta name="color-scheme" content="dark light" />
@@ -97832,6 +97832,37 @@ class Terrain {
     return clamp(Math.round(preset.tileGridSize * settings.get('meshDetail') * detail), 5, 65);
   }
 
+  /**
+   * The mesh grid for one tile, which cannot usefully be finer than the
+   * elevation under it.
+   *
+   * Every tile used to get the same grid whatever its size. A zoom-22 tile is
+   * about six and a half metres across and the finest elevation anyone serves
+   * is zoom 14, whose samples are about six and a half metres apart — so that
+   * tile spans *one* sample, and a 33 by 33 grid on it is 1,089 vertices all
+   * interpolating between the same two numbers. It cannot be anything but flat,
+   * and it costs a thousand vertices to say so. Standing in Grindelwald the
+   * ground within thirty metres is drawn at zooms 20 to 22, which is the ground
+   * you are looking at hardest.
+   *
+   * So the grid follows the data: 256 samples per elevation tile, halving with
+   * every zoom past the elevation's own. Taken from the provider's maximum
+   * rather than from what happens to be loaded here, so every tile at a given
+   * zoom gets the same grid and neighbours cannot crack against each other.
+   *
+   * This does not make the ground less flat — there is no data at that spacing
+   * to be had, and inventing some is the one thing this project will not do.
+   * It stops paying a thousand vertices for the flatness.
+   */
+  gridFor(tile) {
+    const grid = this.gridSize;
+    const elevMax = this.elevation?.maxZoom;
+    if (!Number.isFinite(elevMax)) return grid;
+    const across = 256 * Math.pow(2, elevMax - tile.z);
+    if (!(across < grid - 1)) return grid;
+    return clamp(Math.round(across) + 1, 5, grid);
+  }
+
   /** How aggressively tiles subdivide; derived from the graphics preset. */
   get lodFactor() {
     return 4.6 / settings.preset().sseThreshold;
@@ -98658,7 +98689,7 @@ class Terrain {
 
   build(tile, x0, z0, size, existing) {
     const key = tileKey(tile.z, tile.x, tile.y);
-    const grid = this.gridSize;
+    const grid = this.gridFor(tile);
     const n = Math.pow(2, tile.z);
     const nx0 = tile.x / n;
     const ny0 = tile.y / n;

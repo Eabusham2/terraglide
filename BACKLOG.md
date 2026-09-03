@@ -262,9 +262,38 @@ paragraph.
       wasted requests and wasted meshes on the ground you are standing on,
       which is also part of "why so slow".
 
-      Not fixed yet. Written down with the numbers rather than guessed at,
-      because the last two times I guessed at this symptom I was wrong twice —
-      once blaming the coverage rule and once blaming a stale cache.
+      The flatness itself cannot be fixed — there is no data at that spacing and
+      inventing some is the one thing this project will not do. What could be
+      fixed is what it costs. Every tile got the same mesh grid whatever its
+      size, so a zoom-22 tile spanning one elevation sample carried a 33 by 33
+      grid: 1,089 vertices interpolating between the same two numbers, to say
+      "flat". The grid follows the data now — 256 samples per elevation tile,
+      halving with every zoom past the elevation's own, taken from the
+      provider's maximum so every tile at a zoom gets the same grid and
+      neighbours cannot crack against each other.
+
+      Measured in the same valley, same tier, same place:
+
+                      before     after
+        vertices     170,586   103,220
+        triangles    316,368   188,448
+        tiles drawn      234       252
+
+      and the win is exactly where the arithmetic said it would be — zoom 19
+      went 44,469 vertices to 7,139, zoom 20 went 18,225 to 1,519, and zooms 13
+      to 17 are untouched. More tiles are drawn afterwards, not fewer, because
+      the build budget goes further.
+
+      No relief is lost by this. Those vertices were interpolating between
+      identical samples; the ground is exactly as flat as it was, and a third
+      of the geometry that said so is gone.
+
+      Still `[~]`: a finer elevation provider is the only thing that makes it
+      less flat. Mapbox terrain-RGB goes to zoom 15 — one level, halving the
+      spacing to about 3 m — and the rule above picks that up on its own,
+      moving the whole curve one zoom deeper. Worth trying with your token.
+      The imagery half, where the quadtree splits past what the provider
+      publishes and asks for tiles that are not there, is A32.
 
 - [~] A26. Missing buildings, a flat floor, and "why so slow"
       You drew circles on my own screenshots. They were my screenshots, on

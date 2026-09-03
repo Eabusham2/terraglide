@@ -7239,6 +7239,51 @@ console.log('\na worker that cannot start says nothing, so something has to ask'
   }
 }
 
+console.log('\nthe mesh is no finer than the elevation under it');
+{
+  // Every tile got the same grid whatever its size. A zoom-22 tile is about
+  // 6.5 m across and the finest elevation anyone serves is zoom 14, whose
+  // samples are about 6.5 m apart — so that tile spans one sample, and a 33x33
+  // grid on it is 1,089 vertices interpolating between the same two numbers.
+  // Standing in Grindelwald the ground within thirty metres is drawn at zooms
+  // 20 to 22, which is the ground you are looking at hardest.
+  const { Terrain } = await import('../src/world/terrain.js');
+  const rig = (grid, elevMax) => ({
+    gridSize: grid,
+    elevation: { maxZoom: elevMax },
+    gridFor: Terrain.prototype.gridFor,
+  });
+
+  const t = rig(33, 14);
+  const at = (z) => t.gridFor({ z });
+  ok(`coarse tiles keep the full grid  (z12 ${at(12)}, z17 ${at(17)})`,
+    at(12) === 33 && at(17) === 33);
+  ok(`and it falls away exactly as the samples do  (z18 ${at(18)}, z19 ${at(19)}, z20 ${at(20)})`,
+    at(18) === 17 && at(19) === 9 && at(20) === 5);
+  ok(`a tile spanning one sample is not given a thousand vertices  (z22 ${at(22)})`,
+    at(22) === 5);
+
+  // A finer elevation provider earns a finer mesh, which is the point of the
+  // rule being about the data rather than about the zoom number.
+  const mapbox = rig(33, 15);
+  ok(`a provider with one more level moves the whole curve  (z20 ${mapbox.gridFor({ z: 20 })})`,
+    mapbox.gridFor({ z: 20 }) === 9 && mapbox.gridFor({ z: 19 }) === 17);
+
+  // Never finer than the preset asks for, and never below a workable quad.
+  const small = rig(9, 14);
+  ok('the preset is still the ceiling', small.gridFor({ z: 12 }) === 9 && small.gridFor({ z: 22 }) === 5);
+  ok('and nothing is asked to be a single quad', at(30) === 5);
+
+  // With no elevation source at all it must not guess.
+  const blind = { gridSize: 33, elevation: null, gridFor: Terrain.prototype.gridFor };
+  ok('with no elevation to measure against, the preset stands', blind.gridFor({ z: 22 }) === 33);
+
+  const src = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  ok('the mesh builder uses it', /const grid = this\.gridFor\(tile\);/.test(src));
+  ok('and it is taken from the provider maximum, so neighbours cannot crack',
+    /this\.elevation\?\.maxZoom/.test(src));
+}
+
 console.log('\ngraded as one photograph');
 {
   const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
