@@ -604,6 +604,35 @@ console.log('\nand then asks who is really deepest where you are standing');
   ok('winning by staying put is not a swap', told === 0);
 }
 
+console.log('\nthe fog draws what you explored, not a pixel more');
+{
+  // The mask used to grow every cell by half a pixel on each side so adjacent
+  // cells could not leave a hairline between them. That is nothing on a cell
+  // forty pixels across and most of the cell on one four pixels across, and
+  // zooming out is exactly what makes cells small.
+  const renderer = readFileSync(new URL('../src/ui/mapRenderer.js', import.meta.url), 'utf8');
+  ok('cells are no longer each grown by a whole pixel',
+    !/cellPx \+ 1,\n\s*cellPx \+ 1,/.test(renderer));
+  ok('the overlap is a fraction of the cell, with a half-pixel ceiling',
+    /const bleed = Math\.min\(0\.5, cellPx \* 0\.05\);/.test(renderer));
+  ok('and contiguous cells are filled as one run, which has no interior seam',
+    /let runStart = -1;/.test(renderer) && /\(i - runStart\) \* cellPx/.test(renderer));
+
+  // What that is worth, as area. A run of n cells of side c drawn with a bleed
+  // b covers (n*c + 2b) * (c + 2b) where the truth is n*c*c.
+  const over = (n, c, b) => (((n * c + 2 * b) * (c + 2 * b)) / (n * c * c) - 1) * 100;
+  const wasCell = (c) => (((c + 1) * (c + 1)) / (c * c) - 1) * 100;
+  const four = wasCell(4);
+  const now = over(8, 4, Math.min(0.5, 4 * 0.05));
+  ok(`a four-pixel cell used to draw ${four.toFixed(0)} per cent too much ground`,
+    four > 50);
+  ok(`a run of eight now draws ${now.toFixed(0)} per cent too much  (was ${four.toFixed(0)})`,
+    now < 12 && now < four / 4);
+  const oneCell = over(1, 4, Math.min(0.5, 4 * 0.05));
+  ok(`and a lone cell ${oneCell.toFixed(0)} per cent, still well under the old ${four.toFixed(0)}`,
+    oneCell < four / 2);
+}
+
 console.log('\nthe quality dial can climb back, not only fall');
 {
   const { settings } = await import('../src/core/settings.js');

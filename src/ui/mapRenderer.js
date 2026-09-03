@@ -263,16 +263,40 @@ export function drawMap(ctx, view, layers) {
         const screenX = (tx * TILE_PX - tileCentre.x) * tileScale;
         const screenY = (ty * TILE_PX - tileCentre.y) * tileScale;
         for (let j = 0; j < sub; j++) {
-          for (let i = 0; i < sub; i++) {
-            if (!layers.exploration.isExplored(maskZoom, wrappedX * sub + i, ty * sub + j)) continue;
-            // Half a pixel of overlap: adjacent cells must not leave a hairline
-            // of street map between them.
+          // Filled as horizontal runs rather than cell by cell.
+          //
+          // Each cell used to be drawn as its own rectangle grown by half a
+          // pixel on every side, so that adjacent cells could not leave a
+          // hairline of street map between them. Half a pixel is nothing when
+          // a cell is forty pixels across and it is most of the cell when it
+          // is four: the grown rectangle is `cellPx + 1` on a side, so the
+          // area drawn is (1 + 1/cellPx)^2 times the area explored. At map
+          // zoom 4, where a level-10 cell is about four pixels, that is 56 per
+          // cent more ground than you have seen, and it gets worse the further
+          // out you zoom — which is exactly "the map shows more than I
+          // explored when zoomed out".
+          //
+          // A run has no interior seams to hide, so the overlap is only needed
+          // at its two ends, and what is left of it is capped to a twentieth
+          // of a cell. At four pixels a cell that is 0.2 of a pixel rather
+          // than a whole one, and the mask is feathered afterwards anyway.
+          const bleed = Math.min(0.5, cellPx * 0.05);
+          let runStart = -1;
+          for (let i = 0; i <= sub; i++) {
+            const on = i < sub
+              && layers.exploration.isExplored(maskZoom, wrappedX * sub + i, ty * sub + j);
+            if (on) {
+              if (runStart < 0) runStart = i;
+              continue;
+            }
+            if (runStart < 0) continue;
             mask.fillRect(
-              screenX + i * cellPx - 0.5,
-              screenY + j * cellPx - 0.5,
-              cellPx + 1,
-              cellPx + 1,
+              screenX + runStart * cellPx - bleed,
+              screenY + j * cellPx - bleed,
+              (i - runStart) * cellPx + bleed * 2,
+              cellPx + bleed * 2,
             );
+            runStart = -1;
           }
         }
       }

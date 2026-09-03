@@ -19,6 +19,7 @@ import { observedWeather } from './geo/observed.js';
 import { weatherAt } from './geo/weather.js';
 import { Autopilot } from './player/autopilot.js';
 import { Avatar } from './player/avatar.js';
+import { ContactShadow, RocketTrail } from './player/effects.js';
 import { PlayerController } from './player/controller.js';
 import { Player, SURGE_FACTOR } from './player/player.js';
 import { ElevationField } from './tiles/elevation.js';
@@ -215,6 +216,10 @@ export class Game {
       buildings: this.buildings,
     });
     this.avatar = new Avatar(this.scene);
+    // A shadow to stand on and a trail behind the fireworks. Both are drawn
+    // rather than shadow-mapped; see player/effects.js for why.
+    this.shadow = new ContactShadow(this.scene);
+    this.rocketTrail = new RocketTrail(this.scene);
     this.avatar.loadTextures();
     this.avatar.loadModel();
     // The held view model rides the camera, so it is hung off it rather than
@@ -1013,9 +1018,18 @@ export class Game {
     // Keep the world numerically comfortable around the player. A rebase moves
     // the origin under you, so the drawn position has to come with it rather
     // than be interpolated across the jump.
+    let rebasedX = 0;
+    let rebasedZ = 0;
     if (this.frame.needsRebase(player.position.x, player.position.z)) {
+      const wasX = player.position.x;
+      const wasZ = player.position.z;
       this.rebase();
       player.snapRender();
+      // How far the origin moved, so anything holding world-space points can
+      // come with it. A trail written in world space would otherwise be left
+      // behind by the rebase in a visible streak.
+      rebasedX = player.position.x - wasX;
+      rebasedZ = player.position.z - wasZ;
     }
     player.syncGeo();
 
@@ -1162,6 +1176,18 @@ export class Game {
     const thirdPerson = outside;
     const showAvatar = thirdPerson || settings.get('showBody');
     this.avatar.setVisible(showAvatar);
+    // The shadow goes on the surface the player is actually standing on — the
+    // drawn one, the same answer the controller uses for the floor — so it
+    // sits on a photogrammetric street as readily as on the relief. Drawn in
+    // third person and in first: from inside, a shadow that moves under you is
+    // most of what tells you how high you are.
+    this.shadow.update(
+      player,
+      this.controller.groundHeightAt(player.position.x, player.position.z, player.position.y + 0.6),
+      this.sky?.sunVec,
+      !this.rig.isFreecam,
+    );
+    this.rocketTrail.update(player, dt, rebasedX, rebasedZ);
     this.avatar.setFirstPerson(!thirdPerson);
     // Always update, even with the body switched off: the held view model
     // hangs off the camera rather than off the avatar root, and it is drawn in
@@ -1532,6 +1558,8 @@ export class Game {
     this.buildings.rebase();
     this.panorama.clear();
     this.streamer.clear();
+    // The sparks you left behind belong to the sky you were in.
+    this.rocketTrail?.clear();
 
     // Prime elevation for the new area, coarse first so there is always
     // something to stand on.
