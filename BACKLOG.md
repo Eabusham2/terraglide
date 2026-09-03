@@ -20,6 +20,34 @@ paragraph.
 
 ## A. Stops you playing
 
+- [x] A32. Requests spent for ever on a zoom that is not there
+      The waste A27 measured and did not explain: over Grindelwald the imagery
+      refusal count climbed 39 to 73 in seventy-five seconds with nothing
+      pending. Found by reading `reviewDepth`.
+
+      It writes a level off after six refusals when the level above is working,
+      and it returned early — never writing anything off — the moment that
+      level's `loaded` tally was above zero. That tally is cumulative for the
+      session and never decays. So one tile at zoom 22 arriving anywhere, over
+      a city where that zoom does exist, meant zoom 22 could never be written
+      off again for the rest of the session. Fly on to an alpine valley where it
+      does not exist and every square asks for it, every one is refused, and
+      nothing can stop it.
+
+      That is requests spent on tiles that are not there instead of on the ones
+      that are, which is part of why the ground is slow to sharpen — and it is
+      per session rather than per place, so it survives every teleport after the
+      first city.
+
+      Judged on the run of refusals since the level last served something now: a
+      success ends the run, six refusals since then write the level off again.
+      The original intent is kept — a level that starts working comes back — but
+      a success an hour ago and a continent away no longer vouches for the
+      ground under you.
+
+      Checked against the old rule rather than assumed: with it, a level that
+      served one tile and has since refused eight is still asked for.
+
 - [x] A31. The explored map was wrong by four times at half the zooms
       "Explored on map still doesn't show exactly what u explored, it's
       extremely inaccurate", and "the explored being wrong especially zooming

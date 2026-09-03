@@ -345,7 +345,12 @@ export class ImageryStreamer extends Emitter {
   zoomRecord(z) {
     let record = this.byZoom.get(z);
     if (!record) {
-      record = { loaded: 0, failed: 0 };
+      // `failed` is the lifetime count. `failedAtLoad` is what it stood at when
+      // this level last served something, so the difference is the run of
+      // refusals since then — the only one that can answer "is this level
+      // working *here*". Derived rather than counted separately so anything
+      // that bumps `failed` is accounted for however it does it.
+      record = { loaded: 0, failed: 0, failedAtLoad: 0 };
       this.byZoom.set(z, record);
     }
     return record;
@@ -364,11 +369,31 @@ export class ImageryStreamer extends Emitter {
    */
   reviewDepth(z) {
     const here = this.zoomRecord(z);
-    if (here.loaded > 0) {
+    /*
+      Judged on the run of refusals since this level last served something, not
+      on whether it has ever served anything at all.
+
+      It used to return here the moment `loaded` was above zero, and that tally
+      is cumulative for the session and never decays. So one tile at zoom 22
+      arriving anywhere — over a city, where that zoom does exist — meant zoom 22
+      could never be written off again for the rest of the session. Fly on to an
+      alpine valley where it does not exist and every square asks for it, every
+      one is refused, and nothing can stop it: measured over Grindelwald, the
+      refusal count climbed 39 to 73 in seventy-five seconds with nothing
+      pending, which is requests spent on tiles that are not there instead of on
+      the ones that are.
+
+      A success clears the run; six refusals since then write the level off
+      again. That keeps the original intent — a level that starts working comes
+      back — without letting a success an hour ago and a continent away vouch
+      for the ground under you now.
+    */
+    const sinceLoaded = here.failed - (here.failedAtLoad ?? 0);
+    if (sinceLoaded === 0 && here.loaded > 0) {
       if (this.depthLimit < z) this.depthLimit = Infinity;
       return;
     }
-    if (here.failed < 6) return;
+    if (sinceLoaded < 6) return;
     const above = this.byZoom.get(z - 1);
     if (!above || above.loaded === 0) return;
     if (z - 1 < this.depthLimit) {
@@ -834,7 +859,11 @@ export class ImageryStreamer extends Emitter {
     }
     this.tileSizeHint = msg.bitmap.width || this.tileSizeHint;
     this.stats.loaded++;
-    this.zoomRecord(entry.tile.z).loaded++;
+    const level = this.zoomRecord(entry.tile.z);
+    level.loaded++;
+    // A success ends the run of refusals rather than excusing every one that
+    // comes after it. See reviewDepth.
+    level.failedAtLoad = level.failed;
     // One tile arriving at a level that had been written off puts it back.
     if (entry.tile.z > this.depthLimit) this.depthLimit = Infinity;
     this.emit('tile', entry);

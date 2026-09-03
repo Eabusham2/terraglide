@@ -686,7 +686,13 @@ console.log('\na written-off depth can be un-written-off');
   // One that lands lifts the limit, which is what makes the probe worth making.
   // Through reviewDepth's own recovery clause rather than by assignment: a
   // check that sets the value it then asserts is not a check.
-  streamer.zoomRecord(22).loaded = 1;
+  // A landing is a landing: it ends the run of refusals as well as adding to
+  // the tally, which is what the load path does.
+  {
+    const record = streamer.zoomRecord(22);
+    record.loaded += 1;
+    record.failedAtLoad = record.failed;
+  }
   streamer.reviewDepth(22);
   ok(`and a tile that lands puts the depth back  (${streamer.depthLimit})`,
     !Number.isFinite(streamer.depthLimit));
@@ -5502,9 +5508,29 @@ console.log('\nA provider only gets asked as deep as it answers');
     const s = make();
     s.zoomRecord(16).loaded = 3;
     fail(s, 17, 8);
-    s.zoomRecord(17).loaded = 1;
+    const record = s.zoomRecord(17);
+    record.loaded += 1;
+    record.failedAtLoad = record.failed;
     s.reviewDepth(17);
     ok('and one tile arriving puts the level back', s.maxUsefulZoom === 19, `z${s.maxUsefulZoom}`);
+  }
+  {
+    // And the fix this replaced. `loaded` is cumulative for the session and
+    // never decays, so returning early on "has this level ever worked" meant one
+    // tile at zoom 22 arriving over a city stopped zoom 22 ever being written
+    // off again. Fly on to a valley where it does not exist and every square
+    // asks for it and is refused, for ever: measured over Grindelwald, the
+    // refusal count climbed 39 to 73 in seventy-five seconds with nothing
+    // pending. A success ends the run; a fresh run writes the level off again.
+    const s = make();
+    s.zoomRecord(16).loaded = 3;
+    const record = s.zoomRecord(17);
+    record.loaded = 1;              // it worked, once, somewhere else
+    record.failedAtLoad = record.failed;
+    fail(s, 17, 8);                 // and here it does not work at all
+    s.reviewDepth(17);
+    ok('a level that worked an hour ago does not vouch for the ground here',
+      s.maxUsefulZoom === 16, `z${s.maxUsefulZoom}`);
   }
   {
     const s = make(15);
