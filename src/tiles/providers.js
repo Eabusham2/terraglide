@@ -921,24 +921,39 @@ export function createElevationSource(settingsValues) {
  * and hands you a "Map data not yet available" card over the Southern Ocean.
  * Sentinel-2 is everywhere and stops at ten metres a pixel.
  *
- * So this asks. For each candidate it walks down from the deepest zoom it
- * publishes until one answers with a real tile — not a 404, not a no-data card
- * — and remembers how deep that was. The winner is whoever got deepest, ties
- * broken by preferring one you hold a key for. Roughly a dozen requests, once,
- * when you press the button.
+ * So this asks. For each candidate it finds the deepest zoom that answers with
+ * a real tile — not a 404, not a no-data card — and the winner is whoever got
+ * deepest.
  *
- * @param {Array} list  IMAGERY_PROVIDERS
+ * It used to walk down one level at a time and give up six levels below the
+ * published maximum, which was wrong in the one direction that matters. Esri
+ * publishes zoom 23 and serves 23 almost nowhere: over most of the world it
+ * stops at 19, over plenty of it at 17, and anywhere it stops at 16 the walk
+ * ran out at 17 and reported Esri as having *nothing here*. The best provider
+ * in the list was being ruled out precisely where the question was worth
+ * asking. So it bisects instead: coverage pyramids are monotone — a tile at
+ * zoom z implies its parent at z-1 — so the deepest level that answers can be
+ * found by halving rather than stepping, which reaches zoom 3 in about the
+ * same five or six requests the old six-level window cost.
+ *
+ * @param {Array} list  IMAGERY_PROVIDERS or ELEVATION_PROVIDERS
  * @param {object} values the settings store's values, for the keys
  * @param {{lat:number,lon:number}} at where you are standing
- * @param {(text:string)=>void} [onProgress]
+ * @param {(text:string|null)=>void} [onProgress]
+ * @param {{prefer?:string, signal?:AbortSignal}} [options] `prefer` wins ties:
+ *   whoever is already drawing the ground keeps it unless somebody else is
+ *   properly deeper, so a border between two equally good providers cannot set
+ *   up a swap every time you cross it.
  */
-export async function bestProviderFor(list, values, at, onProgress) {
+export async function bestProviderFor(list, values, at, onProgress, options = {}) {
+  const { prefer, signal } = options;
   const candidates = list.filter(
     (p) => !p.hidden && (!p.needsKey || values[p.needsKey]),
   );
   let best = null;
   for (const descriptor of candidates) {
-    onProgress?.(`Trying ${descriptor.label}\u2026`);
+    if (signal?.aborted) break;
+    onProgress?.(`Trying ${descriptor.label}…`);
     const source = new TileSource(descriptor, values);
     try {
       await source.prepare();
@@ -946,42 +961,103 @@ export async function bestProviderFor(list, values, at, onProgress) {
     } catch {
       continue;
     }
-    // Down from the deepest it claims, until something real comes back. Six
-    // levels covers everything from "shallower than it says" to "only has the
-    // continental view of this place", which over an ocean is the true answer
-    // rather than a failure.
-    const top = descriptor.maxZoom ?? 16;
-    for (let z = top; z >= Math.max(3, top - 6); z--) {
-      const n = Math.pow(2, z);
-      const tile = {
-        z,
-        x: Math.floor(lonToNormX(at.lon) * n),
-        y: Math.floor(clampUnit(latToNormY(at.lat)) * n),
+    const zoom = await deepestZoomAt(source, at, signal);
+    if (zoom < 0) continue;
+    const rank = [zoom, descriptor.id === prefer ? 1 : 0, descriptor.needsKey ? 1 : 0];
+    if (!best || outranks(rank, best.rank)) {
+      best = {
+        id: descriptor.id, label: descriptor.label, zoom, keyed: rank[2], rank,
       };
-      const url = source.urlFor(tile);
-      if (!url) continue;
-      try {
-        const res = await fetch(url, { cache: 'no-store' });
-        if (!res.ok) continue;
-        const bytes = new Uint8Array(await res.arrayBuffer());
-        if (bytes.length < 100) continue;
-        if (isNoDataCard(bytes)) continue;
-        // Decoded only to prove it really is an image; the card test no longer
-        // needs the pixels.
-        const bitmap = await createImageBitmap(new Blob([bytes]));
-        bitmap.close();
-        const keyed = descriptor.needsKey ? 1 : 0;
-        if (!best || z > best.zoom || (z === best.zoom && keyed > best.keyed)) {
-          best = { id: descriptor.id, label: descriptor.label, zoom: z, keyed };
-        }
-        break;
-      } catch {
-        /* next zoom */
-      }
     }
   }
   onProgress?.(null);
+  if (best) delete best.rank;
   return best;
+}
+
+/** Lexicographic: deepest wins, then the incumbent, then whoever you pay for. */
+function outranks(a, b) {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return a[i] > b[i];
+  }
+  return false;
+}
+
+/** The floor of the search. Below this a provider is no use to stand on. */
+const PROBE_FLOOR_Z = 3;
+
+/**
+ * The deepest zoom this source really answers at, over this point, or -1 for
+ * "nothing here at all".
+ *
+ * One request for the published maximum — the whole cost wherever a provider
+ * is honest about its depth, GIBS and Sentinel-2 among them — and a bisection
+ * below it when it is not.
+ */
+export async function deepestZoomAt(source, at, signal) {
+  const top = source.descriptor.maxZoom ?? 16;
+  if (await tileAnswers(source, tileAt(at, top), signal)) return top;
+  let lo = PROBE_FLOOR_Z;
+  let hi = top - 1;
+  let found = -1;
+  while (lo <= hi) {
+    if (signal?.aborted) return found;
+    const mid = Math.floor((lo + hi) / 2);
+    if (await tileAnswers(source, tileAt(at, mid), signal)) {
+      found = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return found;
+}
+
+/** The tile covering a point at a zoom. */
+function tileAt(at, z) {
+  const n = Math.pow(2, z);
+  return {
+    z,
+    x: Math.floor(lonToNormX(at.lon) * n),
+    y: Math.floor(clampUnit(latToNormY(at.lat)) * n),
+  };
+}
+
+/**
+ * Did a real tile come back?
+ *
+ * A picture has to decode, which is the only test a server answering 200 with
+ * an error page cannot pass. An elevation *grid* is not a picture — Bing
+ * answers with JSON — so it is read as JSON and judged on whether there are
+ * heights in it. Being lenient here would let a provider win the probe and
+ * then draw nothing.
+ */
+async function tileAnswers(source, tile, signal) {
+  const url = source.urlFor(tile);
+  if (!url) return false;
+  try {
+    const res = await fetch(url, { cache: 'no-store', signal });
+    if (!res.ok) return false;
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.length < 100) return false;
+    if (isNoDataCard(bytes)) return false;
+    const kind = source.decode;
+    if (kind === 'bing-elevation' || kind === 'google-elevation') {
+      const body = JSON.parse(new TextDecoder().decode(bytes));
+      const heights = kind === 'bing-elevation'
+        ? body?.resourceSets?.[0]?.resources?.[0]?.elevations
+        : body?.results;
+      return Array.isArray(heights) && heights.length > 0;
+    }
+    if (kind === 'vector') return true;
+    // Decoded only to prove it really is an image; the card test no longer
+    // needs the pixels.
+    const bitmap = await createImageBitmap(new Blob([bytes]));
+    bitmap.close();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function clampUnit(value) {

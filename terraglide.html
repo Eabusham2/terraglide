@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta name="terraglide-sources" content="d1bd4709d535b639">
+<meta name="terraglide-sources" content="a220ce553549d134">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
 <meta name="color-scheme" content="dark light" />
@@ -84226,24 +84226,39 @@ function createElevationSource(settingsValues) {
  * and hands you a "Map data not yet available" card over the Southern Ocean.
  * Sentinel-2 is everywhere and stops at ten metres a pixel.
  *
- * So this asks. For each candidate it walks down from the deepest zoom it
- * publishes until one answers with a real tile — not a 404, not a no-data card
- * — and remembers how deep that was. The winner is whoever got deepest, ties
- * broken by preferring one you hold a key for. Roughly a dozen requests, once,
- * when you press the button.
+ * So this asks. For each candidate it finds the deepest zoom that answers with
+ * a real tile — not a 404, not a no-data card — and the winner is whoever got
+ * deepest.
  *
- * @param {Array} list  IMAGERY_PROVIDERS
+ * It used to walk down one level at a time and give up six levels below the
+ * published maximum, which was wrong in the one direction that matters. Esri
+ * publishes zoom 23 and serves 23 almost nowhere: over most of the world it
+ * stops at 19, over plenty of it at 17, and anywhere it stops at 16 the walk
+ * ran out at 17 and reported Esri as having *nothing here*. The best provider
+ * in the list was being ruled out precisely where the question was worth
+ * asking. So it bisects instead: coverage pyramids are monotone — a tile at
+ * zoom z implies its parent at z-1 — so the deepest level that answers can be
+ * found by halving rather than stepping, which reaches zoom 3 in about the
+ * same five or six requests the old six-level window cost.
+ *
+ * @param {Array} list  IMAGERY_PROVIDERS or ELEVATION_PROVIDERS
  * @param {object} values the settings store's values, for the keys
  * @param {{lat:number,lon:number}} at where you are standing
- * @param {(text:string)=>void} [onProgress]
+ * @param {(text:string|null)=>void} [onProgress]
+ * @param {{prefer?:string, signal?:AbortSignal}} [options] `prefer` wins ties:
+ *   whoever is already drawing the ground keeps it unless somebody else is
+ *   properly deeper, so a border between two equally good providers cannot set
+ *   up a swap every time you cross it.
  */
-async function bestProviderFor(list, values, at, onProgress) {
+async function bestProviderFor(list, values, at, onProgress, options = {}) {
+  const { prefer, signal } = options;
   const candidates = list.filter(
     (p) => !p.hidden && (!p.needsKey || values[p.needsKey]),
   );
   let best = null;
   for (const descriptor of candidates) {
-    onProgress?.(`Trying ${descriptor.label}\u2026`);
+    if (signal?.aborted) break;
+    onProgress?.(`Trying ${descriptor.label}…`);
     const source = new TileSource(descriptor, values);
     try {
       await source.prepare();
@@ -84251,42 +84266,103 @@ async function bestProviderFor(list, values, at, onProgress) {
     } catch {
       continue;
     }
-    // Down from the deepest it claims, until something real comes back. Six
-    // levels covers everything from "shallower than it says" to "only has the
-    // continental view of this place", which over an ocean is the true answer
-    // rather than a failure.
-    const top = descriptor.maxZoom ?? 16;
-    for (let z = top; z >= Math.max(3, top - 6); z--) {
-      const n = Math.pow(2, z);
-      const tile = {
-        z,
-        x: Math.floor(lonToNormX(at.lon) * n),
-        y: Math.floor(clampUnit(latToNormY(at.lat)) * n),
+    const zoom = await deepestZoomAt(source, at, signal);
+    if (zoom < 0) continue;
+    const rank = [zoom, descriptor.id === prefer ? 1 : 0, descriptor.needsKey ? 1 : 0];
+    if (!best || outranks(rank, best.rank)) {
+      best = {
+        id: descriptor.id, label: descriptor.label, zoom, keyed: rank[2], rank,
       };
-      const url = source.urlFor(tile);
-      if (!url) continue;
-      try {
-        const res = await fetch(url, { cache: 'no-store' });
-        if (!res.ok) continue;
-        const bytes = new Uint8Array(await res.arrayBuffer());
-        if (bytes.length < 100) continue;
-        if (isNoDataCard(bytes)) continue;
-        // Decoded only to prove it really is an image; the card test no longer
-        // needs the pixels.
-        const bitmap = await createImageBitmap(new Blob([bytes]));
-        bitmap.close();
-        const keyed = descriptor.needsKey ? 1 : 0;
-        if (!best || z > best.zoom || (z === best.zoom && keyed > best.keyed)) {
-          best = { id: descriptor.id, label: descriptor.label, zoom: z, keyed };
-        }
-        break;
-      } catch {
-        /* next zoom */
-      }
     }
   }
   onProgress?.(null);
+  if (best) delete best.rank;
   return best;
+}
+
+/** Lexicographic: deepest wins, then the incumbent, then whoever you pay for. */
+function outranks(a, b) {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return a[i] > b[i];
+  }
+  return false;
+}
+
+/** The floor of the search. Below this a provider is no use to stand on. */
+const PROBE_FLOOR_Z = 3;
+
+/**
+ * The deepest zoom this source really answers at, over this point, or -1 for
+ * "nothing here at all".
+ *
+ * One request for the published maximum — the whole cost wherever a provider
+ * is honest about its depth, GIBS and Sentinel-2 among them — and a bisection
+ * below it when it is not.
+ */
+async function deepestZoomAt(source, at, signal) {
+  const top = source.descriptor.maxZoom ?? 16;
+  if (await tileAnswers(source, tileAt(at, top), signal)) return top;
+  let lo = PROBE_FLOOR_Z;
+  let hi = top - 1;
+  let found = -1;
+  while (lo <= hi) {
+    if (signal?.aborted) return found;
+    const mid = Math.floor((lo + hi) / 2);
+    if (await tileAnswers(source, tileAt(at, mid), signal)) {
+      found = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return found;
+}
+
+/** The tile covering a point at a zoom. */
+function tileAt(at, z) {
+  const n = Math.pow(2, z);
+  return {
+    z,
+    x: Math.floor(lonToNormX(at.lon) * n),
+    y: Math.floor(clampUnit(latToNormY(at.lat)) * n),
+  };
+}
+
+/**
+ * Did a real tile come back?
+ *
+ * A picture has to decode, which is the only test a server answering 200 with
+ * an error page cannot pass. An elevation *grid* is not a picture — Bing
+ * answers with JSON — so it is read as JSON and judged on whether there are
+ * heights in it. Being lenient here would let a provider win the probe and
+ * then draw nothing.
+ */
+async function tileAnswers(source, tile, signal) {
+  const url = source.urlFor(tile);
+  if (!url) return false;
+  try {
+    const res = await fetch(url, { cache: 'no-store', signal });
+    if (!res.ok) return false;
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.length < 100) return false;
+    if (isNoDataCard(bytes)) return false;
+    const kind = source.decode;
+    if (kind === 'bing-elevation' || kind === 'google-elevation') {
+      const body = JSON.parse(new TextDecoder().decode(bytes));
+      const heights = kind === 'bing-elevation'
+        ? body?.resourceSets?.[0]?.resources?.[0]?.elevations
+        : body?.results;
+      return Array.isArray(heights) && heights.length > 0;
+    }
+    if (kind === 'vector') return true;
+    // Decoded only to prove it really is an image; the card test no longer
+    // needs the pixels.
+    const bitmap = await createImageBitmap(new Blob([bytes]));
+    bitmap.close();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function clampUnit(value) {
@@ -84396,6 +84472,7 @@ __tg_exports["providerChain"] = providerChain;
 __tg_exports["createImagerySource"] = createImagerySource;
 __tg_exports["createElevationSource"] = createElevationSource;
 __tg_exports["bestProviderFor"] = bestProviderFor;
+__tg_exports["deepestZoomAt"] = deepestZoomAt;
 __tg_exports["testProviders"] = testProviders;
 };
 __tg_modules["src/core/storage.js"] = function (__tg_exports) {
@@ -90908,6 +90985,212 @@ class ElevationField {
 }
 
 __tg_exports["ElevationField"] = ElevationField;
+};
+__tg_modules["src/tiles/localAuto.js"] = function (__tg_exports) {
+const { latToNormY, lonToNormX } = __tg_require("src/geo/mercator.js");
+const { AUTO_PROVIDER, ELEVATION_PROVIDERS, IMAGERY_PROVIDERS, bestProviderFor, resolveAuto } = __tg_require("src/tiles/providers.js");
+
+/**
+ * "Auto" that means *here*, not *in general*.
+ *
+ * The setting used to rank the whole list once — keys first, then published
+ * maximum zoom — and hand the same answer back over Kansas and over Kent. That
+ * ranking is a statement about what providers *claim*, and what a provider
+ * claims is not what it serves: USGS publishes zoom 16 and has nothing at all
+ * outside the United States, Esri publishes 23 and stops at 17 over much of
+ * the world, GIBS has every square metre of the planet at zoom 9 and is the
+ * only thing that answers over parts of the Southern Ocean. The best provider
+ * genuinely changes as you fly, and a global ranking cannot say so.
+ *
+ * So this asks the providers, where you are, and remembers the answer.
+ *
+ * ## What "here" means
+ *
+ * Not per tile. A probe costs about a dozen requests, and a tile is fifty
+ * metres across at the depth you walk around at — asking per tile would be
+ * thousands of requests to cross a city, which is not a thing to do to
+ * somebody's free tile server. Coverage does not change at that scale either:
+ * the boundaries that matter are national and continental.
+ *
+ * So the unit is a zoom-8 square, about 150 km across at the equator and 100
+ * across northern Europe. Crossing into one nobody has asked about costs one
+ * probe; coming back to one that has been asked about is free, because the
+ * answer is kept. A flight across a continent asks perhaps a dozen times.
+ *
+ * ## What it will not do
+ *
+ * It will not swap on a tie — whoever is drawing the ground keeps it unless
+ * somebody else is properly deeper, so a border between two equally good
+ * providers cannot start a swap every time you cross it. It will not override
+ * a choice: this only ever runs for a setting left on Auto. And it will not
+ * ask twice about the same square, including squares where the answer was
+ * "nothing here", which is what stops it probing the middle of the Pacific
+ * every six seconds.
+ */
+
+/** The square one decision covers. Zoom 8: ~150 km at the equator. */
+const AUTO_CELL_ZOOM = 8;
+
+/** One probe in flight at a time, and no more often than this. */
+const PROBE_GAP_MS = 6000;
+
+/** How many squares' answers to keep. A long flight, remembered. */
+const MEMORY = 400;
+
+/** Which zoom-8 square a coordinate is in. */
+function autoCell(lat, lon, zoom = AUTO_CELL_ZOOM) {
+  const n = Math.pow(2, zoom);
+  const x = Math.floor(lonToNormX(lon) * n);
+  const y = Math.floor(Math.min(0.999999, Math.max(0, latToNormY(lat))) * n);
+  return `${x}/${y}`;
+}
+
+/**
+ * Which keyed providers are usable right now.
+ *
+ * Part of the cache key, because adding a token changes the right answer
+ * everywhere and an answer worked out before you had it is stale. Only the
+ * keyed ones are listed: the keyless set never changes.
+ */
+function keyFingerprint(list, values) {
+  return list
+    .filter((p) => p.needsKey && values?.[p.needsKey])
+    .map((p) => p.id)
+    .join(',');
+}
+
+const LISTS = {
+  imagery: IMAGERY_PROVIDERS,
+  elevation: ELEVATION_PROVIDERS,
+};
+
+class LocalAuto {
+  /**
+   * @param {object} [options]
+   * @param {(kind:string, decision:object)=>void} [options.onDecided] called
+   *   when a probe settles on something other than what is already drawing.
+   * @param {(text:string|null)=>void} [options.onProgress]
+   * @param {typeof bestProviderFor} [options.probe] for tests.
+   * @param {()=>number} [options.now] for tests.
+   */
+  constructor({ onDecided, onProgress, probe = bestProviderFor, now } = {}) {
+    this.onDecided = onDecided;
+    this.onProgress = onProgress;
+    this.probe = probe;
+    this.now = now
+      ?? (() => (typeof performance === 'undefined' ? Date.now() : performance.now()));
+    /** cache key -> { id, label, zoom } | null, null meaning "asked, nobody". */
+    this.answers = new Map();
+    this.busy = false;
+    this.lastProbeAt = -Infinity;
+    /** What a probe in flight is doing, for the status line. */
+    this.status = '';
+  }
+
+  key(kind, values, lat, lon) {
+    return `${kind}|${keyFingerprint(LISTS[kind], values)}|${autoCell(lat, lon)}`;
+  }
+
+  /**
+   * The decision for where you are, or null if nobody has asked yet.
+   *
+   * Deliberately does not start a probe: it is called from the render path,
+   * where the answer has to be immediate. `tick` is what asks.
+   */
+  decided(kind, values, lat, lon) {
+    return this.answers.get(this.key(kind, values, lat, lon)) ?? null;
+  }
+
+  /**
+   * The provider id to actually use for a setting.
+   *
+   * A concrete choice comes back untouched — auto is a thing you opt into. On
+   * auto: the local answer if there is one, and the published ranking until
+   * there is, so there is never a frame with no provider while a probe runs.
+   */
+  resolve(kind, chosenId, values, lat, lon) {
+    if (chosenId !== AUTO_PROVIDER) return chosenId;
+    return this.decided(kind, values, lat, lon)?.id ?? resolveAuto(LISTS[kind], values);
+  }
+
+  /** Throw away every answer, for when the world changed under them. */
+  forget() {
+    this.answers.clear();
+  }
+
+  /**
+   * Called every frame. Probes when you have moved into a square nobody has
+   * asked about, and does nothing at all the rest of the time.
+   *
+   * @param {{lat:number, lon:number}} at
+   * @param {object} values the settings store's values
+   * @param {{imagery?:string, elevation?:string}} chosen the raw settings, so
+   *   a kind that is not on Auto is never probed for
+   * @param {{imagery?:string, elevation?:string}} [applied] what is drawing
+   *   now, which is what wins a tie
+   */
+  tick(at, values, chosen, applied = {}) {
+    if (this.busy) return;
+    const now = this.now();
+    if (now - this.lastProbeAt < PROBE_GAP_MS) return;
+    for (const kind of ['imagery', 'elevation']) {
+      if (chosen[kind] !== AUTO_PROVIDER) continue;
+      const key = this.key(kind, values, at.lat, at.lon);
+      if (this.answers.has(key)) continue;
+      this.run(kind, key, { lat: at.lat, lon: at.lon }, values, applied[kind]);
+      return;
+    }
+  }
+
+  /**
+   * Ask about this square again, now, whatever the throttle says.
+   *
+   * What the settings panel's button runs. Same probe, same memory, same
+   * callback — the button is a way of hurrying the answer along, not a
+   * separate mechanism that leaves the automatic one holding a stale one.
+   */
+  probeNow(kind, at, values, prefer, onProgress) {
+    const key = this.key(kind, values, at.lat, at.lon);
+    this.answers.delete(key);
+    return this.run(kind, key, { lat: at.lat, lon: at.lon }, values, prefer, onProgress);
+  }
+
+  async run(kind, key, at, values, prefer, onProgress) {
+    this.busy = true;
+    this.lastProbeAt = this.now();
+    try {
+      const found = await this.probe(LISTS[kind], values, at, (text) => {
+        this.status = text ?? '';
+        this.onProgress?.(text);
+        onProgress?.(text);
+      }, { prefer });
+      this.remember(key, found ?? null);
+      if (found && found.id !== prefer) this.onDecided?.(kind, found);
+      return found ?? null;
+    } catch {
+      // Offline, or the page is going away. Nothing is remembered, so the
+      // square gets asked about again — which is the right answer for a
+      // failure that is about the network rather than about the ground.
+      return null;
+    } finally {
+      this.busy = false;
+      this.status = '';
+    }
+  }
+
+  remember(key, value) {
+    this.answers.set(key, value);
+    while (this.answers.size > MEMORY) {
+      this.answers.delete(this.answers.keys().next().value);
+    }
+  }
+}
+
+__tg_exports["AUTO_CELL_ZOOM"] = AUTO_CELL_ZOOM;
+__tg_exports["PROBE_GAP_MS"] = PROBE_GAP_MS;
+__tg_exports["autoCell"] = autoCell;
+__tg_exports["keyFingerprint"] = keyFingerprint;
+__tg_exports["LocalAuto"] = LocalAuto;
 };
 __tg_modules["src/tiles/sharpness.js"] = function (__tg_exports) {
 /**
@@ -102001,7 +102284,7 @@ __tg_modules["src/ui/settingsPanel.js"] = function (__tg_exports) {
 const { ACTIONS, keyLabel, keybinds } = __tg_require("src/core/keybinds.js");
 const { settings } = __tg_require("src/core/settings.js");
 const { formatDistance, formatHeight } = __tg_require("src/core/units.js");
-const { NO_ZOOM_CEILING, ZOOM_SLIDER_MAX, ELEVATION_PROVIDERS, IMAGERY_PROVIDERS, PANORAMA_PROVIDERS, AUTO_PROVIDER, bestProviderFor, findProvider, providerLabel, resolveAuto, testProviders } = __tg_require("src/tiles/providers.js");
+const { NO_ZOOM_CEILING, ZOOM_SLIDER_MAX, ELEVATION_PROVIDERS, IMAGERY_PROVIDERS, PANORAMA_PROVIDERS, AUTO_PROVIDER, findProvider, providerLabel, resolveAuto, testProviders } = __tg_require("src/tiles/providers.js");
 const { escapeHtml } = __tg_require("src/ui/worldmap.js");
 
 /**
@@ -102011,6 +102294,50 @@ const { escapeHtml } = __tg_require("src/ui/worldmap.js");
  * go looking for it, and every control writes straight through to the persisted
  * store — no apply button, no restart.
  */
+
+/**
+ * The running per-location Auto, so the help text can say what it decided
+ * *here* rather than describing a rule.
+ *
+ * A module-level handle because the help text is built by plain functions in
+ * SECTIONS, and the alternative — threading the panel instance through every
+ * one of them — would be a lot of plumbing to tell one sentence where it is.
+ * Set once, by the game, next to the player-position hook.
+ */
+let liveAuto = null;
+let liveAt = null;
+
+function watchLocalAuto(instance, at) {
+  liveAuto = instance;
+  liveAt = at;
+}
+
+/**
+ * What Auto has settled on for the square you are standing in.
+ *
+ * Two sentences and both of them are load-bearing: which provider is drawing,
+ * and *why that one* — because it was asked and got deepest, not because it is
+ * first in a list. Before the first probe answers it says so plainly rather
+ * than implying a measurement that has not happened.
+ */
+function autoHelp(kind, list) {
+  const ranked = providerLabel(findProvider(list, resolveAuto(list, settings.values)));
+  const at = liveAt?.();
+  const local = at && liveAuto
+    ? liveAuto.decided(kind, settings.values, at.lat, at.lon)
+    : null;
+  if (local) {
+    return `Asked, not guessed: every provider you can use was asked how deep it`
+      + ` really goes over the square you are in, and ${local.label} got furthest`
+      + ` — zoom ${local.zoom}. Fly about 150 km and it asks again; come back`
+      + ` and it remembers. By published depth alone it would be ${ranked}.`;
+  }
+  return `Whichever provider actually serves the sharpest ground where you are.`
+    + ` Each one is asked, over the square you are in, how deep it will really go,`
+    + ` and the deepest wins — coverage is patchy and different for every one of`
+    + ` them, so the answer changes as you fly. Nothing has been asked about this`
+    + ` square yet, so ${ranked} is drawing, on published depth, until it has.`;
+}
 
 const SECTIONS = [
   {
@@ -102029,11 +102356,7 @@ const SECTIONS = [
             .map((p) => ({ value: p.id, label: providerLabel(p) })),
         ],
         help: (value) => (value === AUTO_PROVIDER
-          ? `Whichever provider you can actually use, picked fresh every time this`
-            + ` panel changes anything: one you hold a key for first, then the free ones,`
-            + ` deepest first. Right now that is`
-            + ` ${providerLabel(findProvider(IMAGERY_PROVIDERS, resolveAuto(IMAGERY_PROVIDERS, settings.values)))}.`
-            + ` Add a key below and it moves by itself.`
+          ? autoHelp('imagery', IMAGERY_PROVIDERS)
           : providerNote(IMAGERY_PROVIDERS, value)),
         test: 'imagery',
       },
@@ -102046,12 +102369,10 @@ const SECTIONS = [
           ...ELEVATION_PROVIDERS.map((p) => ({ value: p.id, label: providerLabel(p) })),
         ],
         help: (value) => (value === AUTO_PROVIDER
-          ? `The same rule as the imagery: one you hold a key for first, then the`
-            + ` free ones, deepest first. Right now that is`
-            + ` ${providerLabel(findProvider(ELEVATION_PROVIDERS, resolveAuto(ELEVATION_PROVIDERS, settings.values)))}.`
-            + ` It matters more here than it does for the picture — the finest`
-            + ` elevation anyone serves is a sample every few metres, and the`
-            + ` ground close to you is as flat as its spacing.`
+          ? `${autoHelp('elevation', ELEVATION_PROVIDERS)} It matters more here than`
+            + ` it does for the picture — the finest elevation anyone serves is a`
+            + ` sample every few metres, and the ground close to you is as flat as`
+            + ` its spacing.`
           : providerNote(ELEVATION_PROVIDERS, value)),
         test: 'elevation',
       },
@@ -102622,20 +102943,25 @@ class SettingsPanel {
   }
 
   /**
-   * "Find the sharpest one here".
+   * "Ask again about this place".
    *
-   * A list cannot tell you which provider has the best imagery of the field
-   * you are standing in — coverage is patchy and different for every one of
-   * them. This asks, once, and switches to the winner.
+   * On Auto this happens by itself when you fly into a square nobody has asked
+   * about, so the button is not how you get a local answer — it is how you get
+   * one *now*, and how you get a fresh one for a square that was already
+   * answered, which is what you want after pasting a key.
+   *
+   * It used to be the only way, and it worked by writing the winner into the
+   * setting — which quietly took you *off* Auto, so the next place you flew to
+   * kept a provider chosen for the place you left.
    */
   renderAutoProvider() {
     return `
       <div class="field field-action">
-        <label>Pick the sharpest provider here</label>
+        <label>Ask about this place again</label>
         <button type="button" data-auto-provider ${this.findingProvider ? 'disabled' : ''}>
-          ${escapeHtml(this.autoProviderStatus ?? (this.findingProvider ? 'Looking\u2026' : 'Find the best for this place'))}
+          ${escapeHtml(this.autoProviderStatus ?? (this.findingProvider ? 'Looking\u2026' : 'Ask now'))}
         </button>
-        <small>Asks every provider you can use how deep it will actually go where you are standing, and switches to whoever gets furthest. Coverage is patchy and different for each of them, so the right answer changes when you fly somewhere else.</small>
+        <small>Asks every provider you can use how deep it will actually go where you are standing, and hands the answer to Auto. On Auto this already happens by itself each time you fly into a new region; press it to ask again straight away, or after adding a key.</small>
       </div>`;
   }
 
@@ -102644,20 +102970,32 @@ class SettingsPanel {
     if (!button || !this.playerAt) return;
     button.addEventListener('click', async () => {
       if (this.findingProvider) return;
+      if (!liveAuto) return;
       this.findingProvider = true;
+      this.autoProviderStatus = null;
       this.render();
+      const at = this.playerAt();
+      const said = [];
       try {
-        const best = await bestProviderFor(IMAGERY_PROVIDERS, settings.values, this.playerAt(), (text) => {
-          this.autoProviderStatus = text;
+        for (const [kind, list, key] of [
+          ['imagery', IMAGERY_PROVIDERS, 'imageryProvider'],
+          ['elevation', ELEVATION_PROVIDERS, 'elevationProvider'],
+        ]) {
+          // Only for a setting left on Auto: pressing this must not override a
+          // provider somebody deliberately chose.
+          if (settings.get(key) !== AUTO_PROVIDER) continue;
+          const found = await liveAuto.probeNow(
+            kind, at, settings.values, settings.get(key),
+            (text) => {
+              if (!text) return;
+              this.autoProviderStatus = text;
+              this.render();
+            },
+          );
+          said.push(found ? `${found.label} z${found.zoom}` : `no ${kind} here`);
           this.render();
-        });
-        if (best) {
-          settings.set('imageryProvider', best.id);
-          if (this.onChange) this.onChange('imageryProvider', best.id);
-          this.autoProviderStatus = `${best.label} — z${best.zoom} here`;
-        } else {
-          this.autoProviderStatus = 'Nothing answered here';
         }
+        this.autoProviderStatus = said.length ? said.join(' · ') : 'Both are set by hand';
       } finally {
         this.findingProvider = false;
         this.render();
@@ -102798,6 +103136,7 @@ class SettingsPanel {
   }
 }
 
+__tg_exports["watchLocalAuto"] = watchLocalAuto;
 __tg_exports["SettingsPanel"] = SettingsPanel;
 };
 __tg_modules["src/ui/touch.js"] = function (__tg_exports) {
@@ -103287,7 +103626,8 @@ const { Avatar } = __tg_require("src/player/avatar.js");
 const { PlayerController } = __tg_require("src/player/controller.js");
 const { Player, SURGE_FACTOR } = __tg_require("src/player/player.js");
 const { ElevationField } = __tg_require("src/tiles/elevation.js");
-const { IMAGERY_PROVIDERS, createElevationSource, createImagerySource, effectiveProvider, providerChain } = __tg_require("src/tiles/providers.js");
+const { IMAGERY_PROVIDERS, createElevationSource, createImagerySource, providerChain } = __tg_require("src/tiles/providers.js");
+const { LocalAuto } = __tg_require("src/tiles/localAuto.js");
 const { ImageryStreamer } = __tg_require("src/tiles/streamer.js");
 const { createTileWorker } = __tg_require("src/tiles/workerHost.js");
 const { Buildings } = __tg_require("src/world/buildings.js");
@@ -103307,7 +103647,7 @@ const { HelpCard } = __tg_require("src/ui/help.js");
 const { HUD } = __tg_require("src/ui/hud.js");
 const { mapTiles, streetTiles } = __tg_require("src/ui/mapTiles.js");
 const { Minimap } = __tg_require("src/ui/minimap.js");
-const { SettingsPanel } = __tg_require("src/ui/settingsPanel.js");
+const { SettingsPanel, watchLocalAuto } = __tg_require("src/ui/settingsPanel.js");
 const { TouchControls } = __tg_require("src/ui/touch.js");
 const { trail } = __tg_require("src/ui/trail.js");
 const { waypoints } = __tg_require("src/ui/waypoints.js");
@@ -103510,6 +103850,14 @@ class Game {
     this.touch = new TouchControls(ui);
     this.input.attachTouch(this.touch);
 
+    // Auto that means *here*. Built before the first applyProviders so the
+    // very first resolution goes through it, and given a callback rather than
+    // polled: a probe takes a second or two over the network and the frame it
+    // settles on is not the frame it started on.
+    this.localAuto = new LocalAuto({
+      onDecided: (kind, decision) => this.onLocalAuto(kind, decision),
+    });
+
     this.bindEvents();
     this.applyProviders();
     this.resize();
@@ -103606,6 +103954,10 @@ class Game {
       return this.benchmark.run(this.perf, () => new Promise((resolve) => this.frameWaiters.push(resolve)));
     };
     this.settingsPanel.playerAt = () => ({ lat: this.player.lat, lon: this.player.lon });
+    // So the Auto rows can say what was decided *here* rather than reciting
+    // the rule, and so the button hurries the real thing along instead of
+    // running a private copy of it.
+    watchLocalAuto(this.localAuto, () => ({ lat: this.player.lat, lon: this.player.lon }));
     this.settingsPanel.testTile = () => {
       const zoom = 14;
       const n = Math.pow(2, zoom);
@@ -103810,12 +104162,24 @@ class Game {
     // ordinary id. Resolved every time providers are applied, so adding a key
     // in the settings panel changes what you are flying over without anybody
     // reopening the dropdown.
-    const chosenId = effectiveProvider(
-      IMAGERY_PROVIDERS, settings.get('imageryProvider'), settings.values,
+    //
+    // Resolved *where you are standing*, not in the abstract. localAuto has
+    // asked the providers what they actually serve over this square and keeps
+    // the answer; until it has, this falls back to the published ranking, so
+    // there is never a frame with no provider at all. See tiles/localAuto.js.
+    const at = { lat: this.player?.lat ?? 0, lon: this.player?.lon ?? 0 };
+    const chosenId = this.localAuto.resolve(
+      'imagery', settings.get('imageryProvider'), settings.values, at.lat, at.lon,
     );
+    const elevationId = this.localAuto.resolve(
+      'elevation', settings.get('elevationProvider'), settings.values, at.lat, at.lon,
+    );
+    this.applied = { imagery: chosenId, elevation: elevationId };
     const values = { ...settings.values, imageryProvider: chosenId };
     this.imagerySource = createImagerySource(values);
-    this.elevationSource = createElevationSource(settings.values);
+    this.elevationSource = createElevationSource({
+      ...settings.values, elevationProvider: elevationId,
+    });
     this.streamer.setSource(this.imagerySource);
     // Standbys for the ground itself, in the order asked for: providers you
     // hold a key for first, then the free ones, deepest first. A tile the
@@ -103927,6 +104291,23 @@ class Game {
     if (!keys || keys.size === 0) return;
     this.pendingSettings = null;
     for (const key of keys) this.onSettingChanged(key);
+  }
+
+  /**
+   * A probe came back with somebody better over this square.
+   *
+   * Only ever reached for a setting left on Auto, and only when the winner is
+   * not what is already drawing — LocalAuto keeps the incumbent on a tie, so
+   * crossing a border between two equally good providers cannot start a swap.
+   *
+   * Imagery keeps the geometry and re-resolves textures; elevation is the
+   * shape of the ground, so it rebuilds. The line says which and why, because
+   * the ground changing under you without explanation reads as a fault.
+   */
+  onLocalAuto(kind, decision) {
+    this.applyProviders({ rebuild: kind === 'elevation' });
+    if (kind === 'imagery') clearImageryAges();
+    this.toast(`${decision.label} — sharpest here (z${decision.zoom})`);
   }
 
   onSettingChanged(key) {
@@ -104382,6 +104763,17 @@ class Game {
 
     this.address = geocoder.lookup(player.lat, player.lon)?.label ?? this.address;
     this.refreshGoogleAttribution(player);
+    // Has the ground under you changed hands? Asked once per zoom-8 square and
+    // free everywhere else, so this costs a Map lookup on an ordinary frame.
+    this.localAuto.tick(
+      player,
+      settings.values,
+      {
+        imagery: settings.get('imageryProvider'),
+        elevation: settings.get('elevationProvider'),
+      },
+      this.applied,
+    );
 
     this.hud.update({
       player,

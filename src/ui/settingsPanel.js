@@ -8,7 +8,6 @@ import {
   IMAGERY_PROVIDERS,
   PANORAMA_PROVIDERS,
   AUTO_PROVIDER,
-  bestProviderFor,
   findProvider,
   providerLabel,
   resolveAuto,
@@ -23,6 +22,50 @@ import { escapeHtml } from './worldmap.js';
  * go looking for it, and every control writes straight through to the persisted
  * store — no apply button, no restart.
  */
+
+/**
+ * The running per-location Auto, so the help text can say what it decided
+ * *here* rather than describing a rule.
+ *
+ * A module-level handle because the help text is built by plain functions in
+ * SECTIONS, and the alternative — threading the panel instance through every
+ * one of them — would be a lot of plumbing to tell one sentence where it is.
+ * Set once, by the game, next to the player-position hook.
+ */
+let liveAuto = null;
+let liveAt = null;
+
+export function watchLocalAuto(instance, at) {
+  liveAuto = instance;
+  liveAt = at;
+}
+
+/**
+ * What Auto has settled on for the square you are standing in.
+ *
+ * Two sentences and both of them are load-bearing: which provider is drawing,
+ * and *why that one* — because it was asked and got deepest, not because it is
+ * first in a list. Before the first probe answers it says so plainly rather
+ * than implying a measurement that has not happened.
+ */
+function autoHelp(kind, list) {
+  const ranked = providerLabel(findProvider(list, resolveAuto(list, settings.values)));
+  const at = liveAt?.();
+  const local = at && liveAuto
+    ? liveAuto.decided(kind, settings.values, at.lat, at.lon)
+    : null;
+  if (local) {
+    return `Asked, not guessed: every provider you can use was asked how deep it`
+      + ` really goes over the square you are in, and ${local.label} got furthest`
+      + ` — zoom ${local.zoom}. Fly about 150 km and it asks again; come back`
+      + ` and it remembers. By published depth alone it would be ${ranked}.`;
+  }
+  return `Whichever provider actually serves the sharpest ground where you are.`
+    + ` Each one is asked, over the square you are in, how deep it will really go,`
+    + ` and the deepest wins — coverage is patchy and different for every one of`
+    + ` them, so the answer changes as you fly. Nothing has been asked about this`
+    + ` square yet, so ${ranked} is drawing, on published depth, until it has.`;
+}
 
 const SECTIONS = [
   {
@@ -41,11 +84,7 @@ const SECTIONS = [
             .map((p) => ({ value: p.id, label: providerLabel(p) })),
         ],
         help: (value) => (value === AUTO_PROVIDER
-          ? `Whichever provider you can actually use, picked fresh every time this`
-            + ` panel changes anything: one you hold a key for first, then the free ones,`
-            + ` deepest first. Right now that is`
-            + ` ${providerLabel(findProvider(IMAGERY_PROVIDERS, resolveAuto(IMAGERY_PROVIDERS, settings.values)))}.`
-            + ` Add a key below and it moves by itself.`
+          ? autoHelp('imagery', IMAGERY_PROVIDERS)
           : providerNote(IMAGERY_PROVIDERS, value)),
         test: 'imagery',
       },
@@ -58,12 +97,10 @@ const SECTIONS = [
           ...ELEVATION_PROVIDERS.map((p) => ({ value: p.id, label: providerLabel(p) })),
         ],
         help: (value) => (value === AUTO_PROVIDER
-          ? `The same rule as the imagery: one you hold a key for first, then the`
-            + ` free ones, deepest first. Right now that is`
-            + ` ${providerLabel(findProvider(ELEVATION_PROVIDERS, resolveAuto(ELEVATION_PROVIDERS, settings.values)))}.`
-            + ` It matters more here than it does for the picture — the finest`
-            + ` elevation anyone serves is a sample every few metres, and the`
-            + ` ground close to you is as flat as its spacing.`
+          ? `${autoHelp('elevation', ELEVATION_PROVIDERS)} It matters more here than`
+            + ` it does for the picture — the finest elevation anyone serves is a`
+            + ` sample every few metres, and the ground close to you is as flat as`
+            + ` its spacing.`
           : providerNote(ELEVATION_PROVIDERS, value)),
         test: 'elevation',
       },
@@ -634,20 +671,25 @@ export class SettingsPanel {
   }
 
   /**
-   * "Find the sharpest one here".
+   * "Ask again about this place".
    *
-   * A list cannot tell you which provider has the best imagery of the field
-   * you are standing in — coverage is patchy and different for every one of
-   * them. This asks, once, and switches to the winner.
+   * On Auto this happens by itself when you fly into a square nobody has asked
+   * about, so the button is not how you get a local answer — it is how you get
+   * one *now*, and how you get a fresh one for a square that was already
+   * answered, which is what you want after pasting a key.
+   *
+   * It used to be the only way, and it worked by writing the winner into the
+   * setting — which quietly took you *off* Auto, so the next place you flew to
+   * kept a provider chosen for the place you left.
    */
   renderAutoProvider() {
     return `
       <div class="field field-action">
-        <label>Pick the sharpest provider here</label>
+        <label>Ask about this place again</label>
         <button type="button" data-auto-provider ${this.findingProvider ? 'disabled' : ''}>
-          ${escapeHtml(this.autoProviderStatus ?? (this.findingProvider ? 'Looking\u2026' : 'Find the best for this place'))}
+          ${escapeHtml(this.autoProviderStatus ?? (this.findingProvider ? 'Looking\u2026' : 'Ask now'))}
         </button>
-        <small>Asks every provider you can use how deep it will actually go where you are standing, and switches to whoever gets furthest. Coverage is patchy and different for each of them, so the right answer changes when you fly somewhere else.</small>
+        <small>Asks every provider you can use how deep it will actually go where you are standing, and hands the answer to Auto. On Auto this already happens by itself each time you fly into a new region; press it to ask again straight away, or after adding a key.</small>
       </div>`;
   }
 
@@ -656,20 +698,32 @@ export class SettingsPanel {
     if (!button || !this.playerAt) return;
     button.addEventListener('click', async () => {
       if (this.findingProvider) return;
+      if (!liveAuto) return;
       this.findingProvider = true;
+      this.autoProviderStatus = null;
       this.render();
+      const at = this.playerAt();
+      const said = [];
       try {
-        const best = await bestProviderFor(IMAGERY_PROVIDERS, settings.values, this.playerAt(), (text) => {
-          this.autoProviderStatus = text;
+        for (const [kind, list, key] of [
+          ['imagery', IMAGERY_PROVIDERS, 'imageryProvider'],
+          ['elevation', ELEVATION_PROVIDERS, 'elevationProvider'],
+        ]) {
+          // Only for a setting left on Auto: pressing this must not override a
+          // provider somebody deliberately chose.
+          if (settings.get(key) !== AUTO_PROVIDER) continue;
+          const found = await liveAuto.probeNow(
+            kind, at, settings.values, settings.get(key),
+            (text) => {
+              if (!text) return;
+              this.autoProviderStatus = text;
+              this.render();
+            },
+          );
+          said.push(found ? `${found.label} z${found.zoom}` : `no ${kind} here`);
           this.render();
-        });
-        if (best) {
-          settings.set('imageryProvider', best.id);
-          if (this.onChange) this.onChange('imageryProvider', best.id);
-          this.autoProviderStatus = `${best.label} — z${best.zoom} here`;
-        } else {
-          this.autoProviderStatus = 'Nothing answered here';
         }
+        this.autoProviderStatus = said.length ? said.join(' · ') : 'Both are set by hand';
       } finally {
         this.findingProvider = false;
         this.render();

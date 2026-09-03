@@ -26,9 +26,9 @@ import {
   IMAGERY_PROVIDERS,
   createElevationSource,
   createImagerySource,
-  effectiveProvider,
   providerChain,
 } from './tiles/providers.js';
+import { LocalAuto } from './tiles/localAuto.js';
 import { ImageryStreamer } from './tiles/streamer.js';
 import { createTileWorker } from './tiles/workerHost.js';
 import { Buildings } from './world/buildings.js';
@@ -48,7 +48,7 @@ import { HelpCard } from './ui/help.js';
 import { HUD } from './ui/hud.js';
 import { mapTiles, streetTiles } from './ui/mapTiles.js';
 import { Minimap } from './ui/minimap.js';
-import { SettingsPanel } from './ui/settingsPanel.js';
+import { SettingsPanel, watchLocalAuto } from './ui/settingsPanel.js';
 import { TouchControls } from './ui/touch.js';
 import { trail } from './ui/trail.js';
 import { waypoints } from './ui/waypoints.js';
@@ -251,6 +251,14 @@ export class Game {
     this.touch = new TouchControls(ui);
     this.input.attachTouch(this.touch);
 
+    // Auto that means *here*. Built before the first applyProviders so the
+    // very first resolution goes through it, and given a callback rather than
+    // polled: a probe takes a second or two over the network and the frame it
+    // settles on is not the frame it started on.
+    this.localAuto = new LocalAuto({
+      onDecided: (kind, decision) => this.onLocalAuto(kind, decision),
+    });
+
     this.bindEvents();
     this.applyProviders();
     this.resize();
@@ -347,6 +355,10 @@ export class Game {
       return this.benchmark.run(this.perf, () => new Promise((resolve) => this.frameWaiters.push(resolve)));
     };
     this.settingsPanel.playerAt = () => ({ lat: this.player.lat, lon: this.player.lon });
+    // So the Auto rows can say what was decided *here* rather than reciting
+    // the rule, and so the button hurries the real thing along instead of
+    // running a private copy of it.
+    watchLocalAuto(this.localAuto, () => ({ lat: this.player.lat, lon: this.player.lon }));
     this.settingsPanel.testTile = () => {
       const zoom = 14;
       const n = Math.pow(2, zoom);
@@ -551,12 +563,24 @@ export class Game {
     // ordinary id. Resolved every time providers are applied, so adding a key
     // in the settings panel changes what you are flying over without anybody
     // reopening the dropdown.
-    const chosenId = effectiveProvider(
-      IMAGERY_PROVIDERS, settings.get('imageryProvider'), settings.values,
+    //
+    // Resolved *where you are standing*, not in the abstract. localAuto has
+    // asked the providers what they actually serve over this square and keeps
+    // the answer; until it has, this falls back to the published ranking, so
+    // there is never a frame with no provider at all. See tiles/localAuto.js.
+    const at = { lat: this.player?.lat ?? 0, lon: this.player?.lon ?? 0 };
+    const chosenId = this.localAuto.resolve(
+      'imagery', settings.get('imageryProvider'), settings.values, at.lat, at.lon,
     );
+    const elevationId = this.localAuto.resolve(
+      'elevation', settings.get('elevationProvider'), settings.values, at.lat, at.lon,
+    );
+    this.applied = { imagery: chosenId, elevation: elevationId };
     const values = { ...settings.values, imageryProvider: chosenId };
     this.imagerySource = createImagerySource(values);
-    this.elevationSource = createElevationSource(settings.values);
+    this.elevationSource = createElevationSource({
+      ...settings.values, elevationProvider: elevationId,
+    });
     this.streamer.setSource(this.imagerySource);
     // Standbys for the ground itself, in the order asked for: providers you
     // hold a key for first, then the free ones, deepest first. A tile the
@@ -668,6 +692,23 @@ export class Game {
     if (!keys || keys.size === 0) return;
     this.pendingSettings = null;
     for (const key of keys) this.onSettingChanged(key);
+  }
+
+  /**
+   * A probe came back with somebody better over this square.
+   *
+   * Only ever reached for a setting left on Auto, and only when the winner is
+   * not what is already drawing — LocalAuto keeps the incumbent on a tie, so
+   * crossing a border between two equally good providers cannot start a swap.
+   *
+   * Imagery keeps the geometry and re-resolves textures; elevation is the
+   * shape of the ground, so it rebuilds. The line says which and why, because
+   * the ground changing under you without explanation reads as a fault.
+   */
+  onLocalAuto(kind, decision) {
+    this.applyProviders({ rebuild: kind === 'elevation' });
+    if (kind === 'imagery') clearImageryAges();
+    this.toast(`${decision.label} — sharpest here (z${decision.zoom})`);
   }
 
   onSettingChanged(key) {
@@ -1123,6 +1164,17 @@ export class Game {
 
     this.address = geocoder.lookup(player.lat, player.lon)?.label ?? this.address;
     this.refreshGoogleAttribution(player);
+    // Has the ground under you changed hands? Asked once per zoom-8 square and
+    // free everywhere else, so this costs a Map lookup on an ordinary frame.
+    this.localAuto.tick(
+      player,
+      settings.values,
+      {
+        imagery: settings.get('imageryProvider'),
+        elevation: settings.get('elevationProvider'),
+      },
+      this.applied,
+    );
 
     this.hud.update({
       player,

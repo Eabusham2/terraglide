@@ -511,7 +511,127 @@ console.log('\nauto picks the best provider you can actually use');
   // And the panel offers it, or none of the above is reachable.
   const panel = readFileSync(new URL('../src/ui/settingsPanel.js', import.meta.url), 'utf8');
   ok('the dropdown offers it', /value: AUTO_PROVIDER/.test(panel));
-  ok('and says which one it has picked', /resolveAuto\(IMAGERY_PROVIDERS, settings\.values\)/.test(panel));
+  ok('and the help text is built from the live decision, not a fixed rule',
+    /autoHelp\('imagery', IMAGERY_PROVIDERS\)/.test(panel)
+    && /autoHelp\('elevation', ELEVATION_PROVIDERS\)/.test(panel));
+  ok('which still names the ranked fallback while nothing has been asked',
+    /resolveAuto\(list, settings\.values\)/.test(panel));
+}
+
+console.log('\nand then asks who is really deepest where you are standing');
+{
+  const { LocalAuto, autoCell, keyFingerprint, AUTO_CELL_ZOOM } =
+    await import('../src/tiles/localAuto.js');
+  const { AUTO_PROVIDER, IMAGERY_PROVIDERS, ELEVATION_PROVIDERS } =
+    await import('../src/tiles/providers.js');
+
+  // A square, not a tile. Two points a few hundred metres apart are the same
+  // question and must not cost two probes; two points a continent apart are
+  // different questions.
+  const market = autoCell(37.7749, -122.4194);
+  ok(`San Francisco and a street away are one square  (${market})`,
+    autoCell(37.7749, -122.4194) === autoCell(37.7760, -122.4180));
+  ok('London is a different square', autoCell(51.5072, -0.1276) !== market);
+  ok(`the square is about 150 km across  (z${AUTO_CELL_ZOOM})`, AUTO_CELL_ZOOM === 8);
+
+  // Adding a key changes the right answer everywhere, so answers worked out
+  // before you had it must not be reused.
+  ok('a key changes the cache key',
+    keyFingerprint(IMAGERY_PROVIDERS, {}) !== keyFingerprint(IMAGERY_PROVIDERS, { mapboxKey: 'x' }));
+
+  const calls = [];
+  let clock = 1e6;
+  const auto = new LocalAuto({
+    now: () => clock,
+    probe: async (list, values, at, onProgress, options) => {
+      calls.push({ list, at, prefer: options?.prefer });
+      return list === ELEVATION_PROVIDERS
+        ? { id: 'terrarium', label: 'Terrarium', zoom: 14 }
+        : { id: 'usgs', label: 'USGS', zoom: 16 };
+    },
+  });
+  const settled = () => new Promise((r) => setTimeout(r, 0));
+
+  // Before anything is asked, auto is the published ranking — never nothing.
+  ok('until it has asked, auto is the ranked answer',
+    auto.resolve('imagery', AUTO_PROVIDER, {}, 37.77, -122.42) === 'esri');
+  ok('and a provider you chose by hand is left alone',
+    auto.resolve('imagery', 'gibs', {}, 37.77, -122.42) === 'gibs');
+
+  const kansas = { lat: 38.5, lon: -98.0 };
+  const chosen = { imagery: AUTO_PROVIDER, elevation: AUTO_PROVIDER };
+  auto.tick(kansas, {}, chosen, { imagery: 'esri', elevation: 'terrarium' });
+  await settled();
+  ok(`it asked, and about where you are  (${calls.length})`,
+    calls.length === 1 && calls[0].at.lat === 38.5);
+  ok('the incumbent is offered as the tie-break', calls[0].prefer === 'esri');
+  ok('and the answer is used', auto.resolve('imagery', AUTO_PROVIDER, {}, 38.5, -98.0) === 'usgs');
+
+  // The same square again is free. This is the whole reason it is a square.
+  clock += 1e6;
+  auto.tick(kansas, {}, chosen, { imagery: 'usgs', elevation: 'terrarium' });
+  await settled();
+  ok(`the elevation is asked once too  (${calls.length})`, calls.length === 2);
+  clock += 1e6;
+  auto.tick(kansas, {}, chosen, { imagery: 'usgs', elevation: 'terrarium' });
+  await settled();
+  ok('and then the square costs nothing at all', calls.length === 2);
+
+  // A place nobody serves is remembered as such, or it is asked about for ever.
+  const empty = new LocalAuto({ now: () => clock, probe: async () => null });
+  const pacific = { lat: -30, lon: -140 };
+  empty.tick(pacific, {}, { imagery: AUTO_PROVIDER }, {});
+  await settled();
+  clock += 1e6;
+  let again = 0;
+  empty.probe = async () => { again++; return null; };
+  empty.tick(pacific, {}, { imagery: AUTO_PROVIDER }, {});
+  await settled();
+  ok('"nobody serves this" is remembered too', again === 0);
+  ok('and the ranked answer keeps drawing there',
+    empty.resolve('imagery', AUTO_PROVIDER, {}, -30, -140) === 'esri');
+
+  // Thrash is the failure that would make this worse than the fixed ranking.
+  let told = 0;
+  const steady = new LocalAuto({
+    now: () => clock,
+    onDecided: () => { told++; },
+    probe: async () => ({ id: 'esri', label: 'Esri', zoom: 19 }),
+  });
+  clock += 1e6;
+  steady.tick({ lat: 10, lon: 10 }, {}, { imagery: AUTO_PROVIDER }, { imagery: 'esri' });
+  await settled();
+  ok('winning by staying put is not a swap', told === 0);
+}
+
+console.log('\nthe probe bisects, so a provider is not written off six levels up');
+{
+  const { deepestZoomAt } = await import('../src/tiles/providers.js');
+  const asked = [];
+  // Esri's shape: publishes 23, actually serves 16 here. The old descending
+  // walk stopped at 17 and called that "nothing", which ruled the best
+  // provider in the list out of exactly the places worth asking about.
+  globalThis.fetch = async (url) => {
+    const z = Number(String(url).match(/\/(\d+)\//)?.[1] ?? 0);
+    asked.push(z);
+    const body = new Uint8Array(200);
+    return { ok: z <= 16, arrayBuffer: async () => body.buffer };
+  };
+  globalThis.createImageBitmap = async () => ({ close() {} });
+  const source = {
+    descriptor: { maxZoom: 23 },
+    decode: 'imagery',
+    urlFor: (t) => `https://example.test/${t.z}/${t.x}/${t.y}.jpg`,
+  };
+  const found = await deepestZoomAt(source, { lat: 37.77, lon: -122.42 });
+  ok(`it finds the real floor rather than giving up  (z${found})`, found === 16);
+  ok(`and asks a handful of times, not twenty  (${asked.length})`, asked.length <= 7);
+  const shallow = await deepestZoomAt(
+    { ...source, descriptor: { maxZoom: 9 } }, { lat: 0, lon: 0 },
+  );
+  ok(`an honest provider costs one request  (z${shallow})`, shallow === 9);
+  delete globalThis.fetch;
+  delete globalThis.createImageBitmap;
 }
 
 console.log('\na written-off depth can be un-written-off');
