@@ -4608,9 +4608,16 @@ console.log('\nRolling is something you fly, not a button you press');
   rig.roll = 1;
   ok('walking has no roll at all', Math.abs(hold(1, 2, false)) < 0.05);
 
-  // A bank has to turn you or it is a camera trick.
+  // A bank has to turn you or it is a camera trick — and it has to turn your
+  // *momentum*, or it is a slip. See the flight-path check further up, which
+  // drives the real tickGlide; these two are the source side of it.
   const controller = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');
-  ok('a banked wing turns you', /player\.yaw \+= Math\.sin\(player\.roll\)/.test(controller));
+  ok('a banked wing turns you',
+    /const swing = Math\.sin\(player\.roll\) \* BANK_TURN \* bite \* step;/.test(controller)
+    && /player\.yaw \+= swing;/.test(controller));
+  ok('and carries your momentum round with it',
+    /player\.velocity\.x = vx \* cos - vz \* sin;/.test(controller)
+    && /player\.velocity\.z = vx \* sin \+ vz \* cos;/.test(controller));
   ok('and only with air over it', /horizontalSpeed \/ 28/.test(controller));
   const rate = Number(/const BANK_TURN = ([\d.]+)/.exec(controller)?.[1]);
   const turnIn2s = (roll) => (Math.sin(roll) * rate * 1 * 2 * 180) / Math.PI;
