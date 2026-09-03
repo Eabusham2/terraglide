@@ -145,7 +145,7 @@ export function stepGlide(velocity, look, pitch) {
  * @param {number} power  strength multiplier (the slot's power, times cheats)
  * @param {number} spent  0 at ignition, 1 at burnout — the kick fades across it
  */
-export function stepRocket(velocity, look, power = 1, spent = 0) {
+export function stepRocket(velocity, look, power = 1, spent = 0, steer = true) {
   const fade = 1 - (1 - ROCKET_TAPER) * Math.min(1, Math.max(0, spent));
   const thrust = ROCKET_THRUST * power * fade;
   const vx = velocity.x * TO_TICK;
@@ -197,7 +197,33 @@ export function stepRocket(velocity, look, power = 1, spent = 0) {
   // lighting more gets you there faster. And steering never actually goes dead:
   // past the governor the glide's own swing takes over, which is the ten per
   // cent a turn an elytra has always had.
-  if (pull > 0) {
+  if (pull <= 0) return;
+
+  if (!steer) {
+    /*
+      Every firework after the first in a tick pushes and does not steer.
+
+      Steering is a property of having a rocket lit, not of how many. The line
+      halves whatever part of your velocity is not along your look, and halving
+      is not something that should happen n times because you pressed the key n
+      times — measured at a 40 m/s cruise looking 45 degrees off, lighting one
+      Rocket V turned the direction of travel 33 degrees, three turned it 43,
+      and eight turned it 45. Pressing again snapped you further round each
+      time, which is the glitch: a rocket is thrust, and thrust does not gain
+      a steering wheel by being doubled.
+
+      So the extra ones add their push along the look and nothing else. They
+      still do something — with a big rocket the speed climbs, which is what
+      stacking should buy — and the direction is turned once per tick however
+      hard the key is being hit.
+    */
+    velocity.x = (vx + look.x * pull) * TO_SECOND;
+    velocity.y = (vy + look.y * pull) * TO_SECOND;
+    velocity.z = (vz + look.z * pull) * TO_SECOND;
+    return;
+  }
+
+  {
     // What is left of your velocity once the along-look part is taken out. This
     // is the component the swing acts on, and halving it is what the original
     // line does to it.

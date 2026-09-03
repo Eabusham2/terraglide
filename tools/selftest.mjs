@@ -1166,11 +1166,12 @@ console.log('\na firework may turn you and may not brake you');
   // past it, `along` had shrunk enough for the push to fire, and what it mostly
   // did at that angle was halve a large sideways velocity. Measured at 40 m/s:
   // 40.0 at 30 degrees, 34.2 at 45, 32.1 at 60, 26.2 at 90.
+  // Mirrors burnRockets: only the first burning rocket in a tick steers.
   const fire = (offDeg, n = 1, d = 1, start = 40) => {
     const v = { x: 0, y: 0, z: -start };
     const a = (offDeg * Math.PI) / 180;
     const look = { x: Math.sin(a), y: 0, z: -Math.cos(a) };
-    for (let i = 0; i < n; i++) stepRocket(v, look, rocketPowerFor(d), 0);
+    for (let i = 0; i < n; i++) stepRocket(v, look, rocketPowerFor(d), 0, i === 0);
     return speed(v);
   };
   for (const off of [0, 30, 45, 60, 90]) {
@@ -1191,13 +1192,55 @@ console.log('\na firework may turn you and may not brake you');
       if (t % every === 0) {
         burning.push({ left: rocketTicks(d), total: rocketTicks(d), power: rocketPowerFor(d) });
       }
-      for (const r of burning) { stepRocket(v, look, r.power, 1 - r.left / r.total); r.left -= 1; }
+      let first = true;
+      for (const r of burning) {
+        stepRocket(v, look, r.power, 1 - r.left / r.total, first);
+        first = false;
+        r.left -= 1;
+      }
       for (let i = burning.length - 1; i >= 0; i--) if (burning[i].left <= 0) burning.splice(i, 1);
       stepGlide(v, look, pitch);
       top = Math.max(top, speed(v));
     }
     return top;
   };
+
+  // Pressing the key again must push harder, not steer harder.
+  //
+  // Steering is a property of having a rocket lit, not of how many. The line
+  // halves whatever part of your velocity is not along your look, and that was
+  // happening once per burning firework — so holding the key down snapped your
+  // direction of travel further round with every press. Measured at a 40 m/s
+  // cruise looking 45 degrees off, with Rocket V: one turned the travel 33.4
+  // degrees, three turned it 43.0, eight turned it 44.9.
+  {
+    const turn = (n, d) => {
+      const start = 40;
+      const v = { x: 0, y: 0, z: -start };
+      const a = (45 * Math.PI) / 180;
+      const look = { x: Math.sin(a), y: 0, z: -Math.cos(a) };
+      for (let i = 0; i < n; i++) stepRocket(v, look, rocketPowerFor(d), 0, i === 0);
+      const sp = speed(v);
+      const dot = (0 * v.x + 0 * v.y + -1 * v.z) / sp;
+      return {
+        turned: (Math.acos(Math.max(-1, Math.min(1, dot))) * 180) / Math.PI,
+        speed: sp,
+      };
+    };
+    const one = turn(1, 5);
+    const eight = turn(8, 5);
+    ok(`eight presses do not whip you round further than one  (${one.turned.toFixed(1)} then ${eight.turned.toFixed(1)} deg, was 44.9)`,
+      eight.turned - one.turned < 6);
+    ok(`but they do push harder  (${one.speed.toFixed(0)} then ${eight.speed.toFixed(0)} m/s)`,
+      eight.speed > one.speed + 20);
+    // And a small rocket at its own governor is consistent however many you
+    // light: one and twelve have to agree.
+    const smallOne = turn(1, 1);
+    const smallTwelve = turn(12, 1);
+    ok(`a slot at its governor answers the same for one press and twelve  (${smallOne.turned.toFixed(1)} and ${smallTwelve.turned.toFixed(1)} deg)`,
+      Math.abs(smallOne.turned - smallTwelve.turned) < 0.01
+      && Math.abs(smallOne.speed - smallTwelve.speed) < 0.01);
+  }
 
   // The governor still holds each slot at its own cruise.
   for (const [d, want] of [[1, 33.5], [3, 70.2], [5, 107.0]]) {

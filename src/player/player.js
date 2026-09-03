@@ -279,13 +279,17 @@ export class Player extends Emitter {
   /**
    * Advance every burning firework by a tick, pushing once for each.
    *
-   * @param {(power:number, spent:number) => void} push
+   * @param {(power:number, spent:number, steer:boolean) => void} push
    */
   burnRockets(push) {
     if (this.rockets.length === 0) return;
     const bleed = this.speedBlend * cheats.rocketPower;
+    let first = true;
     for (const rocket of this.rockets) {
-      push(rocket.power * bleed, 1 - rocket.left / rocket.total);
+      // Only the first one in a tick steers; see stepRocket. Pressing the key
+      // again should push harder, not turn you further.
+      push(rocket.power * bleed, 1 - rocket.left / rocket.total, first);
+      first = false;
       rocket.left -= 1;
     }
     this.rockets = this.rockets.filter((rocket) => rocket.left > 0);

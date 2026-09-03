@@ -233,8 +233,8 @@ export class PlayerController {
 
     // One push per firework still burning, not one for the last one lit. See
     // Player.burnRockets — this is what makes spamming them worth anything.
-    player.burnRockets((power, spent) => {
-      stepRocket(player.velocity, this.look, power, spent);
+    player.burnRockets((power, spent, steer) => {
+      stepRocket(player.velocity, this.look, power, spent, steer);
     });
 
     // One set of wings. See src/player/elytra.js.
