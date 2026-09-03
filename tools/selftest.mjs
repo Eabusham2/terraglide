@@ -604,6 +604,88 @@ console.log('\nand then asks who is really deepest where you are standing');
   ok('winning by staying put is not a swap', told === 0);
 }
 
+console.log('\nthe quality dial can climb back, not only fall');
+{
+  const { settings } = await import('../src/core/settings.js');
+  const { AutoQuality } = await import('../src/core/autoQuality.js');
+
+  settings.set('graphics', 'auto');
+  settings.set('fpsTarget', 60);
+
+  /** Run `seconds` of frames at a steady rate and report where the tier ends. */
+  const run = (fps, seconds, from = 'high') => {
+    settings.set('autoTier', from);
+    const auto = new AutoQuality();
+    const dt = 1 / fps;
+    for (let i = 0; i < fps * seconds; i++) auto.update(dt);
+    return settings.get('autoTier');
+  };
+
+  // A 60 Hz display with vsync cannot exceed 60. The old rule wanted
+  // target * 1.35 = 81 to climb, so it never could: the dial was a one-way
+  // ratchet down to Low, which is "it flickers to super low quality" and why
+  // sharp ground goes blurry and stays blurry.
+  ok(`sixty fps against a target of sixty climbs  (${run(60, 60, 'medium')})`,
+    run(60, 60, 'medium') !== 'medium');
+  ok('and keeps climbing to the top given long enough',
+    run(60, 200, 'low') === 'ultra');
+
+  // Falling still works, and still one tier at a time.
+  ok(`twenty fps against a target of sixty falls  (${run(20, 60, 'ultra')})`,
+    run(20, 60, 'ultra') === 'low');
+  ok('one tier per cooldown, not all of them at once',
+    run(20, 12, 'ultra') === 'high');
+
+  // The middle band holds still: fast enough not to drop, not fast enough to
+  // count towards a climb. This is the flapping the old headroom guarded
+  // against, and it still has to be guarded against.
+  ok(`fifty-five fps against sixty stays put  (${run(55, 120, 'high')})`,
+    run(55, 120, 'high') === 'high');
+
+  // An unbroken run is required: meeting the target every other window is not
+  // evidence of headroom.
+  {
+    settings.set('autoTier', 'medium');
+    const auto = new AutoQuality();
+    for (let w = 0; w < 20; w++) {
+      const fps = w % 2 === 0 ? 60 : 55;
+      for (let i = 0; i < fps * 5; i++) auto.update(1 / fps);
+    }
+    ok(`alternating good and middling windows do not climb  (${settings.get('autoTier')})`,
+      settings.get('autoTier') === 'medium');
+  }
+
+  // Falling out of a tier marks it, so climbing back into it costs three times
+  // the evidence. That is where the anti-flap lives now: a machine sitting
+  // exactly on a boundary would otherwise climb, fail, drop and climb again
+  // for ever, each attempt as cheap as the last.
+  {
+    settings.set('autoTier', 'high');
+    const auto = new AutoQuality();
+    for (let i = 0; i < 20 * 11; i++) auto.update(1 / 20);
+    ok(`falling out of a tier marks it  (${auto.burnt} -> ${settings.get('autoTier')})`,
+      auto.burnt === 'high' && settings.get('autoTier') === 'medium');
+  }
+  // Tested at a steady rate rather than by changing rate mid-run: a window
+  // that straddles the change averages the two and reads as neither.
+  {
+    settings.set('autoTier', 'medium');
+    const auto = new AutoQuality();
+    auto.burnt = 'high';
+    for (let i = 0; i < 60 * 30; i++) auto.update(1 / 60);
+    ok(`the marked tier is not won back on the usual evidence  (${settings.get('autoTier')})`,
+      settings.get('autoTier') === 'medium');
+    for (let i = 0; i < 60 * 30; i++) auto.update(1 / 60);
+    ok(`but it is won back on three times as much  (${settings.get('autoTier')})`,
+      ['high', 'ultra'].includes(settings.get('autoTier')));
+    ok('and the mark is cleared once it has been held',
+      auto.burnt === null);
+  }
+
+  settings.set('graphics', 'auto');
+  settings.set('autoTier', 'high');
+}
+
 console.log('\nyou stand on the ground you can see, and the hold lets go of you');
 {
   const THREE = await import('../vendor/three/three.module.js');
@@ -2828,8 +2910,9 @@ console.log('\nAuto graphics is a dial, not a label');
 
   ok('a machine missing the target walks down', run('ultra', 20, 60) === 'low');
   ok('and one with headroom walks back up', run('low', 200, 60) === 'ultra');
-  // Only with real headroom, or a machine on the boundary flips for ever.
-  ok('a machine just over the target is left where it is', run('high', 64, 40) === 'high');
+  // A machine *over* the target has headroom by definition, and this used to
+  // deny it: the old rule wanted target * 1.35, which vsync makes unreachable.
+  ok('a machine just over the target climbs', run('high', 64, 60) === 'ultra');
   // One step then wait: a dial that drops two tiers on one bad second does it
   // during the arrival stutter that was always going to end by itself.
   ok('it moves one tier and then waits', run('ultra', 20, 5) === 'high');

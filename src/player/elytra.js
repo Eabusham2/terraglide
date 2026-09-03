@@ -61,6 +61,23 @@ const ROCKET_THRUST = 1.5;
  * see stepRocket, and D7.
  */
 const ROCKET_TAPER = 1;
+
+/**
+ * Minecraft's constant term in the firework line.
+ *
+ * Named rather than written twice, because it was tried as a separate push
+ * applied past the governor — the reasoning being that vanilla's `0.1` lands
+ * whatever your speed is, so spamming ought to add up. Two measurements killed
+ * that. It buys almost nothing in level flight, because the pull term is
+ * already self-limiting: `0.1 + (1.5 - along) * 0.5` reaches nought at
+ * along = 1.7 blocks a tick, so twenty fireworks lit on one tick converge to
+ * 33.7 m/s against one firework's 33.5, in Minecraft exactly as here. And held
+ * at twenty degrees down while spamming, it reached 1,895 m/s in twenty
+ * seconds — the same runaway the skip was written to close, arriving by a
+ * different door. Spamming genuinely does not beat the governor in vanilla
+ * either; the model already matches.
+ */
+const ROCKET_PUSH = 0.1;
 const TO_TICK = TICK; // m/s -> blocks/tick
 const TO_SECOND = 1 / TICK; // blocks/tick -> m/s
 
@@ -147,7 +164,7 @@ export function stepRocket(velocity, look, power = 1, spent = 0) {
   // your look toward the rocket's target, and it halves whatever part of your
   // velocity points somewhere else, which is what makes a rocket steer. Both
   // are the same term, and `pull` is that term resolved along your look.
-  const pull = 0.1 + (thrust - along) * 0.5;
+  const pull = ROCKET_PUSH + (thrust - along) * 0.5;
   // In vanilla the pull goes negative once you are faster than the rocket, and
   // pulls in both directions — so firing a firework while already quicker slows
   // you down. That barely shows there, because every firework aims at the same
