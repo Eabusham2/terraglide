@@ -1418,7 +1418,7 @@ console.log('\nthe documents do not promise a generator');
     try { text = readFileSync(new URL(`../${d}`, import.meta.url), 'utf8'); } catch { return false; }
     // The correction itself names the old wording, in a parenthesis that says
     // it stopped being true. Only a claim outside that counts.
-    const withoutTheNote = text.replace(/\(This paragraph[\s\S]*?BACKLOG\.md\.[\s\S]*?\)/g, '');
+    const withoutTheNote = text.replace(/\(This paragraph[\s\S]*?claiming\s+the opposite\.\)/g, '');
     return CLAIM.test(withoutTheNote);
   });
   ok(`no document promises generated terrain  (${claiming.join(', ') || `${docs.length} checked`})`,

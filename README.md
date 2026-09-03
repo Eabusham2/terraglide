@@ -31,7 +31,12 @@ published site, so it never goes stale and never needs rebuilding. The two are
 opposites — one carries the game and needs no network, the other needs a
 network and is always the current version. The online one also gets the
 photorealistic 3D route, which the offline bundle cannot carry because that
-needs a module loader. `node tools/online.mjs` builds it.
+needs a module loader.
+
+Both are build outputs rather than sources, so they are not in the source tree.
+`npm run build` writes them, and every push to `main` publishes them to the
+site and to the [`singlefiles`](https://github.com/eabusham2/terraglide/tree/singlefiles)
+branch, where the two sit side by side with a note on which to pick.
 
 To run the source copy: browsers refuse to load ES modules from `file://`, so
 the folder has to be served over HTTP. Any static server works; one is

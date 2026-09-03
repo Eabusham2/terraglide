@@ -2,3 +2,9 @@ node_modules/
 .DS_Store
 *.log
 terraglide.bundle.js
+
+# Build outputs. Both single files are built by tools/bundle.mjs and
+# tools/online.mjs and published to the `singlefiles` branch; tracking them
+# here meant every source change carried a three-megabyte diff of itself.
+terraglide.html
+terraglide-online.html
