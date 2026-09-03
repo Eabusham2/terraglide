@@ -2728,6 +2728,33 @@ paragraph.
       at freed geometry. Nothing is asked at all when no photogrammetry is
       loaded.
 
+      One bug in that list, found and fixed before it shipped: it was cached on
+      position alone while being *built* to whatever reach the first caller
+      wanted. A floor query is short and a wall query while moving fast is
+      long, so the short list could be reused for the long question and walls
+      just outside it would not be there. One radius for both now, generous
+      enough for either, and a query wanting more than it gets a fresh list.
+
+      **Measured live at 37.78970, -122.40000, on real Cesium photogrammetry**
+      — 283 tiles drawn, the whole thing driven through the real API:
+
+        the height field there            2.70 m
+        the scanned street there          8.44 m
+        where the player now stands       8.44 m
+
+      Five and three quarter metres of it, and that is the fault: the ground
+      was the bare landform under the city rather than the city. A 5x5 grid of
+      floor samples over sixteen metres reads 8.4 to 8.6 throughout, so that is
+      a street and not a lucky ray. The column under that point holds eight
+      surfaces — 302.4, 8.4, 3.3, 3.1, 3.0, -4.2, -6.1, -170.8 — and the floor
+      correctly takes 8.4: the roof three hundred metres up is over your head,
+      and the five below are undersides seen through the shell.
+
+      The walls, at the same spot: of eight directions probed, three are
+      blocked, at 0.18 to 0.26 m. A three metre step in each of those moves
+      0.00 to 0.04 m instead of three. The other five are open street and move
+      the full three.
+
 - [~] G21. Test the street view merge
       Asked alongside the blur. The merge rule is the part I could test without
       a key, and I drove the real update() rather than reading it: standing on a

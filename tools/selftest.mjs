@@ -649,6 +649,16 @@ console.log('\nthe scanned city is something you stand on, not something you fal
   ok('and a surface over your head is not a floor', tiles.floorAt(0, 0, 30) === null);
   ok('nor is one you are nowhere near', tiles.floorAt(500, 500, 42) === null);
 
+  // The near list is cached on position, so it must not be built to whatever
+  // reach the first caller happened to want: a floor query is short and a wall
+  // query while moving fast is long, and reusing the short list for the long
+  // question loses walls just outside it.
+  tiles.floorAt(0, 0, 42);
+  const cached = tiles._near.length;
+  ok(`a short question fills the list to the full radius  (${cached})`, cached === 1);
+  ok('and a longer one than the radius is answered fresh',
+    tiles.nearby(0, 0, 400).length === 1 && tiles._nearAt.churn === tiles.churn);
+
   // The wall. A ray going at it stops; the same wall behind you does not.
   const into = tiles.wallAt(3, 40.2, 0, 1, 0, 4);
   ok(`walking at a wall meets it  (${into && into.distance.toFixed(2)} m)`,

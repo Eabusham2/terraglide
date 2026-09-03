@@ -222,6 +222,18 @@ const MAX_DEPTH = 64;
 const NEAR_REFRESH_M = 8;
 
 /**
+ * How far around you the collision list reaches.
+ *
+ * One radius for both questions, and generous enough for both, because the
+ * list is cached: keying the cache on position alone while building it to
+ * whatever reach the first caller happened to ask for meant a floor query
+ * (four metres) could populate the list a wall query (further, when moving
+ * fast) then reused — and walls just outside four metres would not be there.
+ * A query that wants more than this gets a fresh list rather than a wrong one.
+ */
+const NEAR_REACH_M = 24;
+
+/**
  * How far below the step-up ceiling to look for a floor. Deep enough to find
  * the street from a first-floor window ledge, shallow enough that a ray down a
  * light well does not find the basement of the building next door.
@@ -924,12 +936,15 @@ export class Tiles3D {
    * is what walking needs, and neither is asked for at all when there is no
    * photogrammetry loaded.
    */
-  nearby(x, z, reach) {
-    if (this._nearAt && Math.abs(this._nearAt.x - x) < NEAR_REFRESH_M
+  nearby(x, z, reach = NEAR_REACH_M) {
+    const cacheable = reach <= NEAR_REACH_M;
+    if (cacheable && this._nearAt
+      && Math.abs(this._nearAt.x - x) < NEAR_REFRESH_M
       && Math.abs(this._nearAt.z - z) < NEAR_REFRESH_M
       && this._nearAt.churn === this.churn) {
       return this._near;
     }
+    const span = cacheable ? NEAR_REACH_M + NEAR_REFRESH_M : reach;
     const list = [];
     for (const [uri, entry] of this.loaded) {
       if (!this.visible.has(uri)) continue;
@@ -938,10 +953,14 @@ export class Tiles3D {
         entry.bounds = new THREE.Box3().setFromObject(entry.object);
       }
       const box = entry.bounds;
-      if (x < box.min.x - reach || x > box.max.x + reach) continue;
-      if (z < box.min.z - reach || z > box.max.z + reach) continue;
+      // The refresh distance is added in as well: the list is kept while you
+      // move up to NEAR_REFRESH_M from where it was built, so it has to hold
+      // what will be in reach from there too.
+      if (x < box.min.x - span || x > box.max.x + span) continue;
+      if (z < box.min.z - span || z > box.max.z + span) continue;
       list.push(entry.object);
     }
+    if (!cacheable) return list;
     this._near = list;
     this._nearAt = { x, z, churn: this.churn };
     return list;
@@ -957,7 +976,7 @@ export class Tiles3D {
    * not.
    */
   floorAt(x, z, ceiling, drop = FLOOR_DROP_M) {
-    const near = this.nearby(x, z, 4);
+    const near = this.nearby(x, z);
     if (!near.length) return null;
     this._ray.set(this._rayFrom.set(x, ceiling, z), this._down);
     this._ray.far = drop;
@@ -981,7 +1000,7 @@ export class Tiles3D {
    * from being a thing you notice only after you are inside it.
    */
   wallAt(x, y, z, dx, dz, distance) {
-    const near = this.nearby(x, z, distance + 2);
+    const near = this.nearby(x, z, distance);
     if (!near.length) return null;
     let best = null;
     for (const lift of WALL_HEIGHTS_M) {
