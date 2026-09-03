@@ -20,6 +20,45 @@ paragraph.
 
 ## A. Stops you playing
 
+- [~] A27. Flat, blurred ground on foot, with photorealistic 3D off
+      You corrected me: this happens with 3D switched off, and I had wrongly
+      folded it into the 3D work. Reproduced on the first try, standing in
+      Grindelwald under the Eiger — the ground in front of the camera is a
+      smooth blurred plate to a hard horizon while the distant hills are fine.
+
+      Measured there, 3D off, Esri imagery and AWS Terrarium elevation:
+
+        the quadtree draws tiles at zoom 20, 21 and 22 within 30 m of you
+        every one of them is built from elevation zoom 14
+        elevation zoom 14 is the finest the provider has
+
+      At 46.6 degrees north a zoom-14 elevation sample is about 6.6 m, and a
+      zoom-22 terrain tile is about 6.6 m across. The tile is one sample wide.
+      A zoom-21 tile is two. Those cannot carry relief, whatever else is fixed:
+      there is no data at that spacing to carry.
+
+      So the flatness within a few tens of metres is the elevation dataset's
+      resolution, not a bug in the mesh. Terrarium stops at 14; Mapbox
+      Terrain-RGB stops at 15 and would halve the spacing, which is worth
+      trying with your token but is one level, not a fix.
+
+      What *is* wrong, and is being counted:
+
+        imagery at 15 s   exact 519  stretched 36  failed 39
+        imagery at 90 s   exact 518  stretched 44  failed 73
+
+      The failures climb with nothing pending. The quadtree is splitting to
+      zoom 22 because Esri publishes a max of 23 somewhere in the world, then
+      asking for tiles that do not exist over an alpine valley and magnifying
+      the parent when they do not arrive. `reviewDepth` is meant to write a
+      level off after six refusals and clearly is not stopping this. That is
+      wasted requests and wasted meshes on the ground you are standing on,
+      which is also part of "why so slow".
+
+      Not fixed yet. Written down with the numbers rather than guessed at,
+      because the last two times I guessed at this symptom I was wrong twice —
+      once blaming the coverage rule and once blaming a stale cache.
+
 - [~] A26. Missing buildings, a flat floor, and "why so slow"
       You drew circles on my own screenshots. They were my screenshots, on
       current code, and I had described that view as rendering properly. It was
