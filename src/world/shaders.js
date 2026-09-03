@@ -285,7 +285,20 @@ const TERRAIN_FRAG = /* glsl */ `
     // Where nobody drew a wood, ask the photograph. The survey is the better
     // answer and stays on top of this: the larger of the two, not the sum, so a
     // mapped forest is never made lumpier by the measurement agreeing with it.
-    wood = max(wood, uCanopy * flatness);
+    //
+    // uCanopy answers "is the green in this square canopy-like", one number for
+    // the square. Where to apply it is a different question and has to be asked
+    // per pixel, or a square that is a sixth wood and five sixths tan scrub
+    // bumps neither: the tan because it is not trees, and the wood because the
+    // square's average washed it out. That is exactly the case that was asked
+    // for — a small deep-green section against a contrasting colour — and it is
+    // why the bumps never turned up on it.
+    //
+    // So: how green *this* texel is, against its own red and blue. Tan, rock,
+    // road and water go to zero and stay flat; the wood inside the same square
+    // gets the whole of the square's score.
+    float greenHere = clamp((albedo.g - max(albedo.r, albedo.b)) * 8.0, 0.0, 1.0);
+    wood = max(wood, uCanopy * flatness * greenHere * uHasTexture);
     if (wood > 0.01) {
       // Slope of the canopy by differencing, a metre and a half either way,
       // which is about a quarter of a crown.

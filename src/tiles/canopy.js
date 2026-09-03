@@ -44,6 +44,12 @@ const CROWN_STEP = 4;
 
 /** Luminance spread across a crown-sized step that counts as fully broken. */
 const BROKEN_FULL = 26;
+/**
+ * How many green samples are needed before the brokenness ratio means
+ * anything. A dozen green pixels in a city square is noise, not a copse.
+ */
+const MIN_GREEN_SAMPLES = 64;
+
 /** Below this it is one flat green: a field, and not to be bumped. */
 const BROKEN_NONE = 7;
 
@@ -115,11 +121,26 @@ export function measureCanopy(bitmap, makeCanvas, zoom) {
       }
     }
     if (looked === 0 || green === 0) return 0;
-    // Both halves: how much of the square is green, and how broken that green
-    // is. A field is the first without the second.
-    const greenShare = green / looked;
-    const brokenShare = brokenSum / green;
-    return greenShare * brokenShare;
+    /*
+      This used to return greenShare * brokenShare, and multiplying by coverage
+      is what stopped the bumps ever appearing on the case they were asked for:
+      "a small deep-green section against a contrasting colour", a wood in tan
+      scrub. That square is perhaps a sixth green, so however unmistakably
+      broken the green is the score comes out near a tenth and the relief is
+      invisible.
+
+      Coverage is a *where* question and this function answers a *whether*
+      question. So it returns only how canopy-like the green is, and the shader
+      decides where to apply it — per fragment, on the pixels that are actually
+      green, leaving the tan flat. A field of wheat still scores nothing,
+      because the field is unbroken, which was always the real test.
+
+      A handful of green pixels is not evidence either way, so below a floor it
+      still says nothing rather than trusting a ratio taken over almost no
+      samples.
+    */
+    if (green < MIN_GREEN_SAMPLES) return 0;
+    return brokenSum / green;
   } catch {
     return 0;
   }

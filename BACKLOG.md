@@ -20,6 +20,44 @@ paragraph.
 
 ## A. Stops you playing
 
+- [x] A29. The bumps on the green, asked for four times and never delivered
+      Your words, across four messages: "on areas with big contrast like tan or
+      orange and there is green slightly elevated green"; "the bumps on tree
+      dark green small section contrast when there is no photoreal 3d"; "u never
+      added the slight bumps above tree when theirs is a lot of deep green to
+      diff color"; and "still no bumps on the green how I asked".
+
+      The machinery was all there and one line stopped it working on exactly the
+      case you kept describing. `measureCanopy` returned
+
+        greenShare * brokenShare
+
+      — how canopy-like the green is, multiplied by how much of the square is
+      green. A wood filling a sixth of a square of tan scrub therefore scored
+      about a tenth however unmistakably broken its green was, and a tenth of
+      the relief is invisible. The one shape you asked for by name was the one
+      shape the formula erased.
+
+      Coverage is a *where* question and that function answers *whether*. So it
+      returns the brokenness alone now, with a floor of 64 green samples so a
+      dozen green pixels in a city is not mistaken for a copse. The shader
+      decides where, per fragment, from how green that texel is against its own
+      red and blue — so the tan stays flat and the wood inside the same square
+      gets the whole score. It needs no survey and no photorealistic 3D, which
+      is the condition you set.
+
+      Driven over three made squares with known answers:
+
+        an unbroken field         0.00   (still nothing, which was always right)
+        a broken canopy           1.00
+        a small wood in tan       1.00   (was about a sixth of that)
+
+      The earlier global attempt that failed is still in the file's own notes
+      and is not what this is: it scored greenness and roughness over a whole
+      square and could not tell Cambridgeshire from the Amazon. This asks the
+      brokenness question the same way it always did and simply stops averaging
+      the answer away.
+
 - [x] A28. It flickers to a flat plain colour
       Found by reading rather than by watching, because this sandbox draws at
       about one frame a second and cannot see a flicker that lasts a few frames

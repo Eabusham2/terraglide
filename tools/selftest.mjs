@@ -3594,7 +3594,67 @@ console.log('\nGreen with holes in it is a wood; green that runs on is a field')
   const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
   ok('the ground reads it', /uniform float uCanopy;/.test(shaders));
   ok('the survey wins where there is one, rather than adding to it',
-    /wood = max\(wood, uCanopy \* flatness\);/.test(shaders));
+    /wood = max\(wood, uCanopy \* flatness \* greenHere \* uHasTexture\);/.test(shaders));
+
+  {
+  // The bumps were asked for four times and never appeared on the case they
+  // were asked for: "a small deep-green section against a contrasting colour".
+  // measureCanopy multiplied how canopy-like the green is by how much of the
+  // square is green, so a wood filling a sixth of a tan square scored about a
+  // tenth and the relief was invisible. Coverage is a *where* question and that
+  // function answers *whether*; the shader decides where, per pixel.
+  const canopy = readFileSync(new URL('../src/tiles/canopy.js', import.meta.url), 'utf8');
+  // Checked on what it returns, not on whether the old expression appears
+  // anywhere: the comment above the fix names it, which is the point of the
+  // comment.
+  ok('the measure no longer multiplies by how much of the square is green',
+    /return brokenSum \/ green;/.test(canopy)
+    && !/return greenShare \* brokenShare;/.test(canopy));
+  ok('and a handful of green pixels is still not evidence',
+    /green < MIN_GREEN_SAMPLES/.test(canopy));
+  ok('the shader applies it only where the pixel is actually green',
+    /float greenHere = clamp\(\(albedo\.g - max\(albedo\.r, albedo\.b\)\)/.test(shaders));
+
+  // Drive the real measure over three made squares whose answers are known:
+  // an unbroken field, a broken canopy, and the mixed square that used to fail.
+  const canopyMod = await import('../src/tiles/canopy.js');
+  const canopySquare = (side, paint) => {
+    const data = new Uint8ClampedArray(side * side * 4);
+    for (let y = 0; y < side; y++) {
+      for (let x = 0; x < side; x++) {
+        const [r, g, b] = paint(x, y);
+        const i = (y * side + x) * 4;
+        data[i] = r; data[i + 1] = g; data[i + 2] = b; data[i + 3] = 255;
+      }
+    }
+    const ctx = {
+      drawImage() {},
+      getImageData: () => ({ data }),
+    };
+    return { width: side, height: side, __ctx: ctx };
+  };
+  const canopyCanvas = (w, h) => ({ getContext: () => canopyCtx });
+  let canopyCtx = null;
+  const canopyScore = (bitmap) => { canopyCtx = bitmap.__ctx; return canopyMod.measureCanopy(bitmap, canopyCanvas, 16); };
+
+  // A meadow: green everywhere, no gaps between crowns.
+  const meadow = canopyScore(canopySquare(128, () => [90, 130, 70]));
+  ok(`an unbroken field still scores nothing  (${meadow.toFixed(2)})`, meadow < 0.15);
+
+  // A canopy: green with crown-scale gaps.
+  const wood = canopyScore(canopySquare(128, (x, y) => (((x >> 2) + (y >> 2)) % 2
+    ? [40, 95, 35] : [95, 150, 80])));
+  ok(`a broken canopy scores  (${wood.toFixed(2)})`, wood > 0.4);
+
+  // The case that was asked for: a small wood in a mostly tan square. Under the
+  // old rule this was multiplied down by coverage; now it answers the same as
+  // the wood, and the shader is what keeps the tan flat.
+  const copse = canopyScore(canopySquare(128, (x, y) => (x < 48 && y < 48
+    ? (((x >> 2) + (y >> 2)) % 2 ? [40, 95, 35] : [95, 150, 80])
+    : [176, 150, 110])));
+  ok(`and a small wood in a tan square scores the same, not a sixth of it  (${copse.toFixed(2)})`,
+    copse > 0.4 && Math.abs(copse - wood) < 0.25);
+  }
 }
 
 // ---------------------------------------------------------------------------

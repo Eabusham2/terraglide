@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta name="terraglide-sources" content="f66dff02691abc21">
+<meta name="terraglide-sources" content="685ab2d9a4358139">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
 <meta name="color-scheme" content="dark light" />
@@ -92039,6 +92039,12 @@ const CROWN_STEP = 4;
 
 /** Luminance spread across a crown-sized step that counts as fully broken. */
 const BROKEN_FULL = 26;
+/**
+ * How many green samples are needed before the brokenness ratio means
+ * anything. A dozen green pixels in a city square is noise, not a copse.
+ */
+const MIN_GREEN_SAMPLES = 64;
+
 /** Below this it is one flat green: a field, and not to be bumped. */
 const BROKEN_NONE = 7;
 
@@ -92110,11 +92116,26 @@ function measureCanopy(bitmap, makeCanvas, zoom) {
       }
     }
     if (looked === 0 || green === 0) return 0;
-    // Both halves: how much of the square is green, and how broken that green
-    // is. A field is the first without the second.
-    const greenShare = green / looked;
-    const brokenShare = brokenSum / green;
-    return greenShare * brokenShare;
+    /*
+      This used to return greenShare * brokenShare, and multiplying by coverage
+      is what stopped the bumps ever appearing on the case they were asked for:
+      "a small deep-green section against a contrasting colour", a wood in tan
+      scrub. That square is perhaps a sixth green, so however unmistakably
+      broken the green is the score comes out near a tenth and the relief is
+      invisible.
+
+      Coverage is a *where* question and this function answers a *whether*
+      question. So it returns only how canopy-like the green is, and the shader
+      decides where to apply it — per fragment, on the pixels that are actually
+      green, leaving the tan flat. A field of wheat still scores nothing,
+      because the field is unbroken, which was always the real test.
+
+      A handful of green pixels is not evidence either way, so below a floor it
+      still says nothing rather than trusting a ratio taken over almost no
+      samples.
+    */
+    if (green < MIN_GREEN_SAMPLES) return 0;
+    return brokenSum / green;
   } catch {
     return 0;
   }
@@ -95222,7 +95243,20 @@ const TERRAIN_FRAG = /* glsl */ `
     // Where nobody drew a wood, ask the photograph. The survey is the better
     // answer and stays on top of this: the larger of the two, not the sum, so a
     // mapped forest is never made lumpier by the measurement agreeing with it.
-    wood = max(wood, uCanopy * flatness);
+    //
+    // uCanopy answers "is the green in this square canopy-like", one number for
+    // the square. Where to apply it is a different question and has to be asked
+    // per pixel, or a square that is a sixth wood and five sixths tan scrub
+    // bumps neither: the tan because it is not trees, and the wood because the
+    // square's average washed it out. That is exactly the case that was asked
+    // for — a small deep-green section against a contrasting colour — and it is
+    // why the bumps never turned up on it.
+    //
+    // So: how green *this* texel is, against its own red and blue. Tan, rock,
+    // road and water go to zero and stay flat; the wood inside the same square
+    // gets the whole of the square's score.
+    float greenHere = clamp((albedo.g - max(albedo.r, albedo.b)) * 8.0, 0.0, 1.0);
+    wood = max(wood, uCanopy * flatness * greenHere * uHasTexture);
     if (wood > 0.01) {
       // Slope of the canopy by differencing, a metre and a half either way,
       // which is about a quarter of a crown.
