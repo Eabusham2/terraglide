@@ -11,6 +11,67 @@ import * as THREE from '../../vendor/three/three.module.js';
  *  - fog is blended toward the sky's horizon colour, so the render-distance
  *    edge reads as haze rather than as a cliff.
  */
+/**
+ * The cloud deck's own shadow, as a chunk both the ground and the player use.
+ *
+ * It lives here rather than inside the terrain shader because the player has
+ * to be lit by it too. Moving shadow on the land is one of the strongest cues
+ * that you are looking at a place in weather rather than at a texture — and a
+ * figure that stays bright while the ground under it darkens is the same cue
+ * pointing the other way, at a thing pasted on top of a photograph. One copy,
+ * so the two can never disagree about where the cloud is.
+ *
+ * Needs uSunDir, uCloudTime, uCloudCover and uCloudHeight declared by whoever
+ * includes it.
+ */
+const CLOUD_NOISE_GLSL = /* glsl */ `
+  float cloudHash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
+
+  float cloudNoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(cloudHash(i), cloudHash(i + vec2(1.0, 0.0)), u.x),
+               mix(cloudHash(i + vec2(0.0, 1.0)), cloudHash(i + vec2(1.0, 1.0)), u.x), u.y);
+  }
+`;
+
+const CLOUD_SHADOW_ONLY_GLSL = /* glsl */ `
+  float cloudShadow(vec3 world) {
+    if (uCloudCover < 0.02 || uSunDir.y < 0.05) return 1.0;
+    // Where the sun's ray from here crosses the cloud deck.
+    float rise = uCloudHeight - world.y;
+    if (rise < 0.0) return 1.0;
+    vec2 hit = world.xz + uSunDir.xz * (rise / uSunDir.y);
+    vec2 p = hit * 0.00042 + vec2(uCloudTime * 0.0035, uCloudTime * 0.0018);
+    float total = 0.0;
+    float amplitude = 0.5;
+    for (int i = 0; i < 4; i++) {
+      total += cloudNoise(p) * amplitude;
+      p *= 2.03;
+      amplitude *= 0.5;
+    }
+    float density = smoothstep(0.62 - uCloudCover * 0.55, 0.92 - uCloudCover * 0.42, total);
+    // A modulation around one, in the same band as the relief above it — not a
+    // relight. This used to take 62% of the light off, and under an overcast
+    // sky that is most of the ground most of the time: measured straight down
+    // over the Champ de Mars at 124 m, the game drew Esri's own tile at 0.618
+    // of its brightness, and the cloud shadow was very nearly all of it.
+    //
+    // Two reasons that was wrong. The picture was taken in sunshine and has its
+    // own light already in it, so multiplying it by a cloud is grading a
+    // finished photograph — the thing this file refuses to do everywhere else.
+    // And a 62% multiply is a *hard* shadow, which is what scattered cloud
+    // gives you; under real overcast the light is diffuse and the ground goes
+    // flat and slightly dull rather than dark.
+    return 1.0 - density * 0.18;
+  }`;
+
+/** The pair together, for anything that has neither yet. */
+export const CLOUD_SHADOW_CHUNK = CLOUD_NOISE_GLSL + CLOUD_SHADOW_ONLY_GLSL;
+
 const TERRAIN_VERT = /* glsl */ `
   #include <common>
   #include <logdepthbuf_pars_vertex>
@@ -143,17 +204,7 @@ const TERRAIN_FRAG = /* glsl */ `
    * the land is one of the strongest cues there is that you are looking at a
    * place in weather rather than at a texture.
    */
-  float cloudHash(vec2 p) {
-    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-  }
-
-  float cloudNoise(vec2 p) {
-    vec2 i = floor(p);
-    vec2 f = fract(p);
-    vec2 u = f * f * (3.0 - 2.0 * f);
-    return mix(mix(cloudHash(i), cloudHash(i + vec2(1.0, 0.0)), u.x),
-               mix(cloudHash(i + vec2(0.0, 1.0)), cloudHash(i + vec2(1.0, 1.0)), u.x), u.y);
-  }
+${CLOUD_NOISE_GLSL}
 
   /**
    * Crown-scale relief for a wood, and where its hollows are.
@@ -167,35 +218,7 @@ const TERRAIN_FRAG = /* glsl */ `
     return cloudNoise(world / 9.0) * 0.68 + cloudNoise(world / 3.0) * 0.32;
   }
 
-  float cloudShadow(vec3 world) {
-    if (uCloudCover < 0.02 || uSunDir.y < 0.05) return 1.0;
-    // Where the sun's ray from here crosses the cloud deck.
-    float rise = uCloudHeight - world.y;
-    if (rise < 0.0) return 1.0;
-    vec2 hit = world.xz + uSunDir.xz * (rise / uSunDir.y);
-    vec2 p = hit * 0.00042 + vec2(uCloudTime * 0.0035, uCloudTime * 0.0018);
-    float total = 0.0;
-    float amplitude = 0.5;
-    for (int i = 0; i < 4; i++) {
-      total += cloudNoise(p) * amplitude;
-      p *= 2.03;
-      amplitude *= 0.5;
-    }
-    float density = smoothstep(0.62 - uCloudCover * 0.55, 0.92 - uCloudCover * 0.42, total);
-    // A modulation around one, in the same band as the relief above it — not a
-    // relight. This used to take 62% of the light off, and under an overcast
-    // sky that is most of the ground most of the time: measured straight down
-    // over the Champ de Mars at 124 m, the game drew Esri's own tile at 0.618
-    // of its brightness, and the cloud shadow was very nearly all of it.
-    //
-    // Two reasons that was wrong. The picture was taken in sunshine and has its
-    // own light already in it, so multiplying it by a cloud is grading a
-    // finished photograph — the thing this file refuses to do everywhere else.
-    // And a 62% multiply is a *hard* shadow, which is what scattered cloud
-    // gives you; under real overcast the light is diffuse and the ground goes
-    // flat and slightly dull rather than dark.
-    return 1.0 - density * 0.18;
-  }
+${CLOUD_SHADOW_ONLY_GLSL}
 
   /**
    * What the ground looks like when there is no photograph of it yet.

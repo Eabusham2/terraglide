@@ -1,6 +1,7 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { clamp, damp, dampAngle, wrapAngle } from '../core/math.js';
 import { ASSET_BASE } from '../core/paths.js';
+import { litLikeTheWorld } from './effects.js';
 import { settings } from '../core/settings.js';
 import { ROCKET_COLOURS } from './player.js';
 
@@ -360,7 +361,12 @@ function toWeave(image) {
 }
 
 export class Avatar {
-  constructor(scene) {
+  constructor(scene, shared = null) {
+    /**
+     * The shared uniform block, so the figure can be lit by the same weather
+     * the ground is. See effects.js litLikeTheWorld.
+     */
+    this.shared = shared;
     this.root = new THREE.Group();
     this.root.name = 'avatar';
     scene.add(this.root);
@@ -380,7 +386,11 @@ export class Avatar {
       const emissive = new THREE.Color(colour).multiplyScalar(fill);
       const level = emissive.r * 0.299 + emissive.g * 0.587 + emissive.b * 0.114;
       if (level > 0 && level < FILL_FLOOR) emissive.multiplyScalar(FILL_FLOOR / level);
-      return new THREE.MeshLambertMaterial({ color: colour, emissive });
+      const made = new THREE.MeshLambertMaterial({ color: colour, emissive });
+      // Lit by the world's own weather, not only by its sun: the cloud deck's
+      // moving shadow crosses the ground, and a figure that stays bright while
+      // the ground darkens reads as pasted on to the photograph.
+      return this.shared ? litLikeTheWorld(made, this.shared) : made;
     };
     // Kept so a texture can be dropped onto the right pieces once it arrives.
     this.cloth = { jacket: [], trousers: [], wing: [], rocket: [] };

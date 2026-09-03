@@ -215,7 +215,7 @@ export class Game {
       terrain: this.terrain,
       buildings: this.buildings,
     });
-    this.avatar = new Avatar(this.scene);
+    this.avatar = new Avatar(this.scene, this.shared);
     // A shadow to stand on and a trail behind the fireworks. Both are drawn
     // rather than shadow-mapped; see player/effects.js for why.
     this.shadow = new ContactShadow(this.scene);

@@ -1,5 +1,6 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { ROCKET_COLOURS } from './player.js';
+import { CLOUD_SHADOW_CHUNK } from '../world/shaders.js';
 
 /**
  * The two things a flying figure was missing: a shadow to stand on and a
@@ -269,4 +270,61 @@ export class RocketTrail {
     this.material.dispose();
     this.points.parent?.remove(this.points);
   }
+}
+
+/**
+ * Light a player material the way the world is lit.
+ *
+ * The scene's sun and sky lights already follow the real solar position, so a
+ * figure is the right colour for the time of day without any help. What it was
+ * missing is the weather: the ground has the cloud deck's own moving shadow
+ * across it, and the player walked through that shade fully lit. A figure that
+ * stays bright while the ground under it darkens reads as pasted on top of the
+ * photograph rather than standing in it, which is the same fault the contact
+ * shadow above fixes for position — this is it for light.
+ *
+ * The same GLSL the terrain uses, imported rather than copied, so the two can
+ * never disagree about where the cloud is. It multiplies the outgoing light at
+ * the end, which is a modulation around one and not a relight — the figure's
+ * own materials still decide what colour it is.
+ *
+ * @param {THREE.Material|THREE.Material[]} material
+ * @param {object} shared the shared uniform block; see world/shaders.js
+ */
+export function litLikeTheWorld(material, shared) {
+  for (const one of Array.isArray(material) ? material : [material]) {
+    if (!one || one.userData?.cloudLit) continue;
+    one.userData = { ...(one.userData ?? {}), cloudLit: true };
+    one.onBeforeCompile = (shader) => {
+      shader.uniforms.uSunDir = shared.uSunDir;
+      shader.uniforms.uCloudTime = shared.uCloudTime;
+      shader.uniforms.uCloudCover = shared.uCloudCover;
+      shader.uniforms.uCloudHeight = shared.uCloudHeight;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vCloudWorld;')
+        // After project_vertex, because `transformed` is final by then — it has
+        // been through skinning and morphing if the material has any.
+        .replace(
+          '#include <project_vertex>',
+          '#include <project_vertex>\n  vCloudWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;',
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           varying vec3 vCloudWorld;
+           uniform vec3 uSunDir;
+           uniform float uCloudTime;
+           uniform float uCloudCover;
+           uniform float uCloudHeight;
+           ${CLOUD_SHADOW_CHUNK}`,
+        )
+        .replace(
+          '#include <opaque_fragment>',
+          'outgoingLight *= cloudShadow(vCloudWorld);\n#include <opaque_fragment>',
+        );
+    };
+    one.needsUpdate = true;
+  }
+  return material;
 }

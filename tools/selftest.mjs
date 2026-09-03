@@ -1045,6 +1045,43 @@ console.log('\nthe scanned city is something you stand on, not something you fal
     Math.abs(player.position.x - 6.2) < 0.01);
 }
 
+console.log('\nthe figure stands in the weather, not on top of it');
+{
+  const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
+  const effects = readFileSync(new URL('../src/player/effects.js', import.meta.url), 'utf8');
+  const avatar = readFileSync(new URL('../src/player/avatar.js', import.meta.url), 'utf8');
+
+  // One copy of the cloud shadow, shared, so the ground and the player can
+  // never disagree about where the cloud is.
+  ok('the cloud shadow is a chunk rather than a paragraph inside one shader',
+    /export const CLOUD_SHADOW_CHUNK/.test(shaders));
+  ok('and the terrain includes that chunk rather than its own copy',
+    (shaders.match(/float cloudShadow\(vec3 world\)/g) || []).length === 1
+    && /\$\{CLOUD_SHADOW_ONLY_GLSL\}/.test(shaders));
+  ok('the player imports it rather than copying it',
+    /import \{ CLOUD_SHADOW_CHUNK \} from '\.\.\/world\/shaders\.js'/.test(effects));
+
+  // The patch has to hook chunks that exist. A replace on a chunk name three
+  // does not have fails *silently* — it compiles perfectly and does nothing —
+  // so the live check drives a real compile and reads the source back. All
+  // five of these were confirmed present in the shader the renderer was handed.
+  ok('it declares a world-space varying', /varying vec3 vCloudWorld;/.test(effects));
+  ok('and fills it after project_vertex, where `transformed` is final',
+    /#include <project_vertex>\\n {2}vCloudWorld = \(modelMatrix/.test(effects));
+  ok('and multiplies the outgoing light by it',
+    /outgoingLight \*= cloudShadow\(vCloudWorld\)/.test(effects));
+  ok('at opaque_fragment, which is the chunk this three has',
+    /#include <opaque_fragment>/.test(effects));
+
+  // And it is actually reaching the figure's materials.
+  ok('every avatar material is built through it',
+    /return this\.shared \? litLikeTheWorld\(made, this\.shared\) : made;/.test(avatar));
+  ok('and the game hands the avatar the shared uniforms',
+    /new Avatar\(this\.scene, this\.shared\)/.test(
+      readFileSync(new URL('../src/game.js', import.meta.url), 'utf8'),
+    ));
+}
+
 console.log('\na banked wing turns the flight path, not just the head');
 {
   const THREE = await import('../vendor/three/three.module.js');
