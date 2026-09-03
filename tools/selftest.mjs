@@ -7165,6 +7165,80 @@ console.log('\nthe explored map answers at the zoom it is asked about');
     /at least as fine as/.test(src) && /folded\(z\)/.test(src));
 }
 
+console.log('\na worker that cannot start says nothing, so something has to ask');
+{
+  // The online edition builds a real Worker from a same-origin blob whose only
+  // job is to import the real worker off the published site. `new Worker`
+  // succeeds — the blob is fine — and if that import fails the thread dies
+  // without ever posting a message. Nothing listened for that. Measured running
+  // the online edition: twelve jobs accepted, none answered, none *failed*,
+  // 4,205 queued behind them, every square of ground drawn bare while the
+  // minimap beside it had full imagery. For the whole session.
+  const { GuardedWorker } = await import('../src/tiles/workerHost.js');
+
+  const mute = () => {
+    const w = { posted: [], handlers: {}, terminated: false };
+    w.addEventListener = (t, fn) => { (w.handlers[t] ??= []).push(fn); };
+    w.removeEventListener = (t, fn) => { w.handlers[t] = (w.handlers[t] ?? []).filter((f) => f !== fn); };
+    w.postMessage = (m) => w.posted.push(m);
+    w.terminate = () => { w.terminated = true; };
+    return w;
+  };
+
+  // The quiet death: it accepts jobs and never answers.
+  {
+    const real = mute();
+    let fire = null;
+    const realTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = (fn) => { fire = fn; return 1; };
+    const guard = new GuardedWorker(() => real);
+    const seen = [];
+    guard.addEventListener('message', (e) => seen.push(e.data));
+    guard.postMessage({ kind: 'imagery', channel: 'imagery', id: 1 });
+    guard.postMessage({ kind: 'imagery', channel: 'imagery', id: 2 });
+    ok('the jobs go to the real worker first', real.posted.length === 2);
+    ok('and it is given a deadline to answer by', typeof fire === 'function');
+    fire();
+    globalThis.setTimeout = realTimeout;
+    ok('a worker that never answers is given up on', guard.inline === true);
+    ok('and the dead one is stopped', real.terminated === true);
+    const held = guard.delegate.queue.length + guard.delegate.running;
+    ok('the jobs it was holding are re-posted, not dropped', held === 2, `${held} re-posted`);
+  }
+
+  // The loud death: an error event.
+  {
+    const real = mute();
+    const realTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = () => 1;
+    const guard = new GuardedWorker(() => real);
+    guard.postMessage({ kind: 'imagery', channel: 'imagery', id: 7 });
+    real.handlers.error.forEach((fn) => fn(new Error('import failed')));
+    globalThis.setTimeout = realTimeout;
+    ok('a worker that fails loudly is given up on too', guard.inline === true);
+    ok('and its job is re-posted as well',
+      guard.delegate.queue.length + guard.delegate.running === 1);
+  }
+
+  // A worker that answers is proved alive and is never second-guessed again.
+  {
+    const real = mute();
+    let fire = null;
+    const realTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = (fn) => { fire = fn; return 1; };
+    const guard = new GuardedWorker(() => real);
+    const seen = [];
+    guard.addEventListener('message', (e) => seen.push(e.data));
+    guard.postMessage({ kind: 'imagery', channel: 'imagery', id: 3 });
+    real.handlers.message.forEach((fn) => fn({ data: { channel: 'imagery', id: 3, ok: true } }));
+    ok('a reply reaches the listener', seen.length === 1 && seen[0].id === 3);
+    ok('and proves the worker alive', guard.proven === true);
+    if (fire) fire();
+    globalThis.setTimeout = realTimeout;
+    ok('so the deadline can never take it away afterwards', guard.inline === false);
+  }
+}
+
 console.log('\ngraded as one photograph');
 {
   const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');

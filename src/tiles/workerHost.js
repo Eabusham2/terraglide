@@ -33,20 +33,123 @@ import { cancelJob, runJob } from './tileJobs.js';
  */
 const INLINE_JOBS = 6;
 
+/**
+ * How long a brand-new worker may hold jobs without answering before it is
+ * given up on.
+ *
+ * A worker that cannot start says nothing. `new Worker` succeeds — the blob is
+ * valid and same-origin — and then the import inside it fails, and the thread
+ * dies without ever posting a message. Nothing was listening for that, so the
+ * streamer went on handing jobs to a corpse: measured running the online
+ * edition, twelve jobs accepted, none answered, none *failed*, four thousand
+ * queued behind them, and every square of ground drawn bare while the minimap
+ * beside it had full imagery. The ground never recovers, for the whole session.
+ *
+ * Once one message has come back the worker is proved alive and this is
+ * disarmed for good, so a slow first tile costs nothing after that.
+ */
+const WORKER_FIRST_REPLY_MS = 8000;
+
 export function createTileWorker() {
   if (!globalThis.__TERRAGLIDE_INLINE_WORKER__ && typeof Worker === 'function') {
     try {
       const url = new URL('./tileWorker.js', import.meta.url);
       if (url.protocol !== 'file:') {
-        const worker = new Worker(workerUrl(url), { type: 'module' });
-        worker.inline = false;
-        return worker;
+        return new GuardedWorker(() => {
+          const worker = new Worker(workerUrl(url), { type: 'module' });
+          worker.inline = false;
+          return worker;
+        });
       }
     } catch {
       /* fall through to the in-page host */
     }
   }
   return new InlineWorker();
+}
+
+/**
+ * A real worker, with the in-page host behind it if it turns out to be dead.
+ *
+ * Same surface as either, so nothing upstream knows which one it is holding.
+ * The swap re-posts whatever was outstanding, because those jobs are the ones
+ * that proved the worker was not answering and dropping them would leave the
+ * ground bare exactly where it already is.
+ */
+export class GuardedWorker {
+  constructor(make) {
+    this.listeners = new Set();
+    this.pending = new Map();
+    this.proven = false;
+    this.inline = false;
+    this.timer = null;
+    try {
+      this.delegate = make();
+    } catch {
+      this.delegate = new InlineWorker();
+      this.inline = true;
+      this.proven = true;
+      return;
+    }
+    this.onMessage = (event) => {
+      if (!this.proven) {
+        this.proven = true;
+        clearTimeout(this.timer);
+        this.timer = null;
+      }
+      const data = event && event.data;
+      if (data && data.id !== undefined) this.pending.delete(`${data.channel}:${data.id}`);
+      for (const fn of this.listeners) fn(event);
+    };
+    this.delegate.addEventListener('message', this.onMessage);
+    // A worker that dies loudly is the easy case; the timer is for the quiet one.
+    this.delegate.addEventListener('error', () => this.fallBack());
+    this.delegate.addEventListener('messageerror', () => this.fallBack());
+  }
+
+  fallBack() {
+    if (this.inline) return;
+    this.inline = true;
+    this.proven = true;
+    clearTimeout(this.timer);
+    this.timer = null;
+    try { this.delegate.removeEventListener('message', this.onMessage); } catch { /* gone already */ }
+    try { this.delegate.terminate?.(); } catch { /* nothing to terminate */ }
+    const outstanding = [...this.pending.values()];
+    this.pending.clear();
+    this.delegate = new InlineWorker();
+    this.delegate.addEventListener('message', this.onMessage);
+    for (const job of outstanding) this.delegate.postMessage(job);
+  }
+
+  addEventListener(type, fn) {
+    if (type === 'message') this.listeners.add(fn);
+  }
+
+  removeEventListener(type, fn) {
+    if (type === 'message') this.listeners.delete(fn);
+  }
+
+  postMessage(msg) {
+    if (msg && msg.kind === 'cancel') {
+      this.pending.delete(`${msg.channel}:${msg.id}`);
+    } else if (msg && msg.id !== undefined) {
+      this.pending.set(`${msg.channel}:${msg.id}`, msg);
+      if (!this.proven && this.timer === null) {
+        // Re-checked when it fires as well as cleared when a reply lands: a
+        // timer that has already been overtaken by an answer must not take a
+        // working worker away.
+        this.timer = setTimeout(() => { if (!this.proven) this.fallBack(); }, WORKER_FIRST_REPLY_MS);
+      }
+    }
+    this.delegate.postMessage(msg);
+  }
+
+  terminate() {
+    clearTimeout(this.timer);
+    this.timer = null;
+    try { this.delegate.terminate?.(); } catch { /* nothing to terminate */ }
+  }
 }
 
 /**

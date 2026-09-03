@@ -20,6 +20,45 @@ paragraph.
 
 ## A. Stops you playing
 
+- [x] A33. The online single file drew no imagery at all, ever
+      "Broken online single file", and "online single file is bland". Run the
+      way you would run it — the local page, network on — and it starts in under
+      a second and reaches Ready, which is why it kept being ticked. The ground
+      was flat grey with the minimap beside it in full colour.
+
+      Measured, before:
+
+        imagery   exact 0   stretched 0   bare 1,129
+        worker    jobs outstanding 12, active 12, queued 4,205
+                  loaded 0, failed 0
+
+      Twelve jobs accepted, none answered, and none *failed* either. The worker
+      was dead and silent.
+
+      That page builds a real Worker out of a same-origin blob whose only job is
+      to import the real worker off the published site, because a worker script
+      has to be same-origin and that page is not. `new Worker` succeeds — the
+      blob is perfectly valid — and if the import inside it fails the thread
+      dies without ever posting a message. Nothing listened for that, so the
+      streamer went on handing jobs to a corpse for the rest of the session, and
+      the in-page fallback that exists for exactly this case was never reached
+      because nothing had told it anything was wrong.
+
+      There is a guard around the worker now. It listens for `error` and
+      `messageerror`, and — for the quiet death, which is the one that actually
+      happened — gives a new worker eight seconds to answer its first job. Miss
+      that and the in-page host takes over, with whatever was outstanding
+      re-posted rather than dropped. One reply proves the worker alive and
+      disarms it for good, so a slow first tile costs nothing.
+
+      After, same run:
+
+        imagery   exact 513   stretched 30   bare 0
+        worker    queued 0, loaded 452, failed 36
+
+      And looked at: hills, valley and village, the same picture the ordinary
+      build draws at that spot.
+
 - [x] A32. Requests spent for ever on a zoom that is not there
       The waste A27 measured and did not explain: over Grindelwald the imagery
       refusal count climbed 39 to 73 in seventy-five seconds with nothing
