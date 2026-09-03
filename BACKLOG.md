@@ -961,7 +961,14 @@ paragraph.
 
       The build refuses to publish a site without the bundle, because falling
       back to seventy-seven requests is the fault this removes.
-- [~] A9. Does not work on Chromebook
+- [~] A9. Does not work — reported across nine machines, not one kind
+      Retitled, because filing this as a Chromebook fault was my mistake and I
+      made it more than once. You have said several times that you tested on
+      nine machines — Mac, Windows, ChromeOS — and that the screenshots you send
+      are photographs of *my* screenshots rather than of your device. Nothing
+      here is device-specific and treating it as such sent me looking in the
+      wrong place. The two causes found below are universal.
+
       — two causes found and fixed. There was no handling for the graphics
       context being lost, which on a low-memory machine is not an edge case:
       Chrome kills the GPU process, every texture goes with it, and the loop
@@ -2411,6 +2418,42 @@ paragraph.
       the compass and scale bar inside carry on unchanged.
 
 ## G. Providers and 3D
+
+- [x] G25. Does changing the imagery provider actually change the ground
+      "Ensure the switch works on all." Asked of the code, per provider, without
+      moving the player at all — because moving would hide the question by
+      forcing every square to be fetched again anyway.
+
+        provider     source     state    requests to its own host   drawn
+        esri         esri       ready     38  arcgisonline           500 exact
+        sentinel2    sentinel2  ready     18  tiles.maps.eox.at      232 exact
+        usgs         usgs       ready      5  basemap.nationalmap    232 exact
+        gibs         gibs       ready      2  gibs.earthdata.nasa    8 exact
+        esri (back)  esri       ready    300  arcgisonline           931 exact
+        mapbox       mapbox     ready     67  api.mapbox.com         952 exact
+
+      Every one switches, requests go to that provider's own host, and the
+      ground redraws with nothing left bare. Mapbox is on the token you sent.
+      The switch is sound.
+
+      So Google failing is the key being refused, not the switch. And what
+      happens *after* it fails matters as much as the message, so that was
+      checked too — a deliberately invalid key, Google chosen, nothing moved:
+
+        source   google, state error
+        error    Google session failed (400) - API key not valid...
+        ground   exact 727, stretched 122, bare 0
+        standbys esri, sentinel2, usgs
+
+      The ground stays fully drawn from the standby chain, and the corner of the
+      screen carries Google's own sentence. Confirmed by looking at it, not only
+      by reading the numbers.
+
+      One earlier reading of mine said bare 807 here and I nearly wrote that up
+      as the ground going blank on a bad key. It was transient: that probe
+      teleported to Tokyo in the same breath as the switch, so every square was
+      genuinely unfetched and the sandbox needs longer than seventy seconds to
+      fill a new city.
 
 - [x] G24. Checking the Google code, because you said it was erroring
       You asked me to read the code rather than guess, so here is what reading
