@@ -3862,7 +3862,8 @@ console.log('\nTurning your head does not lose the ground');
     scene: new THREE.Scene(), frame, shared: { uSnowLine: { value: 0 } },
     elevation: {
       version: 1, maxZoom: 15, hasDataAt: () => true, zoomAt: () => 15,
-      sampleNorm: () => 800, beginFrame() {}, request() {}, ensureAround() {},
+      sampleNorm: () => 800, sampleCoarse: () => 800,
+      beginFrame() {}, request() {}, ensureAround() {},
     },
     streamer: {
       textureFor: () => null, request() {}, atFinest: () => true, noteSharpness() {},
@@ -5988,7 +5989,8 @@ console.log('\nGround below sea level is flattened, deliberately');
   // the water probe reads a 32x32 mask per zoom-6 tile, so a misread over open
   // water would put a hole in the sea.
   const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
-  ok('the clamp is still there', /Math\.max\(SEA_LEVEL, this\.elevation\.sampleNorm/.test(terrain));
+  ok('the clamp is still there',
+    /Math\.max\(SEA_LEVEL, this\.elevation\.sampleNorm/.test(terrain));
   ok('and says why, with what it costs',
     /Dead Sea shore reads 0 m here/.test(terrain) && /bathymetric depth/.test(terrain));
 }
@@ -6518,9 +6520,53 @@ console.log('\nA tile that is culled is still a tile that needs rebuilding');
   // sharing an edge, both built from elevation zoom 7, both wanting 7, neither
   // dirty, both settled, 135 metres apart for forty-five seconds.
   ok('and it asks the ground whether it moved, not just the bookkeeping',
-    /if \(!deeper && !this\.groundMoved\(node, size\)\) continue;/.test(terrain)
-    && /groundMoved\(node, size\) \{/.test(terrain)
+    /if \(!this\.groundMoved\(node, size, this\.seeableMove\(node, size, camX, camZ\)\)\) continue;/
+      .test(terrain)
+    && /groundMoved\(node, size, enough = MOVED_MIN_M\) \{/.test(terrain)
     && /node\.builtHeights = built;/.test(terrain));
+  /*
+    And "moved" is measured on screen, not in metres.
+
+    Half a metre is fifty pixels under your feet and a twentieth of one on the
+    horizon, so a fixed figure redrew ground five kilometres away that nobody
+    could have told had changed — and every redraw is a walk, and a walk you
+    can see is the ground moving. The same test now decides it in both places
+    that mark a square dirty; marking in one on "a deeper zoom exists" while
+    the other refuses on "it has not visibly moved" leaves the careful test
+    deciding nothing.
+  */
+  ok('and how far it has to move is how far you could see it move',
+    /const MOVED_MIN_RAD = 0\.002;/.test(terrain)
+    && /Math\.hypot\(cx - camX, cz - camZ\) \* MOVED_MIN_RAD/.test(terrain));
+  ok('and the draw path asks the same question, not a different one',
+    /bestZoom > builtFrom && node\.mesh\n\s*&& this\.groundMoved\(node, size,/.test(terrain));
+  /*
+    While a deeper elevation tile is still coming, the rungs in between are not
+    steps toward the answer — they are different answers. Traced at one fixed
+    point over two minutes, the square under it was rebuilt at elevation zooms
+    6, 8, 10, 12 and 14 and drew 107.3, 93.8, 96.9, 92.1 and 92.6 metres: down,
+    up, down, up, two hundred and thirty-six metres of travel for a net
+    fifteen.
+  */
+  ok('and it holds a provisional height rather than redrawing every rung',
+    /const LEVELS_BEHIND_TO_REDRAW = 3;/.test(terrain)
+    && /return behind >= LEVELS_BEHIND_TO_REDRAW \? seeable : Infinity;/.test(terrain));
+  // And no clock on that hold. A twenty-second patience was tried and it hands
+  // the flapping straight back: elevation tiles land tens of seconds apart, so
+  // the timer had always expired by the time the next one arrived and every
+  // rung redrew the mesh again anyway.
+  ok('and no timer that expires while the tiles are still arriving',
+    !/ELEV_PATIENCE_MS/.test(terrain));
+  /*
+    And a walk only makes sense from a height that was on screen. A merged
+    parent holds whatever heights it was last built with, and for a square
+    built before any elevation arrived that is nought: the ground fell 107
+    metres to sea level and climbed back, with nothing about the terrain having
+    changed — only which square was drawing it.
+  */
+  ok('a square that was not on screen has nothing to walk from',
+    /const seen = node\.shownFrame >= \(this\.streamer\.frame \?\? 0\) - 2;/.test(terrain)
+    && /if \(!seen && prevY\) \{/.test(terrain));
   /*
     And it asks along the edges, which is where two squares disagree.
 
@@ -6572,6 +6618,37 @@ console.log('\nA tile that is culled is still a tile that needs rebuilding');
   ok('the staleness test looks at the whole tile, not just its middle',
     /const bestZoom = this\.elevationZoomFor\(x0, z0, size\);/.test(terrain) &&
     /node\.builtElevZoom = this\.elevationZoomFor\(x0, z0, size\);/.test(terrain));
+  /*
+    And every square is drawn from the zoom the *view* has reached, not the one
+    its own tile happened to arrive at.
+
+    Elevation streams coarse to fine, tile by tile, and a square was rebuilt the
+    moment its own landed. Measured over the Bernese Alps while loading: zooms
+    8 through 12 all in use at the same instant, 23% of neighbouring pairs
+    disagreeing about which, gaps of three levels. Four hundred squares
+    settling separately, each at its own moment and by its own amount, is
+    exactly "random chunks moving up and down" — and it is a different fault
+    from any single square being wrong.
+  */
+  /*
+    And ground nobody has measured is not at sea level.
+
+    sampleNorm answers nought where no elevation tile covers the point, and
+    nought is a height, so a square with no data was built as a flat plate at
+    sea level next to squares that had data — and jumped up to meet them when
+    its own tile landed. Traced at one fixed point: 0, then 74.7 the moment the
+    tile arrived, then the tree re-cut into a square that had no data of its own
+    and drew it at 0 again, then 59.6. Seventy-five metres each way, twice,
+    with the terrain never having changed.
+  */
+  ok('a square with no elevation stands where its parent stands',
+    /const standIn = measured \? 0 : this\.ancestorHeightAt\(tile,/.test(terrain)
+    && /ancestorHeightAt\(tile, x, z\) \{/.test(terrain));
+  // Through the node tree, not through `drawn` — which is the list the walk is
+  // in the middle of rebuilding when this is called, so the parent has been
+  // taken out of it and the child is not in it yet.
+  ok('and finds that parent through the tree, not the draw list',
+    /const parent = this\.nodes\.get\(tileKey\(tz, tx, ty\)\);/.test(terrain));
 }
 
 console.log('\nBuildings are painted once the photograph arrives');

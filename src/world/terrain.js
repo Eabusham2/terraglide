@@ -90,7 +90,44 @@ const SKIRT_REACH = 4;
 const NEAR_GEOMETRY_M = 64;
 
 /** How far the ground has to move under a square before it is rebuilt. */
-const MOVED_MIN_M = 0.5;
+const MOVED_MIN_M = 0.25;
+/**
+ * How far the ground has to move on *screen* before redrawing it is worth a
+ * visible move, in radians.
+ *
+ * Half a metre was the whole rule, and half a metre is fifty pixels under your
+ * feet and a twentieth of one on the horizon. So every rung of the elevation
+ * pyramid landing anywhere in view redrew ground five kilometres away that
+ * nobody could have told had changed — and each redraw is a walk, and a walk
+ * you can see is the ground moving.
+ *
+ * Two thousandths of a radian is about two pixels on an ordinary screen and
+ * four on a very tall one. Floored at a quarter of a metre, which is under
+ * what the elevation sources themselves resolve.
+ */
+const MOVED_MIN_RAD = 0.002;
+/**
+ * How many levels behind the ground may fall before it is redrawn from data
+ * that is still not the data it asked for.
+ *
+ * A square asks the elevation streamer for one zoom — the one that matches its
+ * own size — and the streamer answers with the whole pyramid on the way there,
+ * because the coarse tiles are also what covers its neighbours. Every one of
+ * those arrivals was redrawing the mesh, and the rungs in between are not
+ * steps toward the answer: they are different answers. Traced at one fixed
+ * point in the Bernese Alps, the square under it was rebuilt at elevation
+ * zooms 6, 7, 8, 9, 10 and 11 and drew 1479, 1442, 1129, 1147, 1103 and 1128
+ * metres — down, down, up, down, up. Four direction changes, none of which was
+ * progress anybody could see, and 2,230 metres of travel for 1,129 metres of
+ * correction.
+ *
+ * So a square that is still waiting for its own zoom holds what it has. Three
+ * levels behind is the exception, and it is the same three levels this file
+ * already calls "a plateau standing in for a hillside": at that point what is
+ * on screen is the wrong shape, not merely a soft one, and it is worth a move
+ * to be rid of.
+ */
+const LEVELS_BEHIND_TO_REDRAW = 3;
 /**
  * How often a square is asked whether its ground has moved, in milliseconds.
  *
@@ -480,6 +517,9 @@ export class Terrain {
 
     const camX = camera.position.x;
     const camZ = camera.position.z;
+    // Kept for draw(), which is reached through visit() and does not carry it.
+    this._camX = camX;
+    this._camZ = camZ;
 
     // Root zoom: the coarsest level whose tiles still comfortably cover the
     // view distance, so the recursion starts with only a few tiles.
@@ -965,7 +1005,15 @@ export class Terrain {
     // unlike "some tile somewhere has landed".
     const bestZoom = this.elevationZoomFor(x0, z0, size);
     const builtFrom = node?.builtElevZoom ?? -1;
-    if (node && !node.dirty && bestZoom > builtFrom) node.dirty = true;
+    // Same question as invalidateStale asks, and it has to be the same answer:
+    // marking here on "a deeper zoom exists" while the round-robin refuses on
+    // "the ground has not visibly moved" means every rung of the pyramid still
+    // redraws the mesh, and the careful test upstairs decides nothing.
+    if (node && !node.dirty && bestZoom > builtFrom && node.mesh
+      && this.groundMoved(node, size,
+        this.seeableMove(node, size, this._camX ?? x0, this._camZ ?? z0))) {
+      node.dirty = true;
+    }
     // Two levels coarser is a mesh that is merely soft. Three or more is a
     // plateau standing in for a hillside, and no budget is worth leaving one
     // of those in front of you: it is the wrong shape, at the wrong height,
@@ -1246,10 +1294,38 @@ export class Terrain {
     let minY = Infinity;
     let maxY = -Infinity;
 
+    /*
+      Ground nobody has measured yet is not at sea level.
+
+      `sampleNorm` answers nought where no elevation tile covers the point, and
+      nought is a height — so a square with no data under it was built as a flat
+      plate at sea level and drawn there. Next to a square that *did* have data
+      it is a cliff; when its own tile lands it jumps up to meet the rest. Both
+      of those are chunks moving up and down, and the quadtree makes it worse
+      every time it splits: a fresh child has no data of its own for a moment,
+      so it appears at nought under a parent that was at seventy metres.
+
+      Traced at one fixed point: 0, then 74.7 the moment the tile landed; then
+      the tree re-cut and a different square with no data drew it at 0 again;
+      then 59.6. Seventy-five metres each way, twice, with the terrain never
+      having changed.
+
+      `isWaterAt` already refuses to read nought as a height for exactly this
+      reason and says so. So does this now: where there is no measurement, the
+      square is built from the surface already being drawn there — its parent,
+      which is on screen and is the only honest answer available — and only
+      falls back to sea level when nothing is drawn there at all, which is the
+      first moment after arriving somewhere, when everything is at nought
+      together and nothing moves relative to anything else.
+    */
+    const measured = this.elevation.hasDataAt(nx0 + 0.5 / n, ny0 + 0.5 / n);
+    const standIn = measured ? 0 : this.ancestorHeightAt(tile, x0 + size / 2, z0 + size / 2);
     for (let gy = 0; gy < grid; gy++) {
       const ny = ny0 + gy * step;
       for (let gx = 0; gx < grid; gx++) {
-        const raw = this.elevation.sampleNorm(nx0 + gx * step, ny);
+        const raw = measured
+          ? this.elevation.sampleNorm(nx0 + gx * step, ny)
+          : standIn;
         const h = Math.max(SEA_LEVEL, raw);
         heights[gy * grid + gx] = h;
         bedHeights[gy * grid + gx] = raw;
@@ -1427,10 +1503,35 @@ export class Terrain {
       // for a new photograph rather than new relief, and starting a morph that
       // has nothing to morph would put every tile through a needless frame of
       // shader work.
+      /*
+        A walk only makes sense from a height that was on screen.
+
+        The morph exists to hide a correction: the square is drawn where it was
+        and slides to where it now is, so a few metres of new relief arrive as
+        a settle rather than a jump. It was being run for squares that had not
+        been drawn for a minute — a merged parent, a tile that came back into
+        view — and those hold whatever heights they were last built with, which
+        for a square built before any elevation arrived is nought.
+
+        Traced at one fixed point: the ground was at 107.3 m on a zoom-18
+        square, the tree merged back to its zoom-17 parent, and the parent was
+        rebuilt from heights of nought. The point fell 107 metres to sea level
+        and climbed back over the next third of a second. Nothing about the
+        terrain had changed; only which square was drawing it. That is the
+        single biggest move in a two-minute trace and it is pure artefact.
+
+        So: on screen last frame, or there is nothing to walk from and the
+        square simply starts where it is.
+      */
+      const seen = node.shownFrame >= (this.streamer.frame ?? 0) - 2;
       let moved = 0;
       for (let v = 0; prevY && v < prevY.length; v += 1) {
         const d = Math.abs(prevY[v] - positions[v * 3 + 1]);
         if (d > moved) moved = d;
+      }
+      if (!seen && prevY) {
+        for (let v = 0; v < prevY.length; v += 1) prevY[v] = positions[v * 3 + 1];
+        moved = 0;
       }
       startMorph = moved > MORPH_MIN_M;
     }
@@ -1468,6 +1569,8 @@ export class Terrain {
     node.geometry = geometry;
     node.grid = grid;
     node.tile = tile;
+    // When this mesh was made, for seeableMove's patience test.
+    node.builtAt = typeof performance === 'undefined' ? Date.now() : performance.now();
     node.minY = minY - 5;
     node.maxY = maxY + 5;
     // The finest elevation this mesh could have been made from. See draw().
@@ -1552,6 +1655,48 @@ export class Terrain {
       }
     }
     return best;
+  }
+
+  /**
+   * The height a square's parent is standing at, for ground with no data.
+   *
+   * Through the node tree rather than through `drawn`, which is the list the
+   * walk is in the middle of rebuilding when this is called: the parent has
+   * already been taken out of it and the child is not in it yet, so asking
+   * `drawn` gets nothing and the square falls back to sea level — which is the
+   * fault this is here to avoid.
+   *
+   * Walks up from the square's own tile. The first ancestor with a mesh is the
+   * ground that is on screen over this spot, and its own surface is read the
+   * way the shader draws it, morph and all.
+   */
+  ancestorHeightAt(tile, x, z) {
+    let { z: tz, x: tx, y: ty } = tile;
+    for (let step = 0; step < 24 && tz >= 0; step += 1) {
+      tx >>= 1;
+      ty >>= 1;
+      tz -= 1;
+      const parent = this.nodes.get(tileKey(tz, tx, ty));
+      if (!parent || !parent.mesh || !parent.geometry || !parent.size) continue;
+      const dx = x - parent.mesh.position.x;
+      const dz = z - parent.mesh.position.z;
+      if (dx < 0 || dz < 0 || dx > parent.size || dz > parent.size) continue;
+      const pos = parent.geometry.getAttribute('position');
+      const prev = parent.geometry.getAttribute('prevY');
+      const morph = parent.material?.uniforms?.uMorph?.value ?? 1;
+      const verts = Math.round(Math.sqrt(pos.count));
+      const inner = verts - 2;
+      if (inner < 2) continue;
+      const cell = parent.size / (inner - 1);
+      const i = 1 + clamp(Math.round(dx / cell), 0, inner - 1);
+      const j = 1 + clamp(Math.round(dz / cell), 0, inner - 1);
+      const k = j * verts + i;
+      const now = pos.getY(k);
+      const was = prev ? prev.getX(k) : now;
+      const h = was + (now - was) * morph;
+      return Number.isFinite(h) ? h : 0;
+    }
+    return 0;
   }
 
   meshHeightAt(x, z) {
@@ -1673,9 +1818,11 @@ export class Terrain {
       // MOVED_CHECK_MS.
       if (moment - (node.movedCheckedAt ?? -Infinity) < MOVED_CHECK_MS) continue;
       node.movedCheckedAt = moment;
-      const deeper = this.elevationZoomFor(node.mesh.position.x, node.mesh.position.z, size)
-        > node.builtElevZoom;
-      if (!deeper && !this.groundMoved(node, size)) continue;
+      // A deeper elevation zoom being available used to force the rebuild on
+      // its own. It is the wrong question: what matters is whether the surface
+      // this square would draw differs from the one on screen by enough to be
+      // worth a visible move, and that is measured rather than inferred.
+      if (!this.groundMoved(node, size, this.seeableMove(node, size, camX, camZ))) continue;
       node.dirty = true;
       marked++;
     }
@@ -1713,13 +1860,44 @@ export class Terrain {
   }
 
   /**
+   * How far this square's ground may move before redrawing it is worth doing.
+   *
+   * Two questions in one number. How far away is it — a metre on the horizon
+   * is not a metre under your feet, and the thing being avoided is a *visible*
+   * move. And is a better elevation tile still coming for it — because if one
+   * is, the answer on screen is provisional and the next one will not be
+   * closer to the truth in any way you could see, just different.
+   */
+  seeableMove(node, size, camX, camZ) {
+    const cx = node.mesh.position.x + size / 2;
+    const cz = node.mesh.position.z + size / 2;
+    const seeable = Math.max(MOVED_MIN_M,
+      Math.hypot(cx - camX, cz - camZ) * MOVED_MIN_RAD);
+    // Still short of the elevation this square asked for, so what has arrived
+    // is a rung of the pyramid rather than the answer. Hold — unless what is on
+    // screen has fallen far enough behind to be the wrong shape.
+    //
+    // No clock on it. A twenty-second patience was tried and it hands the
+    // flapping straight back, because elevation tiles land tens of seconds
+    // apart and the timer had always expired by the time the next one arrived.
+    // And no metre threshold either: that was tried too, and it never bit,
+    // because the test is the worst of a dozen probes across the square and in
+    // mountains one of them always moves.
+    const wanted = Math.min(node.tile.z, this.elevation.maxZoom ?? node.tile.z);
+    const have = this.elevationZoomFor(node.mesh.position.x, node.mesh.position.z, size);
+    if (have >= wanted) return seeable;
+    const behind = have - (node.builtElevZoom ?? -1);
+    return behind >= LEVELS_BEHIND_TO_REDRAW ? seeable : Infinity;
+  }
+
+  /**
    * Has the ground under this square actually moved since it was built?
    *
    * The points `movedProbes` names, re-sampled from the height field and
    * compared with what the mesh was made from. Half a metre is well under
    * anything you could see and well over the noise of a bilinear sample.
    */
-  groundMoved(node, size) {
+  groundMoved(node, size, enough = MOVED_MIN_M) {
     const built = node.builtHeights;
     if (!built) return false;
     const points = this.movedProbes(node.mesh.position.x, node.mesh.position.z,
@@ -1728,7 +1906,7 @@ export class Terrain {
     for (let i = 0; i < built.length; i++) {
       const now = this.heightAt(points[i * 2], points[i * 2 + 1]);
       if (!Number.isFinite(now)) continue;
-      if (Math.abs(now - built[i]) > MOVED_MIN_M) return true;
+      if (Math.abs(now - built[i]) > enough) return true;
     }
     return false;
   }
