@@ -3322,6 +3322,25 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
   // one early return undid all of it. Past the cap the walk now stops
   // *splitting*: each square it still reaches is drawn as it is, so the world
   // gets blunter and stays whole.
+  // Changing a setting must not cost you the world.
+  //
+  // Mesh detail, the graphics tier and the elevation provider all used to call
+  // rebase, which disposes every node — so `draw` had no old mesh to keep
+  // showing, no ancestor to stand in and no cover to grow, and took its last
+  // branch: build anyway, over budget, for every square on screen. Measured
+  // over the Black Forest, one step of the graphics setting rebuilt 497 meshes
+  // inside a single second. A mesh from the wrong grid is still in the right
+  // place at the right height wearing the right photograph, so it is marked and
+  // rebuilt as the budget allows while it goes on being drawn.
+  ok('a settings change marks the world stale rather than destroying it',
+    /resettle\(\) \{\n    for \(const node of this\.nodes\.values\(\)\) node\.dirty = true;/.test(terrainSrc)
+    && /if \(key === 'meshDetail' \|\| key === 'graphics' \|\| key === 'autoTier' \|\| key === 'detailLimit'\) \{\n      this\.terrain\.resettle\(\);/.test(
+      readFileSync(new URL('../src/game.js', import.meta.url), 'utf8')));
+  // And the two cases that genuinely cannot keep their meshes still do not.
+  ok('but an origin move and a lost context still throw them away',
+    /rebase\(\) \{\n    for \(const node of this\.nodes\.values\(\)\) this\.disposeNode\(node\);/.test(terrainSrc)
+    && /this\.frame\.setAnchor\(geo\.lat, geo\.lon\);\n    this\.player\.position\.set\(0, y, 0\);\n    this\.terrain\.rebase\(\);/.test(
+      readFileSync(new URL('../src/game.js', import.meta.url), 'utf8')));
   ok('and reaching it stops the splitting rather than the drawing',
     /const outOfBudget = this\.drawn\.length >= this\.maxDrawn;/.test(terrainSrc)
     && /!outOfBudget && tile\.z < maxZoom/.test(terrainSrc));
@@ -4516,10 +4535,24 @@ console.log('\nGreen with holes in it is a wood; green that runs on is a field')
   // anywhere: the comment above the fix names it, which is the point of the
   // comment.
   ok('the measure no longer multiplies by how much of the square is green',
-    /return brokenSum \/ green;/.test(canopy)
+    /return ramp\(FIELD_AT, WOOD_AT, brokenSum \/ green\);/.test(canopy)
     && !/return greenShare \* brokenShare;/.test(canopy));
+  // A share of the square, not a count of pixels. A sixtieth of a wheat
+  // prairie is the hedge along one edge, and a hedge is broken green: measured
+  // over a Kansas section at zoom eighteen, 4% green and 0.995 broken, which
+  // scored the whole section as woodland.
   ok('and a handful of green pixels is still not evidence',
-    /green < MIN_GREEN_SAMPLES/.test(canopy));
+    /green \/ looked < MIN_GREEN_SHARE/.test(canopy)
+    && /MIN_GREEN_SHARE = 0\.12/.test(canopy));
+  // The size rule, in the words it was asked in: "don't make it if it's bigger
+  // than a certain size all throughout so it doesn't mark grass, but still
+  // count it if it has holes for a different colour."
+  ok('a green that runs the same throughout is grass and scores nothing',
+    /const FIELD_AT = 0\.55;/.test(canopy) && /const WOOD_AT = 0\.85;/.test(canopy));
+  // And the green test has a magnitude in it. Without one, (100, 101, 100) was
+  // green, which is most of the chroma noise in a JPEG.
+  ok('and green means green by a margin, not by a hair',
+    /\(g - rival\) \/ \(g \+ rival \+ 1e-4\) < 0\.10/.test(canopy));
   // Checked on the shape of the measure rather than on one expression. What
   // matters is that it is green as a *proportion* of the texel's own brightness
   // and gated on there being light to judge by. The raw difference this
@@ -4558,7 +4591,15 @@ console.log('\nGreen with holes in it is a wood; green that runs on is a field')
   };
   const canopyCanvas = (w, h) => ({ getContext: () => canopyCtx });
   let canopyCtx = null;
-  const canopyScore = (bitmap) => { canopyCtx = bitmap.__ctx; return canopyMod.measureCanopy(bitmap, canopyCanvas, 16); };
+  // The step between samples is a crown's width in *metres* now, so a made-up
+  // square has to say where on Earth it is or the answer means nothing. Row
+  // 32768 at zoom sixteen is the equator: 2.39 m to a tile pixel, 1.19 m to one
+  // of this 128-wide square's, so a crown is about five pixels and the
+  // four-pixel checks below are a crown across, which is what they were always
+  // meant to be. Left at row 0 the same call lands at 85 degrees north, where a
+  // pixel is 10 cm and a crown is sixty of them.
+  const EQUATOR_ROW_Z16 = 32768;
+  const canopyScore = (bitmap) => { canopyCtx = bitmap.__ctx; return canopyMod.measureCanopy(bitmap, canopyCanvas, 16, EQUATOR_ROW_Z16); };
 
   // A meadow: green everywhere, no gaps between crowns.
   const meadow = canopyScore(canopySquare(128, () => [90, 130, 70]));
@@ -8385,9 +8426,19 @@ console.log('\nthe sea is not black');
   // a clean sea: 208 stray dark pixels in a patch of the Strait of Gibraltar
   // before, 39 after.
   ok('the skirt is sized by the relief along the edge it has to cover',
-    /drops\[i\] = clamp\(\(hi - lo\) \* 0\.6, 0, cap\);/.test(terrain));
+    /drops\[i\] = Math\.min\(Math\.max\(\(hi - lo\) \* 0\.6, needed\), Math\.max\(cap, needed\)\);/.test(terrain));
   ok('so a level stretch of edge hangs no curtain at all',
     /Math\.max\(0, i - SKIRT_REACH\)/.test(terrain) && !/relief \* 0\.6 \+ 1/.test(terrain));
+  // Relief is not the only crack an edge has to cover. A rebuilt square is
+  // drawn at its old height and walks to the new one, so for that third of a
+  // second it sits below any neighbour that has already arrived — by however
+  // far it is about to move, which has nothing to do with how rough it is.
+  ok('and as deep as the height the rebuild is about to walk through',
+    /const edgeWalk = \(vyOf, vxOf\)/.test(terrain)
+    && /walk\[i\] = Math\.abs\(prevY\[vy \* verts \+ vx\] - heights\[gy \* grid \+ gx\]\);/.test(terrain)
+    && /const needed = walk\[i\] \* 1\.1;/.test(terrain));
+  ok('taken along the real edge row, not the skirt row that already hangs',
+    /const skirtTop = edgeDrop\(\(i\) => i, \(\) => 1, \(i\) => i \+ 1\);/.test(terrain));
   ok('and each of the four edges is measured separately',
     /const skirtTop = edgeDrop/.test(terrain)
     && /const skirtBottom = edgeDrop/.test(terrain)
@@ -8621,8 +8672,8 @@ console.log('\nthe sea has no seams in it, from any height');
     && /float sink = uSink \* smoothstep\(0\.0, 0\.03, edgeFade\);/.test(shaders));
   ok('and it is the tapered sink that moves the geometry, not the flat one',
     /worldPos\.y -= sink \+ uCurvature/.test(shaders) && !/worldPos\.y -= uSink \+/.test(shaders));
-  ok('so a level edge still hangs no curtain at all',
-    /drops\[i\] = clamp\(\(hi - lo\) \* 0\.6, 0, cap\);/.test(terrain));
+  ok('so a level edge that did not move still hangs no curtain at all',
+    /drops\[i\] = Math\.min\(Math\.max\(\(hi - lo\) \* 0\.6, needed\), Math\.max\(cap, needed\)\);/.test(terrain));
 }
 console.log('\nthe world map is not a black square');
 {

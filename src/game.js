@@ -207,6 +207,25 @@ export class Game {
     // through the same Overpass queue. It draws nothing; it hands the ground
     // shader a mask so a forest reads as canopy instead of as green paint.
     this.woodland = new Woodland({ frame: this.frame });
+    /*
+      The photograph's own canopy answer, handed to the sheet that the vertex
+      lift reads.
+
+      Taken off the squares the quadtree is actually drawing rather than off
+      every score ever measured: those are the ones on screen, there are a few
+      hundred of them, and each already knows its own world footprint. Anything
+      outside the sheet is dropped by the painter, so a square a hundred
+      kilometres away costs one comparison.
+    */
+    this.woodland.canopyRects = () => {
+      const out = [];
+      for (const node of this.terrain.drawn ?? []) {
+        const score = node.material?.uniforms?.uCanopy?.value ?? 0;
+        if (!(score > 0.01)) continue;
+        out.push({ x: node.mesh.position.x, z: node.mesh.position.z, size: node.size, score });
+      }
+      return out;
+    };
     this.panorama = new Panorama({ scene: this.scene, frame: this.frame, worker: this.worker });
 
     this.player = new Player(this.frame);
@@ -631,7 +650,7 @@ export class Game {
     // The water probe gets the standbys too: whether somewhere is the sea must
     // not depend on which company has flown over it.
     waterMap.setSource(this.imagerySource, this.streamer.standbys ?? []);
-    if (rebuild) this.terrain.rebase();
+    if (rebuild) this.terrain.resettle();
     this.imagerySource.prepare();
     this.elevationSource.prepare();
     streetTiles.source?.prepare();
@@ -750,7 +769,7 @@ export class Game {
     // something asks for it again. Nothing did, so a new preset only reached
     // ground you had not visited yet.
     if (key === 'meshDetail' || key === 'graphics' || key === 'autoTier' || key === 'detailLimit') {
-      this.terrain.rebase();
+      this.terrain.resettle();
     }
     if (key === 'mouseMode' && settings.get('mouseMode') === 'locked') this.input.requestPointerLock();
   }

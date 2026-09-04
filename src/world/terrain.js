@@ -330,6 +330,34 @@ export class Terrain {
   }
 
   /**
+   * Every square is built from the wrong numbers now, but every square is still
+   * in the right place.
+   *
+   * Changing the mesh detail, the graphics tier or the elevation provider used
+   * to call `rebase`, which throws the whole world away — and throwing it away
+   * is what makes changing a setting cost a second of your life. Nothing is
+   * left for `draw` to fall back on: no mesh to keep showing, no ancestor to
+   * stand in, no cover tile to grow. So it takes the last branch and builds
+   * anyway, over budget, for as many squares as are on screen. Measured over
+   * the Black Forest, one step of the graphics setting rebuilt 497 meshes
+   * inside one second, which is the hang.
+   *
+   * A mesh built from the wrong grid is still a mesh: it is at the right
+   * height, in the right place, wearing the right photograph, and only its
+   * resolution is stale. So they are marked instead of destroyed. `draw`
+   * already knows what to do with a square marked dirty — rebuild it when the
+   * frame can afford one, and keep drawing the old one until then — so the
+   * world stays whole on screen and sharpens over the next few seconds
+   * instead of vanishing and coming back.
+   *
+   * `rebase` proper still destroys, and has to: an origin move changes what
+   * the coordinates mean, and a lost WebGL context has already destroyed them.
+   */
+  resettle() {
+    for (const node of this.nodes.values()) node.dirty = true;
+  }
+
+  /**
    * @param {THREE.Camera} camera  what the ground is built *for*: distance,
    *   level of detail, which square is asked for first.
    * @param {number} budgetMs
@@ -701,8 +729,26 @@ export class Terrain {
     const minY = measured ? cached.minY : -200;
     const maxY = measured ? cached.maxY : 6000;
 
-    this._box.min.set(Math.min(x0, x1), minY, Math.min(z0, z1));
-    this._box.max.set(Math.max(x0, x1), maxY, Math.max(z0, z1));
+    /*
+      Padded by everything that moves the geometry after this box was measured.
+
+      The box is built from the heights the mesh was made with, and then the
+      vertex shader moves all of it: down by the curvature bend, which is
+      d²/2R and reaches tens of metres by the time ground is kilometres away;
+      down again by a stand-in's sink; down as far as the skirt hangs, which is
+      the edge's relief and now also however far a rebuild is walking; and up by
+      the canopy lift over a wood. None of that is in `cached.minY/maxY`, so a
+      square near the edge of the view can be rejected on bounds it has already
+      left — and a rejected square is never drawn, never in `drawn` and never
+      rebuilt, which is a tile-shaped hole with the quadtree's own staircase
+      along its edge, exactly where the frustum's edge falls.
+
+      Padding can only ever draw more, never less, and it costs a handful of
+      squares at the rim of the view.
+    */
+    const shaderReach = 60 + (flatDist * flatDist) / (2 * EARTH_RADIUS_M);
+    this._box.min.set(Math.min(x0, x1), minY - shaderReach, Math.min(z0, z1));
+    this._box.max.set(Math.max(x0, x1), maxY + shaderReach, Math.max(z0, z1));
     // The ground you are standing on is not a view. It is the floor, and it
     // has to be right whichever way you happen to be facing.
     //
@@ -1161,9 +1207,46 @@ export class Terrain {
     // full curtain. Over the Alps every point has relief around it, so the
     // skirt there is the same depth it always was.
     const cap = Math.max(12, size * 0.02);
-    const edgeDrop = (at) => {
+    /**
+     * And as deep as the height this rebuild is about to walk through.
+     *
+     * A rebuilt square is drawn at its *old* height and walks to the new one
+     * over a third of a second — see uMorph. For that third of a second it
+     * disagrees with every neighbour that is not walking with it, by however
+     * far it is about to move, and the gap between them is a crack you look
+     * straight through. Sizing the skirt from the edge's own relief cannot
+     * cover that: how far the ground moved when finer elevation landed has
+     * nothing to do with how rough the ground is. A flat plateau gaining ten
+     * metres gets no curtain at all under the old rule, and ten metres is
+     * exactly what you then see through.
+     *
+     * Measured over the Black Forest at twenty-five metres on the lowest tier:
+     * 243 of 273 drawn squares were mid-walk in the same frame with the worst
+     * at nought — every one of them drawn at a height its neighbours had
+     * already left. That is "some tiles up some down" and "the ground moves up
+     * and down in sections", and this is the curtain for it.
+     *
+     * Taken along the real edge row rather than the skirt row, whose old height
+     * already carries the old curtain. Only the edges deepen, only on a rebuild
+     * that actually moves, and only by as far as it moves — so nothing hangs
+     * off the flat sea, where nothing ever moves.
+     */
+    const edgeWalk = (vyOf, vxOf) => {
+      const walk = new Float32Array(grid);
+      if (!prevY) return walk;
+      for (let i = 0; i < grid; i++) {
+        const vy = vyOf(i);
+        const vx = vxOf(i);
+        const gy = clamp(vy - 1, 0, grid - 1);
+        const gx = clamp(vx - 1, 0, grid - 1);
+        walk[i] = Math.abs(prevY[vy * verts + vx] - heights[gy * grid + gx]);
+      }
+      return walk;
+    };
+    const edgeDrop = (at, vyOf, vxOf) => {
       const line = new Float32Array(grid);
       for (let i = 0; i < grid; i++) line[i] = heights[at(i)];
+      const walk = edgeWalk(vyOf, vxOf);
       const drops = new Float32Array(grid);
       for (let i = 0; i < grid; i++) {
         let lo = Infinity;
@@ -1172,14 +1255,17 @@ export class Terrain {
           if (line[j] < lo) lo = line[j];
           if (line[j] > hi) hi = line[j];
         }
-        drops[i] = clamp((hi - lo) * 0.6, 0, cap);
+        // A little over the walk, not exactly it: the neighbour may be walking
+        // the other way at the same time.
+        const needed = walk[i] * 1.1;
+        drops[i] = Math.min(Math.max((hi - lo) * 0.6, needed), Math.max(cap, needed));
       }
       return drops;
     };
-    const skirtTop = edgeDrop((i) => i);
-    const skirtBottom = edgeDrop((i) => (grid - 1) * grid + i);
-    const skirtLeft = edgeDrop((i) => i * grid);
-    const skirtRight = edgeDrop((i) => i * grid + grid - 1);
+    const skirtTop = edgeDrop((i) => i, () => 1, (i) => i + 1);
+    const skirtBottom = edgeDrop((i) => (grid - 1) * grid + i, () => verts - 2, (i) => i + 1);
+    const skirtLeft = edgeDrop((i) => i * grid, (i) => i + 1, () => 1);
+    const skirtRight = edgeDrop((i) => i * grid + grid - 1, (i) => i + 1, () => verts - 2);
 
     for (let vy = 0; vy < verts; vy++) {
       const gy = clamp(vy - 1, 0, grid - 1);

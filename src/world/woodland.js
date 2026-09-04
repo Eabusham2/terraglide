@@ -65,6 +65,36 @@ const SPAN_M = 12000;
  */
 const LEAF_WEIGHT = { needleleaved: 0.82, broadleaved: 1, mixed: 0.92 };
 
+/**
+ * How far to smear the sheet, in texels of it.
+ *
+ * The sheet is 2048 texels over twelve kilometres, so one texel is 5.9 m and
+ * this is about three hundred and fifty metres of ramp. That is far wider than
+ * a square edge needs, and the width is the whole point: the ground lifts off
+ * this sheet in the vertex shader, and a square a kilometre and a half across
+ * has vertices fifty metres apart while its neighbour four levels finer has
+ * them one metre apart. Both read the same sheet, but the coarse one joins its
+ * samples with straight lines — so anything the sheet does between them is
+ * lost, and the two surfaces part company along the edge they share.
+ *
+ * Measured by eye first and then by arithmetic: at a hundred metres of ramp the
+ * lift's slope is a tenth, so fifty metres of vertex spacing can hide five
+ * metres of it — half the lift, as tile-shaped panels standing at angles to
+ * each other, which is exactly what the first attempt drew. At three hundred
+ * and fifty the slope is under a thirtieth and the worst a coarse square can
+ * miss is a metre and a half, which the skirt already covers with its twelve
+ * metre floor.
+ *
+ * The cost is that a wood narrower than a couple of hundred metres barely rises
+ * at all. That is the right half to lose: the *shading* is per pixel and keeps
+ * its full strength on a copse, so a small wood still reads as a canopy — it
+ * just does not also stand up.
+ */
+const CANOPY_BLUR_PX = 60;
+
+/** How often the sheet may be redrawn for a change in the photograph's scores. */
+const CANOPY_REPAINT_MS = 1500;
+
 export class Woodland {
   /**
    * @param {{ frame: any }} deps
@@ -94,6 +124,22 @@ export class Woodland {
     this.paintedAt = new THREE.Vector2(Infinity, Infinity);
     this.enabled = true;
     this._point = { x: 0, z: 0 };
+    /**
+     * Where the photograph itself says there is canopy, for the ground nobody
+     * has surveyed a wood in — which is most of it.
+     *
+     * Set by Game to a function returning `{ x, z, size, score }` for the
+     * squares on screen, from the streamer's own per-tile canopy measurement.
+     * It goes into the green channel of the same sheet as the survey, so the
+     * shader still reads one texture and the vertex lift still reads one number
+     * in world coordinates, which is the whole reason the sheet exists.
+     */
+    this.canopyRects = null;
+    this.lastScored = -1;
+    this.lastScoredAt = 0;
+    this.scratch = document.createElement('canvas');
+    this.scratch.width = MASK;
+    this.scratch.height = MASK;
   }
 
   /** @param {THREE.Camera} camera */
@@ -106,7 +152,26 @@ export class Woodland {
       camera.position.x - this.paintedAt.x,
       camera.position.z - this.paintedAt.y,
     );
-    if (this.dirty || moved > SPAN_M / 6) this.paint(camera);
+    /*
+      And repaint when the photograph's answer has changed.
+
+      The sheet used to be repainted only when new survey polygons landed or
+      the camera crossed two kilometres. Where OpenStreetMap has no wood — most
+      of the world — no polygon ever lands, so the first paint happened before
+      any square had been scored, found nothing, and the sheet stayed empty for
+      as long as you stood there. The lift reads that sheet, so there was no
+      lift at all in exactly the places the photograph was supposed to cover.
+
+      Rate-limited rather than every frame: it is a canvas pass, a blur and a
+      texture upload, and the scores it draws move at the speed squares stream
+      in rather than at the speed of the display.
+    */
+    const now = Date.now();
+    const scored = this.canopyRects ? this.canopyRects().length : 0;
+    const scoresMoved = scored !== this.lastScored
+      && now - (this.lastScoredAt ?? 0) > CANOPY_REPAINT_MS;
+    if (scoresMoved) { this.lastScored = scored; this.lastScoredAt = now; }
+    if (this.dirty || scoresMoved || moved > SPAN_M / 6) this.paint(camera);
   }
 
   requestAround(camera) {
@@ -218,9 +283,53 @@ export class Woodland {
         if (inside) { ctx.fill(); drawn++; }
       }
     }
-    this.painted = drawn > 0;
+    /*
+      And the photograph's answer, into the green channel of the same sheet.
+
+      A square's canopy score is one number for the whole square, so painting
+      it raw would print the tile grid into the ground as steps — the exact
+      shape of fault this is meant to remove. It is drawn to a scratch canvas
+      and blurred on the way across, which turns a square edge into a ramp
+      about a hundred metres wide: shorter than the smallest wood worth
+      lifting and far longer than the step. Where blur is not available the
+      sheet is still correct, only steppier, so it is used if it works and
+      skipped if it does not rather than gated on a browser check.
+
+      `lighter` adds, and the two channels are separate, so a surveyed wood
+      keeps its exact red and picks up whatever green the photograph agrees on
+      without either being able to drown the other.
+    */
+    let scored = 0;
+    const rects = this.canopyRects ? this.canopyRects(this.origin, SPAN_M) : null;
+    if (rects && rects.length) {
+      const sctx = this.scratch.getContext('2d');
+      if (sctx) {
+        sctx.clearRect(0, 0, MASK, MASK);
+        for (const rect of rects) {
+          if (!(rect.score > 0.01)) continue;
+          const px = (rect.x - this.origin.x) * perMetre;
+          const py = (rect.z - this.origin.y) * perMetre;
+          const side = rect.size * perMetre;
+          if (px + side < 0 || py + side < 0 || px > MASK || py > MASK) continue;
+          sctx.fillStyle = `rgb(0,${Math.round(255 * Math.min(1, rect.score))},0)`;
+          sctx.fillRect(px, py, side, side);
+          scored++;
+        }
+        if (scored > 0) {
+          const before = ctx.globalCompositeOperation;
+          ctx.globalCompositeOperation = 'lighter';
+          try { ctx.filter = `blur(${CANOPY_BLUR_PX}px)`; } catch { /* steppier, still right */ }
+          ctx.drawImage(this.scratch, 0, 0);
+          ctx.filter = 'none';
+          ctx.globalCompositeOperation = before;
+        }
+      }
+    }
+
+    this.painted = drawn > 0 || scored > 0;
     this.texture.needsUpdate = true;
     this.stats.polygons = drawn;
+    this.stats.scoredSquares = scored;
   }
 
   dispose() {

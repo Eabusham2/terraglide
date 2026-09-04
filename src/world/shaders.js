@@ -98,6 +98,51 @@ const TERRAIN_VERT = /* glsl */ `
    * one float a vertex and nothing per frame.
    */
   uniform float uMorph;
+  /**
+   * The canopy sheet, and how far a wood stands out of the ground.
+   *
+   * "On areas with big contrast like tan or orange and there is green slightly
+   * elevated green" — the green was never actually elevated. Everything the
+   * canopy did was shading, and shading a flat surface leaves it flat: fly over
+   * a wood beside a field and the two are the same sheet of ground in two
+   * colours. A wood is not. It stands fifteen to thirty metres above the field
+   * next to it, and that is real, measurable and exactly what the ask was.
+   *
+   * It has to come from a field in *world* coordinates or it cannot be done at
+   * all. Two squares meeting along an edge at different levels of detail wear
+   * different photographs — one its own, the other a coarser one stretched —
+   * so a lift read from the photograph would differ across the seam and tear
+   * the ground open, which is the fault being complained about in the same
+   * breath. This sheet is one texture in world coordinates that every square
+   * samples at the same point: red is what OpenStreetMap surveyed, green is
+   * what the photograph itself scored, blurred so square edges do not print
+   * through as steps. Both squares read the same number and the seam holds.
+   *
+   * The lift yields to the ground under your feet. Standing in a wood you
+   * stand on the floor of it, not on the crowns, so within forty-five metres
+   * of the camera there is no lift at all and it comes in over the next
+   * hundred. At a walking pace that ramp is a tenth of a degree of slope; from
+   * the air, which is where the ask was about, it is at full height.
+   */
+  uniform sampler2D uWoodMask;
+  uniform vec2 uWoodOrigin;
+  uniform float uWoodSpan;
+  uniform float uHasWood;
+  uniform float uWoodStrength;
+  /**
+   * How tall a wood is. A spruce plantation is twenty-five to thirty metres and
+   * a broadleaf wood about twenty, so this is a real canopy rather than a
+   * flourish — the surface you fly over above a wood *is* the top of it.
+   *
+   * Ten was tried first and could not be seen: the sheet it is read from is
+   * smeared over three hundred and fifty metres to keep coarse and fine squares
+   * agreeing, so ten metres of lift across that is a slope of one and a half
+   * degrees, which from the air is nothing. Twenty-five is four degrees at a
+   * wood's edge, which reads as a shoulder, and the coarse square can still
+   * only miss about a metre and a half of it between its own vertices — well
+   * inside the skirt's twelve-metre floor.
+   */
+  const float CANOPY_HEIGHT_M = 25.0;
   attribute float bed;
   attribute float prevY;
   varying vec2 vUv;
@@ -141,6 +186,16 @@ const TERRAIN_VERT = /* glsl */ `
     // tiles ever cover — is pushed down as far as it ever was.
     float edgeFade = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
     float sink = uSink * smoothstep(0.0, 0.03, edgeFade);
+    // A wood standing out of the ground it grows on.
+    float canopy = 0.0;
+    if (uHasWood > 0.5) {
+      vec2 wuv = (worldPos.xz - uWoodOrigin) / uWoodSpan;
+      if (wuv.x > 0.0 && wuv.x < 1.0 && wuv.y > 0.0 && wuv.y < 1.0) {
+        vec3 sheet = texture2D(uWoodMask, wuv).rgb;
+        canopy = max(sheet.r, sheet.g);
+      }
+    }
+    worldPos.y += canopy * uWoodStrength * CANOPY_HEIGHT_M * smoothstep(45.0, 160.0, d);
     worldPos.y -= sink + uCurvature * (d * d) / (2.0 * uEarthRadius);
     vNormalW = normalize(mat3(modelMatrix) * normal);
     gl_Position = projectionMatrix * viewMatrix * worldPos;
@@ -402,7 +457,21 @@ ${CLOUD_SHADOW_ONLY_GLSL}
       // Half a crown, in this tile's own texture coordinates: uTileSpan is how
       // wide the tile is on the ground and uUvScale the slice of the texture it
       // wears, so this holds at every zoom and every latitude.
-      float e = CROWN_HALF_M * uUvScale / max(uTileSpan, 1.0);
+      // Half a crown — or one texel of whatever photograph this square is
+      // actually wearing, whichever is wider.
+      //
+      // A square with no photograph of its own wears an ancestor's, stretched.
+      // At sixteen times magnification half a crown is a quarter of a texel, so
+      // all four taps land inside the same one, every difference is nought and
+      // no relief appears at all. That is why there were no bumps from the air
+      // and plenty from seventy metres: at altitude almost every square on
+      // screen is stretched. Clamping to a texel and a half reads the same
+      // photograph at the scale it actually has — twenty-eight metres rather
+      // than four and a half on a sixteen-times square, so it is wood-scale
+      // mottling instead of crowns, which is the honest answer for a
+      // photograph that no longer holds crowns.
+      float texel = 1.5 * uUvScale / 256.0;
+      float e = max(CROWN_HALF_M * uUvScale / max(uTileSpan, 1.0), texel);
       vec2 lo = uUvOffset + 0.002 * uUvScale;
       vec2 hi = uUvOffset + 0.998 * uUvScale;
       vec3 crown = crownRelief(uv, lo, hi, e);

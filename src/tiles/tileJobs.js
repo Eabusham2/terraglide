@@ -104,7 +104,7 @@ async function handleImagery(msg, jobKey, post) {
   const sharpness = measureSharpness(bitmap, makeCanvas);
   // Whether the green in it is a canopy or a field, so woodland relief works
   // where nobody has drawn a wood. See canopy.js.
-  const canopy = measureCanopy(bitmap, makeCanvas, msg.tile?.z ?? msg.z ?? 0);
+  const canopy = measureCanopy(bitmap, makeCanvas, msg.tile?.z ?? msg.z ?? 0, msg.tile?.y ?? msg.y ?? 0);
   post({ ok: true, channel: msg.channel, id: msg.id, bitmap, sharpness, canopy }, [bitmap]);
 }
 

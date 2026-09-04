@@ -30,28 +30,62 @@
  * not a question the image can answer. Zoom 15 is about five metres a pixel at
  * the equator and less further north; a crown is five to fifteen.
  */
-export const CANOPY_FROM_ZOOM = 15;
+export const CANOPY_FROM_ZOOM = 16;
 
 /**
- * How far apart to sample when asking whether the green is broken.
+ * How far apart to sample when asking whether the green is broken, in metres.
  *
- * Four pixels. At the depths this runs at that is somewhere between four and
- * twenty metres on the ground — one crown to a few — which is the scale the
- * gaps between crowns actually live at. One pixel measures sensor noise and
- * JPEG blocks; thirty measures the shape of the field.
+ * It was four *pixels*, which is a different distance at every zoom — 6.4 m at
+ * sixteen and 1.6 m at eighteen — so the measure was asking about crowns at one
+ * depth and about JPEG blocks at the next. Six metres is about one crown either
+ * way at every depth, which is the scale the gaps between crowns live at.
  */
-const CROWN_STEP = 4;
+const CROWN_STEP_M = 6;
 
 /** Luminance spread across a crown-sized step that counts as fully broken. */
 const BROKEN_FULL = 26;
 /**
- * How many green samples are needed before the brokenness ratio means
- * anything. A dozen green pixels in a city square is noise, not a copse.
+ * How much of the square has to be green before the brokenness means anything.
+ *
+ * A share, not a count. It was sixty-four samples out of about four thousand —
+ * a sixtieth — and a sixtieth of a wheat prairie is the hedge along one edge,
+ * which is broken green and scored the whole square as woodland. Measured over
+ * a Kansas section at zoom eighteen: 4% green, brokenness 0.995. An eighth is
+ * enough that the answer is about the square rather than about its border.
  */
-const MIN_GREEN_SAMPLES = 64;
+const MIN_GREEN_SHARE = 0.12;
 
 /** Below this it is one flat green: a field, and not to be bumped. */
 const BROKEN_NONE = 7;
+
+/**
+ * Where a field ends and a wood begins, on the brokenness scale.
+ *
+ * This is the size rule, and it is the half that was never built: "don't make
+ * [bumps] if it's bigger than a certain size all throughout so it doesn't mark
+ * grass, but still count it if it has holes for a different colour". Raw
+ * brokenness does not answer that on its own — it runs high over a desert,
+ * because the handful of green pixels in a desert are JPEG noise and noise is
+ * broken by definition, and it ran high over farmland too.
+ *
+ * Measured over Esri photographs at zoom seventeen, with the green test below
+ * doing its share of the work:
+ *
+ *   Black Forest        0.929      Cambridgeshire wheat   0.216
+ *   Hyde Park           0.853      Cambridgeshire barley  0.467
+ *   Black Forest, 2     0.857      Kansas section         0.422
+ *                                  Sahara                 0.632
+ *
+ * Woods sit at 0.85 and up, fields at 0.47 and down, with nothing in between.
+ * So the raw number is put through a curve with its foot above every field and
+ * its shoulder below every wood: grass comes out at nothing however green it
+ * is, and a wood comes out whole. At zoom sixteen the two overlap more —
+ * 0.74 and 0.87 for the woods against 0.46 and 0.54 for the fields — and the
+ * same curve still separates them, which is why sixteen is the floor rather
+ * than seventeen.
+ */
+const FIELD_AT = 0.55;
+const WOOD_AT = 0.85;
 
 /**
  * Is this pixel plant green?
@@ -61,10 +95,34 @@ const BROKEN_NONE = 7;
  * the measurement is what separates a wood from a lawn, not this half.
  */
 function isGreen(r, g, b) {
-  if (g <= r || g <= b) return false;
+  const rival = r > b ? r : b;
+  if (g <= rival) return false;
+  // Green by a margin, not merely by a hair.
+  //
+  // This used to be `g > r && g > b` and nothing else, so a pixel at
+  // (100, 101, 100) counted. Chroma noise in a JPEG satisfies that constantly,
+  // and it is why the Sahara came back 46% green and central Paris 87%. A
+  // tenth of the pixel's own scale is a real green: measured on Esri
+  // photographs, it takes bare rock in the Alps from 3% green to 0%, the
+  // Sahara from 46% to 13% and Paris from 87% to 26%, while the Black Forest
+  // holds at 43% and Hyde Park at 54%.
+  if ((g - rival) / (g + rival + 1e-4) < 0.10) return false;
   // Not a black shadow and not a blown highlight, where hue means nothing.
   const luma = (r * 299 + g * 587 + b * 114) / 1000;
   return luma > 24 && luma < 226;
+}
+
+/** Metres on the ground per pixel of a 256-wide tile at this zoom and row. */
+function metresPerPixel(zoom, y) {
+  const n = Math.pow(2, zoom);
+  const lat = Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 0.5)) / n)));
+  return (156543.03392 * Math.cos(lat)) / n;
+}
+
+/** Smoothstep, for putting the raw brokenness on a field-to-wood scale. */
+function ramp(edge0, edge1, x) {
+  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
 }
 
 /**
@@ -76,7 +134,7 @@ function isGreen(r, g, b) {
  *   returns 0, which reads as "no opinion" rather than "no trees"
  * @returns {number}
  */
-export function measureCanopy(bitmap, makeCanvas, zoom) {
+export function measureCanopy(bitmap, makeCanvas, zoom, row = 0) {
   try {
     if (!(zoom >= CANOPY_FROM_ZOOM)) return 0;
     const w = bitmap.width || 0;
@@ -92,6 +150,15 @@ export function measureCanopy(bitmap, makeCanvas, zoom) {
     if (!ctx) return 0;
     ctx.drawImage(bitmap, sx, sy, side, side, 0, 0, side, side);
     const { data } = ctx.getImageData(0, 0, side, side);
+
+    // A crown either way, in this square's own pixels. Scaled off the tile
+    // rather than fixed, because four pixels is six metres at zoom sixteen and
+    // one and a half at eighteen, and only one of those is a crown.
+    const perPixel = metresPerPixel(zoom, row) * ((bitmap.width || 256) / 256);
+    const CROWN_STEP = Math.min(
+      Math.floor(side / 4),
+      Math.max(2, Math.round(CROWN_STEP_M / Math.max(perPixel, 1e-3))),
+    );
 
     const lumaAt = (x, y) => {
       const i = (y * side + x) * 4;
@@ -139,8 +206,11 @@ export function measureCanopy(bitmap, makeCanvas, zoom) {
       still says nothing rather than trusting a ratio taken over almost no
       samples.
     */
-    if (green < MIN_GREEN_SAMPLES) return 0;
-    return brokenSum / green;
+    if (green / looked < MIN_GREEN_SHARE) return 0;
+    // And through the field-to-wood curve. See FIELD_AT / WOOD_AT: the raw
+    // ratio runs high over farmland and over deserts, and this is what makes
+    // grass score nothing while a wood scores whole.
+    return ramp(FIELD_AT, WOOD_AT, brokenSum / green);
   } catch {
     return 0;
   }
