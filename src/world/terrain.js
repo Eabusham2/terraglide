@@ -77,6 +77,19 @@ const STANDIN_REFRESHES = 2;
 const SKIRT_REACH = 4;
 
 /**
+ * How small the square under your feet may get before the walk stops refining
+ * it for its own sake rather than for its photograph.
+ *
+ * The mesh you stand on has to be right even where no imagery has arrived, so
+ * a square the camera is inside is allowed to split whatever its photograph is
+ * doing. Unbounded that is not an exemption, it is the runaway: you are inside
+ * a square at every level of the tree, so "near" is true all the way down.
+ * Sixty-four metres across is a metre and a half between vertices at the grids
+ * used here — finer than standing on it can tell.
+ */
+const NEAR_GEOMETRY_M = 64;
+
+/**
  * How far over the tile cap the walk may go before it gives up and leaves a
  * hole after all.
  *
@@ -821,7 +834,42 @@ export class Terrain {
     // questions about how much ground is covered, not how big it looks.
     const vertical = Math.max(minY - camera.position.y, 0, camera.position.y - maxY);
     const eyeDist = Math.hypot(flatDist, vertical);
-    const sharpEnough = !photo || photo.scale >= 0.5 || eyeDist < size;
+    /*
+      A square with no photograph at all must not split.
+
+      This read `!photo || photo.scale >= 0.5 || eyeDist < size`, and the first
+      term is the opposite of what the comment above it promises. `photo` is
+      null only when nothing is loaded for this square *or any ancestor of it* —
+      so on arriving somewhere new, where nothing is loaded by definition, every
+      square counted as sharp enough and the walk ran straight to the deepest
+      zoom it was allowed. It then asked for every tile it found there.
+
+      Measured over the Black Forest at a hundred and fifty metres, on a clean
+      network with nothing dropped: the request queue opened at 3,951 tiles and
+      was still 258 deep a hundred seconds later, twelve requests in flight the
+      whole time against a cap of twelve, and after all that 1% of the squares
+      being drawn had their own photograph. 193 of them were drawn at a quarter
+      of their resolution and 13 at a half. That is the blur, and it is why the
+      minimap — which asks for the handful of tiles it actually shows — is sharp
+      while the ground is not.
+
+      So: no photograph, no split. The walk stops at the level it can actually
+      dress, asks for that level, and descends only as the pictures land. The
+      world comes in coarse and sharpens, which is what was asked for, and the
+      queue is bounded by the number of squares at one level instead of by the
+      number at the deepest level in the tree.
+
+      The exemption for ground you are standing on stays, because the mesh under
+      your feet has to be right whatever the imagery is doing — but it is
+      bounded now too. Unbounded, it was most of the runaway on its own: at a
+      hundred and fifty metres up, every square you are inside is "near", and
+      you are inside one at every level, so it descended to the bottom anyway.
+      Sixty-four metres is about a metre and a half between vertices, which is
+      finer than anything you can stand on needs.
+    */
+    const mayOpen = photo ? photo.scale >= 0.5 : false;
+    const nearFloor = eyeDist < size && size > NEAR_GEOMETRY_M;
+    const sharpEnough = mayOpen || nearFloor;
     const line = size * this.lodFactor * this.splitScale(
       (x0 + x1) / 2, (z0 + z1) / 2, camX, camZ, eyeDist, size,
     );
@@ -1152,6 +1200,8 @@ export class Terrain {
     let normals = positions ? node.geometry.attributes.normal.array : null;
     let uvs = positions ? node.geometry.attributes.uv.array : null;
     let beds = positions ? node.geometry.attributes.bed.array : null;
+    let skirts = positions ? node.geometry.attributes.skirt?.array ?? null : null;
+    if (positions && !skirts) skirts = new Float32Array(count);
     const fresh = !positions;
     // Whether this rebuild moved the ground enough to be worth walking. Held
     // here rather than written straight to the material, because the material
@@ -1167,6 +1217,7 @@ export class Terrain {
       normals = new Float32Array(count * 3);
       uvs = new Float32Array(count * 2);
       beds = new Float32Array(count);
+      skirts = new Float32Array(count);
     }
 
     const heights = new Float32Array(grid * grid);
@@ -1207,6 +1258,9 @@ export class Terrain {
     // full curtain. Over the Alps every point has relief around it, so the
     // skirt there is the same depth it always was.
     const cap = Math.max(12, size * 0.02);
+    // The furthest any edge of this square is about to move. Handed to the
+    // shader, which hangs the curtain for the third of a second it is needed.
+    let walked = 0;
     /**
      * And as deep as the height this rebuild is about to walk through.
      *
@@ -1227,9 +1281,16 @@ export class Terrain {
      * and down in sections", and this is the curtain for it.
      *
      * Taken along the real edge row rather than the skirt row, whose old height
-     * already carries the old curtain. Only the edges deepen, only on a rebuild
-     * that actually moves, and only by as far as it moves — so nothing hangs
-     * off the flat sea, where nothing ever moves.
+     * already carries the old curtain.
+     *
+     * It is *not* baked into the skirt's depth, which is what the first attempt
+     * did and it was worse than the crack: the walk lasts a third of a second
+     * and the geometry lasts until the next rebuild, so a square that moved a
+     * hundred metres wore a hundred-metre curtain for as long as it stood
+     * there. From above that is a wall of striped green standing out of the
+     * hillside — visible in the very screenshot taken to check the fix. The
+     * depth goes to the shader as a uniform instead, and hangs only while the
+     * walk is actually happening. See uWalk.
      */
     const edgeWalk = (vyOf, vxOf) => {
       const walk = new Float32Array(grid);
@@ -1247,6 +1308,7 @@ export class Terrain {
       const line = new Float32Array(grid);
       for (let i = 0; i < grid; i++) line[i] = heights[at(i)];
       const walk = edgeWalk(vyOf, vxOf);
+      for (let i = 0; i < grid; i++) if (walk[i] > walked) walked = walk[i];
       const drops = new Float32Array(grid);
       for (let i = 0; i < grid; i++) {
         let lo = Infinity;
@@ -1255,10 +1317,7 @@ export class Terrain {
           if (line[j] < lo) lo = line[j];
           if (line[j] > hi) hi = line[j];
         }
-        // A little over the walk, not exactly it: the neighbour may be walking
-        // the other way at the same time.
-        const needed = walk[i] * 1.1;
-        drops[i] = Math.min(Math.max((hi - lo) * 0.6, needed), Math.max(cap, needed));
+        drops[i] = clamp((hi - lo) * 0.6, 0, cap);
       }
       return drops;
     };
@@ -1283,6 +1342,7 @@ export class Terrain {
         positions[i] = gx * cell;
         positions[i + 1] = h - drop;
         positions[i + 2] = gy * cell;
+        skirts[vy * verts + vx] = (vy === 0 || vy === verts - 1 || vx === 0 || vx === verts - 1) ? 1 : 0;
         beds[vy * verts + vx] = bedHeights[gy * grid + gx];
 
         const hl = heights[gy * grid + Math.max(0, gx - 1)];
@@ -1310,6 +1370,7 @@ export class Terrain {
       geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
       geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
       geometry.setAttribute('bed', new THREE.BufferAttribute(beds, 1));
+      geometry.setAttribute('skirt', new THREE.BufferAttribute(skirts, 1));
       // A tile with no history has nowhere to walk from, so it starts where it
       // is: prevY is seeded from the heights it was just built with, and the
       // morph below is left finished. Only a *rebuild* animates.
@@ -1321,6 +1382,8 @@ export class Terrain {
       geometry.attributes.position.needsUpdate = true;
       geometry.attributes.normal.needsUpdate = true;
       geometry.attributes.bed.needsUpdate = true;
+      if (geometry.attributes.skirt) geometry.attributes.skirt.needsUpdate = true;
+      else geometry.setAttribute('skirt', new THREE.BufferAttribute(skirts, 1));
       geometry.attributes.prevY.needsUpdate = true;
       // Without a history there is nothing to walk from. A geometry that has
       // somehow not got the attribute renders correctly anyway: a missing one
@@ -1371,6 +1434,9 @@ export class Terrain {
     // ground reads as sea level too, and shading that as ocean turns a
     // continent into a sea for as long as its relief takes to arrive.
     node.material.uniforms.uMeasured.value = node.builtElevZoom >= 0 ? 1 : 0;
+    // How far this rebuild is about to walk, for the curtain that covers the
+    // walk. A little over, because the neighbour may be walking the other way.
+    node.material.uniforms.uWalk.value = startMorph ? walked * 1.1 : 0;
     // A tile with no history has nowhere to walk from and starts settled; one
     // that just gained relief walks. See settleHeights.
     node.material.uniforms.uMorph.value = startMorph ? 0 : 1;

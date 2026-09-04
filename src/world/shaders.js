@@ -99,6 +99,25 @@ const TERRAIN_VERT = /* glsl */ `
    */
   uniform float uMorph;
   /**
+   * How far this square is walking, and a curtain to cover it while it does.
+   *
+   * A rebuilt square is drawn at its old height and walks to the new one over a
+   * third of a second. For that third of a second it disagrees with every
+   * neighbour that is not walking with it, by however far it is about to move,
+   * and the gap between them is a crack you look straight through.
+   *
+   * Baking that depth into the skirt was tried and is worse than the crack: the
+   * walk lasts a third of a second and the geometry lasts until the next
+   * rebuild, so a square that moved a hundred metres wore a hundred-metre
+   * curtain for as long as it stood there. From above that is a wall of striped
+   * green standing out of the hillside.
+   *
+   * So the curtain is hung here, on the skirt ring only, and only while the
+   * walk is happening — full depth at the start, nothing by the end.
+   */
+  uniform float uWalk;
+  attribute float skirt;
+  /**
    * The canopy sheet, and how far a wood stands out of the ground.
    *
    * "On areas with big contrast like tan or orange and there is green slightly
@@ -186,6 +205,9 @@ const TERRAIN_VERT = /* glsl */ `
     // tiles ever cover — is pushed down as far as it ever was.
     float edgeFade = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
     float sink = uSink * smoothstep(0.0, 0.03, edgeFade);
+    // The curtain that covers the walk: skirt vertices only, and gone by the
+    // time the walk finishes.
+    sink += skirt * uWalk * (1.0 - uMorph);
     // A wood standing out of the ground it grows on.
     float canopy = 0.0;
     if (uHasWood > 0.5) {
@@ -674,6 +696,7 @@ export function createTerrainMaterial(shared) {
       // Whether this tile's relief was actually measured when it was built.
       // Set per node in Terrain.build; see the water block above.
       uMeasured: { value: 0 },
+      uWalk: { value: 0 },
       uSink: { value: 0 },
       uMorph: { value: 1 },
       uWoodMask: shared.uWoodMask,

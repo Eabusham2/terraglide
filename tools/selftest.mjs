@@ -8459,17 +8459,27 @@ console.log('\nthe sea is not black');
   // a clean sea: 208 stray dark pixels in a patch of the Strait of Gibraltar
   // before, 39 after.
   ok('the skirt is sized by the relief along the edge it has to cover',
-    /drops\[i\] = Math\.min\(Math\.max\(\(hi - lo\) \* 0\.6, needed\), Math\.max\(cap, needed\)\);/.test(terrain));
+    /drops\[i\] = clamp\(\(hi - lo\) \* 0\.6, 0, cap\);/.test(terrain));
   ok('so a level stretch of edge hangs no curtain at all',
     /Math\.max\(0, i - SKIRT_REACH\)/.test(terrain) && !/relief \* 0\.6 \+ 1/.test(terrain));
   // Relief is not the only crack an edge has to cover. A rebuilt square is
   // drawn at its old height and walks to the new one, so for that third of a
   // second it sits below any neighbour that has already arrived — by however
   // far it is about to move, which has nothing to do with how rough it is.
-  ok('and as deep as the height the rebuild is about to walk through',
+  // The walk is covered too, but not by making the geometry deeper. A walk
+  // lasts a third of a second and geometry lasts until the next rebuild, so a
+  // square that moved a hundred metres wore a hundred-metre curtain for as long
+  // as it stood there — a wall of striped green standing out of the hillside,
+  // which is worse than the crack it was hiding. It hangs in the shader, on the
+  // skirt ring only, and is gone by the time the walk finishes.
+  ok('and the walk is covered by a curtain that lasts as long as the walk',
     /const edgeWalk = \(vyOf, vxOf\)/.test(terrain)
     && /walk\[i\] = Math\.abs\(prevY\[vy \* verts \+ vx\] - heights\[gy \* grid \+ gx\]\);/.test(terrain)
-    && /const needed = walk\[i\] \* 1\.1;/.test(terrain));
+    && /uniforms\.uWalk\.value = startMorph \? walked \* 1\.1 : 0;/.test(terrain));
+  ok('hung on the skirt ring alone, and gone once the walk is done',
+    /sink \+= skirt \* uWalk \* \(1\.0 - uMorph\);/.test(shaders)
+    && /attribute float skirt;/.test(shaders)
+    && /geometry\.setAttribute\('skirt'/.test(terrain));
   ok('taken along the real edge row, not the skirt row that already hangs',
     /const skirtTop = edgeDrop\(\(i\) => i, \(\) => 1, \(i\) => i \+ 1\);/.test(terrain));
   ok('and each of the four edges is measured separately',
@@ -8706,7 +8716,7 @@ console.log('\nthe sea has no seams in it, from any height');
   ok('and it is the tapered sink that moves the geometry, not the flat one',
     /worldPos\.y -= sink \+ uCurvature/.test(shaders) && !/worldPos\.y -= uSink \+/.test(shaders));
   ok('so a level edge that did not move still hangs no curtain at all',
-    /drops\[i\] = Math\.min\(Math\.max\(\(hi - lo\) \* 0\.6, needed\), Math\.max\(cap, needed\)\);/.test(terrain));
+    /drops\[i\] = clamp\(\(hi - lo\) \* 0\.6, 0, cap\);/.test(terrain));
 }
 console.log('\nthe world map is not a black square');
 {
