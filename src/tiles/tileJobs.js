@@ -48,6 +48,10 @@ export async function runJob(msg, post) {
         // failed", because only the second is evidence about how deep the
         // provider goes. See reviewDepth.
         noImageryHere: err?.noImageryHere === true,
+        // A fault rather than an answer: the streamer must not read it as the
+        // provider saying how deep it goes, and must not write the square off.
+        transient: err?.transient === true,
+        status: Number.isFinite(err?.status) ? err.status : 0,
         error: String(err && err.message ? err.message : err),
       });
     }
@@ -56,11 +60,48 @@ export async function runJob(msg, post) {
   }
 }
 
+/**
+ * Why a request failed, in the only two categories that matter downstream.
+ *
+ * A server that answers "not found" is telling you something about the ground:
+ * it has no picture of this square. A connection that drops, a gateway that
+ * times out, a rate limit, a 500 — those tell you about the *moment*, and
+ * nothing whatever about coverage. The two were being treated alike, and the
+ * consequence was severe: six of them at one zoom writes the whole provider off
+ * at that depth for the session, so a flaky minute permanently blurred the
+ * world. Measured with a third of requests dropped, the drawn square count fell
+ * from 190 to 1 and stayed there.
+ */
+function classify(res) {
+  // The server chose to say no about this square.
+  if (res.status === 404 || res.status === 204 || res.status === 410) {
+    const err = new Error(`HTTP ${res.status}`);
+    err.status = res.status;
+    err.noImageryHere = true;
+    return err;
+  }
+  // The server or the network is unwell. Says nothing about the ground.
+  const err = new Error(`HTTP ${res.status}`);
+  err.status = res.status;
+  err.transient = res.status === 408 || res.status === 429 || res.status >= 500;
+  return err;
+}
+
 async function fetchBitmap(jobKey, url) {
   const controller = new AbortController();
   inflight.set(jobKey, controller);
-  const res = await fetch(url, { signal: controller.signal, mode: 'cors', credentials: 'omit' });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  let res;
+  try {
+    res = await fetch(url, { signal: controller.signal, mode: 'cors', credentials: 'omit' });
+  } catch (err) {
+    // fetch only rejects for transport faults; a refusal comes back as a
+    // response with a status on it.
+    if (err && err.name === 'AbortError') throw err;
+    const wrapped = new Error(String(err?.message ?? err));
+    wrapped.transient = true;
+    throw wrapped;
+  }
+  if (!res.ok) throw classify(res);
   // The bytes themselves come back, not just their count: a provider's
   // "nothing here" card is now identified by its content rather than guessed at
   // from how bland the picture looks. See isNoDataCard.
@@ -74,8 +115,16 @@ async function fetchBitmap(jobKey, url) {
 async function fetchJson(jobKey, url) {
   const controller = new AbortController();
   inflight.set(jobKey, controller);
-  const res = await fetch(url, { signal: controller.signal, mode: 'cors', credentials: 'omit' });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  let res;
+  try {
+    res = await fetch(url, { signal: controller.signal, mode: 'cors', credentials: 'omit' });
+  } catch (err) {
+    if (err && err.name === 'AbortError') throw err;
+    const wrapped = new Error(String(err?.message ?? err));
+    wrapped.transient = true;
+    throw wrapped;
+  }
+  if (!res.ok) throw classify(res);
   return res.json();
 }
 

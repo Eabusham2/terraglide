@@ -604,6 +604,39 @@ console.log('\nand then asks who is really deepest where you are standing');
   ok('winning by staying put is not a swap', told === 0);
 }
 
+console.log('\na dropped connection is not a provider telling you its depth');
+{
+  const jobs = readFileSync(new URL('../src/tiles/tileJobs.js', import.meta.url), 'utf8');
+  const streamer = readFileSync(new URL('../src/tiles/streamer.js', import.meta.url), 'utf8');
+
+  // reviewDepth writes a provider off at a zoom after six refusals there, and
+  // the write-off caps how deep the quadtree may split — which then stops
+  // anything deeper being asked, so nothing can arrive to lift it. Feeding
+  // transport faults into that means a flaky minute permanently blurs the
+  // world. Measured with a third of imagery requests dropped at random over the
+  // Black Forest, drawn squares fell 190, 147, 25, 16, 20, 13, 7, 1 and stayed
+  // there, with `loaded` frozen — the streamer had stopped asking for anything.
+  // With faults kept out of it: 200, 189, 25, 67, 61, 68, 81, 83, 102, and
+  // `loaded` still climbing, 11 to 120.
+  ok('a refusal about one square is told from a fault',
+    /function classify\(res\)/.test(jobs)
+    && /res\.status === 404 \|\| res\.status === 204 \|\| res\.status === 410/.test(jobs)
+    && /err\.transient = res\.status === 408 \|\| res\.status === 429 \|\| res\.status >= 500;/.test(jobs));
+  ok('and a fetch that never got a reply is a fault, not an answer',
+    /wrapped\.transient = true;/.test(jobs));
+  ok('the worker says which it was', /transient: err\?\.transient === true,/.test(jobs));
+  ok('and only a refusal is allowed to write a zoom off',
+    /if \(!msg\.noImageryHere && !msg\.transient\) this\.reviewDepth\(entry\.tile\.z\);/.test(streamer));
+  ok('nor does a fault land in the per-zoom tally reviewDepth counts',
+    /if \(!msg\.transient\) this\.zoomRecord\(entry\.tile\.z\)\.failed\+\+;/.test(streamer));
+  // Writing a square off takes the four below it and the sixteen below those,
+  // for as long as barren remembers. A blip must not do that either.
+  ok('and a fault does not write the ground off as having no picture',
+    /if \(!msg\.transient\) this\.barren\.set\(entry\.key, now\(\)\);/.test(streamer));
+  ok('a blip is retried sooner than a refusal',
+    /entry\.retryAt = performance\.now\(\) \+ \(msg\.transient \? 4000 : 20000\);/.test(streamer));
+}
+
 console.log('\nthe fog draws what you explored, not a pixel more');
 {
   // The mask used to grow every cell by half a pixel on each side so adjacent

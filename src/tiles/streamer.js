@@ -787,14 +787,25 @@ export class ImageryStreamer extends Emitter {
         entry.retryAt = 0;
       } else {
         entry.state = STATE_FAILED;
-        entry.retryAt = performance.now() + 20000;
+        entry.retryAt = performance.now() + (msg.transient ? 4000 : 20000);
         // Nobody has this square. Say so once, so the four below it and the
         // sixteen below those are never asked at all.
-        this.barren.set(entry.key, now());
+        //
+        // Only when the answer was actually about the square. A dropped
+        // connection or a 502 is the network having a moment, and writing the
+        // ground off for it takes the four squares below and the sixteen below
+        // those with it — so a bad minute erases a hillside and keeps it erased
+        // for the ninety seconds barren remembers. Those come back sooner too:
+        // twenty seconds is right for "this server has nothing here", and far
+        // too long to wait out a blip.
+        if (!msg.transient) this.barren.set(entry.key, now());
       }
       this.stats.failed++;
+      if (msg.transient) this.stats.transient = (this.stats.transient ?? 0) + 1;
       if (!msg.aborted) {
-        this.zoomRecord(entry.tile.z).failed++;
+        // The per-zoom tally is what reviewDepth counts, so a fault must not
+        // land in it either.
+        if (!msg.transient) this.zoomRecord(entry.tile.z).failed++;
         // A square with no picture in it is not evidence about how deep this
         // provider goes, and counting it as such is how a continent ended up
         // drawn at zoom 5.
@@ -808,9 +819,28 @@ export class ImageryStreamer extends Emitter {
         // those pulled the limit down to 5 and the latch then stopped anything
         // deeper being asked, so nothing could arrive to lift it again.
         //
-        // Transport failures still count: a run of 404s with the level above
-        // succeeding really is a provider saying how deep it goes.
-        if (!msg.noImageryHere) this.reviewDepth(entry.tile.z);
+        // A refusal is evidence about depth. A fault is not.
+        //
+        // This used to read "transport failures still count", and it is the
+        // single most expensive line in the file. reviewDepth writes a provider
+        // off at a zoom after six refusals there, the write-off caps how deep
+        // the quadtree splits, and the cap then stops anything deeper being
+        // asked — so nothing can arrive to lift it. Feeding dropped connections
+        // into that means a flaky minute permanently blurs the world, and then
+        // cascades, because the level above starts failing its own six.
+        //
+        // Measured with a third of imagery requests dropped at random over the
+        // Black Forest: drawn squares fell 190, 147, 25, 16, 20, 13, 7, 1 over
+        // eight samples and stayed at one — the entire view served by a single
+        // root tile stretched across it. That is "it blurs so much and so long
+        // even the minimap is higher res", and it is why the ground never
+        // recovered once it had gone soft.
+        //
+        // A 404 or a 204 is a server saying it has no picture of this square,
+        // and a run of those with the level above succeeding really is the
+        // provider saying how deep it goes. A timeout, a reset, a 429 or a 500
+        // says only that this moment went badly.
+        if (!msg.noImageryHere && !msg.transient) this.reviewDepth(entry.tile.z);
         this.consecutiveFailures++;
         // Every provider refusing is worth saying out loud. There is nothing
         // to fall back to any more — no generator — so the ground is coloured
