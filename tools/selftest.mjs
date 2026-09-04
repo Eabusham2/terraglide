@@ -9443,5 +9443,34 @@ console.log('\nEvery hand-written shader writes depth on the same scale');
   }
 }
 
+// ---------------------------------------------------------------------------
+console.log('\nevery module still parses');
+{
+  /*
+    The suite had fifteen hundred checks and none of them opened most of the
+    files.
+
+    A stray apostrophe inside a single-quoted help string in settingsPanel.js
+    took the whole suite green — every check that reads source reads it as
+    *text*, and text does not care whether it is valid JavaScript. What ships
+    from that is a blank screen, which is the one failure a player cannot work
+    around and the one this suite exists to stop.
+
+    tools/check.mjs already parses every module and resolves every relative
+    import against what the target actually exports. It just was not part of
+    the suite. It is now, so a file that cannot be loaded fails here rather
+    than on somebody's machine.
+  */
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const run = spawnSync(process.execPath,
+    [fileURLToPath(new URL('./check.mjs', import.meta.url))],
+    { encoding: 'utf8' });
+  const output = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim();
+  const summary = output.split('\n').pop() ?? '';
+  ok(`every module parses and every import resolves  (${summary})`,
+    run.status === 0, run.status === 0 ? '' : output.slice(0, 800));
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures > 0 ? 1 : 0);

@@ -75,6 +75,20 @@ export const DEFAULT_SETTINGS = {
    * wood mapped, because there is no wood there to shade.
    */
   woodlandRelief: true,
+  /**
+   * Snow above the seasonal snow line.
+   *
+   * The one seasonal thing the imagery cannot say for itself: a satellite
+   * mosaic is stitched from whatever was cloud-free, which is usually summer,
+   * so a January alp photographs green. It is a tint of at most 45% on ground
+   * that is not too steep, fading in over a kilometre of height, above a line
+   * computed from the place's own climate.
+   *
+   * It is also the only thing left on the generated list that touches the
+   * ground's colour, which is why it has a switch: turn it off and what you
+   * see is the photograph and the daylight, and nothing else.
+   */
+  seasonalSnow: true,
   streetLevel: true,
 
   /* graphics */

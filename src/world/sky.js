@@ -136,7 +136,11 @@ export class Sky {
       date: this.date,
       landFraction: this.landFraction ?? 0.6,
     });
-    shared.uSnowLine.value = snowLineM(this.climate.seaLevelAvgC);
+    // Off is a line nothing can reach: the shader's own smoothstep then never
+    // leaves zero, so there is no second code path to keep in step.
+    shared.uSnowLine.value = settings.get('seasonalSnow')
+      ? snowLineM(this.climate.seaLevelAvgC)
+      : 1e9;
   }
 
   setLandFraction(value) {

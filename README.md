@@ -386,10 +386,27 @@ One rule, applied in one order, everywhere:
 4. **Generated**, and only then. This list is nearly empty now, and that is
    the point of keeping it: building interiors were on it and were removed —
    an invented staircase inside a real address is exactly what this list exists
-   to prevent — and so was the whole-world generator. What is left is the
-   crown-scale noise inside a wood the survey really put there, which decides
-   how the light falls across a canopy and nothing else. It moves no ground and
-   places no object.
+   to prevent — and so was the whole-world generator. Two things are left, and
+   neither moves ground or places an object:
+
+   - **The daylight.** Sun position, sky colour, haze and cloud shadow are
+     computed from where you are and what time it is. The photograph was taken
+     in whatever light it was taken in; this is the light you are looking at
+     it in.
+   - **Snow above the seasonal snow line**, as a tint of at most 45% on ground
+     that is not too steep, fading in over a kilometre of height. The snow
+     line itself is computed from the place's climate rather than picked.
+     Satellite mosaics are stitched from whatever was cloud-free, which is
+     usually summer, so a January alp photographs green; this is the one
+     seasonal thing the imagery cannot say for itself. Turn the whole of it
+     off with **Settings → World → Seasonal snow** if you would rather see
+     only the picture.
+
+   The crown-scale noise that used to be on this list is gone. Woodland relief
+   now reads the crowns off the photograph itself — a high-pass of the picture
+   at crown scale — because a noise field cannot line up with actual trees
+   however well it is tuned, and not lining up is what made it read as a
+   pattern on the ground rather than a pattern of trees.
 
 What never happens is something invented standing in for something real: no
 tree where the picture says bare rock, no relief invented under real imagery,
