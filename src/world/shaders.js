@@ -162,6 +162,28 @@ const TERRAIN_VERT = /* glsl */ `
    * inside the skirt's twelve-metre floor.
    */
   const float CANOPY_HEIGHT_M = 25.0;
+  /**
+   * How much of the canopy sheet's outer edge the lift fades away across, as a
+   * fraction of its span.
+   *
+   * The sheet is a twelve-kilometre square laid around the camera and repainted
+   * whenever the camera has moved two kilometres. Inside it, ground the survey
+   * or the photograph calls woodland is lifted by up to twenty-five metres;
+   * outside it the test failed and the lift was exactly nought. That edge is a
+   * straight line six kilometres out, well inside the render distance on any
+   * tier above Low, and a wood lying across it was lifted on one side and not
+   * on the other — twenty-five metres of step, in a straight line, with the
+   * squares beyond it sitting low. And because the square is re-laid every two
+   * kilometres of travel, that line moves, so a ring of ground pops up or down
+   * by the same twenty-five metres as you fly.
+   *
+   * A twelfth of the span is a kilometre, which spreads the whole lift over a
+   * slope of one in forty — below what the coarsest square in view can miss
+   * between its vertices, and gentler than the ground it is laid on almost
+   * everywhere. Past the fade the lift is nought before the sheet ends, so the
+   * boundary has nothing to step from and moving it changes nothing.
+   */
+  const float CANOPY_EDGE_FADE = 0.0833;
   attribute float bed;
   attribute float prevY;
   varying vec2 vUv;
@@ -212,10 +234,11 @@ const TERRAIN_VERT = /* glsl */ `
     float canopy = 0.0;
     if (uHasWood > 0.5) {
       vec2 wuv = (worldPos.xz - uWoodOrigin) / uWoodSpan;
-      if (wuv.x > 0.0 && wuv.x < 1.0 && wuv.y > 0.0 && wuv.y < 1.0) {
-        vec3 sheet = texture2D(uWoodMask, wuv).rgb;
-        canopy = max(sheet.r, sheet.g);
-      }
+      vec2 fromEdge = min(wuv, 1.0 - wuv);
+      // Nought before the sheet ends rather than at it. See CANOPY_EDGE_FADE.
+      float inside = smoothstep(0.0, CANOPY_EDGE_FADE, min(fromEdge.x, fromEdge.y));
+      vec3 sheet = texture2D(uWoodMask, clamp(wuv, 0.0, 1.0)).rgb;
+      canopy = max(sheet.r, sheet.g) * inside;
     }
     worldPos.y += canopy * uWoodStrength * CANOPY_HEIGHT_M * smoothstep(45.0, 160.0, d);
     worldPos.y -= sink + uCurvature * (d * d) / (2.0 * uEarthRadius);
@@ -284,6 +307,29 @@ const TERRAIN_FRAG = /* glsl */ `
    * place in weather rather than at a texture.
    */
 ${CLOUD_NOISE_GLSL}
+
+  /**
+   * How much of the canopy sheet's outer edge the lift fades away across, as a
+   * fraction of its span.
+   *
+   * The sheet is a twelve-kilometre square laid around the camera and repainted
+   * whenever the camera has moved two kilometres. Inside it, ground the survey
+   * or the photograph calls woodland is lifted by up to twenty-five metres;
+   * outside it the test failed and the lift was exactly nought. That edge is a
+   * straight line six kilometres out, well inside the render distance on any
+   * tier above Low, and a wood lying across it was lifted on one side and not
+   * on the other — twenty-five metres of step, in a straight line, with the
+   * squares beyond it sitting low. And because the square is re-laid every two
+   * kilometres of travel, that line moves, so a ring of ground pops up or down
+   * by the same twenty-five metres as you fly.
+   *
+   * A twelfth of the span is a kilometre, which spreads the whole lift over a
+   * slope of one in forty — below what the coarsest square in view can miss
+   * between its vertices, and gentler than the ground it is laid on almost
+   * everywhere. Past the fade the lift is nought before the sheet ends, so the
+   * boundary has nothing to step from and moving it changes nothing.
+   */
+  const float CANOPY_EDGE_FADE = 0.0833;
 
   /** Half a crown, in metres. A spruce is six to ten across, an oak more. */
   const float CROWN_HALF_M = 4.5;
@@ -431,8 +477,10 @@ ${CLOUD_SHADOW_ONLY_GLSL}
     float wood = 0.0;
     if (uHasWood > 0.5) {
       vec2 wuv = (vWorld.xz - uWoodOrigin) / uWoodSpan;
-      if (wuv.x > 0.0 && wuv.x < 1.0 && wuv.y > 0.0 && wuv.y < 1.0) {
-        wood = texture2D(uWoodMask, wuv).r;
+      vec2 fromEdge = min(wuv, 1.0 - wuv);
+      float inside = smoothstep(0.0, CANOPY_EDGE_FADE, min(fromEdge.x, fromEdge.y));
+      if (inside > 0.0) {
+        wood = texture2D(uWoodMask, clamp(wuv, 0.0, 1.0)).r * inside;
         // Only where the ground is ground. A cliff face inside a forest
         // polygon is rock, and rock does not have crowns on it.
         wood *= flatness;

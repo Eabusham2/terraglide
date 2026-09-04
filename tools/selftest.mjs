@@ -6099,6 +6099,29 @@ console.log('\nA wood reads as a canopy');
   // pattern of trees" was describing.
   ok('and the crowns come off the photograph, not out of a noise field',
     !/canopyField/.test(shaders) && !/cloudNoise\(world/.test(shaders));
+  /*
+    And the sheet's own edge is not a cliff.
+
+    It is a twelve-kilometre square laid around the camera and re-laid every
+    two kilometres of travel. Inside it woodland was lifted by up to
+    twenty-five metres and outside it the test simply failed, so the lift was
+    nought — a straight line six kilometres out, well inside the render
+    distance on any tier above Low, with a wood lying across it raised on one
+    side and not the other. Twenty-five metres of step, and the squares beyond
+    it sitting low. Re-laying the square moved the line, so a ring of ground
+    popped up or down by the same amount as you flew.
+  */
+  ok('the canopy lift reaches nought before the sheet ends, not at it',
+    /const float CANOPY_EDGE_FADE = 0\.0833;/.test(shaders)
+    && /vec2 fromEdge = min\(wuv, 1\.0 - wuv\);/.test(shaders)
+    && /smoothstep\(0\.0, CANOPY_EDGE_FADE, min\(fromEdge\.x, fromEdge\.y\)\)/.test(shaders));
+  ok('and the hard in-or-out test that made that edge is gone',
+    !/wuv\.x > 0\.0 && wuv\.x < 1\.0/.test(shaders));
+  // Both halves fade together: a shading edge in the same place would be just
+  // as visible a line as a geometric one.
+  ok('the shading fades on the same margin as the lift',
+    (shaders.match(/smoothstep\(0\.0, CANOPY_EDGE_FADE,/g) || []).length === 2);
+
   ok('and does nothing at all where nothing is mapped',
     /float wood = 0\.0;/.test(shaders) && /if \(uHasWood > 0\.5\)/.test(shaders)
     && /uWoodMask: \{ value: BLACK_PIXEL \}/.test(shaders));
