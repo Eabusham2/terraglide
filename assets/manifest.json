@@ -3,15 +3,17 @@
   "rule": "Nothing generated may stand in for real map data. Everything left in here dresses the player, who has no real-world counterpart to fetch, so nothing invented is displacing anything measured.",
   "generatedWith": "Pixa (FLUX 2 Klein), prompted for seamless tileable material",
   "kit": {
-    "note": "The character's own gear — drawn in every mode, because no provider on Earth publishes a photograph of your jacket.",
+    "note": "The character's own gear \u2014 drawn in every mode, because no provider on Earth publishes a photograph of your jacket.",
     "jacket": "jacket.jpg",
     "trousers": "trousers.jpg",
     "wing": "wing.jpg",
     "rocket": "rocket.jpg"
   },
   "model": {
-    "note": "Generated character mesh, TRELLIS.2 via Hugging Face, then cut down: the baked ground plane removed, textures halved and re-encoded, normals and UVs quantised. 3.9 MB to 0.9 MB. Off by default — it has no skeleton, so it cannot animate.",
-    "player": "player.glb"
+    "note": "Generated character mesh, TRELLIS.2 via Hugging Face, then cut down: the baked ground plane removed, textures halved and re-encoded, normals and UVs quantised. 3.9 MB to 0.9 MB. Off by default \u2014 it has no skeleton, so it cannot animate.",
+    "player": "player.glb",
+    "rocket": "rocket.glb",
+    "rocketNote": "Generated firework, TRELLIS.2 from a reference image, then clustered onto a grid by tools/glb-optimise.py: 50,000 triangles to 6,494, 2.2 MB to 143 KB, metal factor dropped because paper is not a mirror. Off by default - photographed in the hand beside the built one, it is a dark smudge at the size it is actually seen, and the built one reads as a firework. Settings -> Player -> Scanned firework turns it on."
   },
-  "removed": "There used to be a scenery group here — foliage.jpg and rock.jpg — for the generated world. That world is gone: nothing is drawn from invented map data any more, so the two textures had nothing left to dress and were deleted rather than left sitting in the download."
+  "removed": "There used to be a scenery group here \u2014 foliage.jpg and rock.jpg \u2014 for the generated world. That world is gone: nothing is drawn from invented map data any more, so the two textures had nothing left to dress and were deleted rather than left sitting in the download."
 }

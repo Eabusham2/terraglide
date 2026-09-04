@@ -1,6 +1,20 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { clamp, damp, dampAngle, wrapAngle } from '../core/math.js';
 import { ASSET_BASE } from '../core/paths.js';
+
+/**
+ * The built firework's tube and cone together, in metres, and how far up it the
+ * fist closes.
+ *
+ * Named because the scanned mesh has to match them: it is dropped into the same
+ * pivot and has to stand the same height above the same grip, or the aim swings
+ * it round a point in mid-air. Taken from makeRocket, which builds a 0.14 tube
+ * at y = 0.04 with a 0.05 cone on top of it.
+ */
+const ROCKET_LEN = 0.19;
+const ROCKET_GRIP = 0.03;
+/** White, for lightening the slot colour before it tints a photograph. */
+const WHITE_TINT = new THREE.Color(0xffffff);
 import { litLikeTheWorld } from './effects.js';
 import { settings } from '../core/settings.js';
 import { ROCKET_COLOURS } from './player.js';
@@ -918,6 +932,89 @@ export class Avatar {
     }
   }
 
+  /**
+   * The scanned firework, in place of the built one.
+   *
+   * The rocket is the one object on the character you look at from a hand's
+   * breadth away — it is in your fist in first person, held up in front of the
+   * camera — and it was five boxes. A generated mesh is worth having for
+   * exactly that reason and for no other: it is a prop with no real-world
+   * counterpart to fetch, so nothing invented is displacing anything measured.
+   *
+   * It goes inside the pivot the built one lives in rather than replacing it,
+   * so every line that aims, holds and hides the rocket keeps working without
+   * knowing which of the two is showing. The nose material still takes the
+   * slot's colour; on the scanned one the whole mesh is tinted with it
+   * instead, because a photograph of red and white paper has no separate nose
+   * to recolour.
+   */
+  async loadRocketModel(base = ASSET_BASE) {
+    if (globalThis.__TERRAGLIDE_INLINE_WORKER__) return false;
+    if (!settings.get('detailedRocketModel')) return false;
+    if (this.rocketModel) return true;
+    try {
+      const inline = globalThis.__TERRAGLIDE_REQUIRE__;
+      const { GLTFLoader } = inline
+        ? inline('vendor/three/loaders/GLTFLoader.js')
+        : await import('../../vendor/three/loaders/GLTFLoader.js');
+      const gltf = await new Promise((resolve, reject) =>
+        new GLTFLoader().load(`${base}rocket.glb`, resolve, undefined, reject),
+      );
+      const mesh = gltf.scene;
+      // The built rocket stands along +Y above the group origin, and the origin
+      // is the grip — the point a fist closes around, a little below the middle
+      // of the tube — because aiming then turns the thing in the hand instead
+      // of swinging it round a point in mid-air. The scanned one was
+      // photographed standing up, so it needs the same convention and nothing
+      // else: every line that aims, holds and hides the rocket is untouched.
+      const box = new THREE.Box3().setFromObject(mesh);
+      const size = box.getSize(new THREE.Vector3());
+      const centre = box.getCenter(new THREE.Vector3());
+      const scale = ROCKET_LEN / Math.max(size.y, 1e-6);
+      mesh.scale.setScalar(scale);
+      mesh.position.set(
+        -centre.x * scale,
+        -box.min.y * scale - ROCKET_GRIP,
+        -centre.z * scale,
+      );
+      const held = new THREE.Group();
+      held.add(mesh);
+      this.rocketModel = held;
+      this.rocketTints = [];
+      mesh.traverse((child) => {
+        if (!child.isMesh) return;
+        child.material = child.material.clone();
+        child.material.metalness = 0;
+        child.material.roughness = 0.85;
+        this.rocketTints.push(child.material);
+      });
+      this.rocket.add(held);
+      this.handRocket?.add(held.clone(true));
+      this.applyRocketModel();
+      return true;
+    } catch (err) {
+      // Say so. A silent catch here is how "the player GLB never loads" stayed
+      // a mystery for a week: the asset is optional, so failing is allowed, but
+      // failing quietly means nobody can tell a missing file from a broken one.
+      console.warn('TerraGlide: scanned firework not loaded —', err?.message ?? err);
+      return false;
+    }
+  }
+
+  /** Show one rocket or the other, never both. */
+  applyRocketModel() {
+    const useModel = !!this.rocketModel && settings.get('detailedRocketModel');
+    for (const holder of [this.rocket, this.handRocket]) {
+      if (!holder) continue;
+      for (const child of holder.children) {
+        // The generated one is the only Group in there; the built one is meshes.
+        child.visible = child.isGroup ? useModel : !useModel;
+      }
+    }
+    // Force the tint to be re-applied on the next frame.
+    this.rocketColour = -1;
+  }
+
   /** Show whichever of the two bodies is wanted, and only that one. */
   applyModelMode() {
     const useModel = !!this.model && settings.get('detailedPlayerModel') && !this.firstPerson;
@@ -1192,7 +1289,14 @@ export class Avatar {
     const slot = player.selectedSlot ?? 0;
     if (slot !== this.rocketColour) {
       this.rocketColour = slot;
-      this.noseMat.color.set(ROCKET_COLOURS[clamp(slot, 0, ROCKET_COLOURS.length - 1)]);
+      const colour = ROCKET_COLOURS[clamp(slot, 0, ROCKET_COLOURS.length - 1)];
+      this.noseMat.color.set(colour);
+      // The scanned one has no separate nose, so the whole of it takes the
+      // slot's colour — lightly, so the paper still reads as paper.
+      for (const material of this.rocketTints ?? []) {
+        material.color.set(colour);
+        material.color.lerp(WHITE_TINT, 0.55);
+      }
     }
 
     const open = player.elytraDeployed ? Math.max(this.glideBlend, 0.6) : 0;

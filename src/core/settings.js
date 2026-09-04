@@ -89,6 +89,23 @@ export const DEFAULT_SETTINGS = {
    * see is the photograph and the daylight, and nothing else.
    */
   seasonalSnow: true,
+  /**
+   * The scanned firework in your hand, in place of the five boxes.
+   *
+   * The rocket is the one thing on the character you look at from close up, so
+   * it is the part of the kit worth a generated mesh if any of it is. It was
+   * generated — TRELLIS.2 from a reference image, clustered from 50,000
+   * triangles to 6,494 and from 2.2 MB to 143 KB — and then photographed in the
+   * hand beside the built one, which is the only test that decides it.
+   *
+   * It loses. At the size it is actually seen the built one is a tan tube with
+   * a white nose and reads as a firework; the scan is a dark smudge, because
+   * what it carries is a photograph of a rocket with its own studio lighting
+   * baked in, at a couple of hundred pixels, seen at a couple of dozen. So it
+   * ships, and it is off, and turning it on is one click for anyone who wants
+   * to see it. Off costs nothing: the asset is only fetched when this is on.
+   */
+  detailedRocketModel: false,
   streetLevel: true,
 
   /* graphics */

@@ -241,6 +241,7 @@ export class Game {
     this.rocketTrail = new RocketTrail(this.scene);
     this.avatar.loadTextures();
     this.avatar.loadModel();
+    this.avatar.loadRocketModel();
     // The held view model rides the camera, so it is hung off it rather than
     // off the scene root.
     this.avatar.attachTo(this.camera);
@@ -762,6 +763,7 @@ export class Game {
     }
     if (key === 'detailedPlayerModel') {
       this.avatar.loadModel().then(() => this.avatar.applyModelMode());
+      this.avatar.loadRocketModel().then(() => this.avatar.applyRocketModel());
     }
     if (key === 'resolutionScale' || key === 'graphics' || key === 'autoTier') this.resize();
     // The mesh grid is read from the preset, so a preset that changes changes

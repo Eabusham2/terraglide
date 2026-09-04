@@ -3,6 +3,11 @@ import struct, json, io, sys
 from PIL import Image
 
 src, dst, tex_size, quality = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
+# Optional fifth argument: cluster the mesh onto a grid this many cells across
+# its longest side before anything else. TRELLIS hands back fifty thousand
+# triangles for an object that is held in a fist and covers forty pixels, and
+# nothing else in here reduces triangle count at all.
+cluster = int(sys.argv[5]) if len(sys.argv) > 5 else 0
 
 raw = open(src, 'rb').read()
 off, J, BIN = 12, None, None
@@ -16,6 +21,16 @@ def view_bytes(i):
     bv = J['bufferViews'][i]
     s = bv.get('byteOffset', 0)
     return bytes(BIN[s:s + bv['byteLength']])
+
+COMP0 = {5120:1, 5121:1, 5122:2, 5123:2, 5125:4, 5126:4}
+NUM0 = {'SCALAR':1, 'VEC2':2, 'VEC3':3, 'VEC4':4}
+def read_acc0(i):
+    a = J['accessors'][i]
+    bv = J['bufferViews'][a['bufferView']]
+    start = bv.get('byteOffset', 0) + a.get('byteOffset', 0)
+    n = NUM0[a['type']]; fmt = {5123:'H', 5125:'I', 5126:'f'}[a['componentType']]
+    size = COMP0[a['componentType']] * n
+    return list(struct.unpack(f'<{a["count"]*n}{fmt}', bytes(BIN[start:start + a['count']*size]))), a
 
 # Rebuild the binary chunk from scratch, so nothing unreferenced survives.
 out = bytearray()
@@ -33,14 +48,112 @@ def add_view(data, **extra):
     new_views.append(v)
     return len(new_views) - 1
 
+# 0. Materials: paper is not a mirror.
+#
+# TRELLIS writes metallicFactor 1.0 with a metal-roughness texture on
+# everything it makes, which is right for its own renderer and wrong under a
+# hemisphere light and a sun: a fully metal surface has no diffuse colour at
+# all, so the object arrives as a dark blotch with the photograph barely
+# showing through. Nothing this generates is metal — a paper firework, a cloth
+# wing, a person — so the map goes and the factor goes with it.
+for mat in J.get('materials', []):
+    pbr = mat.setdefault('pbrMetallicRoughness', {})
+    pbr.pop('metallicRoughnessTexture', None)
+    pbr['metallicFactor'] = 0.0
+    pbr['roughnessFactor'] = 0.85
+
 # 1. Textures: PNG -> JPEG, downscaled.
-for im in J.get('images', []):
+used_images = set()
+for mat in J.get('materials', []):
+    for slot in (mat.get('pbrMetallicRoughness') or {}).values():
+        if isinstance(slot, dict) and 'index' in slot:
+            used_images.add(J['textures'][slot['index']].get('source'))
+for i, im in enumerate(list(J.get('images', []))):
+    if i not in used_images:
+        continue
     img = Image.open(io.BytesIO(view_bytes(im['bufferView']))).convert('RGB')
     img = img.resize((tex_size, tex_size), Image.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, 'JPEG', quality=quality, optimize=True)
     im['bufferView'] = add_view(buf.getvalue())
     im['mimeType'] = 'image/jpeg'
+
+# 1a. Decimate, by clustering vertices onto a grid.
+#
+# Quadric error metrics would keep silhouettes better and are a great deal more
+# code. Clustering is enough here because the things being shrunk are small
+# props seen at arm's length: a tube, a cone, a pair of shells. Snap every
+# vertex to a cell, average what lands in each, and drop the triangles that
+# collapse.
+#
+# The key carries a coarse quantised UV as well as the cell, so a seam — where
+# two vertices sit at the same place in space and opposite ends of the texture
+# — is not averaged into a smear across the middle of the picture. That is the
+# one artefact clustering reliably produces if you cluster on position alone.
+if cluster:
+    import math
+    for mesh in J['meshes']:
+        for prim in mesh['primitives']:
+            if 'indices' not in prim: continue
+            pos, pacc = read_acc0(prim['attributes']['POSITION'])
+            idx, iacc = read_acc0(prim['indices'])
+            uv = None
+            if 'TEXCOORD_0' in prim['attributes']:
+                uv, _ = read_acc0(prim['attributes']['TEXCOORD_0'])
+            lo = pacc['min']; hi = pacc['max']
+            longest = max(hi[i] - lo[i] for i in range(3)) or 1.0
+            cell = longest / cluster
+            count = pacc['count']
+            key_of = {}
+            rep = {}
+            for v in range(count):
+                cx = int((pos[v*3] - lo[0]) / cell)
+                cy = int((pos[v*3+1] - lo[1]) / cell)
+                cz = int((pos[v*3+2] - lo[2]) / cell)
+                ku = int(uv[v*2] * 6) if uv else 0
+                kv = int(uv[v*2+1] * 6) if uv else 0
+                k = (cx, cy, cz, ku, kv)
+                key_of[v] = k
+                rep.setdefault(k, []).append(v)
+            order = {k: i for i, k in enumerate(rep)}
+            keep = []
+            for t in range(0, len(idx), 3):
+                a, b, c = (order[key_of[idx[t+i]]] for i in range(3))
+                if a == b or b == c or a == c: continue
+                keep.extend((a, b, c))
+            # Average every attribute over the vertices that landed in a cell.
+            for name, ai in prim['attributes'].items():
+                vals, acc = read_acc0(ai)
+                n = NUM0[acc['type']]
+                packed = []
+                for k in rep:
+                    members = rep[k]
+                    for c in range(n):
+                        packed.append(sum(vals[v*n + c] for v in members) / len(members))
+                if name == 'NORMAL':
+                    for i in range(0, len(packed), 3):
+                        m = math.sqrt(sum(packed[i+j]**2 for j in range(3))) or 1.0
+                        for j in range(3): packed[i+j] /= m
+                data = struct.pack(f'<{len(packed)}f', *packed)
+                acc['componentType'] = 5126
+                acc['count'] = len(rep)
+                acc.pop('normalized', None)
+                if name == 'POSITION':
+                    acc['min'] = [min(packed[i::3]) for i in range(3)]
+                    acc['max'] = [max(packed[i::3]) for i in range(3)]
+                J['bufferViews'].append({'buffer':0, 'byteOffset':len(BIN), 'byteLength':len(data)})
+                acc['bufferView'] = len(J['bufferViews']) - 1
+                acc['byteOffset'] = 0
+                BIN.extend(data)
+            newidx = struct.pack(f'<{len(keep)}I', *keep)
+            J['bufferViews'].append({'buffer':0, 'byteOffset':len(BIN), 'byteLength':len(newidx)})
+            iacc['bufferView'] = len(J['bufferViews']) - 1
+            iacc['byteOffset'] = 0
+            iacc['componentType'] = 5125
+            iacc['count'] = len(keep)
+            BIN.extend(newidx)
+            print(f"  clustered {count} vertices to {len(rep)}, "
+                  f"{len(idx)//3} triangles to {len(keep)//3}")
 
 # 1b. Cut the baked ground plane.
 #
@@ -50,8 +163,6 @@ for im in J.get('images', []):
 # around. Drop every triangle lying flat in the bottom slice of the bounding
 # box; the only real geometry down there is the underside of the boots, which
 # is never visible.
-COMP0 = {5120:1, 5121:1, 5122:2, 5123:2, 5125:4, 5126:4}
-NUM0 = {'SCALAR':1, 'VEC2':2, 'VEC3':3, 'VEC4':4}
 def read_acc(i):
     a = J['accessors'][i]
     bv = J['bufferViews'][a['bufferView']]
