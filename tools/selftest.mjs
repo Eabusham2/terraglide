@@ -626,7 +626,19 @@ console.log('\na dropped connection is not a provider telling you its depth');
     /wrapped\.transient = true;/.test(jobs));
   ok('the worker says which it was', /transient: err\?\.transient === true,/.test(jobs));
   ok('and only a refusal is allowed to write a zoom off',
-    /if \(!msg\.noImageryHere && !msg\.transient\) this\.reviewDepth\(entry\.tile\.z\);/.test(streamer));
+    /if \(!msg\.transient\) this\.reviewDepth\(entry\.tile\);/.test(streamer));
+  // "No imagery here" is the only refusal a provider ever actually sends, and
+  // it was the one excluded, so the depth limit could never be set at all.
+  // Standing still for six minutes over Ecuador: zoom 18 loaded 46 and refused
+  // none, zoom 19 refused 151 and loaded none, zoom 20 refused 116 and loaded
+  // none, and depthLimit was still Infinity at the end.
+  ok('a card saying "no picture of this square" is evidence about depth',
+    !/if \(!msg\.noImageryHere/.test(streamer));
+  // And the verdict has to stop at the edge of the ground it was learned over.
+  ok('a depth learned over one place does not follow you to the next',
+    /const DEPTH_REGION_ZOOM = 10;/.test(streamer)
+    && /this\.depthRegion = depthRegionOf\(tile\);/.test(streamer)
+    && /if \(this\.depthRegion && depthRegionOf\(deepest\) !== this\.depthRegion\)/.test(streamer));
   ok('nor does a fault land in the per-zoom tally reviewDepth counts',
     /if \(!msg\.transient\) this\.zoomRecord\(entry\.tile\.z\)\.failed\+\+;/.test(streamer));
   // Writing a square off takes the four below it and the sixteen below those,
@@ -1446,19 +1458,20 @@ console.log('\na written-off depth can be un-written-off');
   // succeeding, which is the test reviewDepth applies.
   streamer.zoomRecord(21).loaded = 4;
   for (let i = 0; i < 6; i += 1) streamer.zoomRecord(22).failed += 1;
-  streamer.reviewDepth(22);
+  streamer.reviewDepth({ z: 22, x: 1, y: 1 });
   ok(`a provider that refuses a level is written off there  (${streamer.depthLimit})`,
     streamer.depthLimit === 21);
 
-  // But "this square has no picture in it" is not evidence about how deep the
-  // provider goes, and it was being counted as if it were.
+  // "This square has no picture in it" is the only answer a provider ever
+  // gives about its depth, and it was the one refusal excluded from the
+  // judgement — so the limit could never be set by anything.
   //
-  // reviewDepth's own reasoning says coverage is not a single depth — Esri
-  // serves 19 over a town and stops at 17 over a glacier a valley away — which
-  // is why `barren` exists as the per-square answer. Feeding the card refusals
-  // into the global limit as well pulls it down over any ground where the
-  // imagery genuinely ends, and the limit then stops anything deeper being
-  // asked, so nothing can arrive to lift it.
+  // The worry that excluded it was real: coverage is not a single depth, Esri
+  // serves 19 over a town and stops at 17 over a glacier a valley away, and a
+  // cap learned over the glacier used to follow you to the town for the rest
+  // of the session. That is answered where it belongs, by remembering *where*
+  // the cap was learned and dropping it at the edge of that ground, rather
+  // than by throwing away the evidence.
   {
     const s2 = new ImageryStreamer({ postMessage() {}, addEventListener() {} },
       { capabilities: { getMaxAnisotropy: () => 1 } });
@@ -1472,10 +1485,31 @@ console.log('\na written-off depth can be un-written-off');
       s2.onWorkerMessage({ channel: 'imagery', id: 1, ok: false, noImageryHere, error: 'x' });
     };
     for (let i = 0; i < 8; i += 1) fail(14, true);
-    ok(`eight squares with no picture do not cap the provider  (${s2.depthLimit})`,
-      s2.depthLimit === Infinity);
-    for (let i = 0; i < 8; i += 1) fail(14, false);
-    ok(`but eight refused requests do  (${s2.depthLimit})`, s2.depthLimit === 13);
+    ok(`eight squares with no picture cap the provider there  (${s2.depthLimit})`,
+      s2.depthLimit === 13);
+    ok('and the cap remembers the ground it was learned over',
+      s2.depthRegion === '0/0');
+    // Forty kilometres away is not that ground. The next frame that asks for a
+    // tile there drops the cap rather than carrying it along.
+    s2._deepestAsked = { z: 14, x: 9000, y: 9000 };
+    s2.probeDeeper();
+    ok(`a cap learned elsewhere does not apply here  (${s2.depthLimit})`,
+      s2.depthLimit === Infinity && s2.depthRegion === null);
+    // A fault is still not evidence: dropped connections say nothing about
+    // what a provider has.
+    const s2b = new ImageryStreamer({ postMessage() {}, addEventListener() {} },
+      { capabilities: { getMaxAnisotropy: () => 1 } });
+    s2b.source = { maxZoom: 23, ready: true, urlFor: () => 'x' };
+    s2b.standbys = [];
+    s2b.zoomRecord(13).loaded = 4;
+    for (let i = 0; i < 8; i += 1) {
+      const entry = { key: `14/1/1`, tile: { z: 14, x: 1, y: 1 }, state: 1, attempt: 99 };
+      s2b.jobs.set(1, entry);
+      s2b.active = 1;
+      s2b.onWorkerMessage({ channel: 'imagery', id: 1, ok: false, transient: true, error: 'x' });
+    }
+    ok(`eight dropped connections cap nothing  (${s2b.depthLimit})`,
+      s2b.depthLimit === Infinity);
   }
 
   // Nor should the quadtree keep splitting into ground nobody has imaged.
@@ -1612,7 +1646,7 @@ console.log('\na written-off depth can be un-written-off');
     record.loaded += 1;
     record.failedAtLoad = record.failed;
   }
-  streamer.reviewDepth(22);
+  streamer.reviewDepth({ z: 22, x: 1, y: 1 });
   ok(`and a tile that lands puts the depth back  (${streamer.depthLimit})`,
     !Number.isFinite(streamer.depthLimit));
 }
@@ -3411,7 +3445,7 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
   ok('a square nobody has flown is written off rather than re-asked',
     /this\.barren\.set\(entry\.key, now\(\)\)/.test(streamer));
   ok('and a level a whole region lacks pulls the depth back',
-    /reviewDepth\(z\)/.test(streamer));
+    /reviewDepth\(tile\) \{/.test(streamer));
 }
 
 // ---------------------------------------------------------------------------
@@ -6506,10 +6540,10 @@ console.log('\nA provider only gets asked as deep as it answers');
     s.source = { maxZoom, synthetic: false, urlFor: () => 'x', ready: true };
     return s;
   };
-  const fail = (s, z, n) => {
+  const fail = (s, z, n, x = 1, y = 1) => {
     for (let i = 0; i < n; i++) {
       s.zoomRecord(z).failed++;
-      s.reviewDepth(z);
+      s.reviewDepth({ z, x, y });
     }
   };
 
@@ -6537,7 +6571,7 @@ console.log('\nA provider only gets asked as deep as it answers');
     const record = s.zoomRecord(17);
     record.loaded += 1;
     record.failedAtLoad = record.failed;
-    s.reviewDepth(17);
+    s.reviewDepth({ z: 17, x: 1, y: 1 });
     ok('and one tile arriving puts the level back', s.maxUsefulZoom === 19, `z${s.maxUsefulZoom}`);
   }
   {
@@ -6554,7 +6588,7 @@ console.log('\nA provider only gets asked as deep as it answers');
     record.loaded = 1;              // it worked, once, somewhere else
     record.failedAtLoad = record.failed;
     fail(s, 17, 8);                 // and here it does not work at all
-    s.reviewDepth(17);
+    s.reviewDepth({ z: 17, x: 1, y: 1 });
     ok('a level that worked an hour ago does not vouch for the ground here',
       s.maxUsefulZoom === 16, `z${s.maxUsefulZoom}`);
   }

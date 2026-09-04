@@ -49,6 +49,31 @@ const NO_DEEPER_FROM_ZOOM = 6;
 const DEPTH_PROBE_MS = 30000;
 
 /**
+ * How wide a piece of ground one answer about depth is allowed to speak for.
+ *
+ * `reviewDepth` writes a provider off at a zoom, and that verdict is one
+ * number for the whole provider — which its own comment says is wrong, because
+ * Esri serves zoom 19 over a town and stops at 17 over a glacier a valley
+ * away. Learning the glacier's answer and then applying it to the town is how
+ * a cap set once made everywhere blurry for the rest of the session, with only
+ * a probe every half minute able to argue.
+ *
+ * So the verdict is remembered along with where it was learned, and it stops
+ * applying the moment the ground being asked for is somewhere else. Zoom ten
+ * is about forty kilometres across at the equator, which is the scale imagery
+ * coverage actually changes at — a valley over, not a continent over.
+ */
+const DEPTH_REGION_ZOOM = 10;
+
+/** Which forty-kilometre square a tile falls in, as a key. */
+function depthRegionOf(tile) {
+  const shift = tile.z - DEPTH_REGION_ZOOM;
+  const x = shift >= 0 ? tile.x >> shift : tile.x << -shift;
+  const y = shift >= 0 ? tile.y >> shift : tile.y << -shift;
+  return `${x}/${y}`;
+}
+
+/**
  * How long "nobody has a photograph of this" is believed for.
  *
  * Ninety seconds. Ground nobody has imaged stays unimaged, so re-asking costs
@@ -121,6 +146,8 @@ export class ImageryStreamer extends Emitter {
      */
     this.byZoom = new Map();
     this.depthLimit = Infinity;
+    /** The forty-kilometre square `depthLimit` was learned over. */
+    this.depthRegion = null;
     /**
      * Squares every provider has said it has no photograph of.
      *
@@ -339,6 +366,7 @@ export class ImageryStreamer extends Emitter {
     this.degraded = false;
     this.byZoom.clear();
     this.depthLimit = Infinity;
+    this.depthRegion = null;
   }
 
   /** The tally for one zoom level, created on demand. */
@@ -367,7 +395,8 @@ export class ImageryStreamer extends Emitter {
    * Europe, and lowering the zoom would not help with that. One tile arriving
    * at a written-off level puts it back.
    */
-  reviewDepth(z) {
+  reviewDepth(tile) {
+    const z = tile.z;
     const here = this.zoomRecord(z);
     /*
       Judged on the run of refusals since this level last served something, not
@@ -398,6 +427,10 @@ export class ImageryStreamer extends Emitter {
     if (!above || above.loaded === 0) return;
     if (z - 1 < this.depthLimit) {
       this.depthLimit = z - 1;
+      // Where this was learned. `probeDeeper` throws it away again as soon as
+      // the ground being asked for is a different forty-kilometre square, so
+      // the glacier's answer never follows you to the next town.
+      this.depthRegion = depthRegionOf(tile);
       this.emit('depth', { zoom: this.depthLimit });
     }
   }
@@ -430,7 +463,15 @@ export class ImageryStreamer extends Emitter {
   probeDeeper() {
     if (!Number.isFinite(this.depthLimit)) return;
     const deepest = this._deepestAsked;
-    if (!deepest || deepest.z !== this.depthLimit) return;
+    if (!deepest) return;
+    // A limit learned over there says nothing about here.
+    if (this.depthRegion && depthRegionOf(deepest) !== this.depthRegion) {
+      this.depthLimit = Infinity;
+      this.depthRegion = null;
+      this.emit('depth', { zoom: this.depthLimit });
+      return;
+    }
+    if (deepest.z !== this.depthLimit) return;
     const moment = now();
     if (moment - (this._probedAt ?? -Infinity) < DEPTH_PROBE_MS) return;
     this._probedAt = moment;
@@ -840,7 +881,32 @@ export class ImageryStreamer extends Emitter {
         // and a run of those with the level above succeeding really is the
         // provider saying how deep it goes. A timeout, a reset, a 429 or a 500
         // says only that this moment went badly.
-        if (!msg.noImageryHere && !msg.transient) this.reviewDepth(entry.tile.z);
+        //
+        // The line under this paragraph disagreed with it. It read
+        // `!msg.noImageryHere && !msg.transient`, which throws away the only
+        // evidence a provider ever gives about its depth: "no imagery here" is
+        // how a server says it has no picture, and it was the one refusal
+        // excluded. Nothing else arrives. So `depthLimit` stayed at Infinity
+        // for ever and the ground never stopped asking.
+        //
+        // Measured standing still for six minutes over Ecuador at 0.10N
+        // 79.01W, where Esri serves zoom 18 and nothing below it: zoom 18
+        // loaded 46 tiles and refused none, zoom 19 refused 151 and loaded
+        // none, zoom 20 refused 116 and loaded none. Two hundred and
+        // sixty-seven requests — forty-five per cent of everything asked for —
+        // spent on tiles that do not exist, while the squares under the
+        // camera, split to a depth no photograph covers, drew a photograph two
+        // levels up stretched sixteen times across them. That is the blurred
+        // near ground, and the flicker in and out of it as those squares split
+        // and merged: the near squares' median stretch went 0, 2, 0, 2, 0
+        // across the samples while the horizon stayed sharp.
+        //
+        // What keeps this from becoming the old collapse: transport faults are
+        // still excluded above, a level is only written off after six refusals
+        // *since it last served something* with the level above serving, and
+        // `probeDeeper` asks one tile below the limit every half minute, so a
+        // limit set over a glacier lifts again over the next town.
+        if (!msg.transient) this.reviewDepth(entry.tile);
         this.consecutiveFailures++;
         // Every provider refusing is worth saying out loud. There is nothing
         // to fall back to any more — no generator — so the ground is coloured
