@@ -91,6 +91,21 @@ const NEAR_GEOMETRY_M = 64;
 
 /** How far the ground has to move under a square before it is rebuilt. */
 const MOVED_MIN_M = 0.5;
+/**
+ * How often a square is asked whether its ground has moved, in milliseconds.
+ *
+ * Any elevation tile landing anywhere bumps the version, and while you are
+ * flying that is several a second, so the question was being asked of every
+ * square every frame. Measured in the browser, `heightAt` costs 357 nanoseconds
+ * and three hundred squares were live: a fifth of a millisecond a frame at five
+ * samples each, and four times that at the sample count the edges actually
+ * need.
+ *
+ * A quarter of a second late is not late. A square that has gone stale is
+ * rebuilt and then walks to its new height over a third of a second anyway, so
+ * the delay is inside the animation that was always going to happen.
+ */
+const MOVED_CHECK_MS = 250;
 
 /**
  * How far over the tile cap the walk may go before it gives up and leaves a
@@ -1424,13 +1439,16 @@ export class Terrain {
     node.mesh.updateMatrixWorld(true);
     node.size = size;
     node.material.uniforms.uTileSpan.value = size;
-    // The five points invalidateStale re-samples, as they were when this mesh
-    // was made. See groundMoved.
-    node.builtHeights = [
-      this.heightAt(x0, z0), this.heightAt(x0 + size, z0),
-      this.heightAt(x0, z0 + size), this.heightAt(x0 + size, z0 + size),
-      this.heightAt(x0 + size / 2, z0 + size / 2),
-    ];
+    // The points invalidateStale re-samples, as they were when this mesh was
+    // made. See movedProbes and groundMoved.
+    {
+      const probes = this.movedProbes(x0, z0, size);
+      const built = new Float64Array(probes.length / 2);
+      for (let i = 0; i < built.length; i++) {
+        built[i] = this.heightAt(probes[i * 2], probes[i * 2 + 1]);
+      }
+      node.builtHeights = built;
+    }
     node.geometry = geometry;
     node.grid = grid;
     node.tile = tile;
@@ -1589,6 +1607,7 @@ export class Terrain {
    */
   invalidateStale(camX, camZ, maxPerFrame = 400) {
     const version = this.elevation.version ?? 0;
+    const moment = typeof performance === 'undefined' ? Date.now() : performance.now();
     const reach = this.keepDistance ?? this.renderDistance;
     let marked = 0;
     for (const node of this.nodes.values()) {
@@ -1634,6 +1653,10 @@ export class Terrain {
       // any of them has moved. Five samples against a rebuild is cheap, and it
       // marks only squares whose surface really has changed, which is what the
       // zoom test was trying to approximate.
+      // Asked of each square four times a second rather than sixty. See
+      // MOVED_CHECK_MS.
+      if (moment - (node.movedCheckedAt ?? -Infinity) < MOVED_CHECK_MS) continue;
+      node.movedCheckedAt = moment;
       const deeper = this.elevationZoomFor(node.mesh.position.x, node.mesh.position.z, size)
         > node.builtElevZoom;
       if (!deeper && !this.groundMoved(node, size)) continue;
@@ -1643,21 +1666,51 @@ export class Terrain {
   }
 
   /**
+   * Where to ask whether a square's ground has moved: x, z, x, z, flat.
+   *
+   * The corners and the middle were the whole set, and they miss the case this
+   * check exists for. Two squares disagree *along the edge they share*, because
+   * that is where `sampleFrom` fades a fine elevation value into the coarse one
+   * while the finer neighbour is missing — and a corner is shared with three
+   * other squares, so it is the least likely point on the square to be the one
+   * that moved. Measured over the Tibetan plateau with the corners-and-middle
+   * set: two zoom-14 squares standing 103.5 metres apart with neither marked
+   * dirty, because two kilometres of edge had moved between five samples that
+   * had not.
+   *
+   * So the edges are walked as well, at a spacing that follows the square: one
+   * inner point per edge on anything under half a kilometre, four on the
+   * biggest, which is a sample every four hundred metres at worst.
+   */
+  movedProbes(x, z, size, out = []) {
+    out.length = 0;
+    const perEdge = clamp(Math.round(size / 256), 1, 4);
+    out.push(x, z, x + size, z, x, z + size, x + size, z + size,
+      x + size / 2, z + size / 2);
+    for (let i = 1; i <= perEdge; i++) {
+      const t = i / (perEdge + 1);
+      const a = x + size * t;
+      const b = z + size * t;
+      out.push(a, z, a, z + size, x, b, x + size, b);
+    }
+    return out;
+  }
+
+  /**
    * Has the ground under this square actually moved since it was built?
    *
-   * Five points — the four corners and the middle — re-sampled from the height
-   * field and compared with what the mesh was made from. Half a metre is well
-   * under anything you could see and well over the noise of a bilinear sample.
+   * The points `movedProbes` names, re-sampled from the height field and
+   * compared with what the mesh was made from. Half a metre is well under
+   * anything you could see and well over the noise of a bilinear sample.
    */
   groundMoved(node, size) {
     const built = node.builtHeights;
     if (!built) return false;
-    const x = node.mesh.position.x;
-    const z = node.mesh.position.z;
-    const points = [[x, z], [x + size, z], [x, z + size], [x + size, z + size],
-      [x + size / 2, z + size / 2]];
-    for (let i = 0; i < points.length; i++) {
-      const now = this.heightAt(points[i][0], points[i][1]);
+    const points = this.movedProbes(node.mesh.position.x, node.mesh.position.z,
+      size, this._probeScratch ??= []);
+    if (points.length !== built.length * 2) return false;
+    for (let i = 0; i < built.length; i++) {
+      const now = this.heightAt(points[i * 2], points[i * 2 + 1]);
       if (!Number.isFinite(now)) continue;
       if (Math.abs(now - built[i]) > MOVED_MIN_M) return true;
     }

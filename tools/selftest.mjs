@@ -6441,7 +6441,47 @@ console.log('\nA tile that is culled is still a tile that needs rebuilding');
   ok('and it asks the ground whether it moved, not just the bookkeeping',
     /if \(!deeper && !this\.groundMoved\(node, size\)\) continue;/.test(terrain)
     && /groundMoved\(node, size\) \{/.test(terrain)
-    && /node\.builtHeights = \[/.test(terrain));
+    && /node\.builtHeights = built;/.test(terrain));
+  /*
+    And it asks along the edges, which is where two squares disagree.
+
+    The corners and the middle were the whole set. A corner is shared with three
+    other squares and is the least likely point to be the one that moved, and
+    the fade that causes this runs along an edge. Measured over the Tibetan
+    plateau at 31.11N 82.56E: two zoom-14 squares standing 103.5 metres apart
+    with neither marked dirty, because two kilometres of edge had moved between
+    five samples that had not.
+  */
+  ok('and it asks along the edges, not only at the corners',
+    /movedProbes\(x, z, size, out = \[\]\) \{/.test(terrain)
+    && /const perEdge = clamp\(Math\.round\(size \/ 256\), 1, 4\);/.test(terrain));
+  {
+    const { Terrain } = await import('../src/world/terrain.js');
+    const probes = Terrain.prototype.movedProbes.call(null, 0, 0, 2048);
+    const points = [];
+    for (let i = 0; i < probes.length; i += 2) points.push([probes[i], probes[i + 1]]);
+    const onEdge = points.filter(([x, z]) =>
+      (x === 0 || x === 2048 || z === 0 || z === 2048)
+      && !((x === 0 || x === 2048) && (z === 0 || z === 2048)));
+    ok(`a two-kilometre square is sampled along its edges  (${onEdge.length} points)`,
+      onEdge.length === 16);
+    const gaps = onEdge.filter(([x, z]) => z === 0).map(([x]) => x).sort((a, b) => a - b);
+    const widest = Math.max(2048 - gaps[gaps.length - 1], gaps[0],
+      ...gaps.slice(1).map((v, i) => v - gaps[i]));
+    ok(`with no more than four hundred metres between samples  (${widest} m)`,
+      widest <= 420);
+    const small = Terrain.prototype.movedProbes.call(null, 0, 0, 128);
+    ok(`and a small square is not made expensive  (${small.length / 2} points)`,
+      small.length / 2 === 9);
+  }
+  // Sixty times a second over three hundred squares is a fifth of a millisecond
+  // a frame at five samples each and four times that at the count the edges
+  // need. A square that has gone stale walks to its new height over a third of
+  // a second anyway, so a quarter of a second late is inside that animation.
+  ok('and asks four times a second rather than sixty',
+    /const MOVED_CHECK_MS = 250;/.test(terrain)
+    && /if \(moment - \(node\.movedCheckedAt \?\? -Infinity\) < MOVED_CHECK_MS\) continue;/
+      .test(terrain));
   ok('it still skips nodes that are already current',
     /node\.builtVersion === version \|\| !node\.mesh \|\| node\.dirty\) continue/.test(terrain));
   // Stamping a node with the current version means "this is up to date", and
