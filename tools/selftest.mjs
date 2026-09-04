@@ -5990,6 +5990,26 @@ console.log('\nA wood reads as a canopy');
     && /uWoodMask: \{ value: BLACK_PIXEL \}/.test(shaders));
   ok('crowns are shaded, not stood up \u2014 the ground does not move',
     !/uWood[\s\S]{0,400}position\.y/.test(shaders));
+  /*
+    And shaded hard enough to read as trees rather than as a tint.
+
+    Rendered over the eucalypt forest at 32.57S 152.19E, from ninety metres up,
+    measuring the crown-scale contrast of the green pixels — the mean step in
+    green between neighbouring samples:
+
+      relief off                 15.38 levels a pixel
+      a crown four metres proud,
+        contrast added at 0.55   16.17   (+0.79)
+      eight metres, in full      18.05   (+2.67)
+
+    Three and a half times as much crown, and the clearing in the middle of the
+    wood keeps its shape — at twice that again the canopy turns to speckle and
+    the clearing's edge goes with it.
+  */
+  ok('a crown stands as far above the gap as most of a tree',
+    /const float CROWN_HEIGHT_M = 8\.0;/.test(shaders));
+  ok('and the photograph\u2019s own crown contrast is added again in full',
+    /const float CROWN_DEPTH = 1\.0;/.test(shaders));
   ok('the scanned world is left alone, and so is Overpass',
     /this\.woodland\.enabled = !photoreal && settings\.get\('woodlandRelief'\)/.test(wiring));
   ok('and it can be turned off', /woodlandRelief: true/.test(

@@ -287,10 +287,29 @@ ${CLOUD_NOISE_GLSL}
 
   /** Half a crown, in metres. A spruce is six to ten across, an oak more. */
   const float CROWN_HALF_M = 4.5;
-  /** How far a crown stands above the gap beside it. */
-  const float CROWN_HEIGHT_M = 4.0;
-  /** How much of the photograph's own crown contrast to add again on top. */
-  const float CROWN_DEPTH = 0.55;
+  /**
+   * How far a crown stands above the gap beside it.
+   *
+   * Four metres was the drop from a crown's own top to its own shoulder, and
+   * that is not the figure this slope wants. What separates a crown from the
+   * gap beside it is most of the tree: a closed canopy of anything mature is a
+   * field of eight to fifteen metre humps with the forest floor between them,
+   * and the sheet above already carries twenty-five for the canopy as a whole.
+   * Eight is the shallow end of that, and it is what makes the sunward side of
+   * a crown read as a lit face rather than a tint.
+   */
+  const float CROWN_HEIGHT_M = 8.0;
+  /**
+   * How much of the photograph's own crown contrast to add again on top.
+   *
+   * In full, not half. The photograph is taken looking straight down, so the
+   * light and shade in it is what the crowns do to a nadir view; standing them
+   * up adds what they do to an oblique one, and the two are not the same
+   * shading applied twice. At just over half the woodland came out as a green
+   * wash with a texture in it — measured against the relief switched off, 85%
+   * of green pixels moved but the mean move was 12 of 255, which is a tint.
+   */
+  const float CROWN_DEPTH = 1.0;
 
   /**
    * Crown-scale relief for a wood: where the crowns are and which way they
