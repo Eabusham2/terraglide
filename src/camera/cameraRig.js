@@ -63,6 +63,24 @@ const ROLL_RATE = 3.4;
 const ROLL_RECOVER = 1.6;
 /** Frequency of the rocket shove, in hertz. Low enough to read as a push. */
 const SHAKE_HZ = 7;
+/**
+ * The shortest gap between two shoves that still reads as two shoves.
+ *
+ * A firework lit is a shove; a key held down is a burn. They were the same
+ * thing here — every ignition added to a shared amplitude that decays at rate
+ * six, so pressing five times a second summed faster than it fell and parked
+ * the camera at its ceiling. Measured at five presses a second with Rocket V:
+ * the amplitude settled at 0.60, the cap, and stayed there for as long as the
+ * key was going, which is a permanent seven-hertz wobble of fifteen
+ * centimetres. That is the jitter, and Minecraft has no camera shake on a
+ * firework at all.
+ *
+ * So a shove lands, and the ignitions inside the next half second are the same
+ * burn rather than four more shoves. Presses further apart than this are
+ * untouched: the amplitude has decayed to a twentieth by then, so summing and
+ * taking the larger are the same number.
+ */
+const SHAKE_REFRACTORY_S = 0.45;
 
 export class CameraRig {
   constructor(camera) {
@@ -76,6 +94,8 @@ export class CameraRig {
     this._reach = NaN;
     this.shake = 0;
     this.shakeTime = 0;
+    /** Seconds since the last shove landed. See kick. */
+    this.sinceKick = Infinity;
     /** Damped ground clamp for the chase camera. */
     this._floor = NaN;
     this.freecam = {
@@ -334,6 +354,7 @@ export class CameraRig {
     // camera is also chasing a lerp target that the shake keeps moving. It is
     // now a smooth decaying oscillation: continuous frame to frame, so it
     // reads as a shove rather than a glitch.
+    this.sinceKick += dt;
     if (this.shake > 0.001) {
       this.shakeTime += dt;
       // The chase camera is already easing toward a moving target, so a shove
@@ -349,6 +370,13 @@ export class CameraRig {
   }
 
   kick(amount) {
-    this.shake = Math.min(0.6, this.shake + amount);
+    // One shove per ignition, and a held key is one burn rather than a string
+    // of them. See SHAKE_REFRACTORY_S.
+    if (this.sinceKick < SHAKE_REFRACTORY_S) return;
+    this.sinceKick = 0;
+    // The larger of the two rather than their sum: past the refractory gap the
+    // old shove has decayed to a twentieth, so this is the same number for
+    // presses a person makes, and it cannot accumulate for ones they do not.
+    this.shake = Math.min(0.6, Math.max(this.shake, amount));
   }
 }

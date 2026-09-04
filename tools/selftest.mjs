@@ -3920,6 +3920,53 @@ console.log('\nThe view reacts while the rocket is still pushing');
   ok('the view opens on a different rate from the one it closes on',
     /opening \? 14 : 4/.test(rig));
 
+  /*
+    A firework lit is a shove; a key held down is a burn.
+
+    Every ignition used to sum into one decaying amplitude, and above about two
+    presses a second the sum outran the decay and parked the camera at its
+    ceiling — a seven-hertz wobble that lasts as long as the key does, which is
+    the jitter. Minecraft has no camera shake on a firework at all.
+  */
+  {
+    const { CameraRig } = await import('../src/camera/cameraRig.js');
+    const decay = (from, dt) => from * Math.exp(-6 * dt);
+    const sustained = (perSecond, kick) => {
+      let shake = 0;
+      const rig2 = Object.create(CameraRig.prototype);
+      rig2.shake = 0;
+      rig2.sinceKick = Infinity;
+      const dt = 1 / 60;
+      let next = 0;
+      let peak = 0;
+      for (let t = 0; t < 4; t += dt) {
+        if (t >= next) {
+          if (kick) rig2.kick(0.2); else shake = Math.min(0.6, shake + 0.2);
+          next = t + 1 / perSecond;
+        }
+        rig2.sinceKick += dt;
+        rig2.shake = decay(rig2.shake, dt);
+        shake = decay(shake, dt);
+        if (t > 3) peak = Math.max(peak, kick ? rig2.shake : shake);
+      }
+      return peak;
+    };
+    const oneOld = sustained(1, false);
+    const oneNew = sustained(1, true);
+    ok(`one press a second is untouched  (${oneOld.toFixed(3)} then ${oneNew.toFixed(3)})`,
+      Math.abs(oneOld - oneNew) < 0.002);
+    const heldOld = sustained(20, false);
+    const heldNew = sustained(20, true);
+    ok(`a held key used to park the camera at its ceiling  (${heldOld.toFixed(2)} of 0.6)`,
+      heldOld > 0.5);
+    ok(`and now shoves once and settles  (${heldNew.toFixed(2)})`,
+      heldNew < oneNew * 1.05);
+    ok('the gap that separates a shove from a burn is named',
+      /const SHAKE_REFRACTORY_S = 0\.45;/.test(rig)
+      && /if \(this\.sinceKick < SHAKE_REFRACTORY_S\) return;/.test(rig)
+      && /Math\.min\(0\.6, Math\.max\(this\.shake, amount\)\)/.test(rig));
+  }
+
   // The damp curve, on the two rates, against that three-tick window.
   const damp = (from, to, lambda, dt) => to + (from - to) * Math.exp(-lambda * dt);
   const reached = (rate, seconds) => {
