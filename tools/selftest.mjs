@@ -3313,6 +3313,21 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
     ok(`and 'auto' resolves to one of them rather than a fallback  (${auto})`,
       seen.includes(auto));
   }
+  // And reaching the cap must cost detail, never ground.
+  //
+  // The walk is depth first, so returning at the cap abandons every square it
+  // had not reached yet — no coarse stand-in, nothing. Everything else in
+  // `draw` bends over backwards to make sure a square always has something to
+  // show, down to going over the build budget rather than leaving a gap, and
+  // one early return undid all of it. Past the cap the walk now stops
+  // *splitting*: each square it still reaches is drawn as it is, so the world
+  // gets blunter and stays whole.
+  ok('and reaching it stops the splitting rather than the drawing',
+    /const outOfBudget = this\.drawn\.length >= this\.maxDrawn;/.test(terrainSrc)
+    && /!outOfBudget && tile\.z < maxZoom/.test(terrainSrc));
+  ok('with a far ceiling above it so a runaway frame still ends',
+    /HOLE_RATHER_THAN_STALL/.test(terrainSrc)
+    && /this\.maxDrawn \* HOLE_RATHER_THAN_STALL/.test(terrainSrc));
 
   // Because the depth is measured per square instead.
   ok('a resample is told from a real level by how much contrast it keeps',

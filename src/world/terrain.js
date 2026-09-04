@@ -75,6 +75,19 @@ const STANDIN_REFRESHES = 2;
  * a flat window still measures zero.
  */
 const SKIRT_REACH = 4;
+
+/**
+ * How far over the tile cap the walk may go before it gives up and leaves a
+ * hole after all.
+ *
+ * Past the cap the walk stops splitting, so each square it still has to reach
+ * costs one draw rather than a whole subtree — see visit. That overshoot is
+ * bounded by the shape of the walk at about two fifths of the cap, so twice it
+ * is a ceiling nothing normal reaches. It exists only so that a pathological
+ * frame cannot run away, and at that point one frame over budget really is
+ * better than a grey wall through the middle of the world.
+ */
+const HOLE_RATHER_THAN_STALL = 2;
 /**
  * How far around you the ground is built regardless of where you are looking.
  *
@@ -611,7 +624,39 @@ export class Terrain {
   }
 
   visit(tile, camera, camX, camZ, renderDistance, maxZoom) {
-    if (this.drawn.length >= this.maxDrawn) return;
+    /*
+      Running out of budget used to `return` here, and that is where the holes
+      came from.
+
+      The walk is depth first: a square splits into four, the four are sorted
+      nearest first, and each is followed all the way down to its leaves before
+      the next one is looked at. So the budget is spent entirely on the first
+      branch, and when it runs out every square the walk had not reached yet is
+      simply never drawn — not coarsely, not at all. Nothing stands in for it.
+      What shows through is the edge wall, which is the "not loaded" grey most
+      of the way into the fog colour.
+
+      This is not what produced the missing ground measured over the Black
+      Forest at twenty-five metres — that frame drew 388 squares against a cap
+      of 520, so the cap was never reached, and it is still being chased. But
+      every other path through `draw` goes to some length to make sure a square
+      always has *something* to show, down to going over the build budget
+      rather than leaving a gap, and this one line quietly undid all of it the
+      moment the tile count did run out.
+
+      A quadtree that cannot afford more detail should draw *coarser* ground,
+      never *no* ground. So the cap now stops the splitting rather than the
+      drawing: past it, every square the walk reaches is drawn as it is and its
+      children are never asked for. The overshoot is bounded and small — once
+      splitting stops, each unvisited branch costs exactly one square, so it is
+      three siblings per level of the stack plus the roots not yet reached,
+      about two hundred over a cap of five hundred and twenty, and every one of
+      them covers a large piece of ground. A hard ceiling well above that is
+      kept below as a last resort, where being over budget for one frame is
+      worse than a hole.
+    */
+    const outOfBudget = this.drawn.length >= this.maxDrawn;
+    if (this.drawn.length >= this.maxDrawn * HOLE_RATHER_THAN_STALL) return;
 
     const size = this.frame.worldTileSize(tile.z);
     const n = Math.pow(2, tile.z);
@@ -741,7 +786,7 @@ export class Terrain {
     // patchy: the level that is real over a city is the same level resampled
     // a valley away. See streamer.atFinest.
     const shouldSplit =
-      tile.z < maxZoom && sharpEnough && !this.streamer.atFinest(tile) &&
+      !outOfBudget && tile.z < maxZoom && sharpEnough && !this.streamer.atFinest(tile) &&
       (wasSplit ? eyeDist < line * LOD_HYSTERESIS_OUT : eyeDist < line * LOD_HYSTERESIS_IN);
     if (shouldSplit) this.split.add(key);
     else this.split.delete(key);
