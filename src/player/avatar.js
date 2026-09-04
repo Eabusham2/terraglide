@@ -671,7 +671,19 @@ export class Avatar {
     // silhouette to say it is not. The wing is set at a real angle to the
     // airflow now, which is what a beetle's shell is and what Minecraft's
     // elytra are, and it is the surface you see rather than the edge.
-    this.wingPose = { x: 0.9, y: -0.3, z: 0.2 };
+    //
+    // And then the search that found it was run inside a box that did not
+    // contain the answer. Its first angle was pinned at the edge of the range
+    // in every candidate it returned, which is what a boundary optimum looks
+    // like, and past that edge there are poses that hold the tips *above* the
+    // root at every pitch you fly at without giving up any of the face. Over
+    // the pitches of a real glide — a shallow dive through to a climb — the
+    // old pose ran -13.6, -9.2, -4.6, +3.4 degrees of dihedral: tips below the
+    // root except when pulling up, which is a wing hanging off a body, and is
+    // "it kinda looks backwards or upside down". This one runs +8.1 at worst,
+    // sweeps 29.6 back, and is 0.88 square to the chase camera, which is what
+    // the old one measured.
+    this.wingPose = { x: 1.3, y: -0.5, z: -0.3 };
 
     this.walkPhase = 0;
     this.glideBlend = 0;

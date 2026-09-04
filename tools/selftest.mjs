@@ -1165,6 +1165,85 @@ console.log('\nyour own legs are there when you look down mid-glide');
     /for \(const leg of \[this\.legL, this\.legR\]\)/.test(avatar));
 }
 
+console.log('\nwings that hold the body up, not hang off it');
+{
+  const THREE = await import('../vendor/three/three.module.js');
+  const { Avatar } = await import('../src/player/avatar.js');
+  const scene = new THREE.Scene();
+  const avatar = new Avatar(scene);
+  avatar.setVisible(true);
+  const flying = (pitch) => ({
+    pitchOverride: pitch,
+    position: new THREE.Vector3(), renderPosition: new THREE.Vector3(),
+    velocity: new THREE.Vector3(0, -45 * Math.sin(-pitch), -45 * Math.cos(pitch)),
+    height: 1.83, scale: 1, pitch, yaw: 0, mode: 'glide', onGround: false,
+    swimming: false, groundSlope: 0, elytraDeployed: true, horizontalSpeed: 45,
+    selectedSlot: 0, rocketsFired: 0,
+  });
+  // Root to tip along the mid-chord, in the world, the way tools/wingpose.mjs
+  // measures it — a wing's attitude is not what its Euler angles read as, and
+  // working it out on paper got the signs wrong twice.
+  const attitude = (pitch) => {
+    const p = flying(pitch);
+    for (let i = 0; i < 90; i += 1) avatar.update(p, 1 / 60);
+    scene.updateMatrixWorld(true);
+    const mesh = avatar.wingR.children[0];
+    const pos = mesh.geometry.getAttribute('position');
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = 0; i < pos.count; i += 1) {
+      lo = Math.min(lo, pos.getX(i));
+      hi = Math.max(hi, pos.getX(i));
+    }
+    const band = (from, to) => {
+      const mid = new THREE.Vector3();
+      let n = 0;
+      for (let i = 0; i < pos.count; i += 1) {
+        const x = pos.getX(i);
+        if (x < from || x > to) continue;
+        mid.add(new THREE.Vector3(x, pos.getY(i), pos.getZ(i)).applyMatrix4(mesh.matrixWorld));
+        n += 1;
+      }
+      return mid.divideScalar(n);
+    };
+    const width = hi - lo;
+    const root = band(lo, lo + width * 0.15);
+    const tip = band(hi - width * 0.15, hi);
+    const normal = new THREE.Vector3(0, 0, 1).transformDirection(mesh.matrixWorld);
+    const toCamera = new THREE.Vector3(0, -Math.sin(pitch) + 0.28, Math.cos(pitch)).normalize();
+    return {
+      sweep: (Math.atan2(tip.z - root.z, tip.x - root.x) * 180) / Math.PI,
+      dihedral: (Math.atan2(tip.y - root.y, tip.x - root.x) * 180) / Math.PI,
+      seen: Math.abs(normal.dot(toCamera)),
+    };
+  };
+  /*
+    The pitches of a real glide: a shallow dive, level, and pulling up.
+
+    The pose before this one ran -13.6, -9.2, -4.6 and +3.4 degrees across
+    them — tips below the root everywhere except when climbing, which is a
+    wing hanging off a body rather than holding it up, and is what "it kinda
+    looks backwards or upside down" was describing. The search that chose it
+    had its first angle pinned at the edge of its range in every candidate it
+    returned, which is a boundary optimum; the box was widened and there are
+    poses past that edge that hold the tips up at every pitch without giving
+    up any of the face.
+  */
+  const flown = [0.3, 0.15, 0, -0.25].map(attitude);
+  const worstDihedral = Math.min(...flown.map((a) => a.dihedral));
+  ok(`the tips never hang below the root  (${worstDihedral.toFixed(1)}\u00b0 at worst)`,
+    worstDihedral > 0);
+  const meanSweep = flown.reduce((t, a) => t + a.sweep, 0) / flown.length;
+  ok(`and they are swept back like a wing  (${meanSweep.toFixed(1)}\u00b0)`,
+    meanSweep > 22 && meanSweep < 36);
+  // A flat wing seen from the chase camera is a blade, and a blade has no
+  // shape to read. This is the number the old pose was chosen for, and it is
+  // not given up to fix the dihedral.
+  const worstSeen = Math.min(...flown.map((a) => a.seen));
+  ok(`and you see the surface rather than the edge  (${worstSeen.toFixed(2)})`,
+    worstSeen > 0.8);
+}
+
 console.log('\nthe figure stands in the weather, not on top of it');
 {
   const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
