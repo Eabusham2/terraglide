@@ -6328,7 +6328,19 @@ console.log('\nA tile that is culled is still a tile that needs rebuilding');
     /builtVersion === \(this\.elevation\.version \?\? 0\)/.test(terrain) &&
     /measured \? cached\.minY : -200/.test(terrain));
   ok('and the rebuild pass walks every node, not only the drawn ones',
-    /invalidateStale\([\s\S]{0,2000}for \(const node of this\.nodes\.values\(\)\)[\s\S]{0,1600}node\.dirty = true/.test(terrain));
+    /invalidateStale\([\s\S]{0,2000}for \(const node of this\.nodes\.values\(\)\)[\s\S]{0,4000}node\.dirty = true/.test(terrain));
+  // "Something better to build from" was read as "a deeper elevation zoom is
+  // available", which misses the case that actually shows. The height field is
+  // not a pure function of position — sampleFrom fades a fine value into the
+  // coarse one along any edge whose finer neighbour has not arrived — so two
+  // squares can report the same deepest zoom, both be clean, and stand at
+  // different heights. Measured over the Black Forest: two zoom-16 squares
+  // sharing an edge, both built from elevation zoom 7, both wanting 7, neither
+  // dirty, both settled, 135 metres apart for forty-five seconds.
+  ok('and it asks the ground whether it moved, not just the bookkeeping',
+    /if \(!deeper && !this\.groundMoved\(node, size\)\) continue;/.test(terrain)
+    && /groundMoved\(node, size\) \{/.test(terrain)
+    && /node\.builtHeights = \[/.test(terrain));
   ok('it still skips nodes that are already current',
     /node\.builtVersion === version \|\| !node\.mesh \|\| node\.dirty\) continue/.test(terrain));
   // Stamping a node with the current version means "this is up to date", and

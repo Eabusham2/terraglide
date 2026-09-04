@@ -89,6 +89,9 @@ const SKIRT_REACH = 4;
  */
 const NEAR_GEOMETRY_M = 64;
 
+/** How far the ground has to move under a square before it is rebuilt. */
+const MOVED_MIN_M = 0.5;
+
 /**
  * How far over the tile cap the walk may go before it gives up and leaves a
  * hole after all.
@@ -1421,6 +1424,13 @@ export class Terrain {
     node.mesh.updateMatrixWorld(true);
     node.size = size;
     node.material.uniforms.uTileSpan.value = size;
+    // The five points invalidateStale re-samples, as they were when this mesh
+    // was made. See groundMoved.
+    node.builtHeights = [
+      this.heightAt(x0, z0), this.heightAt(x0 + size, z0),
+      this.heightAt(x0, z0 + size), this.heightAt(x0 + size, z0 + size),
+      this.heightAt(x0 + size / 2, z0 + size / 2),
+    ];
     node.geometry = geometry;
     node.grid = grid;
     node.tile = tile;
@@ -1602,10 +1612,56 @@ export class Terrain {
       // landing anywhere bumps the version, and marking every node on every
       // bump would have the quadtree rebuilding the same mesh from the same
       // numbers for as long as anything at all was streaming.
-      if (this.elevationZoomFor(node.mesh.position.x, node.mesh.position.z, size) <= node.builtElevZoom) continue;
+      //
+      // "Something better" was read as "a deeper elevation zoom is available
+      // here", and that misses the case that actually shows. The height field
+      // is not a pure function of position: `sampleFrom` fades a fine value
+      // back into the coarse one along any edge where the finer tile has no
+      // neighbour yet, so what a point reads depends on *which* elevation
+      // tiles happen to be loaded, not only on how deep they go. A square built
+      // before that neighbour arrived and the square beside it built after both
+      // report the same deepest zoom, are both clean by this test, and stand at
+      // different heights.
+      //
+      // Measured over the Black Forest: two zoom-16 squares sharing an edge,
+      // both built from elevation zoom 7, both wanting zoom 7, neither marked
+      // dirty, both fully settled — 135 metres apart, for forty-five seconds,
+      // until the whole area advanced to zoom 8 together and they agreed again.
+      // That is the ground dropping and snapping back.
+      //
+      // So the question is asked of the ground rather than of the bookkeeping:
+      // re-sample the five points the mesh was built through and see whether
+      // any of them has moved. Five samples against a rebuild is cheap, and it
+      // marks only squares whose surface really has changed, which is what the
+      // zoom test was trying to approximate.
+      const deeper = this.elevationZoomFor(node.mesh.position.x, node.mesh.position.z, size)
+        > node.builtElevZoom;
+      if (!deeper && !this.groundMoved(node, size)) continue;
       node.dirty = true;
       marked++;
     }
+  }
+
+  /**
+   * Has the ground under this square actually moved since it was built?
+   *
+   * Five points — the four corners and the middle — re-sampled from the height
+   * field and compared with what the mesh was made from. Half a metre is well
+   * under anything you could see and well over the noise of a bilinear sample.
+   */
+  groundMoved(node, size) {
+    const built = node.builtHeights;
+    if (!built) return false;
+    const x = node.mesh.position.x;
+    const z = node.mesh.position.z;
+    const points = [[x, z], [x + size, z], [x, z + size], [x + size, z + size],
+      [x + size / 2, z + size / 2]];
+    for (let i = 0; i < points.length; i++) {
+      const now = this.heightAt(points[i][0], points[i][1]);
+      if (!Number.isFinite(now)) continue;
+      if (Math.abs(now - built[i]) > MOVED_MIN_M) return true;
+    }
+    return false;
   }
 
   /**
