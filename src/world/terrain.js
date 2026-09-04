@@ -1275,7 +1275,23 @@ export class Terrain {
     // tile's edge is bare while the half that runs up the headland keeps its
     // full curtain. Over the Alps every point has relief around it, so the
     // skirt there is the same depth it always was.
-    const cap = Math.max(12, size * 0.02);
+    //
+    // The ceiling on that depth was two per cent of the square, and on the
+    // biggest squares that is what decides the answer rather than the ground
+    // does. Measured flying the Himalaya at 31.11N 82.56E: two zoom-12 squares
+    // eight kilometres across standing 194.9 metres apart, curtain 167.5 —
+    // which is exactly two per cent of 8,377 — and twenty-seven metres of
+    // daylight between them. The relief along that edge is several hundred
+    // metres and the rule already knows it; the ceiling was throwing the answer
+    // away.
+    //
+    // Five per cent instead. It changes nothing on ordinary ground, where the
+    // edge's own relief is far below either figure and is what sets the depth —
+    // a 262-metre square's ceiling moves from 12 metres to 13 — and on the
+    // handful of squares where the ground really does fall hundreds of metres
+    // across one edge it lets the curtain be as deep as the crack it is there
+    // to hide.
+    const cap = Math.max(12, size * 0.05);
     // The furthest any edge of this square is about to move. Handed to the
     // shader, which hangs the curtain for the third of a second it is needed.
     let walked = 0;

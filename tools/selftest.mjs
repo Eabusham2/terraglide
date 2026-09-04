@@ -8694,6 +8694,26 @@ console.log('\nthe sea is not black');
     /drops\[i\] = clamp\(\(hi - lo\) \* 0\.6, 0, cap\);/.test(terrain));
   ok('so a level stretch of edge hangs no curtain at all',
     /Math\.max\(0, i - SKIRT_REACH\)/.test(terrain) && !/relief \* 0\.6 \+ 1/.test(terrain));
+  /*
+    And the ceiling on that depth does not decide the answer for the ground.
+
+    Two per cent of the square was what the biggest squares actually got, not
+    what their edges asked for. Measured flying the Himalaya at 31.11N 82.56E,
+    sampling every crack between neighbouring squares and asking how far it
+    runs past the bottom of the curtain hung to cover it:
+
+      worst you look through   ceiling 2%   ceiling 5%
+      over ten samples         27.4 m       0.2 m
+      samples with a leak      2 of 10      0 of 10
+
+    The 27-metre one was two zoom-12 squares eight kilometres across, 194.9
+    metres apart, wearing a 167.5-metre curtain — which is two per cent of
+    8,377 to the decimal. On ordinary ground nothing changes: the edge's own
+    relief is far below either ceiling and is what sets the depth, and a
+    262-metre square's ceiling moves from 12 metres to 13.
+  */
+  ok('and the ceiling on it does not bind before the ground does',
+    /const cap = Math\.max\(12, size \* 0\.05\);/.test(terrain));
   // Relief is not the only crack an edge has to cover. A rebuilt square is
   // drawn at its old height and walks to the new one, so for that third of a
   // second it sits below any neighbour that has already arrived — by however
