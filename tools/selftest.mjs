@@ -6548,15 +6548,22 @@ console.log('\nA tile that is culled is still a tile that needs rebuilding');
     up, down, up, two hundred and thirty-six metres of travel for a net
     fifteen.
   */
-  ok('and it holds a provisional height rather than redrawing every rung',
-    /const LEVELS_BEHIND_TO_REDRAW = 3;/.test(terrain)
-    && /return behind >= LEVELS_BEHIND_TO_REDRAW \? seeable : Infinity;/.test(terrain));
-  // And no clock on that hold. A twenty-second patience was tried and it hands
-  // the flapping straight back: elevation tiles land tens of seconds apart, so
-  // the timer had always expired by the time the next one arrived and every
-  // rung redrew the mesh again anyway.
-  ok('and no timer that expires while the tiles are still arriving',
-    !/ELEV_PATIENCE_MS/.test(terrain));
+  /*
+    And distance is all of it, because distance cannot desynchronise
+    neighbours: two squares beside each other are the same distance away.
+
+    Every rule that delays one square and not another was tried and measured.
+    Holding a square until it gets the zoom it asked for cuts one point's
+    rebuilds from eight to three and its direction changes from four to two,
+    and puts neighbours three elevation zooms apart with 218 metres of daylight
+    under the curtain where there had been three. Sharing the timing across the
+    view instead measured worse again. A snapshot of the height field taken at
+    a different moment from your neighbour's does not meet it, however
+    continuous the field is.
+  */
+  ok('and nothing per-square delays it, so neighbours cannot diverge',
+    !/LEVELS_BEHIND_TO_REDRAW/.test(terrain) && !/ELEV_PATIENCE_MS/.test(terrain)
+    && !/PROVISIONAL_MIN_M/.test(terrain) && !/elevEpoch/.test(terrain));
   /*
     And a walk only makes sense from a height that was on screen. A merged
     parent holds whatever heights it was last built with, and for a square

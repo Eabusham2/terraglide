@@ -107,28 +107,6 @@ const MOVED_MIN_M = 0.25;
  */
 const MOVED_MIN_RAD = 0.002;
 /**
- * How many levels behind the ground may fall before it is redrawn from data
- * that is still not the data it asked for.
- *
- * A square asks the elevation streamer for one zoom — the one that matches its
- * own size — and the streamer answers with the whole pyramid on the way there,
- * because the coarse tiles are also what covers its neighbours. Every one of
- * those arrivals was redrawing the mesh, and the rungs in between are not
- * steps toward the answer: they are different answers. Traced at one fixed
- * point in the Bernese Alps, the square under it was rebuilt at elevation
- * zooms 6, 7, 8, 9, 10 and 11 and drew 1479, 1442, 1129, 1147, 1103 and 1128
- * metres — down, down, up, down, up. Four direction changes, none of which was
- * progress anybody could see, and 2,230 metres of travel for 1,129 metres of
- * correction.
- *
- * So a square that is still waiting for its own zoom holds what it has. Three
- * levels behind is the exception, and it is the same three levels this file
- * already calls "a plateau standing in for a hillside": at that point what is
- * on screen is the wrong shape, not merely a soft one, and it is worth a move
- * to be rid of.
- */
-const LEVELS_BEHIND_TO_REDRAW = 3;
-/**
  * How often a square is asked whether its ground has moved, in milliseconds.
  *
  * Any elevation tile landing anywhere bumps the version, and while you are
@@ -1873,21 +1851,35 @@ export class Terrain {
     const cz = node.mesh.position.z + size / 2;
     const seeable = Math.max(MOVED_MIN_M,
       Math.hypot(cx - camX, cz - camZ) * MOVED_MIN_RAD);
-    // Still short of the elevation this square asked for, so what has arrived
-    // is a rung of the pyramid rather than the answer. Hold — unless what is on
-    // screen has fallen far enough behind to be the wrong shape.
-    //
-    // No clock on it. A twenty-second patience was tried and it hands the
-    // flapping straight back, because elevation tiles land tens of seconds
-    // apart and the timer had always expired by the time the next one arrived.
-    // And no metre threshold either: that was tried too, and it never bit,
-    // because the test is the worst of a dozen probes across the square and in
-    // mountains one of them always moves.
-    const wanted = Math.min(node.tile.z, this.elevation.maxZoom ?? node.tile.z);
-    const have = this.elevationZoomFor(node.mesh.position.x, node.mesh.position.z, size);
-    if (have >= wanted) return seeable;
-    const behind = have - (node.builtElevZoom ?? -1);
-    return behind >= LEVELS_BEHIND_TO_REDRAW ? seeable : Infinity;
+    /*
+      And distance is all of it, because distance cannot desynchronise
+      neighbours: two squares beside each other are the same distance away and
+      so get the same answer.
+
+      Holding a square back until it gets the elevation zoom it asked for was
+      tried, and it does what it aims at — one point's rebuilds fell from eight
+      to three and its direction changes from four to two. It is still wrong. A
+      square that holds is a snapshot of the height field from a different
+      moment than its neighbour's, and the field being continuous does not make
+      two meshes built from two versions of it meet. Measured flying the Alps
+      with the hold in: neighbours three elevation zooms apart, steps of 488
+      metres between them, and up to 218 metres of daylight under the curtain,
+      where without it the worst was three. Cracks are worse than settling.
+
+      Sharing the timing instead of the data — one step for the whole view,
+      every square rebuilding on it together — was tried too, and measured
+      worse still: between steps the squares drift apart for the same reason,
+      and the steps are rare enough that they drift a long way.
+
+      What is left of the ground moving as it loads is the elevation source
+      disagreeing with itself. Measured at one fixed point in the Bernese Alps,
+      with the cache evicting nothing and deleting nothing, the DEM read 1614,
+      1566, 1352, 1756, 1760 and 1888 metres as zooms 6 through 11 landed. A
+      zoom-8 pixel is six hundred metres across and averages a whole ridge:
+      those are honest answers to different questions, and there is no
+      bookkeeping that turns them into one answer.
+    */
+    return seeable;
   }
 
   /**
