@@ -3528,6 +3528,39 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nNo tier buys frame rate by making the picture worse');
+{
+  const { GRAPHICS_PRESETS } = await import('../src/core/settings.js');
+  /*
+    Low was the only tier that did, and the two lines it did it with are the
+    two that decide whether ground at a grazing angle is a photograph or a
+    smear: anisotropy 8 against 16 everywhere else, and a pixel cap of 1.5
+    against 2, which on a display reporting two device pixels per CSS pixel
+    draws the world at 56% of the pixels the screen has and stretches it back.
+    The auto dial puts any machine that misses its target on Low, so that was
+    most machines some of the time and some machines all of the time.
+
+    Medium already pays both, so neither can be what separates a machine that
+    can run this from one that cannot. What separates them is world size, and
+    Low still gives up two thirds of it.
+  */
+  for (const [name, preset] of Object.entries(GRAPHICS_PRESETS)) {
+    if (!preset || typeof preset !== 'object' || !preset.applies) continue;
+    ok(`${name} draws at the screen's own resolution  (cap ${preset.pixelRatioCap})`,
+      (preset.pixelRatioCap ?? 2) >= 2);
+    ok(`${name} filters the ground the same as every other tier  (${preset.anisotropy}x)`,
+      preset.anisotropy === 16);
+  }
+  const low = GRAPHICS_PRESETS.low;
+  const medium = GRAPHICS_PRESETS.medium;
+  ok(`and Low is still much the lighter of the two  (${low.applies.renderDistanceKm} km`
+    + ` against ${medium.applies.renderDistanceKm}, ${low.maxDrawnTiles} squares`
+    + ` against ${medium.maxDrawnTiles})`,
+    low.applies.renderDistanceKm <= medium.applies.renderDistanceKm / 2
+    && low.maxDrawnTiles < medium.maxDrawnTiles
+    && low.applies.buildings === false && low.applies.weather === false);
+}
+
 console.log('\nAuto graphics is a dial, not a label');
 {
   const { AutoQuality } = await import('../src/core/autoQuality.js');

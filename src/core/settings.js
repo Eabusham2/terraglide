@@ -311,12 +311,39 @@ export const GRAPHICS_PRESETS = {
     maxDrawnTiles: 520,
     maxConcurrentRequests: 12,
     textureCacheSize: 320,
-    anisotropy: 8,
-    // Never below one and a half. A phone reports three device pixels per CSS
-    // pixel, so a cap of one renders the world at a third of the screen's
-    // resolution and lets the browser stretch it back — which is most of what
-    // "why is it so blurry" was.
-    pixelRatioCap: 1.5,
+    /*
+      Low gives up world, not picture.
+
+      These two lines were the only place in the table where a tier bought
+      frame rate by making the image worse rather than the scene smaller, and
+      they are the two that decide whether ground seen at a grazing angle — the
+      ground under your feet, which is most of the screen when you are standing
+      on it — is a photograph or a smear. Anisotropy was 8 against 16
+      everywhere else, which is half the samples along exactly the direction
+      the ground is most compressed in. The pixel cap was 1.5 against 2, so on
+      a display reporting two device pixels per CSS pixel — every Mac the game
+      has been tried on — the world was drawn at 56% of the pixels the screen
+      has and stretched back up.
+
+      The tier below is not where that trade belongs, and the table says so
+      twice already: "capping this below the display's device pixel ratio
+      renders the world smaller than the screen and lets the browser stretch it
+      back up, which is exactly the soft, stepped picture a sharp display makes
+      so obvious", and, in the render-scale governor, "a smaller world drawn
+      sharply looks far better than the whole world drawn softly".
+
+      Nor is the cost the reason: Medium, one step up, already pays both, so
+      neither can be what separates a machine that can run this from one that
+      cannot. What separates them is still here and untouched — eight
+      kilometres of ground against sixteen, 520 squares against 760, and no
+      buildings, weather, street level or 3D. Those are what cost a frame.
+
+      Someone who really does need pixels back has the lever for it:
+      Settings -> Graphics -> Adaptive resolution, which trades them
+      deliberately and says so.
+    */
+    anisotropy: 16,
+    pixelRatioCap: 2,
     // What picking this preset also sets. A preset that only moved three
     // hidden numbers was not a preset, it was a hint — you could sit on "Low"
     // with a 64 km horizon and wonder why it was slow.
