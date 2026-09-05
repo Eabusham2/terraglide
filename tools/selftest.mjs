@@ -3550,6 +3550,47 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nA scanned body stands in for a person, not for their kit');
+{
+  const THREE = await import('../vendor/three/three.module.js');
+  const { Avatar } = await import('../src/player/avatar.js');
+  const { settings } = await import('../src/core/settings.js');
+  const avatar = new Avatar(new THREE.Scene());
+  avatar.setVisible(true);
+  /*
+    applyModelMode hid `body` outright, and the wings are a child of `body`, and
+    so is the arm the firework hangs from. Turning the scanned model on took the
+    elytra off your back and the rocket out of your hand: you glided with
+    nothing between you and the air.
+
+    The pose lives on `body` too — it is rotated and moved every frame for the
+    lean, the bank and the glide — so `body` has to stay visible whichever body
+    is showing, and only the person goes.
+  */
+  const before = settings.get('detailedPlayerModel');
+  settings.set('detailedPlayerModel', true);
+  avatar.model = new THREE.Group();       // stand in for the loaded scan
+  avatar.setFirstPerson(false);
+  avatar.applyModelMode();
+  ok('with the scan on, the person is hidden', !avatar.torso.visible
+    && !avatar.armR.limb.visible && !avatar.legL.limb.visible);
+  ok('and the wings are still on your back', avatar.wings.visible && avatar.body.visible);
+  ok('and the firework is still in your hand', avatar.rocket.visible
+    && avatar.armR.pivot.visible);
+  // It hangs off the shoulder joint rather than the sleeve, because visibility
+  // inherits and the sleeve is the thing the scan stands in for.
+  ok('because it hangs off the joint, not the sleeve',
+    avatar.rocket.parent === avatar.armR.pivot);
+  avatar.model = null;
+  avatar.applyModelMode();
+  ok('and it all comes back when the scan is off',
+    avatar.torso.visible && avatar.armR.limb.visible && avatar.wings.visible);
+  // First person owns the head, and that outranks this.
+  avatar.setFirstPerson(true);
+  ok('first person still takes the head off', !avatar.head.visible && avatar.torso.visible);
+  settings.set('detailedPlayerModel', before);
+}
+
 console.log('\nNothing ships with holes in it');
 {
   /*

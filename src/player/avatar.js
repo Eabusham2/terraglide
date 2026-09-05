@@ -11,6 +11,7 @@ import { ASSET_BASE } from '../core/paths.js';
  * it round a point in mid-air. Taken from makeRocket, which builds a 0.14 tube
  * at y = 0.04 with a 0.05 cone on top of it.
  */
+const ARM_LENGTH = 0.3;
 const ROCKET_LEN = 0.19;
 const ROCKET_GRIP = 0.03;
 /** White, for lightening the slot colour before it tints a photograph. */
@@ -483,8 +484,8 @@ export class Avatar {
     // with nothing holding it. Biacromial breadth is 0.23 of stature, which
     // puts the joints at 0.115 and the inner face of the arm flush with the
     // side of the chest: the whole arm shows, and the shoulder still joins.
-    this.armL = this.makeLimb(0.055, 0.3, mat(SLEEVE), -0.115, 0.79);
-    this.armR = this.makeLimb(0.055, 0.3, mat(SLEEVE), 0.115, 0.79);
+    this.armL = this.makeLimb(0.055, ARM_LENGTH, mat(SLEEVE), -0.115, 0.79);
+    this.armR = this.makeLimb(0.055, ARM_LENGTH, mat(SLEEVE), 0.115, 0.79);
 
     // Hands, because a person has them and because a sleeve ending in mid-air
     // is where the firework appeared to be held by nothing. The wrist is at
@@ -600,8 +601,17 @@ export class Avatar {
     // points is decided every frame by aimRocket.
     // In the fist, not up the sleeve: the grip sits at the centre of the hand
     // that closes around it, which is where the hand now is.
-    this.rocket.position.set(0, handY, -0.02);
-    this.armR.limb.add(this.rocket);
+    // On the pivot, not on the sleeve.
+    //
+    // Visibility inherits, and the scanned body stands in for the sleeve — so
+    // with the sleeve hidden the firework in the fist went with it. The pivot
+    // is the shoulder joint and turns with the arm exactly as the sleeve does;
+    // the sleeve is a box centred on its own length below it, so the same point
+    // in the fist is that much further down from here. `aimRocket` reads the
+    // pivot's world rotation for the same reason, and gets the same answer:
+    // the sleeve carries an offset and no rotation of its own.
+    this.rocket.position.set(0, ARM_LENGTH / -2 + handY, -0.02);
+    this.armR.pivot.add(this.rocket);
     this.cloth.rocket = [rocketMat];
     this.rocketColour = -1;
 
@@ -1015,12 +1025,41 @@ export class Avatar {
     this.rocketColour = -1;
   }
 
-  /** Show whichever of the two bodies is wanted, and only that one. */
+  /**
+   * Show whichever of the two bodies is wanted, and only that one — but a body
+   * is not everything on it.
+   *
+   * This hid `body` outright, and the wings are a child of `body`, and so is
+   * the arm the firework hangs from. So turning the scanned model on took the
+   * elytra off your back and the rocket out of your hand: you glided with
+   * nothing between you and the air. The scan stands in for a person, not for
+   * their kit — nobody scanned your elytra — so only the person goes.
+   *
+   * The pose still comes from `body` either way. It is rotated and moved every
+   * frame for the lean, the bank and the glide, and the scan hangs inside it,
+   * so it has to stay visible whichever body is showing.
+   */
   applyModelMode() {
     const useModel = !!this.model && settings.get('detailedPlayerModel') && !this.firstPerson;
     if (this.model) this.model.visible = useModel;
-    // The built rig stays for first person and for everything that moves.
-    this.body.visible = !useModel;
+    for (const part of this.skin()) part.visible = !useModel;
+    // The head is not this method's to show. First person takes it off so that
+    // looking down shows your legs rather than the inside of your own skull,
+    // and that decision outranks this one — which is only ever reached with the
+    // scan off, because the scan is not used in first person at all.
+    if (this.firstPerson) {
+      this.head.visible = false;
+      this.hair.visible = false;
+      this.hairBack.visible = false;
+    }
+  }
+
+  /** The parts a scanned body stands in for. Everything else is kit. */
+  skin() {
+    return [
+      this.torso, this.neck, this.head, this.hair, this.hairBack,
+      this.armL?.limb, this.armR?.limb, this.legL?.limb, this.legR?.limb,
+    ].filter(Boolean);
   }
 
   /**
@@ -1347,7 +1386,10 @@ export class Avatar {
     // into something you can see rather than something you are inside.
     const inside = this.firstPerson;
     const prone = inside && this.glideBlend > 0.5;
-    this.torso.visible = true;
+    // Unless a scanned body is standing in for it, in which case this line was
+    // quietly undoing the swap every frame and drawing the built chest inside
+    // the scanned one.
+    this.torso.visible = !(this.model && this.model.visible);
     /*
       Your legs stay on when you are gliding.
 
@@ -1460,7 +1502,7 @@ export class Avatar {
     );
     this._aimQuat.setFromUnitVectors(ROCKET_AXIS, this._aim);
     this.root.updateMatrixWorld(true);
-    this.armR.limb.getWorldQuaternion(this._holdQuat);
+    this.armR.pivot.getWorldQuaternion(this._holdQuat);
     this.rocket.quaternion.copy(this._holdQuat).invert().multiply(this._aimQuat);
 
     if (!this.viewModel.visible) return;

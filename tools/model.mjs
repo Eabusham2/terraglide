@@ -57,7 +57,11 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 700, height: 700 } });
 page.on('pageerror', (e) => console.log('PAGE ERROR', e.message));
 
-await page.goto(`http://127.0.0.1:${PORT}/tools/model.html`, { waitUntil: 'load' });
+// `node tools/model.mjs --scan` photographs the generated body instead of the
+// built one. Both have to be judgeable from here.
+const scan = process.argv.includes('--scan');
+await page.goto(`http://127.0.0.1:${PORT}/tools/model.html${scan ? '?scan' : ''}`,
+  { waitUntil: 'load' });
 await page.waitForFunction(() => window.__ready === true, null, { timeout: 60000 });
 
 const views = ['glide-behind', 'glide-above', 'glide-side', 'wings-plan', 'wings-astern', 'walk', 'stand-front', 'stand-side', 'stand-back'];
@@ -66,7 +70,7 @@ for (const view of views) {
   await page.evaluate((v) => window.__pose(v), view);
   await page.waitForTimeout(250);
   const shot = await page.screenshot();
-  await writeFile(join(OUT, `model-${view}.png`), shot);
+  await writeFile(join(OUT, `model-${scan ? 'scan-' : ''}${view}.png`), shot);
   const stats = await page.evaluate(() => window.__measure());
   const cell = (s, w) => (s.n === 0 ? '--'.padStart(w)
     : `${Math.round(s.mean)}${s.blown > 0.25 ? '!' : ''}`.padStart(w));

@@ -5,6 +5,7 @@
 <script type="module">
 import * as THREE from '../vendor/three/three.module.js';
 import { Avatar } from '../src/player/avatar.js';
+import { settings } from '../src/core/settings.js';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
 renderer.setSize(700, 700);
@@ -35,6 +36,14 @@ avatar.setVisible(true);
 // this tool exists — a prop you cannot photograph is a prop you cannot judge —
 // and a missing file is not an error, it just leaves the built one showing.
 await avatar.loadRocketModel('../assets/').catch(() => false);
+// And the scanned body, when it is asked for. Both bodies have to be
+// photographable: the whole point of this tool is that a thing you cannot
+// photograph is a thing you cannot judge.
+if (new URLSearchParams(location.search).has('scan')) {
+  settings.set('detailedPlayerModel', true);
+  await avatar.loadModel('../assets/').catch(() => false);
+  avatar.applyModelMode();
+}
 avatar.root.scale.setScalar(1.83);
 
 const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 200);
@@ -195,5 +204,8 @@ window.__where = (name) => {
 };
 
 window.__pose('stand-front');
+// Exposed so a probe can ask what is actually being drawn, which is a
+// different question from what a screenshot looks like.
+window.__avatar = avatar;
 window.__ready = true;
 </script>
