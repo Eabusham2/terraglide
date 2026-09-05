@@ -173,10 +173,16 @@ real-world counterpart any provider publishes, so it displaces nothing and is
 drawn in every mode.
 
 `assets/player.glb` is a generated character mesh — TRELLIS.2 on Hugging Face,
-from a prompt, then reduced by `tools/glb-optimise.py`: the baked ground plane
-cut away, textures halved and re-encoded, normals and UVs quantised, 3.9 MB
-down to 0.7 MB. It depicts no real person. Off by default, and never fetched by
-the single-file build.
+from a prompt, then passed through `tools/glb-optimise.py` to cut the baked
+ground plane away and `tools/glb-fill.py` to close the holes that leaves in the
+boot soles. Everything else is exactly as the generator made it: the same
+1024-pixel PNG atlas, byte for byte, and float32 positions, normals and texture
+coordinates. 3.9 MB to 2.8 MB, and most of that saving is a metal-roughness map
+no material reads. It shipped soft for a fortnight when the atlas was halved to
+512 and re-encoded as JPEG to hold the file under a megabyte; that trade is
+right for an asset everybody downloads and wrong for one that is off by default
+and never in the single-file build. It depicts no real person. Off by default,
+and never fetched by the single-file build.
 
 It was generated wearing a pair of feathered wings, which it wore on top of the
 elytra the game already gives you, and which — reaching higher than its own
