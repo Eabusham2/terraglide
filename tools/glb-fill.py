@@ -80,6 +80,30 @@ def read(i):
             for e in range(a['count'])], a, stride
 
 
+# The base colour picture, so the fill can see what it is filling into. It is
+# read and never written: the atlas comes out of here byte for byte as it went
+# in, and only which texel a patch points at is decided by looking at it.
+PICTURE = None
+def picture_of(J, BIN):
+    for mesh in J.get('meshes', []):
+        for prim in mesh['primitives']:
+            mat = (J.get('materials') or [None])[prim.get('material', 0)]
+            slot = (mat or {}).get('pbrMetallicRoughness', {}).get('baseColorTexture')
+            if not slot: continue
+            src = J['textures'][slot['index']].get('source')
+            im = (J.get('images') or [None])[src] if src is not None else None
+            if not im or 'bufferView' not in im: continue
+            bv = J['bufferViews'][im['bufferView']]
+            s = bv.get('byteOffset', 0)
+            try:
+                from PIL import Image
+                import io as _io
+                return Image.open(_io.BytesIO(BIN[s:s + bv['byteLength']])).convert('RGB')
+            except Exception:
+                return None
+    return None
+
+
 out = bytearray()
 views = []
 def add_view(data, **extra):
@@ -165,6 +189,7 @@ def triangulate(loop, first, pos):
     return out, normal
 
 
+PICTURE = picture_of(J, BIN)
 filled = added = 0
 for mesh in J.get('meshes', []):
     for prim in mesh['primitives']:
@@ -261,6 +286,23 @@ for mesh in J.get('meshes', []):
         # not, and its triangles are all the same case.
         uvs = attrs.get('TEXCOORD_0', (None,))[0]
         spot = {}
+        near_of = defaultdict(set)
+        for a, b, c in tris:
+            near_of[a].update((b, c))
+            near_of[b].update((a, c))
+            near_of[c].update((a, b))
+        # Raw stored coordinates into a texel of the picture. A normalised
+        # integer coordinate divides by its own full scale; a float one is
+        # already the fraction.
+        uv_acc = attrs.get('TEXCOORD_0', (None, {}))[1]
+        FULL = {5121: 255.0, 5123: 65535.0}
+        span = FULL.get(uv_acc.get('componentType')) if uv_acc.get('normalized') else None
+        def pick(u):
+            if PICTURE is None: return (0, 0, 0)
+            a, b = (u[0] / span, u[1] / span) if span else (u[0], u[1])
+            w, h = PICTURE.size
+            return PICTURE.getpixel((min(int(a * w), w - 1) % w,
+                                     min(int(b * h), h - 1) % h))
         if uvs and new_tris:
             sides = []
             for t in range(0, len(idx), 3):
@@ -273,8 +315,31 @@ for mesh in J.get('meshes', []):
                 wide = max(max(u[k] for u in rim) - min(u[k] for u in rim)
                            for k in range(2))
                 if wide < usual * 4: continue     # inside one chart: keep it
-                spot[patch] = min(rim, key=lambda a: sum(
-                    math.dist(a, b) for b in rim))
+                # Not the rim — two rings in from it.
+                #
+                # The rim is the cut, and the cut is exactly where the floor
+                # was: those vertices carry the slab's coordinates, so a
+                # colour chosen from them is the colour of the floor. On this
+                # figure that is a blue-grey at luminance 57 against a boot at
+                # 14, which is a bright line drawn right round the bottom of
+                # both boots — the sole was being painted the ground it was
+                # standing on. Two steps into the surviving surface is past
+                # the cut and onto real boot, and the representative one of
+                # those is the per-channel median of what is there. Still a
+                # real point on the real picture; just not one on the seam.
+                pool = set()
+                for v in loop: pool.update(near_of.get(v, ()))
+                deeper = set()
+                for v in pool: deeper.update(near_of.get(v, ()))
+                pool = (deeper | pool) - set(loop)
+                where = [uvs[first[v]] for v in pool] or rim
+                seen = [pick(u) for u in where]
+                mid = tuple(sorted(c[k] for c in seen)[len(seen) // 2]
+                            for k in range(3))
+                spot[patch] = min(
+                    zip(where, seen),
+                    key=lambda pair: sum((pair[1][k] - mid[k]) ** 2
+                                         for k in range(3)))[0]
 
         new_rows = {name: [] for name in attrs}
         painted = {}
