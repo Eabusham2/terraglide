@@ -371,14 +371,22 @@ const SCAN_WING_TUCK = 0.6;
 /**
  * How sharply a vertex prefers its nearest joint.
  *
- * Cubed was too soft. A shoulder rotates through ninety degrees when the arms
- * go out, and at that angle a wide half-and-half band does not bend, it webs:
- * the arm and the chest stay joined by a sheet of stretched triangles, which
- * from above is a man twice his own width with the surface torn open where the
- * stretch went past inside out. The sixth power keeps the blend to the joint
- * itself, which is the only place a blend belongs.
+ * The sixth power was a splint for the wrong measurement. While distance was
+ * straight-line, a soft blend let the arm claim the flank and web the two
+ * together, so the blend had to be squeezed almost to nothing to keep them
+ * apart — and a shoulder with almost no blend in it does not bend, it tears:
+ * the arm swings a hundred and forty degrees in a glide and the triangles
+ * between what moved and what did not stretch into the black gashes at both
+ * shoulders.
+ *
+ * Measured along the surface the two are far apart on their own, so the blend
+ * can go back to being a blend. Squared spreads the give at each joint over
+ * about a hand's width of skin, which is what closes the gashes, and still
+ * leaves the flank ninety per cent chest — because over the surface the flank
+ * is four times further from the arm than from the middle of the chest, and
+ * no exponent turns that around.
  */
-const SKIN_FALLOFF = 6;
+const SKIN_FALLOFF = 2;
 /** Added to every distance so a vertex sitting on a bone is not divided by
  *  zero, and so the joint itself blends rather than snapping. */
 const SKIN_SOFTEN = 0.015;
@@ -1159,6 +1167,48 @@ export class Avatar {
   }
 
   /**
+   * A face for the scan, because it was generated without one.
+   *
+   * The head comes back as a smooth egg — no eyes, no mouth, nothing on either
+   * side of it — and a head with no front is a figure with no direction: from
+   * any distance at all you cannot tell which way it is looking, which is the
+   * same reason the built model has two blocks for eyes rather than none.
+   * Regenerating the mesh would be the honest fix and the generator is behind
+   * a daily quota, so it gets a drawn-on face in the meantime: two eyes and a
+   * smile, in the same dark the built model uses, sitting a couple of
+   * millimetres proud of the skull so they never sink into it.
+   *
+   * Hung off the head joint, so it turns when the head turns.
+   */
+  makeScanFace() {
+    // Measured off the mesh: the head is a ball of radius 0.071 about
+    // (0, 0.93, -0.042), so its front is at z = -0.113. These sit on that
+    // surface, in the bone's own frame, and a couple of millimetres proud of
+    // it — flush, the corners of the eyes sink into the skull and come out
+    // notched.
+    const face = new THREE.Group();
+    const skin = new THREE.MeshStandardMaterial({
+      color: 0x25201c, roughness: 0.9, metalness: 0,
+    });
+    const eye = new THREE.BoxGeometry(0.022, 0.016, 0.006);
+    for (const side of [-1, 1]) {
+      const one = new THREE.Mesh(eye, skin);
+      one.position.set(side * 0.030, 0.028, -0.108);
+      face.add(one);
+    }
+    // A smile rather than a line: an arc of a ring, turned so the open side is
+    // upwards. A straight mouth on a blank head reads as a slot.
+    const arc = Math.PI * 0.8;
+    const mouth = new THREE.Mesh(
+      new THREE.TorusGeometry(0.026, 0.0045, 5, 14, arc), skin,
+    );
+    mouth.rotation.z = -Math.PI / 2 - arc / 2;
+    mouth.position.set(0, -0.026, -0.101);
+    face.add(mouth);
+    return face;
+  }
+
+  /**
    * The top of the head: the highest point in a narrow column up the midline.
    *
    * Anything a scanned figure wears on its back can out-reach its own skull —
@@ -1223,6 +1273,10 @@ export class Avatar {
       this.scanSkins.push(skinned);
     }
     group.add(bones[0]);
+    // The face goes on the head joint, so it turns with the head and is hidden
+    // with the rest of the scan in first person.
+    this.scanFace = this.makeScanFace();
+    named.head.add(this.scanFace);
     return group;
   }
 

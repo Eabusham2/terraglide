@@ -3903,6 +3903,27 @@ console.log('\nThe scanned body is a body, and it moves like one');
   ok(`and the chest stays where it was  `
     + `(${(afterChest.distanceTo(beforeChest) * 100).toFixed(1)} cm)`,
     afterChest.distanceTo(beforeChest) < 0.02);
+  // A face, because the mesh came without one. A head with no front is a
+  // figure you cannot tell the facing of at any distance, which is the same
+  // reason the built model has eyes at all.
+  {
+    const head = rig.scanBones.head;
+    const face = [];
+    head.traverse((child) => { if (child.isMesh) face.push(child); });
+    ok(`the scan has a face  (${face.length} pieces on the head joint)`,
+      face.length >= 3);
+    head.updateMatrixWorld(true);
+    const front = new THREE.Vector3();
+    let worst = 1;
+    for (const piece of face) {
+      piece.getWorldPosition(front);
+      worst = Math.min(worst, -front.z);
+    }
+    // The model faces -Z. A face on the back of the head is the bug this
+    // whole asset arrived with, so it is checked rather than assumed.
+    ok(`and it is on the front of the head  (${worst.toFixed(3)} forward)`, worst > 0);
+  }
+
   ok('the pose is handed over every frame',
     /this\.poseScan\(open\);/.test(avatarSource));
 
