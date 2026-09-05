@@ -37,6 +37,13 @@ src, dst = sys.argv[1], sys.argv[2]
 # past about two is not detail, it is a triangle reading a part of the picture
 # that has nothing to do with it.
 STRETCH = float(sys.argv[3]) if len(sys.argv) > 3 else 2.2
+# And how far it may reach across the atlas relative to how long it is, again
+# as a multiple of the usual. Area alone misses the slivers: a triangle can run
+# right across the picture and still cover very little of it, and those are
+# what was left on the soles after the area test had taken the fat ones. This
+# separates cleanly — on this mesh the body never exceeds 1.4 times its own
+# median and the soles reach 34 times it.
+REACH = float(sys.argv[4]) if len(sys.argv) > 4 else 1.6
 
 raw = open(src, 'rb').read()
 off, J, BIN = 12, None, None
@@ -181,10 +188,24 @@ for mesh in J.get('meshes', []):
                 q = [pos[v] if v < len(pos) else new_rows['POSITION'][v - pa['count']]
                      for v in t]
                 return [sum(c[i] for c in q) / 3 for i in range(3)]
+            def reach_of(t):
+                u = [uvs[v] if v < len(uvs) else new_rows['TEXCOORD_0'][v - pa['count']]
+                     for v in t]
+                q = [pos[v] if v < len(pos) else new_rows['POSITION'][v - pa['count']]
+                     for v in t]
+                across = max(math.dist(u[i], u[j])
+                             for i in range(3) for j in range(i + 1, 3))
+                edge = max(math.dist(q[i], q[j])
+                           for i in range(3) for j in range(i + 1, 3))
+                return across / max(edge, 1e-12)
             spreads = [spread_of(t) for t in out_tris]
+            reaches = [reach_of(t) for t in out_tris]
             typical = sorted(spreads)[len(spreads) // 2]
-            bad = [i for i, r in enumerate(spreads) if r > typical * STRETCH]
-            good = [i for i, r in enumerate(spreads) if r <= typical * STRETCH]
+            usual = sorted(reaches)[len(reaches) // 2]
+            def broken(i):
+                return spreads[i] > typical * STRETCH or reaches[i] > usual * REACH
+            bad = [i for i in range(len(out_tris)) if broken(i)]
+            good = [i for i in range(len(out_tris)) if not broken(i)]
             if bad and good:
                 # One real corner, not the average of three.
                 #

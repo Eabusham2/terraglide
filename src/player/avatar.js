@@ -1172,6 +1172,22 @@ export class Avatar {
       model.traverse((child) => {
         if (!child.isMesh || !child.material) return;
         child.material = child.material.clone();
+        /*
+          Filtered anisotropically, or the whole point of shipping a 1024-pixel
+          atlas is thrown away at the door.
+
+          three.js defaults a texture to an anisotropy of 1, which samples a
+          surface seen at an angle along one axis only — so every part of the
+          figure that is not square to the camera comes back soft no matter how
+          much picture is behind it. That is most of a body most of the time.
+          The rest of this project already asks for 16 on the ground; the
+          character was getting 1.
+        */
+        const picture = child.material.map;
+        if (picture) {
+          picture.anisotropy = Math.max(picture.anisotropy || 1, 16);
+          picture.needsUpdate = true;
+        }
         child.material.metalness = 0;
         child.material.roughness = 0.85;
         child.material.metalnessMap = null;
@@ -1261,31 +1277,98 @@ export class Avatar {
    *
    * Hung off the head joint, so it turns when the head turns.
    */
-  makeScanFace() {
-    // Measured off the mesh: the head is a ball of radius 0.071 about
-    // (0, 0.93, -0.042), so its front is at z = -0.113. These sit on that
-    // surface, in the bone's own frame, and a couple of millimetres proud of
-    // it — flush, the corners of the eyes sink into the skull and come out
-    // notched.
+  makeScanFace(skins = []) {
+    /*
+      Laid on the head, not stood off it.
+
+      These were boxes pushed a couple of millimetres proud of the skull, which
+      is fine head-on and wrong from anywhere else: a curved head seen from the
+      side shows them edge-on as black tabs hanging off the silhouette, which
+      is the floating. A flat piece turned to face straight out of the head has
+      no edge to show — from the side it is a line, and from behind it is
+      nothing.
+    */
     const face = new THREE.Group();
-    const skin = new THREE.MeshStandardMaterial({
-      color: 0x25201c, roughness: 0.9, metalness: 0,
+    const ink = new THREE.MeshStandardMaterial({
+      color: 0x25201c, roughness: 0.9, metalness: 0, side: THREE.DoubleSide,
     });
-    const eye = new THREE.BoxGeometry(0.022, 0.016, 0.006);
-    for (const side of [-1, 1]) {
-      const one = new THREE.Mesh(eye, skin);
-      one.position.set(side * 0.030, 0.028, -0.108);
-      face.add(one);
+    // Measured off the mesh: the head is a ball of radius 0.071 about
+    // (0, 0.93, -0.042) in the body's frame, which is (0, 0.01, -0.042) in
+    // this joint's.
+    const middle = new THREE.Vector3(0, 0.01, -0.042);
+    const radius = 0.071;
+    const outward = new THREE.Vector3();
+    /*
+      A ball is a good enough guess for where a head is and not for where its
+      *face* is. This one has a jaw that recedes, so the middle of the mouth —
+      the lowest part of it — came out inside the chin and only the corners
+      showed. The mesh knows where its own surface is, so ask it: take the
+      vertices anywhere near the direction wanted and keep the one that reaches
+      furthest along it.
+    */
+    const head = [];
+    const point = new THREE.Vector3();
+    for (const skin of skins) {
+      const position = skin.geometry.getAttribute('position');
+      for (let v = 0; v < position.count; v += 1) {
+        // Body space; the joint this hangs on sits at 0.92.
+        if (position.getY(v) < 0.86) continue;
+        head.push(point.clone().set(
+          position.getX(v), position.getY(v) - 0.92, position.getZ(v),
+        ).sub(middle));
+      }
     }
-    // A smile rather than a line: an arc of a ring, turned so the open side is
-    // upwards. A straight mouth on a blank head reads as a slot.
-    const arc = Math.PI * 0.8;
-    const mouth = new THREE.Mesh(
-      new THREE.TorusGeometry(0.026, 0.0045, 5, 14, arc), skin,
-    );
-    mouth.rotation.z = -Math.PI / 2 - arc / 2;
-    mouth.position.set(0, -0.026, -0.101);
-    face.add(mouth);
+    const reachOf = (dir) => {
+      let far = radius;
+      for (const at of head) {
+        if (at.dot(dir) < at.length() * 0.86) continue;   // within ~30 degrees
+        far = Math.max(far, at.dot(dir));
+      }
+      return far;
+    };
+    const put = (mesh, x, y, lift = 0.0015) => {
+      // Where the sphere's surface is in that direction, and which way it
+      // faces there.
+      outward.set(x, y, 0);
+      const z = Math.sqrt(Math.max(radius * radius - x * x - y * y, 1e-6));
+      outward.z = -z;
+      outward.normalize();
+      mesh.position.copy(middle).addScaledVector(outward, reachOf(outward) + lift);
+      /*
+        Aimed, not rotated onto.
+
+        Turning +Z onto the outward direction is ambiguous about roll — the
+        shortest rotation from (0, 0, 1) to something pointing the other way is
+        a half turn about *some* axis, and which one you get decides whether
+        the mouth reads as a smile or a frown. It came out a frown. Aiming the
+        piece keeps its up upright, which is the whole difference.
+      */
+      mesh.lookAt(_grip.copy(mesh.position).add(outward));
+      face.add(mesh);
+    };
+    for (const side of [-1, 1]) {
+      put(new THREE.Mesh(new THREE.PlaneGeometry(0.022, 0.016), ink),
+        side * 0.030, 0.018);
+    }
+    /*
+      A smile made of the same flat pieces as the eyes.
+
+      It was an arc of a ring, which is a tube, and a tube standing off a face
+      is the same floating problem the eyes had. Squashing the tube flat turned
+      it into a hairline that disappeared. Five short bars along the curve read
+      as a mouth at any size, sit on the head the way the eyes do, and cannot
+      stand off it.
+    */
+    const bars = 5;
+    for (let i = 0; i < bars; i += 1) {
+      const across = (i / (bars - 1)) * 2 - 1;            // -1 .. 1
+      const bar = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.0135, 0.0055), ink,
+      );
+      // Tilted to follow the curve, so the corners meet rather than step.
+      bar.geometry.rotateZ(-across * 0.55);
+      put(bar, across * 0.024, -0.017 - (1 - across * across) * 0.009);
+    }
     return face;
   }
 
@@ -1362,7 +1445,7 @@ export class Avatar {
     group.add(bones[0]);
     // The face goes on the head joint, so it turns with the head and is hidden
     // with the rest of the scan in first person.
-    this.scanFace = this.makeScanFace();
+    this.scanFace = this.makeScanFace(this.scanSkins);
     named.head.add(this.scanFace);
     this.scanGrip = this.handOfTheScan();
     return group;
