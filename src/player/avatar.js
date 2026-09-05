@@ -1761,10 +1761,29 @@ export class Avatar {
     bone.head.quaternion.copy(this.head.quaternion);
     // Half the reach on the collarbone, the rest on the shoulder. Both about
     // the same axis, so the two together are exactly the built arm's turn.
+    /*
+      And the arms let go of the built pose as the wings open.
+
+      The built figure throws its shoulders back a hundred and forty degrees
+      to glide, which is right for a figure whose arm is a box on a hinge and
+      wrong for this one: the scan's arm owns the skin over its own shoulder,
+      so swinging it that far bunches the deltoid and the top of the chest up
+      into the neck, and from below the whole figure came out as a ball with a
+      head on it. Nothing about the torso needed posing to begin with — this
+      body was *generated* with its wings spread, which is to say it was
+      generated flying, and the honest thing to do with a pose the mesh
+      already has is to stop overwriting it.
+
+      So the arm copies the built one while the wings are shut, and is left
+      exactly as the generator built it once they are open, blended by the
+      same number that opens them. Walking still swings the arms; gliding
+      shows the figure the generator made.
+    */
+    const held = 1 - open;
     for (const side of ['L', 'R']) {
       const want = this[`arm${side}`].pivot.quaternion;
-      bone[`clav${side}`].quaternion.identity().slerp(want, SCAN_CLAVICLE);
-      bone[`arm${side}`].quaternion.identity().slerp(want, 1 - SCAN_CLAVICLE);
+      bone[`clav${side}`].quaternion.identity().slerp(want, SCAN_CLAVICLE * held);
+      bone[`arm${side}`].quaternion.identity().slerp(want, (1 - SCAN_CLAVICLE) * held);
     }
     bone.legL.quaternion.copy(this.legL.pivot.quaternion);
     bone.legR.quaternion.copy(this.legR.pivot.quaternion);
@@ -1882,10 +1901,22 @@ export class Avatar {
    * so it has to stay visible whichever body is showing.
    */
   applyModelMode() {
-    // The firework goes to whichever hand is about to be drawn.
+    /*
+      The firework goes into whichever hand is about to be drawn, and hangs off
+      that hand's own joint.
+
+      It used to hang off the built shoulder at the scanned fist's offset,
+      which is only the same place while the scanned arm is copying the built
+      one. The moment it stops — and it stops as soon as the wings open, so
+      the glide can show the arms the generator built — the built shoulder
+      swings a hundred and forty degrees and takes the firework with it, and
+      it ends up alone in the sky a metre from anybody's hand.
+    */
     if (this.builtGrip) {
       const inScanHand = !!this.model && settings.get('detailedPlayerModel')
-        && !this.firstPerson && !!this.scanGrip;
+        && !this.firstPerson && !!this.scanGrip && !!this.scanBones?.armR;
+      const holder = inScanHand ? this.scanBones.armR : this.armR.pivot;
+      if (this.rocket.parent !== holder) holder.add(this.rocket);
       this.rocket.position.copy(inScanHand ? this.scanGrip : this.builtGrip);
     }
     const useModel = !!this.model && settings.get('detailedPlayerModel') && !this.firstPerson;
@@ -2363,7 +2394,10 @@ export class Avatar {
     );
     this._aimQuat.setFromUnitVectors(ROCKET_AXIS, this._aim);
     this.root.updateMatrixWorld(true);
-    this.armR.pivot.getWorldQuaternion(this._holdQuat);
+    // Whatever it is hanging from, which is the built shoulder or the scan's
+    // own arm bone depending on which body is on screen — not the built
+    // shoulder always, or the aim is undone by a joint the rocket is not on.
+    (this.rocket.parent ?? this.armR.pivot).getWorldQuaternion(this._holdQuat);
     this.rocket.quaternion.copy(this._holdQuat).invert().multiply(this._aimQuat);
 
     if (!this.viewModel.visible) return;

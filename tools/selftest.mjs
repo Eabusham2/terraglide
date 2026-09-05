@@ -3893,7 +3893,7 @@ console.log('\nThe scanned body is a body, and it moves like one');
   const beforeHand = grab(armRpts[4]);
   const beforeChest = grab(rightFlank[6]);
   rig.armR.pivot.rotation.x = -1.2;
-  rig.poseScan(1);
+  rig.poseScan(0);
   rig.root.updateMatrixWorld(true);
   const afterHand = grab(armRpts[4]);
   const afterChest = grab(rightFlank[6]);
@@ -3903,6 +3903,26 @@ console.log('\nThe scanned body is a body, and it moves like one');
   ok(`and the chest stays where it was  `
     + `(${(afterChest.distanceTo(beforeChest) * 100).toFixed(1)} cm)`,
     afterChest.distanceTo(beforeChest) < 0.02);
+  /*
+    And with the wings open it stops copying, on purpose.
+
+    The built figure throws its shoulders back a hundred and forty degrees to
+    glide. On the scan that bunches the deltoid and the top of the chest up
+    into the neck, because the scanned arm owns the skin over its own
+    shoulder — from below the figure came out as a ball with a head on it.
+    This body was generated with its wings spread, which is to say generated
+    flying, so the glide shows the arms the generator built and nothing
+    overwrites them. Checked, because "the arm does not move" is otherwise
+    indistinguishable from the rig having quietly stopped working.
+  */
+  rig.poseScan(1);
+  rig.root.updateMatrixWorld(true);
+  const glidingHand = grab(armRpts[4]);
+  ok(`and with the wings open it is left where the generator built it  `
+    + `(${(glidingHand.distanceTo(beforeHand) * 100).toFixed(1)} cm)`,
+    glidingHand.distanceTo(beforeHand) < 0.005);
+  rig.poseScan(0);
+  rig.root.updateMatrixWorld(true);
   // A face, because the mesh came without one. A head with no front is a
   // figure you cannot tell the facing of at any distance, which is the same
   // reason the built model has eyes at all.
