@@ -421,8 +421,32 @@ const SKIN_SOFTEN = 0.015;
  *  limb. Legs are set 0.051 apart, so this keeps them from dragging on each
  *  other while still letting the crotch stretch between them. */
 const SKIN_MIDLINE = 0.03;
-/** How much of an arm's swing the collarbone takes rather than the shoulder. */
-const SCAN_CLAVICLE = 0.80;
+/**
+ * How much of an arm's swing the collarbone takes rather than the shoulder.
+ *
+ * None of it, and that is the answer rather than a number to tune. Whatever
+ * share the collarbone takes, it takes by rotating the top of the torso, and
+ * the torso is the one part of this figure that was photographed from every
+ * side and needs no help from us: the jacket has a shoulder line, lapels, a
+ * collar and a zip, and all four survive exactly as long as nothing turns
+ * them. At 0.45 the shoulders swelled into round pads and the lapels went
+ * with them; at 0.80 they hunched far enough forward that from below the
+ * whole figure read as a ball.
+ *
+ * The self-test's chest-drag check passed at both — 0.7 cm and 1.2 cm on a
+ * figure one unit tall, inside a two-centimetre tolerance — so that check is
+ * a floor and not a verdict, and it was read as a verdict twice. At zero the
+ * chest moves 0.0 cm, because it is not asked to move at all: the scan is
+ * left as the generator made it and only the arms swing off it.
+ *
+ * What it buys the shoulder is a blend, and the blend is not needed any more.
+ * It was added when straight-line weighting let the arm claim the flank and
+ * tear a gash at the joint; weighting along the surface keeps them apart on
+ * its own, and the gashes are painted out separately. What it costs is that
+ * from directly overhead, wings out, the sleeve passes through the wing root
+ * — a diagnostic angle, against a torso that is on screen the whole time.
+ */
+const SCAN_CLAVICLE = 0;
 /** Passes of neighbour-averaging over the skin weights. See weighScan(). */
 const SKIN_SMOOTHING = 12;
 
