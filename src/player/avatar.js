@@ -1355,19 +1355,34 @@ export class Avatar {
 
       It was an arc of a ring, which is a tube, and a tube standing off a face
       is the same floating problem the eyes had. Squashing the tube flat turned
-      it into a hairline that disappeared. Five short bars along the curve read
-      as a mouth at any size, sit on the head the way the eyes do, and cannot
-      stand off it.
+      it into a hairline that disappeared. Short bars along the curve read as a
+      mouth at any size, sit on the head the way the eyes do, and cannot stand
+      off it.
+
+      Nine of them rather than five, each half again as long as the step
+      between them. Five bars exactly one step long is a dotted line: they meet
+      at their centres and part at their corners, because each one is tilted a
+      different amount and they sit on a curved surface, so what should be a
+      mouth reads as stitching. Overlapping costs nothing — they are the same
+      flat black — and a shorter step means less tilt between neighbours.
     */
-    const bars = 5;
+    const bars = 9;
+    const step = 0.048 / (bars - 1);
     for (let i = 0; i < bars; i += 1) {
       const across = (i / (bars - 1)) * 2 - 1;            // -1 .. 1
       const bar = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.0135, 0.0055), ink,
+        new THREE.PlaneGeometry(step * 1.5, 0.0055), ink,
       );
       // Tilted to follow the curve, so the corners meet rather than step.
       bar.geometry.rotateZ(-across * 0.55);
-      put(bar, across * 0.024, -0.017 - (1 - across * across) * 0.009);
+      // Each one a hundredth of a millimetre further out than the last, so
+      // that where they overlap there is an answer to which is in front. Nine
+      // coplanar black planes at one height fought over every shared pixel and
+      // the mouth came out as a checkerboard along its own length, which is
+      // the depth buffer being asked a question with no answer, not anything
+      // about the face.
+      put(bar, across * 0.024, -0.017 - (1 - across * across) * 0.009,
+        0.0015 + i * 0.00001);
     }
     return face;
   }
