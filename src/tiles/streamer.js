@@ -65,11 +65,11 @@ const DEPTH_PROBE_MS = 30000;
  */
 const DEPTH_REGION_ZOOM = 10;
 
-/** Which forty-kilometre square a tile falls in, as a key. */
-function depthRegionOf(tile) {
-  const shift = tile.z - DEPTH_REGION_ZOOM;
-  const x = shift >= 0 ? tile.x >> shift : tile.x << -shift;
-  const y = shift >= 0 ? tile.y >> shift : tile.y << -shift;
+/** Which forty-kilometre square a point falls in, as a key. */
+function depthRegionAt(nx, ny) {
+  const n = Math.pow(2, DEPTH_REGION_ZOOM);
+  const x = Math.floor((nx - Math.floor(nx)) * n);
+  const y = Math.floor(Math.min(Math.max(ny, 0), 0.999999) * n);
   return `${x}/${y}`;
 }
 
@@ -148,6 +148,8 @@ export class ImageryStreamer extends Emitter {
     this.depthLimit = Infinity;
     /** The forty-kilometre square `depthLimit` was learned over. */
     this.depthRegion = null;
+    /** The forty-kilometre square the camera is in now. Set by beginFrame. */
+    this.here = null;
     /**
      * Squares every provider has said it has no photograph of.
      *
@@ -430,7 +432,7 @@ export class ImageryStreamer extends Emitter {
       // Where this was learned. `probeDeeper` throws it away again as soon as
       // the ground being asked for is a different forty-kilometre square, so
       // the glacier's answer never follows you to the next town.
-      this.depthRegion = depthRegionOf(tile);
+      this.depthRegion = this.here ?? null;
       this.emit('depth', { zoom: this.depthLimit });
     }
   }
@@ -462,16 +464,38 @@ export class ImageryStreamer extends Emitter {
    */
   probeDeeper() {
     if (!Number.isFinite(this.depthLimit)) return;
-    const deepest = this._deepestAsked;
-    if (!deepest) return;
-    // A limit learned over there says nothing about here.
-    if (this.depthRegion && depthRegionOf(deepest) !== this.depthRegion) {
+    /*
+      A limit learned over there says nothing about here — and "here" is where
+      the camera is, not whichever tile won a contest this frame.
+
+      It was `_deepestAsked`: the deepest square anyone asked for since the last
+      time the counter happened to be beaten. Which square that is changes frame
+      to frame, `beginFrame` resets the depth it is measured against but never
+      the tile itself, so it can be a stale one from somewhere else entirely,
+      and one frame of it landing in a neighbouring forty-kilometre square threw
+      the limit away. The refusals then set it again, and again.
+
+      That flap is not a small one. `maxUsefulZoom` feeds the quadtree's maximum
+      zoom every single frame, so the tree alternated between capped and
+      uncapped: squares split into ground the provider has no photograph of —
+      which draws a coarser one stretched over it, so the picture goes soft —
+      then merged back and sharpened, over and over. Ground going bad, then
+      good, then bad, moving up and down as it goes, which is exactly what it
+      was reported as.
+
+      The camera's own square changes when you cross a line forty kilometres
+      apart, and not otherwise.
+    */
+    if (this.depthRegion && this.here && this.here !== this.depthRegion) {
       this.depthLimit = Infinity;
       this.depthRegion = null;
       this.emit('depth', { zoom: this.depthLimit });
       return;
     }
-    if (deepest.z !== this.depthLimit) return;
+    // Leaving is judged above, before this: whether anything deep happened to
+    // be asked for this frame has nothing to do with where you are standing.
+    const deepest = this._deepestAsked;
+    if (!deepest || deepest.z !== this.depthLimit) return;
     const moment = now();
     if (moment - (this._probedAt ?? -Infinity) < DEPTH_PROBE_MS) return;
     this._probedAt = moment;
@@ -480,8 +504,10 @@ export class ImageryStreamer extends Emitter {
     this.request({ z: deepest.z + 1, x: deepest.x * 2, y: deepest.y * 2 }, Number.MAX_SAFE_INTEGER);
   }
 
-  beginFrame() {
+  beginFrame(nx = null, ny = null) {
     this.frame++;
+    // The forty-kilometre square the camera is standing in. See probeDeeper.
+    if (nx !== null && ny !== null) this.here = depthRegionAt(nx, ny);
     // Per frame, because the question is "how much of what I am looking at
     // right now is stretched", not "how much has ever been".
     this.stats.exact = 0;
@@ -490,7 +516,11 @@ export class ImageryStreamer extends Emitter {
     this.stats.bare = 0;
     // Requests are collected fresh each frame; stale ones simply never re-queue.
     this.queue.length = 0;
+    // Both halves of "the deepest square asked for", together. Resetting the
+    // depth and keeping the tile left a stale one to be read on any frame that
+    // asked for nothing deep.
     this._deepest = 0;
+    this._deepestAsked = null;
     this.probeDeeper();
   }
 

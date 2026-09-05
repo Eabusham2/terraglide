@@ -473,7 +473,10 @@ export class Terrain {
     this._viewX /= flatLen;
     this._viewZ /= flatLen;
 
-    this.streamer.beginFrame();
+    // Where the camera is, so the streamer can tell a depth learned here from
+    // one learned forty kilometres away. See probeDeeper.
+    this.frame.worldToNorm(camera.position.x, camera.position.z, this._norm);
+    this.streamer.beginFrame(this._norm.nx, this._norm.ny);
     this.elevation.beginFrame();
 
     // Culled against the camera the frame is actually drawn through, which is

@@ -637,8 +637,29 @@ console.log('\na dropped connection is not a provider telling you its depth');
   // And the verdict has to stop at the edge of the ground it was learned over.
   ok('a depth learned over one place does not follow you to the next',
     /const DEPTH_REGION_ZOOM = 10;/.test(streamer)
-    && /this\.depthRegion = depthRegionOf\(tile\);/.test(streamer)
-    && /if \(this\.depthRegion && depthRegionOf\(deepest\) !== this\.depthRegion\)/.test(streamer));
+    && /this\.depthRegion = this\.here \?\? null;/.test(streamer)
+    && /if \(this\.depthRegion && this\.here && this\.here !== this\.depthRegion\)/.test(streamer));
+  /*
+    And "here" is where the camera is, not whichever square won a contest this
+    frame.
+
+    It was `_deepestAsked` — the deepest square anyone asked for since the
+    counter was last beaten. That changes frame to frame, beginFrame reset the
+    depth it is measured against but never the tile, so a stale one from
+    somewhere else could be read on any frame that asked for nothing deep, and
+    one such frame threw the limit away. The refusals set it again, and again.
+    maxUsefulZoom feeds the quadtree's maximum zoom every frame, so the tree
+    alternated between capped and uncapped: squares splitting into ground with
+    no photograph, drawing a coarser one stretched over it, then merging back —
+    the picture going soft and sharp and soft, moving as it went.
+  */
+  ok('and here is where the camera is, which only changes when you travel',
+    /beginFrame\(nx = null, ny = null\)/.test(streamer)
+    && /this\.here = depthRegionAt\(nx, ny\);/.test(streamer)
+    && /this\.streamer\.beginFrame\(this\._norm\.nx, this\._norm\.ny\);/
+      .test(readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8')));
+  ok('and the deepest square asked for is forgotten with its depth',
+    /this\._deepest = 0;\n\s*this\._deepestAsked = null;/.test(streamer));
   ok('nor does a fault land in the per-zoom tally reviewDepth counts',
     /if \(!msg\.transient\) this\.zoomRecord\(entry\.tile\.z\)\.failed\+\+;/.test(streamer));
   // Writing a square off takes the four below it and the sixteen below those,
@@ -1557,6 +1578,7 @@ console.log('\na written-off depth can be un-written-off');
     s2.source = { maxZoom: 23, ready: true, urlFor: () => 'x' };
     s2.standbys = [];
     s2.zoomRecord(13).loaded = 4;
+    s2.beginFrame(0.25, 0.25);
     const fail = (z, noImageryHere) => {
       const entry = { key: `${z}/1/1`, tile: { z, x: 1, y: 1 }, state: 1, attempt: 99 };
       s2.jobs.set(1, entry);
@@ -1567,10 +1589,10 @@ console.log('\na written-off depth can be un-written-off');
     ok(`eight squares with no picture cap the provider there  (${s2.depthLimit})`,
       s2.depthLimit === 13);
     ok('and the cap remembers the ground it was learned over',
-      s2.depthRegion === '0/0');
-    // Forty kilometres away is not that ground. The next frame that asks for a
-    // tile there drops the cap rather than carrying it along.
-    s2._deepestAsked = { z: 14, x: 9000, y: 9000 };
+      s2.depthRegion === s2.here);
+    // Forty kilometres away is not that ground. The first frame whose camera
+    // stands there drops the cap rather than carrying it along.
+    s2.beginFrame(0.6, 0.6);
     s2.probeDeeper();
     ok(`a cap learned elsewhere does not apply here  (${s2.depthLimit})`,
       s2.depthLimit === Infinity && s2.depthRegion === null);
@@ -3528,6 +3550,96 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nNothing ships with holes in it');
+{
+  /*
+    A mesh with an open edge is a mesh you can see through, and one shipped.
+
+    The clusterer in tools/glb-optimise.py welds vertices onto a grid and drops
+    the triangles that collapse. That stays watertight only while the key it
+    welds on is the cell and nothing else. A quantised texture coordinate was
+    added to the key, to stop a seam being averaged into a smear across the
+    middle of the picture, and it tore the surface open: two vertices at one
+    place with different coordinates stayed two vertices, so every chart
+    boundary became a crack. The firework went out at 21.8% of its edges open,
+    against 0.3% for the character, which was made before the clusterer existed.
+
+    Counted after welding by position, because a texture seam is two indices at
+    one place and an index-based test calls that a hole when it is not.
+  */
+  const { readdirSync } = await import('node:fs');
+  const dir = new URL('../assets/', import.meta.url);
+  let checked = 0;
+  for (const name of readdirSync(dir).filter((f) => f.endsWith('.glb'))) {
+    const raw = readFileSync(new URL(name, dir));
+    let off = 12;
+    let json = null;
+    let bin = null;
+    while (off < raw.length) {
+      const len = raw.readUInt32LE(off);
+      const type = raw.toString('utf8', off + 4, off + 8);
+      if (type === 'JSON') json = JSON.parse(raw.toString('utf8', off + 8, off + 8 + len));
+      else if (type.startsWith('BIN')) bin = raw.subarray(off + 8, off + 8 + len);
+      off += 8 + len;
+    }
+    const NUM = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
+    const READ = {
+      5120: [1, (b, o) => b.readInt8(o)], 5121: [1, (b, o) => b.readUInt8(o)],
+      5122: [2, (b, o) => b.readInt16LE(o)], 5123: [2, (b, o) => b.readUInt16LE(o)],
+      5125: [4, (b, o) => b.readUInt32LE(o)], 5126: [4, (b, o) => b.readFloatLE(o)],
+    };
+    const read = (i) => {
+      const a = json.accessors[i];
+      const view = json.bufferViews[a.bufferView];
+      const [size, get] = READ[a.componentType];
+      const n = NUM[a.type];
+      const base = (view.byteOffset ?? 0) + (a.byteOffset ?? 0);
+      const out = new Array(a.count * n);
+      for (let k = 0; k < a.count * n; k += 1) out[k] = get(bin, base + k * size);
+      return [out, a];
+    };
+    let open = 0;
+    let edges = 0;
+    for (const mesh of json.meshes ?? []) {
+      for (const prim of mesh.primitives) {
+        if (prim.indices === undefined) continue;
+        const [pos, pa] = read(prim.attributes.POSITION);
+        const [idx] = read(prim.indices);
+        const span = Math.max(...[0, 1, 2].map((i) => pa.max[i] - pa.min[i])) || 1;
+        const q = span * 1e-5;
+        const weld = new Map();
+        const id = new Array(pa.count);
+        let usable = true;
+        for (let v = 0; v < pa.count; v += 1) {
+          const xyz = [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]];
+          if (!xyz.every(Number.isFinite)) { usable = false; break; }
+          const key = xyz.map((c) => Math.round(c / q)).join(',');
+          if (!weld.has(key)) weld.set(key, weld.size);
+          id[v] = weld.get(key);
+        }
+        if (!usable) continue;
+        const seen = new Map();
+        for (let t = 0; t < idx.length; t += 3) {
+          const [a, b, c] = [id[idx[t]], id[idx[t + 1]], id[idx[t + 2]]];
+          if (a === b || b === c || a === c) continue;
+          for (const [u, v] of [[a, b], [b, c], [c, a]]) {
+            const key = u < v ? `${u}-${v}` : `${v}-${u}`;
+            seen.set(key, (seen.get(key) ?? 0) + 1);
+          }
+        }
+        for (const n of seen.values()) if (n === 1) open += 1;
+        edges += seen.size;
+      }
+    }
+    if (edges === 0) continue;
+    checked += 1;
+    const share = (100 * open) / edges;
+    ok(`${name} is closed  (${share.toFixed(1)}% of its edges open)`, share < 1);
+  }
+  ok(`and there was something to check  (${checked} mesh${checked === 1 ? '' : 'es'})`,
+    checked > 0);
+}
+
 console.log('\nNo tier buys frame rate by making the picture worse');
 {
   const { GRAPHICS_PRESETS } = await import('../src/core/settings.js');

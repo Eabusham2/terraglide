@@ -28,9 +28,47 @@ def read_acc0(i):
     a = J['accessors'][i]
     bv = J['bufferViews'][a['bufferView']]
     start = bv.get('byteOffset', 0) + a.get('byteOffset', 0)
-    n = NUM0[a['type']]; fmt = {5123:'H', 5125:'I', 5126:'f'}[a['componentType']]
+    n = NUM0[a['type']]
+    fmt = {5120:'b', 5121:'B', 5122:'h', 5123:'H', 5125:'I', 5126:'f'}[a['componentType']]
     size = COMP0[a['componentType']] * n
     return list(struct.unpack(f'<{a["count"]*n}{fmt}', bytes(BIN[start:start + a['count']*size]))), a
+
+
+def boundary_edges(J, BIN):
+    """Edges used by one triangle, after welding vertices that share a place."""
+    from collections import defaultdict
+    total_open = 0
+    total = 0
+    for mesh in J.get('meshes', []):
+        for prim in mesh['primitives']:
+            if 'indices' not in prim: continue
+            pos, pa = read_acc0(prim['attributes']['POSITION'])
+            idx, _ = read_acc0(prim['indices'])
+            span = max(pa['max'][i] - pa['min'][i] for i in range(3)) or 1.0
+            q = span * 1e-5
+            weld = {}
+            wid = [0] * pa['count']
+            bad = False
+            for v in range(pa['count']):
+                xyz = pos[v*3:v*3+3]
+                # A mesh can carry a vertex that is not a number. It is not a
+                # place, so it cannot be welded to one; the whole primitive is
+                # simply not measurable and saying so beats guessing.
+                if any(c != c or c in (float('inf'), float('-inf')) for c in xyz):
+                    bad = True
+                    break
+                k = tuple(round(c / q) for c in xyz)
+                wid[v] = weld.setdefault(k, len(weld))
+            if bad: continue
+            seen = defaultdict(int)
+            for t in range(0, len(idx), 3):
+                a, b, c = wid[idx[t]], wid[idx[t+1]], wid[idx[t+2]]
+                if a == b or b == c or a == c: continue
+                for u, v in ((a, b), (b, c), (c, a)):
+                    seen[(min(u, v), max(u, v))] += 1
+            total_open += sum(1 for n in seen.values() if n == 1)
+            total += len(seen)
+    return total_open, total
 
 # Rebuild the binary chunk from scratch, so nothing unreferenced survives.
 out = bytearray()
@@ -61,6 +99,11 @@ for mat in J.get('materials', []):
     pbr.pop('metallicRoughnessTexture', None)
     pbr['metallicFactor'] = 0.0
     pbr['roughnessFactor'] = 0.85
+    # A single-sided shell shows nothing at all where you are looking at its
+    # back, which reads as a hole whether or not there is one. These are small
+    # props: drawing both faces costs nothing and removes a whole class of
+    # "there is a gap in it".
+    mat['doubleSided'] = True
 
 # 1. Textures: PNG -> JPEG, downscaled.
 used_images = set()
@@ -86,10 +129,19 @@ for i, im in enumerate(list(J.get('images', []))):
 # vertex to a cell, average what lands in each, and drop the triangles that
 # collapse.
 #
-# The key carries a coarse quantised UV as well as the cell, so a seam — where
-# two vertices sit at the same place in space and opposite ends of the texture
-# — is not averaged into a smear across the middle of the picture. That is the
-# one artefact clustering reliably produces if you cluster on position alone.
+# The key is the cell and nothing else, which is what makes it watertight: every
+# vertex at a given place becomes the same vertex, so no triangle is left with
+# an edge nobody shares. Adding a quantised UV to the key was tried, to stop a
+# seam being averaged into a smear across the middle of the texture, and it
+# tears the mesh open — two vertices at one place with different UVs stay two
+# vertices, and every UV chart boundary becomes a crack you can see through.
+# Holes are far worse than a smear.
+#
+# The smear is dealt with where it belongs: positions and normals are averaged
+# over the cell, and the texture coordinate is *taken* from one member rather
+# than averaged. A cell straddling a seam then reads one side's texture, which
+# is a small local discontinuity, instead of the midpoint of two distant places
+# in the picture, which is a streak.
 if cluster:
     import math
     for mesh in J['meshes']:
@@ -110,9 +162,7 @@ if cluster:
                 cx = int((pos[v*3] - lo[0]) / cell)
                 cy = int((pos[v*3+1] - lo[1]) / cell)
                 cz = int((pos[v*3+2] - lo[2]) / cell)
-                ku = int(uv[v*2] * 6) if uv else 0
-                kv = int(uv[v*2+1] * 6) if uv else 0
-                k = (cx, cy, cz, ku, kv)
+                k = (cx, cy, cz)
                 key_of[v] = k
                 rep.setdefault(k, []).append(v)
             order = {k: i for i, k in enumerate(rep)}
@@ -128,6 +178,11 @@ if cluster:
                 packed = []
                 for k in rep:
                     members = rep[k]
+                    if name == 'TEXCOORD_0':
+                        # Taken, not averaged. See the note above.
+                        first = members[0]
+                        packed.extend(vals[first*n:(first+1)*n])
+                        continue
                     for c in range(n):
                         packed.append(sum(vals[v*n + c] for v in members) / len(members))
                 if name == 'NORMAL':
@@ -167,7 +222,8 @@ def read_acc(i):
     a = J['accessors'][i]
     bv = J['bufferViews'][a['bufferView']]
     start = bv.get('byteOffset', 0) + a.get('byteOffset', 0)
-    n = NUM0[a['type']]; fmt = {5123:'H', 5125:'I', 5126:'f'}[a['componentType']]
+    n = NUM0[a['type']]
+    fmt = {5120:'b', 5121:'B', 5122:'h', 5123:'H', 5125:'I', 5126:'f'}[a['componentType']]
     size = COMP0[a['componentType']] * n
     return list(struct.unpack(f'<{a["count"]*n}{fmt}', bytes(BIN[start:start + a['count']*size]))), a
 
@@ -193,7 +249,8 @@ for mesh in J['meshes']:
             vals, acc = read_acc(ai)
             n = NUM0[acc['type']]
             packed = [v for old in used for v in vals[old*n:(old+1)*n]]
-            fmt = {5123:'H', 5125:'I', 5126:'f'}[acc['componentType']]
+            fmt = {5120:'b', 5121:'B', 5122:'h', 5123:'H', 5125:'I',
+                   5126:'f'}[acc['componentType']]
             newdata = struct.pack(f'<{len(packed)}{fmt}', *packed)
             acc['count'] = len(used)
             if name == 'POSITION':
@@ -212,6 +269,18 @@ for mesh in J['meshes']:
         iacc['count'] = len(keep)
         BIN.extend(newidx)
         print(f"  cut {removed} ground triangles, {len(used)} vertices kept")
+
+# And say whether the thing is still closed.
+#
+# Clustering welds vertices and drops the triangles that collapse, and if the
+# key it welds on splits two vertices that sit at the same place — a texture
+# seam, say — the triangles either side of that seam stop sharing an edge and
+# the surface tears. Measured on positions rather than on indices, because a
+# seam is two indices at one place and an index-based test calls that a hole
+# when it is not.
+_open, _edges = boundary_edges(J, BIN)
+print(f"  open edges {_open} of {_edges} ({100 * _open / max(1, _edges):.1f}%)"
+      + ("  <- HOLES" if _open > _edges * 0.01 else ""))
 
 # 2. Geometry: keep the data, but narrow indices where the vertex count allows.
 COMP = {5120:1, 5121:1, 5122:2, 5123:2, 5125:4, 5126:4}
@@ -265,3 +334,4 @@ glb += struct.pack('<I', len(js)) + b'JSON' + js
 glb += struct.pack('<I', len(out)) + b'BIN\x00' + bytes(out)
 open(dst, 'wb').write(glb)
 print(f"{len(raw)//1024} KB -> {len(glb)//1024} KB")
+
