@@ -296,6 +296,24 @@ window.__where = (name) => {
   };
 };
 
+/*
+  The camera, the scene and the renderer, so a shot can be taken from an angle
+  that is not in the list above without editing the list. Nine fixed poses are
+  the right thing to keep and the wrong thing to be limited to: "send me
+  another angle of it flying" should not be a code change.
+*/
+window.__camera = camera;
+window.__Box3 = THREE.Box3;
+window.__Vec3 = THREE.Vector3;
+window.__scene = scene;
+window.__renderer = renderer;
+window.__shoot = (name, at, look) => {
+  window.__pose(name);
+  camera.position.set(...at);
+  camera.lookAt(...look);
+  renderer.render(scene, camera);
+};
+
 window.__pose('stand-front');
 // Exposed so a probe can ask what is actually being drawn, which is a
 // different question from what a screenshot looks like.
