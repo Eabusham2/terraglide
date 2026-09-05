@@ -3913,10 +3913,15 @@ console.log('\nThe scanned body is a body, and it moves like one');
     ok(`the scan has a face  (${face.length} pieces on the head joint)`,
       face.length >= 3);
     head.updateMatrixWorld(true);
+    // Where the geometry is, not where its origin is. The mouth is one strip
+    // whose vertices carry their own offsets, so its object sits at the head
+    // joint and asking the object where it is answers about the joint.
     const front = new THREE.Vector3();
     let worst = 1;
     for (const piece of face) {
-      piece.getWorldPosition(front);
+      piece.geometry.computeBoundingBox();
+      piece.geometry.boundingBox.getCenter(front);
+      piece.localToWorld(front);
       worst = Math.min(worst, -front.z);
     }
     // The model faces -Z. A face on the back of the head is the bug this

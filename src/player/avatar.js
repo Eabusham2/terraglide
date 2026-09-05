@@ -1326,14 +1326,19 @@ export class Avatar {
       }
       return far;
     };
+    /** Where the head's surface is at a place on the face, and which way it
+     *  faces there. `into` and `at` are filled in; the return is `at`. */
+    const surfaceAt = (x, y, lift, into, at) => {
+      into.set(x, y, 0);
+      const z = Math.sqrt(Math.max(radius * radius - x * x - y * y, 1e-6));
+      into.z = -z;
+      into.normalize();
+      return at.copy(middle).addScaledVector(into, reachOf(into) + lift);
+    };
     const put = (mesh, x, y, lift = 0.0015) => {
       // Where the sphere's surface is in that direction, and which way it
       // faces there.
-      outward.set(x, y, 0);
-      const z = Math.sqrt(Math.max(radius * radius - x * x - y * y, 1e-6));
-      outward.z = -z;
-      outward.normalize();
-      mesh.position.copy(middle).addScaledVector(outward, reachOf(outward) + lift);
+      surfaceAt(x, y, lift, outward, mesh.position);
       /*
         Aimed, not rotated onto.
 
@@ -1351,39 +1356,64 @@ export class Avatar {
         side * 0.030, 0.018);
     }
     /*
-      A smile made of the same flat pieces as the eyes.
+      One stroke, not a row of tiles.
 
-      It was an arc of a ring, which is a tube, and a tube standing off a face
-      is the same floating problem the eyes had. Squashing the tube flat turned
-      it into a hairline that disappeared. Short bars along the curve read as a
-      mouth at any size, sit on the head the way the eyes do, and cannot stand
-      off it.
+      Every version of this mouth until now was separate pieces laid along a
+      curve, and separate pieces on a curved surface leave gaps however many
+      of them there are. Five bars one step long met at their centres and
+      parted at their corners; nine overlapping bars closed the gaps and then
+      fought each other for every shared pixel, so the mouth came apart along
+      its own length instead. Both faults are the same fault, and the number of
+      bars was never going to fix it: a smile is one continuous thing and has
+      to be built as one.
 
-      Nine of them rather than five, each half again as long as the step
-      between them. Five bars exactly one step long is a dotted line: they meet
-      at their centres and part at their corners, because each one is tilted a
-      different amount and they sit on a curved surface, so what should be a
-      mouth reads as stitching. Overlapping costs nothing — they are the same
-      flat black — and a shorter step means less tilt between neighbours.
+      So it is a ribbon. Walk the curve, and at each step ask the head where
+      its surface is and which way it faces — the same question the eyes ask —
+      then step sideways across that surface by half the stroke's width to get
+      the two edges. Join them up. One mesh, no seams to leave open and no
+      overlaps to argue about depth.
     */
-    const bars = 9;
-    const step = 0.048 / (bars - 1);
-    for (let i = 0; i < bars; i += 1) {
-      const across = (i / (bars - 1)) * 2 - 1;            // -1 .. 1
-      const bar = new THREE.Mesh(
-        new THREE.PlaneGeometry(step * 1.5, 0.0055), ink,
+    const steps = 40;
+    const half = 0.0034;                                  // half the stroke
+    const spread = 0.026;                                 // corner to corner
+    const drop = 0.017;                                   // below the middle
+    const curve = 0.011;                                  // how much it smiles
+    const along = (t) => {
+      const x = t * spread;
+      return [x, -drop - (1 - t * t) * curve];
+    };
+    const points = [];
+    const centre = new THREE.Vector3();
+    const ahead = new THREE.Vector3();
+    const sideways = new THREE.Vector3();
+    for (let i = 0; i <= steps; i += 1) {
+      const t = (i / steps) * 2 - 1;                      // -1 .. 1
+      const [x, y] = along(t);
+      surfaceAt(x, y, 0.0015, outward, centre);
+      // The direction the stroke is running in, measured on the surface
+      // rather than assumed, so the width stays square to it round the curve.
+      const step = 1 / steps;
+      const [ax, ay] = along(Math.min(t + step, 1));
+      const [bx, by] = along(Math.max(t - step, -1));
+      surfaceAt(ax, ay, 0.0015, _grip, ahead);
+      surfaceAt(bx, by, 0.0015, _grip, sideways);
+      ahead.sub(sideways);
+      sideways.crossVectors(outward, ahead).normalize().multiplyScalar(half);
+      points.push(
+        centre.x + sideways.x, centre.y + sideways.y, centre.z + sideways.z,
+        centre.x - sideways.x, centre.y - sideways.y, centre.z - sideways.z,
       );
-      // Tilted to follow the curve, so the corners meet rather than step.
-      bar.geometry.rotateZ(-across * 0.55);
-      // Each one a hundredth of a millimetre further out than the last, so
-      // that where they overlap there is an answer to which is in front. Nine
-      // coplanar black planes at one height fought over every shared pixel and
-      // the mouth came out as a checkerboard along its own length, which is
-      // the depth buffer being asked a question with no answer, not anything
-      // about the face.
-      put(bar, across * 0.024, -0.017 - (1 - across * across) * 0.009,
-        0.0015 + i * 0.00001);
     }
+    const strip = new THREE.BufferGeometry();
+    strip.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+    const seam = [];
+    for (let i = 0; i < steps; i += 1) {
+      const a = i * 2;
+      seam.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+    strip.setIndex(seam);
+    strip.computeVertexNormals();
+    face.add(new THREE.Mesh(strip, ink));
     return face;
   }
 
