@@ -10,9 +10,15 @@ cracks in it comes out covered in them. That is what happened to the character.
 This does the second half only. It welds by position to *find* the boundaries,
 because an unwelded mesh calls every texture seam a hole, and then fills them
 against the original indices: every existing vertex, texture coordinate and
-triangle is left exactly as it was, and the only new geometry is one point per
-hole and a fan around it. Attributes are re-encoded in whatever type the file
-already uses, so a quantised mesh stays quantised.
+triangle is left exactly as it was, and the fill is triangles and nothing else.
+
+It used to add a point at the middle of each hole and fan around that, and the
+point needed a texture coordinate, which was taken as the average of the ones
+around the hole. A hole's rim is not a neighbourhood in the atlas — its
+vertices can be scattered right across it — so the average landed nowhere in
+particular and the fan stretched the whole picture across it. That is what
+turned both boot soles into a smeared rainbow starburst. Fanning from a corner
+the hole already has needs no new coordinate and cannot invent one.
 
 The holes it is for are the boot soles. The generator built the figure standing
 on an implied floor, tools/glb-optimise.py cut the floor away by dropping every
@@ -25,6 +31,12 @@ import json, math, struct, sys
 from collections import defaultdict
 
 src, dst = sys.argv[1], sys.argv[2]
+# How far a triangle may stretch across the atlas, as a multiple of what the
+# mesh normally does, before it is treated as unmapped. The body's own spread
+# is tight — its ninetieth percentile is 1.1 times its median — so anything
+# past about two is not detail, it is a triangle reading a part of the picture
+# that has nothing to do with it.
+STRETCH = float(sys.argv[3]) if len(sys.argv) > 3 else 2.2
 
 raw = open(src, 'rb').read()
 off, J, BIN = 12, None, None
@@ -103,7 +115,7 @@ for mesh in J.get('meshes', []):
                 for t in range(0, len(idx), 3)]
         tris = [t for t in tris if t[0] != t[1] and t[1] != t[2] and t[0] != t[2]]
         new_tris = []
-        new_rows = {name: [] for name in attrs}
+        new_rows = {name: [] for name in attrs}   # kept empty: see below
         for _round in range(12):
             directed = set()
             for a, b, c in tris:
@@ -123,28 +135,91 @@ for mesh in J.get('meshes', []):
                     if len(loop) >= 3: loops.append(loop)
             if not loops: break
             for loop in loops:
-                centre = pa['count'] + len(new_rows['POSITION'])
-                for name, (vals, acc, _s) in attrs.items():
-                    n = NUM[acc['type']]
-                    mean = [sum(vals[first[w]][c] for w in loop) / len(loop)
-                            for c in range(n)]
-                    if name == 'NORMAL':
-                        m = math.sqrt(sum(x * x for x in mean)) or 1.0
-                        top = 127.0 if acc['componentType'] == 5120 else 1.0
-                        mean = [x / m * top for x in mean]
-                    if acc['componentType'] != 5126:
-                        mean = [int(round(x)) for x in mean]
-                    new_rows[name].append(mean)
-                for i in range(len(loop)):
-                    new_tris.append((loop[(i + 1) % len(loop)], loop[i], centre))
-                tris.append((loop[0], loop[1], centre))   # so the round ends
+                for i in range(1, len(loop) - 1):
+                    new_tris.append((loop[0], loop[i + 1], loop[i]))
                 filled += 1
-            # Re-derive from the real triangle list next round.
-            tris = tris[:-len(loops)] + [
-                (loop[(i + 1) % len(loop)], loop[i], pa['count'] + k)
-                for k, loop in enumerate(loops, start=len(new_rows['POSITION']) - len(loops))
-                for i in range(len(loop))]
+            # Next round sees the filled surface.
+            for loop in loops:
+                for i in range(1, len(loop) - 1):
+                    tris.append((loop[0], loop[i + 1], loop[i]))
         added += len(new_rows['POSITION'])
+
+        flat = list(idx)
+        for a, b, c in new_tris:
+            flat.extend((first[a], first[b], first[c]))
+
+        # And flatten the triangles the ground cut left stretched across the
+        # atlas.
+        #
+        # Removing the baked floor leaves a rim joining the sole of a boot to
+        # vertices that used to be on the slab, and those still carry the
+        # slab's texture coordinates — so a triangle a centimetre across reads
+        # a third of the picture. On this figure the worst of them covers three
+        # hundred times the atlas area its neighbours do, which is the smeared
+        # rainbow starburst on both soles.
+        #
+        # There is no photograph of the underside of a boot; the generator only
+        # ever saw the floor there. So they take the flat colour of the nearest
+        # triangle that *is* mapped properly, on copies of their own vertices,
+        # so nothing else sharing those vertices is touched.
+        uvs = attrs.get('TEXCOORD_0', (None,))[0]
+        if uvs:
+            out_tris = [tuple(flat[t:t+3]) for t in range(0, len(flat), 3)]
+            def spread_of(t):
+                u = [uvs[v] if v < len(uvs) else new_rows['TEXCOORD_0'][v - pa['count']]
+                     for v in t]
+                area = abs((u[1][0]-u[0][0]) * (u[2][1]-u[0][1])
+                           - (u[2][0]-u[0][0]) * (u[1][1]-u[0][1])) / 2
+                q = [pos[v] if v < len(pos) else new_rows['POSITION'][v - pa['count']]
+                     for v in t]
+                ax = [q[1][i] - q[0][i] for i in range(3)]
+                bx = [q[2][i] - q[0][i] for i in range(3)]
+                cr = [ax[1]*bx[2] - ax[2]*bx[1], ax[2]*bx[0] - ax[0]*bx[2],
+                      ax[0]*bx[1] - ax[1]*bx[0]]
+                return area / max(math.sqrt(sum(c*c for c in cr)) / 2, 1e-12)
+            def middle(t):
+                q = [pos[v] if v < len(pos) else new_rows['POSITION'][v - pa['count']]
+                     for v in t]
+                return [sum(c[i] for c in q) / 3 for i in range(3)]
+            spreads = [spread_of(t) for t in out_tris]
+            typical = sorted(spreads)[len(spreads) // 2]
+            bad = [i for i, r in enumerate(spreads) if r > typical * STRETCH]
+            good = [i for i, r in enumerate(spreads) if r <= typical * STRETCH]
+            if bad and good:
+                # One real corner, not the average of three.
+                #
+                # A triangle's mean texture coordinate is only meaningful if
+                # its corners are near each other in the atlas, and on a
+                # generated mesh they routinely are not — so the average lands
+                # somewhere unrelated and the flattened sole came out in
+                # patches of skin and jacket. A single corner of a
+                # well-mapped triangle is a real point on the real picture.
+                anchors = []
+                seen_v = set()
+                for i in good:
+                    for v in out_tris[i]:
+                        if v in seen_v or v >= len(uvs): continue
+                        seen_v.add(v)
+                        anchors.append((pos[v], list(uvs[v])))
+                for i in bad:
+                    t = out_tris[i]
+                    mid = middle(t)
+                    near = min(anchors, key=lambda a: sum(
+                        (a[0][k] - mid[k]) ** 2 for k in range(3)))
+                    fresh = []
+                    for v in t:
+                        for name, (vals, acc, _s) in attrs.items():
+                            n2 = NUM[acc['type']]
+                            row = list(vals[v]) if v < len(vals) else \
+                                list(new_rows[name][v - pa['count']])
+                            if name == 'TEXCOORD_0': row = list(near[1])
+                            if acc['componentType'] != 5126:
+                                row = [int(round(x)) for x in row]
+                            new_rows[name].append(row)
+                        fresh.append(pa['count'] + len(new_rows['POSITION']) - 1)
+                    out_tris[i] = tuple(fresh)
+                print(f'  flattened {len(bad)} triangles stretched across the atlas')
+                flat = [v for t in out_tris for v in t]
 
         for name, (vals, acc, stride) in attrs.items():
             n = NUM[acc['type']]
@@ -161,10 +236,6 @@ for mesh in J.get('meshes', []):
                 **({'byteStride': stride} if stride != size else {}))
             J['accessors'][prim['attributes'][name]] = a2
 
-        flat = list(idx)
-        for a, b, c in new_tris:
-            flat.extend((first[a], first[b], c) if c >= pa['count']
-                        else (first[a], first[b], first[c]))
         wide = max(flat) > 65535
         J['accessors'][prim['indices']] = {
             'componentType': 5125 if wide else 5123, 'type': 'SCALAR',
