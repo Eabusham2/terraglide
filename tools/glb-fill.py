@@ -12,18 +12,30 @@ because an unwelded mesh calls every texture seam a hole, and then fills them
 against the original indices: every existing vertex, texture coordinate and
 triangle is left exactly as it was, and the fill is triangles and nothing else.
 
-It used to add a point at the middle of each hole and fan around that, and the
-point needed a texture coordinate, which was taken as the average of the ones
-around the hole. A hole's rim is not a neighbourhood in the atlas — its
-vertices can be scattered right across it — so the average landed nowhere in
-particular and the fan stretched the whole picture across it. That is what
-turned both boot soles into a smeared rainbow starburst. Fanning from a corner
-the hole already has needs no new coordinate and cannot invent one.
-
 The holes it is for are the boot soles. The generator built the figure standing
 on an implied floor, tools/glb-optimise.py cut the floor away by dropping every
-triangle lying flat in the bottom slice of the model, and some of the soles
-were lying flat in the bottom slice too.
+triangle lying flat in the bottom slice of the model, and the soles were lying
+flat in the bottom slice too. What is left is one long concave outline per
+boot, which is why this went through three wrong answers before the right one:
+
+  * A point in the middle of the hole, fanned around, needed a texture
+    coordinate, and the average of the rim's landed nowhere in particular
+    because a rim is not a neighbourhood in the atlas. Smeared rainbow.
+  * A fan from a corner the hole already had needs no new coordinate — but a
+    fan is only exact on a crack a few vertices long. Across a boot sole it
+    lays skinny overlapping triangles on top of each other, some of them
+    facing backwards: the pitted black mess.
+  * Flattening whatever triangle stretched furthest across the atlas caught
+    the sole and 169 pieces of thigh, hem and shoulder with it, each one a
+    real part of the photograph replaced by a colour from somewhere else.
+
+So: ear clipping for the shape, and one colour per *hole* rather than per
+triangle for the paint. A hole either has a rim that sits in one part of the
+picture — in which case its own corners are the right coordinates and nothing
+is repainted — or it does not, and then the honest answer is a single flat
+colour, taken from the one point on the rim that the rest of the rim is
+nearest to. There is no photograph of the underside of a boot to use instead;
+the generator only ever saw the floor there.
 
 Usage: glb-fill.py in.glb out.glb
 """
@@ -31,19 +43,6 @@ import json, math, struct, sys
 from collections import defaultdict
 
 src, dst = sys.argv[1], sys.argv[2]
-# How far a triangle may stretch across the atlas, as a multiple of what the
-# mesh normally does, before it is treated as unmapped. The body's own spread
-# is tight — its ninetieth percentile is 1.1 times its median — so anything
-# past about two is not detail, it is a triangle reading a part of the picture
-# that has nothing to do with it.
-STRETCH = float(sys.argv[3]) if len(sys.argv) > 3 else 2.2
-# And how far it may reach across the atlas relative to how long it is, again
-# as a multiple of the usual. Area alone misses the slivers: a triangle can run
-# right across the picture and still cover very little of it, and those are
-# what was left on the soles after the area test had taken the fat ones. This
-# separates cleanly — on this mesh the body never exceeds 1.4 times its own
-# median and the soles reach 34 times it.
-REACH = float(sys.argv[4]) if len(sys.argv) > 4 else 1.6
 
 raw = open(src, 'rb').read()
 off, J, BIN = 12, None, None
@@ -98,6 +97,74 @@ for im in J.get('images', []):
     s = bv.get('byteOffset', 0)
     im['bufferView'] = add_view(BIN[s:s + bv['byteLength']])
 
+
+
+def triangulate(loop, first, pos):
+    """Close one boundary loop, wound so the fill faces the way the surface does.
+
+    A fan from one corner is exact on a crack a few vertices long and wrong on
+    anything else: a boot sole is a long concave outline, and a fan across it
+    lays skinny overlapping triangles over each other, some of them facing
+    backwards, which is the pitted black mess that survived every attempt to
+    fix it by changing what colour the sole was painted. Ear clipping is the
+    fix, and it is a fix to the *shape* rather than to the paint.
+
+    The loop is walked backwards because the boundary edges belong to the
+    triangles on the other side of them: the surface uses (a, b), so the patch
+    must use (b, a) to face the same way. Newell's normal of that reversed
+    outline is the plane it is flattened onto, so the ears come out wound to
+    match without having to be checked afterwards.
+    """
+    rev = list(reversed(loop))
+    p = [pos[first[v]] for v in rev]
+    n = [0.0, 0.0, 0.0]
+    for i in range(len(p)):
+        a, b = p[i], p[(i + 1) % len(p)]
+        n[0] += (a[1] - b[1]) * (a[2] + b[2])
+        n[1] += (a[2] - b[2]) * (a[0] + b[0])
+        n[2] += (a[0] - b[0]) * (a[1] + b[1])
+    ln = math.sqrt(sum(c * c for c in n))
+    if ln < 1e-20:      # a degenerate outline has no plane to flatten onto
+        return ([(loop[0], loop[i + 1], loop[i])
+                 for i in range(1, len(loop) - 1)], None)
+    n = [c / ln for c in n]
+    up = [0.0, 0.0, 1.0] if abs(n[2]) < 0.9 else [1.0, 0.0, 0.0]
+    e1 = [up[1]*n[2] - up[2]*n[1], up[2]*n[0] - up[0]*n[2], up[0]*n[1] - up[1]*n[0]]
+    m = math.sqrt(sum(c * c for c in e1)) or 1.0
+    e1 = [c / m for c in e1]
+    e2 = [n[1]*e1[2] - n[2]*e1[1], n[2]*e1[0] - n[0]*e1[2], n[0]*e1[1] - n[1]*e1[0]]
+    flatten = [(sum(q[k] * e1[k] for k in range(3)),
+                sum(q[k] * e2[k] for k in range(3))) for q in p]
+
+    def cross(o, a, b):
+        return ((a[0]-o[0]) * (b[1]-o[1])) - ((a[1]-o[1]) * (b[0]-o[0]))
+
+    def inside(a, b, c, q):
+        d1, d2, d3 = cross(a, b, q), cross(b, c, q), cross(c, a, q)
+        return not ((d1 < 0 or d2 < 0 or d3 < 0) and (d1 > 0 or d2 > 0 or d3 > 0))
+
+    live = list(range(len(rev)))
+    out = []
+    normal = n
+    guard = 0
+    while len(live) > 3 and guard < len(rev) * len(rev) + 16:
+        guard += 1
+        for k in range(len(live)):
+            i0, i1, i2 = live[k - 1], live[k], live[(k + 1) % len(live)]
+            a, b, c = flatten[i0], flatten[i1], flatten[i2]
+            if cross(a, b, c) <= 0: continue          # reflex, not an ear
+            if any(inside(a, b, c, flatten[j]) for j in live
+                   if j not in (i0, i1, i2)): continue
+            out.append((rev[i0], rev[i1], rev[i2]))
+            live.pop(k)
+            break
+        else:
+            break                                     # no ear left: fan the rest
+    for k in range(1, len(live) - 1):
+        out.append((rev[live[0]], rev[live[k]], rev[live[k + 1]]))
+    return out, normal
+
+
 filled = added = 0
 for mesh in J.get('meshes', []):
     for prim in mesh['primitives']:
@@ -121,8 +188,9 @@ for mesh in J.get('meshes', []):
         tris = [(wid[idx[t]], wid[idx[t+1]], wid[idx[t+2]])
                 for t in range(0, len(idx), 3)]
         tris = [t for t in tris if t[0] != t[1] and t[1] != t[2] and t[0] != t[2]]
-        new_tris = []
-        new_rows = {name: [] for name in attrs}   # kept empty: see below
+        patches = []          # the rim of each hole, in welded ids
+        plane = {}            # and the flat it was closed on
+        new_tris = []         # (which patch, triangle) for every triangle added
         for _round in range(12):
             directed = set()
             for a, b, c in tris:
@@ -142,105 +210,84 @@ for mesh in J.get('meshes', []):
                     if len(loop) >= 3: loops.append(loop)
             if not loops: break
             for loop in loops:
-                for i in range(1, len(loop) - 1):
-                    new_tris.append((loop[0], loop[i + 1], loop[i]))
+                patch = len(patches)
+                patches.append(loop)
+                shape, plane[patch] = triangulate(loop, first, pos)
+                for tri in shape:
+                    new_tris.append((patch, tri))
+                    tris.append(tri)
                 filled += 1
-            # Next round sees the filled surface.
-            for loop in loops:
-                for i in range(1, len(loop) - 1):
-                    tris.append((loop[0], loop[i + 1], loop[i]))
-        added += len(new_rows['POSITION'])
+
+        # A hole has no picture, so give it the middle of its own rim.
+        #
+        # The fan's corners are real vertices carrying real texture
+        # coordinates, which is right when a hole sits inside one chart and
+        # very wrong when it does not: the rim of a boot sole is stitched from
+        # pieces scattered right across the atlas, so a fan across it drags the
+        # whole photograph over the sole in a smeared rainbow. There is no
+        # photograph of the underside of a boot to drag there instead — the
+        # generator only ever saw the floor — so the honest answer is one flat
+        # colour, and the least arbitrary flat colour available is a real point
+        # on the rim that the rest of the rim is nearest to.
+        #
+        # It is decided per hole rather than per triangle. A threshold applied
+        # to single triangles is what put flat patches on the thigh, the hem
+        # and the shoulder of a mesh whose only unmapped surface was under its
+        # boots: 169 of them, each a real piece of the picture replaced with a
+        # colour from somewhere else. A hole either has a usable rim or it does
+        # not, and its triangles are all the same case.
+        uvs = attrs.get('TEXCOORD_0', (None,))[0]
+        spot = {}
+        if uvs and new_tris:
+            sides = []
+            for t in range(0, len(idx), 3):
+                u = [uvs[v] for v in idx[t:t+3]]
+                sides.append(max(math.dist(u[i], u[j])
+                                 for i in range(3) for j in range(i + 1, 3)))
+            usual = sorted(sides)[len(sides) // 2]
+            for patch, loop in enumerate(patches):
+                rim = [uvs[first[v]] for v in loop]
+                wide = max(max(u[k] for u in rim) - min(u[k] for u in rim)
+                           for k in range(2))
+                if wide < usual * 4: continue     # inside one chart: keep it
+                spot[patch] = min(rim, key=lambda a: sum(
+                    math.dist(a, b) for b in rim))
+
+        new_rows = {name: [] for name in attrs}
+        painted = {}
+        def repaint(patch, v):
+            """A copy of vertex v carrying the patch's one texture coordinate,
+            so nothing else sharing that vertex is touched."""
+            if (patch, v) in painted: return painted[(patch, v)]
+            src_v = first[v]
+            for name, (vals, acc, _s) in attrs.items():
+                row = list(vals[src_v])
+                # read() hands back what the file stores, so a normalised
+                # integer coordinate is copied as that integer and never has
+                # to be scaled back into it.
+                if name == 'TEXCOORD_0': row = list(spot[patch])
+                # And the flat it was closed on, rather than the rim's own
+                # normals: those lean outward along the side of the boot, so a
+                # sole wearing them shades like the wall it was cut from.
+                if name == 'NORMAL' and plane.get(patch):
+                    room = 127.0 if acc['componentType'] == 5120 else 1.0
+                    row = [int(round(c * room)) for c in plane[patch]] \
+                        + row[3:] if acc['componentType'] != 5126 else \
+                        list(plane[patch]) + row[3:]
+                new_rows[name].append(row)
+            painted[(patch, v)] = pa['count'] + len(new_rows['POSITION']) - 1
+            return painted[(patch, v)]
 
         flat = list(idx)
-        for a, b, c in new_tris:
-            flat.extend((first[a], first[b], first[c]))
-
-        # And flatten the triangles the ground cut left stretched across the
-        # atlas.
-        #
-        # Removing the baked floor leaves a rim joining the sole of a boot to
-        # vertices that used to be on the slab, and those still carry the
-        # slab's texture coordinates — so a triangle a centimetre across reads
-        # a third of the picture. On this figure the worst of them covers three
-        # hundred times the atlas area its neighbours do, which is the smeared
-        # rainbow starburst on both soles.
-        #
-        # There is no photograph of the underside of a boot; the generator only
-        # ever saw the floor there. So they take the flat colour of the nearest
-        # triangle that *is* mapped properly, on copies of their own vertices,
-        # so nothing else sharing those vertices is touched.
-        uvs = attrs.get('TEXCOORD_0', (None,))[0]
-        if uvs:
-            out_tris = [tuple(flat[t:t+3]) for t in range(0, len(flat), 3)]
-            def spread_of(t):
-                u = [uvs[v] if v < len(uvs) else new_rows['TEXCOORD_0'][v - pa['count']]
-                     for v in t]
-                area = abs((u[1][0]-u[0][0]) * (u[2][1]-u[0][1])
-                           - (u[2][0]-u[0][0]) * (u[1][1]-u[0][1])) / 2
-                q = [pos[v] if v < len(pos) else new_rows['POSITION'][v - pa['count']]
-                     for v in t]
-                ax = [q[1][i] - q[0][i] for i in range(3)]
-                bx = [q[2][i] - q[0][i] for i in range(3)]
-                cr = [ax[1]*bx[2] - ax[2]*bx[1], ax[2]*bx[0] - ax[0]*bx[2],
-                      ax[0]*bx[1] - ax[1]*bx[0]]
-                return area / max(math.sqrt(sum(c*c for c in cr)) / 2, 1e-12)
-            def middle(t):
-                q = [pos[v] if v < len(pos) else new_rows['POSITION'][v - pa['count']]
-                     for v in t]
-                return [sum(c[i] for c in q) / 3 for i in range(3)]
-            def reach_of(t):
-                u = [uvs[v] if v < len(uvs) else new_rows['TEXCOORD_0'][v - pa['count']]
-                     for v in t]
-                q = [pos[v] if v < len(pos) else new_rows['POSITION'][v - pa['count']]
-                     for v in t]
-                across = max(math.dist(u[i], u[j])
-                             for i in range(3) for j in range(i + 1, 3))
-                edge = max(math.dist(q[i], q[j])
-                           for i in range(3) for j in range(i + 1, 3))
-                return across / max(edge, 1e-12)
-            spreads = [spread_of(t) for t in out_tris]
-            reaches = [reach_of(t) for t in out_tris]
-            typical = sorted(spreads)[len(spreads) // 2]
-            usual = sorted(reaches)[len(reaches) // 2]
-            def broken(i):
-                return spreads[i] > typical * STRETCH or reaches[i] > usual * REACH
-            bad = [i for i in range(len(out_tris)) if broken(i)]
-            good = [i for i in range(len(out_tris)) if not broken(i)]
-            if bad and good:
-                # One real corner, not the average of three.
-                #
-                # A triangle's mean texture coordinate is only meaningful if
-                # its corners are near each other in the atlas, and on a
-                # generated mesh they routinely are not — so the average lands
-                # somewhere unrelated and the flattened sole came out in
-                # patches of skin and jacket. A single corner of a
-                # well-mapped triangle is a real point on the real picture.
-                anchors = []
-                seen_v = set()
-                for i in good:
-                    for v in out_tris[i]:
-                        if v in seen_v or v >= len(uvs): continue
-                        seen_v.add(v)
-                        anchors.append((pos[v], list(uvs[v])))
-                for i in bad:
-                    t = out_tris[i]
-                    mid = middle(t)
-                    near = min(anchors, key=lambda a: sum(
-                        (a[0][k] - mid[k]) ** 2 for k in range(3)))
-                    fresh = []
-                    for v in t:
-                        for name, (vals, acc, _s) in attrs.items():
-                            n2 = NUM[acc['type']]
-                            row = list(vals[v]) if v < len(vals) else \
-                                list(new_rows[name][v - pa['count']])
-                            if name == 'TEXCOORD_0': row = list(near[1])
-                            if acc['componentType'] != 5126:
-                                row = [int(round(x)) for x in row]
-                            new_rows[name].append(row)
-                        fresh.append(pa['count'] + len(new_rows['POSITION']) - 1)
-                    out_tris[i] = tuple(fresh)
-                print(f'  flattened {len(bad)} triangles stretched across the atlas')
-                flat = [v for t in out_tris for v in t]
+        for patch, (a, b, c) in new_tris:
+            if patch in spot:
+                flat.extend((repaint(patch, a), repaint(patch, b), repaint(patch, c)))
+            else:
+                flat.extend((first[a], first[b], first[c]))
+        added = len(new_rows['POSITION'])
+        if spot:
+            print(f'  {len(spot)} of {len(patches)} holes had no usable rim '
+                  f'and took one colour from it')
 
         for name, (vals, acc, stride) in attrs.items():
             n = NUM[acc['type']]
