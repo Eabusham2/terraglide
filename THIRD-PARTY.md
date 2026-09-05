@@ -178,6 +178,19 @@ cut away, textures halved and re-encoded, normals and UVs quantised, 3.9 MB
 down to 0.9 MB. It depicts no real person. Off by default, and never fetched by
 the single-file build.
 
+It went out smudged black for a fortnight, and the reduction was what did it.
+glTF requires every vertex attribute to sit on a four-byte boundary, so three
+signed bytes of normal have to be written as four — which the tool did, and
+then did not declare the padding as the bufferView's `byteStride`. A view with
+no stride is tightly packed by the specification, so every reader stepped three
+bytes at a time through data written four apart: the first normal correct and
+each one after dragged a byte further out of place. Half of them arrived as
+directions of no particular length, and a short normal draws dark, which is why
+the patches followed nothing visible in the texture. `tools/glb-normals.py`
+repairs a mesh already written that way, and the self-test reads every mesh in
+`assets/` the way a glTF reader reads it and refuses one that is not unit
+length.
+
 All of it is optional. `assets/manifest.json` is fetched at startup and, when
 it is absent — as it is in the single-file build — everything falls back to
 flat colour.

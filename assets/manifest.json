@@ -3,17 +3,18 @@
   "rule": "Nothing generated may stand in for real map data. Everything left in here dresses the player, who has no real-world counterpart to fetch, so nothing invented is displacing anything measured.",
   "generatedWith": "Pixa (FLUX 2 Klein), prompted for seamless tileable material",
   "kit": {
-    "note": "The character's own gear \u2014 drawn in every mode, because no provider on Earth publishes a photograph of your jacket.",
+    "note": "The character's own gear — drawn in every mode, because no provider on Earth publishes a photograph of your jacket.",
     "jacket": "jacket.jpg",
     "trousers": "trousers.jpg",
     "wing": "wing.jpg",
     "rocket": "rocket.jpg"
   },
   "model": {
-    "note": "Generated character mesh, TRELLIS.2 via Hugging Face, then cut down: the baked ground plane removed, textures halved and re-encoded, normals and UVs quantised. 3.9 MB to 0.9 MB. Off by default \u2014 it has no skeleton, so it cannot animate.",
+    "note": "Generated character mesh, TRELLIS.2 via Hugging Face, then cut down: the baked ground plane removed, textures halved and re-encoded, normals and UVs quantised. 3.9 MB to 0.9 MB. Off by default - it has no skeleton, so it cannot animate.",
     "player": "player.glb",
     "rocketNote": "Generated firework, TRELLIS.2 from a reference image, clustered down by tools/glb-optimise.py and then repaired by tools/glb-heal.py. It shipped once with holes in it - 21.8% of its edges open against 0.3% for the character - because the clusterer keyed its weld on the texture coordinate as well as the cell, so two vertices at one place with different coordinates stayed two and every chart boundary tore. The clusterer is fixed for anything made from now on; this file was mended in place instead, because the thing that generates it is behind a daily quota: weld what should have been one vertex, then trace every boundary loop and close it with a fan, repeatedly, until a pass finds none. 21.8% open to 0.7%. The tool prints the share on every run and the self-test refuses anything here over one per cent. Off by default: the holes were the fault, but at the size it is actually seen the built rocket still reads better, because this one carries a photograph with its own lighting baked into it. Settings -> Player -> Scanned firework.",
-    "rocket": "rocket.glb"
+    "rocket": "rocket.glb",
+    "normalsNote": "Both meshes shipped smudged black, and it was one fault in tools/glb-optimise.py rather than anything about the bake. glTF wants every vertex attribute aligned to four bytes, so three signed bytes of normal are written as four - correct, except the padding has to be declared as the bufferView's byteStride, and it was not. Undeclared means tightly packed, so every reader stepped three bytes at a time through data written four apart: the first normal right and each one after dragged a byte further out of place, mixing one vertex's z into the next one's x. Half of them arrived as directions of no particular length, and a short normal draws dark, which is why the smudges followed nothing you could see in the texture. The character's bytes were still all there, so declaring the stride recovered it exactly; the firework's were not, because tools/glb-heal.py had already read them the same wrong way and written the result down as floats, so its normals are recomputed from its own triangles instead. Both tools are fixed, tools/glb-normals.py does the repair, and the self-test now reads every mesh here the way a glTF reader reads it and refuses a single normal that is not unit length."
   },
-  "removed": "There used to be a scenery group here \u2014 foliage.jpg and rock.jpg \u2014 for the generated world. That world is gone: nothing is drawn from invented map data any more, so the two textures had nothing left to dress and were deleted rather than left sitting in the download."
+  "removed": "There used to be a scenery group here — foliage.jpg and rock.jpg — for the generated world. That world is gone: nothing is drawn from invented map data any more, so the two textures had nothing left to dress and were deleted rather than left sitting in the download."
 }

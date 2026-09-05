@@ -3681,6 +3681,80 @@ console.log('\nNothing ships with holes in it');
     checked > 0);
 }
 
+console.log('\nNothing ships with normals it cannot use');
+{
+  /*
+    A normal that is not a unit vector is not a direction.
+
+    Nothing complains about one. The renderer multiplies it by the light and
+    draws whatever falls out, so a short normal comes out dark and a scatter of
+    short normals comes out as dark patches that follow nothing you can see in
+    the picture. That was the smudging all over the scanned player, and it was
+    not the bake and not the metalness: tools/glb-optimise.py wrote three signed
+    bytes of normal as four, which glTF requires for alignment, and did not
+    declare the padding as the bufferView's byteStride. Undeclared means tightly
+    packed, so every reader stepped three bytes at a time through data written
+    four apart — the first normal right and each one after dragged a byte
+    further out of place, half of them arriving as garbage of no length at all.
+
+    So this reads them exactly the way a glTF reader does: the declared stride
+    if there is one, tightly packed if there is not. Reading them the way they
+    were *written* would agree with the file and miss the entire fault.
+  */
+  const { readdirSync } = await import('node:fs');
+  const dir = new URL('../assets/', import.meta.url);
+  const NUM = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
+  const READ = {
+    5120: [1, (b, o) => Math.max(b.readInt8(o) / 127, -1)],
+    5122: [2, (b, o) => Math.max(b.readInt16LE(o) / 32767, -1)],
+    5126: [4, (b, o) => b.readFloatLE(o)],
+  };
+  let checked = 0;
+  for (const name of readdirSync(dir).filter((f) => f.endsWith('.glb'))) {
+    const raw = readFileSync(new URL(name, dir));
+    let off = 12;
+    let json = null;
+    let bin = null;
+    while (off < raw.length) {
+      const len = raw.readUInt32LE(off);
+      const type = raw.toString('utf8', off + 4, off + 8);
+      if (type === 'JSON') json = JSON.parse(raw.toString('utf8', off + 8, off + 8 + len));
+      else if (type.startsWith('BIN')) bin = raw.subarray(off + 8, off + 8 + len);
+      off += 8 + len;
+    }
+    for (const mesh of json.meshes ?? []) {
+      for (const prim of mesh.primitives) {
+        const ai = prim.attributes?.NORMAL;
+        if (ai === undefined) continue;
+        const a = json.accessors[ai];
+        const view = json.bufferViews[a.bufferView];
+        const entry = READ[a.componentType];
+        if (!entry) continue;
+        const [size, get] = entry;
+        const n = NUM[a.type];
+        const stride = view.byteStride ?? size * n;
+        const base = (view.byteOffset ?? 0) + (a.byteOffset ?? 0);
+        let bad = 0;
+        let worst = 0;
+        for (let v = 0; v < a.count; v += 1) {
+          const o = base + v * stride;
+          let sum = 0;
+          for (let c = 0; c < 3; c += 1) { const x = get(bin, o + c * size); sum += x * x; }
+          const off1 = Math.abs(Math.sqrt(sum) - 1);
+          if (off1 > worst) worst = off1;
+          if (off1 > 0.05) bad += 1;
+        }
+        checked += 1;
+        ok(`${name} has normals a reader can use  (${bad} of ${a.count} off unit, `
+          + `worst ${worst.toFixed(3)}, stride ${stride}${view.byteStride ? '' : ' undeclared'})`,
+          bad === 0);
+      }
+    }
+  }
+  ok(`and there was something to check  (${checked} mesh${checked === 1 ? '' : 'es'})`,
+    checked > 0);
+}
+
 console.log('\nNo tier buys frame rate by making the picture worse');
 {
   const { GRAPHICS_PRESETS } = await import('../src/core/settings.js');

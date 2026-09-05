@@ -1,5 +1,5 @@
 """Shrink a TRELLIS GLB into something a browser game can afford to download."""
-import struct, json, io, sys
+import struct, json, io, sys, math
 from PIL import Image
 
 src, dst, tex_size, quality = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
@@ -293,6 +293,7 @@ for mesh in J['meshes']:
             stride = COMP[acc['componentType']] * NUM[acc['type']]
             base = acc.get('byteOffset', 0)
             data = data[base: base + acc['count'] * stride]
+            stride_for = None
             # Quantise the attributes glTF lets us store small: normals as
             # signed bytes and UVs as unsigned shorts, both normalised. A
             # normal has no business being three float32s.
@@ -300,13 +301,32 @@ for mesh in J['meshes']:
                 vals = struct.unpack(f'<{acc["count"]*3}f', data)
                 packed = bytearray()
                 for i in range(acc['count']):
-                    for c in vals[i*3:i*3+3]:
+                    x, y, z = vals[i*3:i*3+3]
+                    # A normal that is not a unit vector is not a direction. The
+                    # generator does not always hand back unit ones, and a short
+                    # one draws dark, so it is made unit here rather than hoping.
+                    m = math.sqrt(x*x + y*y + z*z) or 1.0
+                    for c in (x/m, y/m, z/m):
                         packed.append(struct.pack('<b', max(-127, min(127, round(c*127))))[0])
                     packed.append(0)          # pad VEC3 int8 to 4 bytes
                 data = bytes(packed)
                 acc['componentType'] = 5120
                 acc['normalized'] = True
                 acc.pop('min', None); acc.pop('max', None)
+                # ...and say that it is padded.
+                #
+                # Three signed bytes must be written as four, because glTF wants
+                # every vertex attribute aligned to four. But a bufferView that
+                # does not declare a byteStride means tightly packed, and then
+                # every reader steps three bytes at a time through data written
+                # four apart: the first normal is right and each one after is
+                # dragged a byte further out of place, mixing one vertex's z
+                # into the next one's x. Half of them come back as garbage
+                # directions of no particular length, and short normals draw
+                # black — which is what the smudging over the scanned player
+                # was, all of it. The padding was right; not declaring it was
+                # the bug.
+                stride_for = 4
             elif name == 'TEXCOORD_0' and acc['componentType'] == 5126:
                 vals = struct.unpack(f'<{acc["count"]*2}f', data)
                 data = struct.pack(f'<{len(vals)}H',
@@ -321,7 +341,9 @@ for mesh in J['meshes']:
                     data = struct.pack(f'<{len(vals)}H', *vals)
                     acc['componentType'] = 5123
             acc['byteOffset'] = 0
-            acc['bufferView'] = add_view(data, **({'target': 34963} if name == '__idx' else {'target': 34962}))
+            extra = {'target': 34963} if name == '__idx' else {'target': 34962}
+            if stride_for: extra['byteStride'] = stride_for
+            acc['bufferView'] = add_view(data, **extra)
 
 J['bufferViews'] = new_views
 J['buffers'] = [{'byteLength': len(out)}]

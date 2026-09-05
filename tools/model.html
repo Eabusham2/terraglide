@@ -32,17 +32,19 @@ scene.add(ground);
 
 const avatar = new Avatar(scene);
 avatar.setVisible(true);
-// The optional generated props too, when they are there. They are the reason
-// this tool exists — a prop you cannot photograph is a prop you cannot judge —
-// and a missing file is not an error, it just leaves the built one showing.
-await avatar.loadRocketModel('../assets/').catch(() => false);
-// And the scanned body, when it is asked for. Both bodies have to be
-// photographable: the whole point of this tool is that a thing you cannot
-// photograph is a thing you cannot judge.
+// The scanned pieces, when they are asked for: the body and the firework
+// together, because both are off by default and the loaders honour the
+// setting. Turning on only one of them and calling the other loader anyway is
+// how the firework went unphotographed while this tool claimed that a prop you
+// cannot photograph is a prop you cannot judge. A missing file is not an
+// error; it just leaves the built one showing.
 if (new URLSearchParams(location.search).has('scan')) {
   settings.set('detailedPlayerModel', true);
+  settings.set('detailedRocketModel', true);
   await avatar.loadModel('../assets/').catch(() => false);
+  await avatar.loadRocketModel('../assets/').catch(() => false);
   avatar.applyModelMode();
+  avatar.applyRocketModel();
 }
 avatar.root.scale.setScalar(1.83);
 

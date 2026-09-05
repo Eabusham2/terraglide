@@ -43,14 +43,35 @@ FMT = {5120:'b', 5121:'B', 5122:'h', 5123:'H', 5125:'I', 5126:'f'}
 # be worked on as floats and written back as floats.
 SCALE = {5120:127.0, 5121:255.0, 5122:32767.0, 5123:65535.0}
 
+def stride_of(a, bv):
+    """How far apart the elements really are.
+
+    A declared byteStride is the answer. Without one the specification says
+    tightly packed — but a file can be written padded and simply not say so,
+    and reading that at the tight stride drags every element a byte further out
+    of place than the last. The only evidence left is that the view is exactly
+    as long as a padded array would be, so take the length over the silence.
+    Getting this wrong here does not just misread a file, it *bakes* the
+    misreading in: whatever comes out is written back as floats, and then the
+    original bytes are gone.
+    """
+    size = COMP[a['componentType']] * NUM[a['type']]
+    if bv.get('byteStride'): return bv['byteStride']
+    pad = (size + 3) // 4 * 4
+    span = bv['byteLength'] - a.get('byteOffset', 0)
+    if size % 4 and a['count'] and span == a['count'] * pad: return pad
+    return size
+
 def read(i):
     a = J['accessors'][i]
     bv = J['bufferViews'][a['bufferView']]
     start = bv.get('byteOffset', 0) + a.get('byteOffset', 0)
     n = NUM[a['type']]
-    size = COMP[a['componentType']] * n
-    vals = list(struct.unpack(f'<{a["count"]*n}{FMT[a["componentType"]]}',
-                              bytes(BIN[start:start + a['count']*size])))
+    stride = stride_of(a, bv)
+    f = FMT[a['componentType']]
+    vals = []
+    for e in range(a['count']):
+        vals.extend(struct.unpack_from(f'<{n}{f}', BIN, start + e * stride))
     if a.get('normalized') and a['componentType'] in SCALE:
         s = SCALE[a['componentType']]
         vals = [max(-1.0, v / s) for v in vals]

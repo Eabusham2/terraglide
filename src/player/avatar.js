@@ -938,12 +938,18 @@ export class Avatar {
         TRELLIS writes metallicFactor 1.0 with a metal-roughness map on
         everything it makes. A fully metallic surface has no diffuse colour at
         all — it shows you its reflections — so under a hemisphere light and a
-        sun it arrives as dark blotches following the roughness map, with the
-        photograph barely visible through them. That is the black smudging all
-        over this figure, and it is a property of the file rather than of the
-        scan: the same fault was found and fixed in tools/glb-optimise.py, but
-        this asset was made before that, so it is undone here at load instead
-        of re-encoding a picture to get at one number.
+        sun the photograph is barely visible through it. That is a property of
+        the file rather than of the scan: the same fault was found and fixed in
+        tools/glb-optimise.py, but this asset was made before that, so it is
+        undone here at load instead of re-encoding a picture to get at one
+        number.
+
+        This was *not* the black smudging, though it was blamed for it and the
+        blame survived a commit. The smudging was the mesh's normals arriving
+        at a stride the file never declared — see assets/manifest.json — and
+        this material change on its own left the figure exactly as blotchy as
+        before. Two faults in one file, and fixing the visible one first is how
+        you talk yourself into thinking the other is gone.
       */
       model.traverse((child) => {
         if (!child.isMesh || !child.material) return;
