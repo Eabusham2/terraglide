@@ -4050,6 +4050,73 @@ console.log('\nNothing ships with normals it cannot use');
     checked > 0);
 }
 
+console.log('\nNor with pictures that are not pictures');
+{
+  /*
+    assets/rocket.glb carried an image declared `image/png` whose first bytes
+    are `4e 00 64 00 4d 00 65 00` — little-endian sixteen-bit numbers, a piece
+    of geometry that ended up under an image entry — and it shipped that way
+    through four commits. Nothing caught it because nothing looked: no material
+    named its texture, and three.js decodes an image only when a material asks
+    for one, so the file was served to everyone and quietly ignored by the only
+    reader anybody tested with. A reader that decodes eagerly gets an error.
+
+    Two rules, then. A picture must begin the way the format it claims begins,
+    and there must be a material that actually wants it. The second is what
+    makes the first honest: an image nothing reads is a place where anything
+    can hide.
+  */
+  const { readdirSync } = await import('node:fs');
+  const dir = new URL('../assets/', import.meta.url);
+  const MAGIC = {
+    'image/png': [0x89, 0x50, 0x4e, 0x47],
+    'image/jpeg': [0xff, 0xd8, 0xff],
+    'image/webp': [0x52, 0x49, 0x46, 0x46],
+  };
+  let seen = 0;
+  for (const name of readdirSync(dir).filter((f) => f.endsWith('.glb'))) {
+    const raw = readFileSync(new URL(name, dir));
+    let off = 12;
+    let json = null;
+    let bin = null;
+    while (off < raw.length) {
+      const len = raw.readUInt32LE(off);
+      const type = raw.toString('utf8', off + 4, off + 8);
+      if (type === 'JSON') json = JSON.parse(raw.toString('utf8', off + 8, off + 8 + len));
+      else if (type.startsWith('BIN')) bin = raw.subarray(off + 8, off + 8 + len);
+      off += 8 + len;
+    }
+    const wanted = new Set();
+    for (const mesh of json.meshes ?? []) {
+      for (const prim of mesh.primitives) {
+        const mat = json.materials?.[prim.material];
+        if (!mat) continue;
+        const slots = [
+          mat.pbrMetallicRoughness?.baseColorTexture,
+          mat.pbrMetallicRoughness?.metallicRoughnessTexture,
+          mat.normalTexture, mat.occlusionTexture, mat.emissiveTexture,
+        ];
+        for (const slot of slots) {
+          if (slot && json.textures?.[slot.index]?.source !== undefined) {
+            wanted.add(json.textures[slot.index].source);
+          }
+        }
+      }
+    }
+    (json.images ?? []).forEach((image, i) => {
+      seen += 1;
+      const view = json.bufferViews[image.bufferView];
+      const head = bin.subarray(view.byteOffset ?? 0, (view.byteOffset ?? 0) + 4);
+      const magic = MAGIC[image.mimeType];
+      ok(`${name} image ${i} really is ${image.mimeType}  `
+        + `(${[...head].map((b) => b.toString(16).padStart(2, '0')).join(' ')})`,
+        !!magic && magic.every((b, k) => head[k] === b));
+      ok(`${name} image ${i} is one a material asks for`, wanted.has(i));
+    });
+  }
+  ok(`and there was a picture to check  (${seen})`, seen > 0);
+}
+
 console.log('\nNo tier buys frame rate by making the picture worse');
 {
   const { GRAPHICS_PRESETS } = await import('../src/core/settings.js');
