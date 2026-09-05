@@ -90,7 +90,15 @@ image_i = J['textures'][J['materials'][prim['material']]
                         ['pbrMetallicRoughness']['baseColorTexture']['index']]['source']
 bv = J['bufferViews'][J['images'][image_i]['bufferView']]
 s = bv.get('byteOffset', 0)
-img = Image.open(io.BytesIO(BIN[s:s + bv['byteLength']])).convert('RGB')
+# Opened as it was stored, not converted to RGB.
+#
+# This atlas is RGBA with a real alpha channel, and converting it to RGB threw
+# that channel away — the material is OPAQUE so nothing on screen changed, but
+# the shipped picture stopped being the generator's picture in a way nothing
+# declared. A repair is allowed to change the texels it repairs and nothing
+# else about the file.
+img = Image.open(io.BytesIO(BIN[s:s + bv['byteLength']]))
+if img.mode not in ('RGB', 'RGBA'): img = img.convert('RGB')
 W, H = img.size
 px = img.load()
 
@@ -195,8 +203,11 @@ for tri in inside:
             if luma(px[x, y]) >= floor: continue
             # Kept dim, because it is still the inside of a shoulder — just not
             # a hole cut in one.
-            px[x, y] = (255, 0, 255) if MARK else \
-                tuple(min(255, int(want[ch] * 0.72)) for ch in range(3))
+            was_here = px[x, y]
+            fresh = ((255, 0, 255) if MARK else
+                     tuple(min(255, int(want[ch] * 0.72)) for ch in range(3)))
+            # Whatever the picture carried besides colour stays as it was.
+            px[x, y] = fresh + tuple(was_here[3:])
             painted += 1
 print(f'{painted} texels {"marked" if MARK else "repainted"}')
 
