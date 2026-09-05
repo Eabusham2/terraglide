@@ -8,7 +8,17 @@ import { Avatar } from '../src/player/avatar.js';
 import { settings } from '../src/core/settings.js';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
-renderer.setSize(700, 700);
+/*
+  ?size=N renders at N instead of 700.
+
+  Everything about this figure has been judged from a 700-pixel square, which
+  is about the size it is in a contact sheet and nowhere near the size it needs
+  to be to tell a hole from a stair-stepped edge. A black speck at 700 is four
+  pixels; at 2400 it is either a hole or it is gone.
+*/
+const SIZE = Math.min(4096, Math.max(200,
+  Number(new URLSearchParams(location.search).get('size')) || 700));
+renderer.setSize(SIZE, SIZE);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
 
@@ -54,17 +64,40 @@ if (new URLSearchParams(location.search).has('scan')) {
     that outright: an arm that comes out wing-coloured is an arm the wings will
     drag, and it says so standing still, before any pose can hide it.
   */
+  /*
+    ?plain drops the photograph and lights a white surface instead.
+
+    A black patch on a textured figure is either a hole, a dark part of the
+    bake, or a normal pointing the wrong way, and the three look identical.
+    On a plain white body only one of them can still be black.
+  */
+  if (new URLSearchParams(location.search).has('plain')) {
+    for (const mesh of avatar.scanSkins) {
+      mesh.material = new THREE.MeshStandardMaterial({
+        color: 0xdddddd, roughness: 0.9, metalness: 0, side: THREE.DoubleSide,
+      });
+    }
+  }
   if (new URLSearchParams(location.search).has('weights')) {
+    // One colour per joint, in the skeleton's own order, and long enough for
+    // it: the list used to be eight and wrapped as soon as a collarbone was
+    // added, which painted the wings the same white as the chest and made the
+    // picture lie in exactly the place it was being read.
     const palette = [
-      [0.85, 0.85, 0.85],   // spine  white
-      [1.0, 0.85, 0.2],     // head   yellow
-      [0.2, 0.6, 1.0],      // armL   blue
-      [0.1, 0.9, 0.9],      // armR   cyan
-      [0.2, 0.9, 0.3],      // legL   green
-      [0.7, 1.0, 0.2],      // legR   lime
-      [1.0, 0.2, 0.2],      // wingL  red
-      [1.0, 0.4, 0.9],      // wingR  pink
+      [0.85, 0.85, 0.85],   // spine
+      [1.0, 0.85, 0.2],     // head
+      [0.2, 0.5, 1.0],      // clavL
+      [0.1, 0.85, 0.95],    // clavR
+      [0.2, 0.9, 0.3],      // armL
+      [0.7, 1.0, 0.2],      // armR
+      [1.0, 0.3, 0.2],      // legL
+      [1.0, 0.55, 0.1],     // legR
+      [1.0, 0.3, 0.9],      // wingL
+      [0.6, 0.3, 1.0],      // wingR
+      [0.5, 0.5, 0.5], [0.3, 0.3, 0.3],
     ];
+    const names = (await import('../src/player/avatar.js')).SCAN_JOINT_NAMES;
+    console.log('joint colours:', names.map((n, i) => `${n}=${palette[i]}`).join(' '));
     for (const mesh of avatar.scanSkins) {
       const index = mesh.geometry.getAttribute('skinIndex');
       const weight = mesh.geometry.getAttribute('skinWeight');

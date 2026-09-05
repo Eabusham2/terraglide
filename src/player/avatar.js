@@ -16,6 +16,8 @@ const ROCKET_LEN = 0.19;
 const ROCKET_GRIP = 0.03;
 /** White, for lightening the slot colour before it tints a photograph. */
 const WHITE_TINT = new THREE.Color(0xffffff);
+/** Scratch, so measuring the scan's fist allocates nothing. */
+const _grip = new THREE.Vector3();
 import { litLikeTheWorld } from './effects.js';
 import { settings } from '../core/settings.js';
 import { ROCKET_COLOURS } from './player.js';
@@ -290,9 +292,34 @@ const SCAN_JOINTS = [
   },
   { name: 'head', at: [0, 0.92, 0], spans: [[[0, 0.88, 0], [0, 1.0, 0]]],
     seed: (x, y) => y > 0.90 && Math.abs(x) < 0.10 },
-  { name: 'armL', at: [-0.115, 0.79, 0], spans: [[[-0.125, 0.72, 0], [-0.13, 0.42, 0]]], side: -1,
+  /*
+    A collarbone each side, between the chest and the arm.
+
+    The arm swings a hundred and forty degrees in a glide. One joint has to
+    absorb all of that in the width of a shoulder, and it cannot: whatever the
+    weights say, the skin between what turned and what did not is stretched
+    through the same angle, and past about ninety degrees it stops being a
+    stretch and opens — the black gashes at both shoulders, looking straight
+    into the sleeve.
+
+    A real shoulder does not work that way either. The clavicle takes part of
+    the reach and the shoulder joint the rest, so neither turns far enough to
+    tear. Splitting it is exact rather than approximate, because both halves
+    turn about the same axis: a rotation of theta about an axis is a rotation
+    of 0.45 theta followed by one of 0.55 theta about that same axis, so the
+    hand still lands exactly where the built arm put it.
+  */
+  { name: 'clavL', at: [-0.045, 0.80, 0], parent: 'spine',
+    spans: [[[-0.04, 0.80, 0], [-0.115, 0.79, 0]]], side: -1,
+    seed: (x, y) => x < -0.05 && x > -0.13 && y > 0.76 && y < 0.86 },
+  { name: 'clavR', at: [0.045, 0.80, 0], parent: 'spine',
+    spans: [[[0.04, 0.80, 0], [0.115, 0.79, 0]]], side: 1,
+    seed: (x, y) => x > 0.05 && x < 0.13 && y > 0.76 && y < 0.86 },
+  { name: 'armL', at: [-0.115, 0.79, 0], parent: 'clavL',
+    spans: [[[-0.125, 0.72, 0], [-0.13, 0.42, 0]]], side: -1,
     seed: (x, y) => x < -0.145 && x > -0.24 && y > 0.44 && y < 0.70 },
-  { name: 'armR', at: [0.115, 0.79, 0], spans: [[[0.125, 0.72, 0], [0.13, 0.42, 0]]], side: 1,
+  { name: 'armR', at: [0.115, 0.79, 0], parent: 'clavR',
+    spans: [[[0.125, 0.72, 0], [0.13, 0.42, 0]]], side: 1,
     seed: (x, y) => x > 0.145 && x < 0.24 && y > 0.44 && y < 0.70 },
   { name: 'legL', at: [-0.051, HIP_Y, 0], spans: [[[-0.051, HIP_Y - 0.04, 0], [-0.055, 0.02, 0]]], side: -1,
     seed: (x, y) => x < -0.015 && x > -0.13 && y < 0.38 },
@@ -394,6 +421,10 @@ const SKIN_SOFTEN = 0.015;
  *  limb. Legs are set 0.051 apart, so this keeps them from dragging on each
  *  other while still letting the crotch stretch between them. */
 const SKIN_MIDLINE = 0.03;
+/** How much of an arm's swing the collarbone takes rather than the shoulder. */
+const SCAN_CLAVICLE = 0.45;
+/** Passes of neighbour-averaging over the skin weights. See weighScan(). */
+const SKIN_SMOOTHING = 12;
 
 /**
  * How far the wing lifts out of its own plane by the tip, as a fraction of
@@ -764,6 +795,10 @@ export class Avatar {
     // the sleeve carries an offset and no rotation of its own.
     this.rocket.position.set(0, ARM_LENGTH / -2 + handY, -0.02);
     this.armR.pivot.add(this.rocket);
+    /** Where the built fist is, in the shoulder's own frame. The scanned body
+     *  has its own, further out and further down, and the firework has to be
+     *  in whichever hand is on screen. See handOfTheScan(). */
+    this.builtGrip = this.rocket.position.clone();
     this.cloth.rocket = [rocketMat];
     this.rocketColour = -1;
 
@@ -1167,6 +1202,48 @@ export class Avatar {
   }
 
   /**
+   * Where the scanned right hand actually is.
+   *
+   * The firework hangs off the built shoulder at the built fist — and the
+   * built arm is not the scanned one. The scan reaches further down and
+   * further out, so the rocket sat in mid-air an inch from the hand rather
+   * than in it, which is most of what "flying rockets" has been about. Both
+   * bodies turn about the same shoulder, so the fix is to measure the scan's
+   * own fist once and give the rocket that offset instead.
+   *
+   * Measured rather than guessed: the fist is the far end of whatever the
+   * right arm owns, so take the vertices that follow that joint almost
+   * entirely, keep the lowest tenth of them, and average.
+   */
+  handOfTheScan() {
+    const arm = SCAN_JOINTS.findIndex((joint) => joint.name === 'armR');
+    const held = [];
+    for (const mesh of this.scanSkins) {
+      const position = mesh.geometry.getAttribute('position');
+      const index = mesh.geometry.getAttribute('skinIndex');
+      const weight = mesh.geometry.getAttribute('skinWeight');
+      for (let v = 0; v < position.count; v += 1) {
+        for (let k = 0; k < 4; k += 1) {
+          if (index.getComponent(v, k) !== arm) continue;
+          if (weight.getComponent(v, k) < 0.7) continue;
+          held.push([position.getY(v), position.getX(v), position.getZ(v)]);
+          break;
+        }
+      }
+    }
+    if (held.length < 20) return null;
+    held.sort((a, b) => a[0] - b[0]);
+    const fist = held.slice(0, Math.max(10, Math.round(held.length * 0.1)));
+    const grip = new THREE.Vector3();
+    for (const [y, x, z] of fist) grip.add(_grip.set(x, y, z));
+    grip.multiplyScalar(1 / fist.length);
+    // Into the shoulder's frame, where the rocket lives. At rest that joint
+    // has no rotation, so this is a subtraction.
+    const shoulder = SCAN_JOINTS.find((joint) => joint.name === 'armR').at;
+    return grip.sub(_grip.set(shoulder[0], shoulder[1], shoulder[2]));
+  }
+
+  /**
    * A face for the scan, because it was generated without one.
    *
    * The head comes back as a smooth egg — no eyes, no mouth, nothing on either
@@ -1245,16 +1322,22 @@ export class Avatar {
    */
   rigTheScan(source, place) {
     const group = new THREE.Group();
-    const bones = SCAN_JOINTS.map((joint) => {
-      const bone = new THREE.Bone();
-      bone.position.set(...joint.at);
-      return bone;
-    });
+    const bones = SCAN_JOINTS.map(() => new THREE.Bone());
     const named = {};
     SCAN_JOINTS.forEach((joint, i) => { named[joint.name] = bones[i]; });
-    // Every joint hangs off the spine, which sits at the origin and never
-    // turns: it is the "not a limb" bone, not a back that bends.
-    for (let i = 1; i < bones.length; i += 1) bones[0].add(bones[i]);
+    // Most joints hang off the spine, which sits at the origin and never
+    // turns: it is the "not a limb" bone, not a back that bends. The arms hang
+    // off a collarbone instead, so `at` is read as a place on the body and
+    // turned into an offset from whatever the joint hangs on.
+    for (let i = 1; i < bones.length; i += 1) {
+      const joint = SCAN_JOINTS[i];
+      const parent = joint.parent ? named[joint.parent] : bones[0];
+      const from = joint.parent ? SCAN_JOINTS.find((j) => j.name === joint.parent).at : [0, 0, 0];
+      bones[i].position.set(
+        joint.at[0] - from[0], joint.at[1] - from[1], joint.at[2] - from[2],
+      );
+      parent.add(bones[i]);
+    }
 
     this.scanBoneList = bones;
     this.scanBones = named;
@@ -1277,6 +1360,7 @@ export class Avatar {
     // with the rest of the scan in first person.
     this.scanFace = this.makeScanFace();
     named.head.add(this.scanFace);
+    this.scanGrip = this.handOfTheScan();
     return group;
   }
 
@@ -1306,17 +1390,56 @@ export class Avatar {
     const position = geometry.getAttribute('position');
     const index = geometry.getIndex();
     const count = position.count;
-    const reach = this.surfaceReach(position, index);
+    const joints = SCAN_JOINTS.length;
+    const { reach, welded, near, nodes } = this.surfaceReach(position, index);
 
-    const share = new Array(SCAN_JOINTS.length);
+    /*
+      Smoothed over the mesh before anything is chosen.
+
+      A distance can jump between neighbours where the surface does — the
+      sleeve and the shoulder of the jacket lie against each other but are only
+      joined round the armpit, so two vertices a millimetre apart can be a
+      hand's walk apart over the skin. Straight off the distances that gives a
+      ragged interleave of pure arm and pure collarbone along the shoulder
+      seam, and a boundary that jumps is a boundary that opens: those were the
+      black gashes, seen straight into the sleeve.
+
+      Averaging each vertex's weights with its neighbours a few times turns the
+      interleave into a gradient. It is done on the welded mesh and to every
+      joint at once, so the total is preserved and no joint can be smoothed
+      away.
+    */
+    let raw = new Float32Array(nodes * joints);
+    for (let n = 0; n < nodes; n += 1) {
+      let total = 0;
+      for (let j = 0; j < joints; j += 1) {
+        const d = reach[j][n];
+        const w = Number.isFinite(d) ? 1 / Math.pow(d + SKIN_SOFTEN, SKIN_FALLOFF) : 0;
+        raw[n * joints + j] = w;
+        total += w;
+      }
+      if (total > 0) for (let j = 0; j < joints; j += 1) raw[n * joints + j] /= total;
+    }
+    let next = new Float32Array(nodes * joints);
+    for (let pass = 0; pass < SKIN_SMOOTHING; pass += 1) {
+      for (let n = 0; n < nodes; n += 1) {
+        const neighbours = near[n];
+        for (let j = 0; j < joints; j += 1) {
+          let sum = raw[n * joints + j];
+          for (const m of neighbours) sum += raw[m * joints + j];
+          next[n * joints + j] = sum / (neighbours.length + 1);
+        }
+      }
+      const swap = raw; raw = next; next = swap;
+    }
+
+    const share = new Array(joints);
     const skinIndex = new Uint16Array(count * 4);
     const skinWeight = new Float32Array(count * 4);
     for (let v = 0; v < count; v += 1) {
       let total = 0;
-      for (let j = 0; j < SCAN_JOINTS.length; j += 1) {
-        const d = reach[j][v];
-        share[j] = Number.isFinite(d) ? 1 / Math.pow(d + SKIN_SOFTEN, SKIN_FALLOFF) : 0;
-      }
+      const n = welded[v];
+      for (let j = 0; j < joints; j += 1) share[j] = raw[n * joints + j];
       for (let k = 0; k < 4; k += 1) {
         let best = -1;
         let most = 0;
@@ -1465,11 +1588,9 @@ export class Avatar {
           if (step < far[m]) { far[m] = step; push(m, step); }
         }
       }
-      const perVertex = new Float64Array(count);
-      for (let v = 0; v < count; v += 1) perVertex[v] = far[welded[v]];
-      out.push(perVertex);
+      out.push(far);
     }
-    return out;
+    return { reach: out, welded, near, nodes };
   }
 
   /**
@@ -1482,8 +1603,13 @@ export class Avatar {
     const bone = this.scanBones;
     if (!bone) return;
     bone.head.quaternion.copy(this.head.quaternion);
-    bone.armL.quaternion.copy(this.armL.pivot.quaternion);
-    bone.armR.quaternion.copy(this.armR.pivot.quaternion);
+    // Half the reach on the collarbone, the rest on the shoulder. Both about
+    // the same axis, so the two together are exactly the built arm's turn.
+    for (const side of ['L', 'R']) {
+      const want = this[`arm${side}`].pivot.quaternion;
+      bone[`clav${side}`].quaternion.identity().slerp(want, SCAN_CLAVICLE);
+      bone[`arm${side}`].quaternion.identity().slerp(want, 1 - SCAN_CLAVICLE);
+    }
     bone.legL.quaternion.copy(this.legL.pivot.quaternion);
     bone.legR.quaternion.copy(this.legR.pivot.quaternion);
     /*
@@ -1599,6 +1725,12 @@ export class Avatar {
    * so it has to stay visible whichever body is showing.
    */
   applyModelMode() {
+    // The firework goes to whichever hand is about to be drawn.
+    if (this.builtGrip) {
+      const inScanHand = !!this.model && settings.get('detailedPlayerModel')
+        && !this.firstPerson && !!this.scanGrip;
+      this.rocket.position.copy(inScanHand ? this.scanGrip : this.builtGrip);
+    }
     const useModel = !!this.model && settings.get('detailedPlayerModel') && !this.firstPerson;
     if (this.model) this.model.visible = useModel;
     for (const part of this.skin()) part.visible = !useModel;

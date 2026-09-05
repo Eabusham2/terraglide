@@ -8,6 +8,16 @@ src, dst, tex_size, quality = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sy
 # triangles for an object that is held in a fist and covers forty pixels, and
 # nothing else in here reduces triangle count at all.
 cluster = int(sys.argv[5]) if len(sys.argv) > 5 else 0
+# A texture size of 0 means leave the pictures and the numbers exactly as they
+# are and only take the floor out.
+#
+# Halving the atlas is what made the shipped character soft: the generator hands
+# back a 1024-pixel PNG and this wrote a 512-pixel JPEG, so three quarters of
+# the picture went, along with everything JPEG does to a hard edge. That was
+# worth it when the file had to be under a megabyte and is not worth it for an
+# asset nobody downloads unless they ask for it. Quantising goes with it, since
+# the whole point of this mode is that nothing is approximated.
+KEEP_EVERYTHING = tex_size == 0
 
 raw = open(src, 'rb').read()
 off, J, BIN = 12, None, None
@@ -105,7 +115,7 @@ for mat in J.get('materials', []):
     # "there is a gap in it".
     mat['doubleSided'] = True
 
-# 1. Textures: PNG -> JPEG, downscaled.
+# 1. Textures: PNG -> JPEG, downscaled. Skipped entirely when keeping everything.
 used_images = set()
 for mat in J.get('materials', []):
     for slot in (mat.get('pbrMetallicRoughness') or {}).values():
@@ -114,12 +124,42 @@ for mat in J.get('materials', []):
 for i, im in enumerate(list(J.get('images', []))):
     if i not in used_images:
         continue
+    if KEEP_EVERYTHING:
+        # Carried across byte for byte — but it still has to be *carried*. The
+        # buffer is rebuilt from scratch below, so an image left pointing at
+        # the view it used to live in ends up pointing at somebody else's
+        # numbers, and the file loads with no picture at all.
+        im['bufferView'] = add_view(view_bytes(im['bufferView']))
+        continue
     img = Image.open(io.BytesIO(view_bytes(im['bufferView']))).convert('RGB')
     img = img.resize((tex_size, tex_size), Image.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, 'JPEG', quality=quality, optimize=True)
     im['bufferView'] = add_view(buf.getvalue())
     im['mimeType'] = 'image/jpeg'
+
+# Anything no material points at goes, rather than being left in the file
+# pointing at a view that is no longer there. The metal-roughness map is
+# exactly that: the material stage above drops it, and it is two thirds of a
+# megabyte of picture nothing reads.
+if J.get('images'):
+    keep = [i for i in range(len(J['images'])) if i in used_images]
+    dropped = len(J['images']) - len(keep)
+    moved = {old: new for new, old in enumerate(keep)}
+    J['images'] = [J['images'][i] for i in keep]
+    # And the texture entries that pointed at them, or the file is left naming
+    # a picture that is not in it any more.
+    live = [t for t in range(len(J.get('textures', [])))
+            if J['textures'][t].get('source') in moved]
+    slot = {old: new for new, old in enumerate(live)}
+    J['textures'] = [J['textures'][t] for t in live]
+    for tex in J['textures']:
+        tex['source'] = moved[tex['source']]
+    for mat in J.get('materials', []):
+        for name, value in list((mat.get('pbrMetallicRoughness') or {}).items()):
+            if isinstance(value, dict) and 'index' in value:
+                mat['pbrMetallicRoughness'][name]['index'] = slot[value['index']]
+    print(f'  {len(keep)} picture(s) kept, {dropped} dropped as unread')
 
 # 1a. Decimate, by clustering vertices onto a grid.
 #
@@ -297,7 +337,7 @@ for mesh in J['meshes']:
             # Quantise the attributes glTF lets us store small: normals as
             # signed bytes and UVs as unsigned shorts, both normalised. A
             # normal has no business being three float32s.
-            if name == 'NORMAL' and acc['componentType'] == 5126:
+            if name == 'NORMAL' and acc['componentType'] == 5126 and not KEEP_EVERYTHING:
                 vals = struct.unpack(f'<{acc["count"]*3}f', data)
                 packed = bytearray()
                 for i in range(acc['count']):
@@ -327,7 +367,7 @@ for mesh in J['meshes']:
                 # was, all of it. The padding was right; not declaring it was
                 # the bug.
                 stride_for = 4
-            elif name == 'TEXCOORD_0' and acc['componentType'] == 5126:
+            elif name == 'TEXCOORD_0' and acc['componentType'] == 5126 and not KEEP_EVERYTHING:
                 vals = struct.unpack(f'<{acc["count"]*2}f', data)
                 data = struct.pack(f'<{len(vals)}H',
                     *[max(0, min(65535, round(v*65535))) for v in vals])

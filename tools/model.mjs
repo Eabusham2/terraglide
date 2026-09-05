@@ -54,7 +54,8 @@ const browser = await chromium.launch({
   args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
     '--no-sandbox', '--disable-dev-shm-usage'],
 });
-const page = await browser.newPage({ viewport: { width: 700, height: 700 } });
+const shotSize = Number((process.argv.find((a) => a.startsWith('--size=')) || '').slice(7)) || 700;
+const page = await browser.newPage({ viewport: { width: shotSize, height: shotSize } });
 page.on('pageerror', (e) => console.log('PAGE ERROR', e.message));
 
 // `node tools/model.mjs --scan` photographs the generated body instead of the
@@ -62,7 +63,10 @@ page.on('pageerror', (e) => console.log('PAGE ERROR', e.message));
 const scan = process.argv.includes('--scan');
 // --weights paints the scan by which joint owns each vertex. See model.html.
 const weights = process.argv.includes('--weights');
-const query = weights ? '?scan&weights' : (scan ? '?scan' : '');
+const size = shotSize === 700 ? '' : String(shotSize);
+const plain = process.argv.includes('--plain');
+const bits = [scan && 'scan', weights && 'weights', plain && 'plain', size && `size=${size}`].filter(Boolean);
+const query = bits.length ? `?${bits.join('&')}` : '';
 await page.goto(`http://127.0.0.1:${PORT}/tools/model.html${query}`,
   { waitUntil: 'load' });
 await page.waitForFunction(() => window.__ready === true, null, { timeout: 60000 });
@@ -73,7 +77,7 @@ for (const view of views) {
   await page.evaluate((v) => window.__pose(v), view);
   await page.waitForTimeout(250);
   const shot = await page.screenshot();
-  const tag = weights ? 'weights-' : (scan ? 'scan-' : '');
+  const tag = weights ? 'weights-' : (plain ? 'plain-' : (scan ? 'scan-' : ''));
   await writeFile(join(OUT, `model-${tag}${view}.png`), shot);
   const stats = await page.evaluate(() => window.__measure());
   const cell = (s, w) => (s.n === 0 ? '--'.padStart(w)

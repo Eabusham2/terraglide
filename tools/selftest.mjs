@@ -6763,7 +6763,21 @@ console.log('\nGenerated art stays where it belongs');
     const glb = new URL(`../assets/${manifest.model.player}`, import.meta.url);
     ok('the mesh is present', existsSync(glb));
     const size = statSync(glb).size;
-    ok('and small enough to be worth downloading', size < 1_200_000,
+    /*
+      The limit was 1.2 MB, and meeting it was what made the figure soft.
+
+      The generator hands back a 1024-pixel PNG; tools/glb-optimise.py halved
+      it to 512 and re-encoded it as JPEG, which is three quarters of the
+      picture gone plus everything JPEG does to a hard edge — the low quality,
+      the mush on the sleeve seams, the smeared boot. That trade is right for
+      something everybody downloads and wrong for one nobody gets unless they
+      switch it on: it is off by default and never in the single-file build.
+
+      So the picture ships whole and the limit is now the size of a mesh with
+      a whole picture on it. It is still a limit: four megabytes catches a
+      second texture creeping in, or the ground plane coming back.
+    */
+    ok('and small enough to be worth downloading', size < 4_000_000,
       `${Math.round(size / 1024)} KB`);
     ok('and is a real GLB', readFileSync(glb).subarray(0, 4).toString() === 'glTF');
   }
