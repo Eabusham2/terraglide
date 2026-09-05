@@ -18,11 +18,17 @@ lit texels nearest it in space, and everything else in the file is untouched.
 That is a repair by hand, and it is described as one rather than dressed up as
 an algorithm that found something.
 
-  glb-repaint.py in.glb out.glb x0 x1 y0 y1 [threshold]
+  glb-repaint.py in.glb out.glb x0 x1 y0 y1 [threshold] [mark] [z0 z1]
 
-with x measured from the midline and y from the sole, both as fractions of the
-height of the head — the same numbers src/player/avatar.js lays its joints out
-in, so a region can be named from what is wrong on screen.
+A threshold of 1 or more is an absolute luminance; below 1 it is a fraction of
+what the same square centimetre of body is painted like, which is the one that
+works on a dark garment.
+
+with x measured from the midline, y from the sole and z from the middle of the
+figure — all as fractions of the height of the head, the same numbers
+src/player/avatar.js lays its joints out in, so a region can be named from
+what is wrong on screen. Positive z is behind the figure, because the loader
+turns it about Y to face the camera.
 """
 import json, struct, sys, io
 from collections import defaultdict
@@ -30,7 +36,21 @@ from PIL import Image
 
 src, dst = sys.argv[1], sys.argv[2]
 X0, X1, Y0, Y1 = (float(v) for v in sys.argv[3:7])
+# Front and back, because two dimensions are not enough to name a place on a
+# body: the box that covers the unlit shoulders also covers the pocket on the
+# chest, and the pocket is a pocket — dark because it is dark, not because
+# nothing lit it. Defaults to the whole depth so the older three arguments
+# still mean what they meant.
+_tail = [a for a in sys.argv[8:] if a != 'mark']
+Z0 = float(_tail[0]) if _tail else -9.0
+Z1 = float(_tail[1]) if len(_tail) > 1 else 9.0
 DARK = float(sys.argv[7]) if len(sys.argv) > 7 else 40.0
+# `mark` paints the texels it would repaint in magenta instead of repainting
+# them, so what a box actually covers can be looked at before it is believed.
+# Every wrong version of this repair was aimed by reasoning about where the
+# fault must be; the one that worked was aimed by rendering the mark and
+# seeing the region light up on the shoulder and nowhere else.
+MARK = 'mark' in sys.argv[8:]
 
 raw = open(src, 'rb').read()
 off, J, BIN = 12, None, None
@@ -86,22 +106,73 @@ for t in range(0, len(idx), 3):
     tri = idx[t:t+3]
     mx = sum(abs((pos[v][0] - cx) * scale) for v in tri) / 3
     my = sum((pos[v][1] - lo[1]) * scale for v in tri) / 3
-    if X0 <= mx <= X1 and Y0 <= my <= Y1: inside.append(tri)
+    mz = sum((pos[v][2] - cz) * scale for v in tri) / 3
+    if X0 <= mx <= X1 and Y0 <= my <= Y1 and Z0 <= mz <= Z1: inside.append(tri)
 print(f'{len(inside)} triangles in the region')
 
-lit = defaultdict(list)      # coarse cell -> lit colours
-dim = []
+# What a neighbourhood looks like, a centimetre of the figure at a time.
+#
+# An absolute threshold is the wrong instrument on a garment that is dark to
+# begin with: this jacket's own texels run from luminance 26 to 64, so any
+# number that catches the gashes on the shoulder also catches a third of the
+# sleeve. A contact shadow is not dark, it is *darker than what is around it* —
+# so a threshold below 1 is read as a fraction of the local median instead, and
+# the neighbourhood is built from every texel in it rather than only the lit
+# ones. The median is what makes that safe: the gash has to be the minority of
+# its own neighbourhood, which is exactly what being a gash means.
+lit = defaultdict(list)      # coarse cell -> the colours seen there
 CELL = 0.010 / scale         # a centimetre of the figure, in file units
+RELATIVE = DARK < 1.0
+# Five centimetres, not two. A gash is four across, so a neighbourhood two
+# centimetres wide taken from the middle of one is entirely inside it: the
+# median comes back as dark as the fault, the fault is measured against itself
+# and passes, and only its edges get painted. That is what left the black core
+# of each shoulder ringed in the colour it should have been.
+REACH = range(-5, 6)
 def cell_of(v):
     return (int(pos[v][0] / CELL), int(pos[v][1] / CELL), int(pos[v][2] / CELL))
 
+def luma(c):
+    return (c[0]*299 + c[1]*587 + c[2]*114) / 1000
+
+def colour_of(v):
+    return px[min(int(uv[v][0] * W), W - 1), min(int(uv[v][1] * H), H - 1)]
+
+def gather(cells, tri):
+    near = []
+    for v in tri:
+        base = cell_of(v)
+        for dx in REACH:
+            for dy in REACH:
+                for dz in REACH:
+                    near.extend(cells.get((base[0]+dx, base[1]+dy, base[2]+dz), ()))
+    return near
+
+def median(near):
+    return tuple(sorted(c[ch] for c in near)[len(near) // 2] for ch in range(3))
+
 for tri in inside:
     for v in tri:
-        x = min(int(uv[v][0] * W), W - 1)
-        y = min(int(uv[v][1] * H), H - 1)
-        c = px[x, y]
-        lum = (c[0]*299 + c[1]*587 + c[2]*114) / 1000
-        if lum >= DARK: lit[cell_of(v)].append(c)
+        if RELATIVE or luma(colour_of(v)) >= DARK: lit[cell_of(v)].append(colour_of(v))
+
+# Twice, because the first answer is measured against the fault.
+#
+# What a gash should be painted is what the sleeve around it is painted, and a
+# median taken over everything within five centimetres of a gash is dragged
+# down by the gash itself — so the repair came out at 72 per cent of a colour
+# that was already too dark, and the shoulder stayed a blotch. The second pass
+# takes the median again over only the texels the first pass did not call
+# dark, which is the lit sleeve and nothing else.
+if RELATIVE:
+    keep = defaultdict(list)
+    for tri in inside:
+        near = gather(lit, tri)
+        if len(near) < 6: continue
+        floor = luma(median(near)) * DARK
+        for v in tri:
+            c = colour_of(v)
+            if luma(c) >= floor: keep[cell_of(v)].append(c)
+    lit = keep
 
 painted = 0
 for tri in inside:
@@ -110,15 +181,10 @@ for tri in inside:
     det = (ys[1] - ys[2]) * (xs[0] - xs[2]) + (xs[2] - xs[1]) * (ys[0] - ys[2])
     if abs(det) < 1e-12: continue
     # What this triangle's own neighbourhood is lit like.
-    near = []
-    for v in tri:
-        base = cell_of(v)
-        for dx in (-2, -1, 0, 1, 2):
-            for dy in (-2, -1, 0, 1, 2):
-                for dz in (-2, -1, 0, 1, 2):
-                    near.extend(lit.get((base[0]+dx, base[1]+dy, base[2]+dz), ()))
+    near = gather(lit, tri)
     if len(near) < 6: continue
-    want = tuple(sorted(c[ch] for c in near)[len(near) // 2] for ch in range(3))
+    want = median(near)
+    floor = luma(want) * DARK if RELATIVE else DARK
     x0, x1 = max(0, int(min(xs))), min(W - 1, int(max(xs)) + 1)
     y0, y1 = max(0, int(min(ys))), min(H - 1, int(max(ys)) + 1)
     for y in range(y0, y1 + 1):
@@ -126,14 +192,13 @@ for tri in inside:
             l0 = ((ys[1]-ys[2]) * (x+0.5-xs[2]) + (xs[2]-xs[1]) * (y+0.5-ys[2])) / det
             l1 = ((ys[2]-ys[0]) * (x+0.5-xs[2]) + (xs[0]-xs[2]) * (y+0.5-ys[2])) / det
             if l0 < -0.02 or l1 < -0.02 or 1 - l0 - l1 < -0.02: continue
-            c = px[x, y]
-            lum = (c[0]*299 + c[1]*587 + c[2]*114) / 1000
-            if lum >= DARK: continue
+            if luma(px[x, y]) >= floor: continue
             # Kept dim, because it is still the inside of a shoulder — just not
             # a hole cut in one.
-            px[x, y] = tuple(min(255, int(want[ch] * 0.72)) for ch in range(3))
+            px[x, y] = (255, 0, 255) if MARK else \
+                tuple(min(255, int(want[ch] * 0.72)) for ch in range(3))
             painted += 1
-print(f'{painted} texels repainted')
+print(f'{painted} texels {"marked" if MARK else "repainted"}')
 
 buf = io.BytesIO()
 was = (J['images'][image_i].get('mimeType') or '').lower()
