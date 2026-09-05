@@ -393,8 +393,8 @@ const SCAN_WING_LEVEL = 0.62;
  * waist and only a little sweep in it, so most of the fold belongs on the
  * other axis.
  */
-const SCAN_WING_FOLD = 1.1;
-const SCAN_WING_TUCK = 0.6;
+const SCAN_WING_FOLD = 1.42;
+const SCAN_WING_TUCK = 0.72;
 /**
  * How sharply a vertex prefers its nearest joint.
  *
@@ -1233,7 +1233,11 @@ export class Avatar {
     }
     if (held.length < 20) return null;
     held.sort((a, b) => a[0] - b[0]);
-    const fist = held.slice(0, Math.max(10, Math.round(held.length * 0.1)));
+    // The lowest tenth is the fingertips, and the rocket's own origin is the
+    // grip — the point a fist closes around — so aiming at the fingertips hung
+    // it off the ends of the fingers. The lowest third averages to the middle
+    // of the hand, which is where a fist is.
+    const fist = held.slice(0, Math.max(10, Math.round(held.length * 0.33)));
     const grip = new THREE.Vector3();
     for (const [y, x, z] of fist) grip.add(_grip.set(x, y, z));
     grip.multiplyScalar(1 / fist.length);
