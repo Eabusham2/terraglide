@@ -422,7 +422,7 @@ const SKIN_SOFTEN = 0.015;
  *  other while still letting the crotch stretch between them. */
 const SKIN_MIDLINE = 0.03;
 /** How much of an arm's swing the collarbone takes rather than the shoulder. */
-const SCAN_CLAVICLE = 0.45;
+const SCAN_CLAVICLE = 0.80;
 /** Passes of neighbour-averaging over the skin weights. See weighScan(). */
 const SKIN_SMOOTHING = 12;
 
