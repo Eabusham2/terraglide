@@ -932,9 +932,43 @@ export class Avatar {
       model.scale.setScalar(scale);
       model.position.set(-centre.x * scale, -box.min.y * scale, -centre.z * scale);
 
+      /*
+        Paper is not a mirror and neither is a person.
+
+        TRELLIS writes metallicFactor 1.0 with a metal-roughness map on
+        everything it makes. A fully metallic surface has no diffuse colour at
+        all — it shows you its reflections — so under a hemisphere light and a
+        sun it arrives as dark blotches following the roughness map, with the
+        photograph barely visible through them. That is the black smudging all
+        over this figure, and it is a property of the file rather than of the
+        scan: the same fault was found and fixed in tools/glb-optimise.py, but
+        this asset was made before that, so it is undone here at load instead
+        of re-encoding a picture to get at one number.
+      */
+      model.traverse((child) => {
+        if (!child.isMesh || !child.material) return;
+        child.material = child.material.clone();
+        child.material.metalness = 0;
+        child.material.roughness = 0.85;
+        child.material.metalnessMap = null;
+        child.material.roughnessMap = null;
+        child.material.side = THREE.DoubleSide;
+        child.material.needsUpdate = true;
+      });
+
       this.model = new THREE.Group();
       this.model.add(model);
-      this.root.add(this.model);
+      /*
+        On the body, not on the root.
+
+        The pose lives on `body` — it is rotated and moved every frame for the
+        lean, the bank and the prone glide, about the eye. Hung off the root
+        instead, the scan ignored all of it and stood bolt upright while
+        gliding, which is most of what "it does not work with movement" is. It
+        still cannot move an arm, because it has no skeleton; it can at least
+        lie down when you are lying down, and lean when you lean.
+      */
+      this.body.add(this.model);
       this.applyModelMode();
       return true;
     } catch {
