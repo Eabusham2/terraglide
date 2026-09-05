@@ -1,5 +1,5 @@
 """Shrink a TRELLIS GLB into something a browser game can afford to download."""
-import struct, json, io, sys, math
+import math, struct, json, io, sys
 from PIL import Image
 
 src, dst, tex_size, quality = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
@@ -274,11 +274,51 @@ for mesh in J['meshes']:
         idx, iacc = read_acc(prim['indices'])
         lo = pacc['min'][1]; hi = pacc['max'][1]
         cut = lo + (hi - lo) * 0.02
+        # How wide the figure itself is down there, measured rather than
+        # assumed: the radius of everything standing in the slice just above
+        # the cut, which on this mesh is a pair of boots at 0.135 against a
+        # floor that reaches 0.5.
+        foot = 0.0
+        for v in range(pacc['count']):
+            y = pos[v*3+1]
+            if cut <= y < cut + (hi - lo) * 0.03:
+                foot = max(foot, math.hypot(pos[v*3], pos[v*3+2]))
+        foot = foot or (hi - lo) * 0.2
+
+        def upward(a, b, c):
+            """How level the triangle lies, as |n.y| of its unit normal."""
+            q = [pos[v*3:v*3+3] for v in (a, b, c)]
+            u = [q[1][i] - q[0][i] for i in range(3)]
+            w = [q[2][i] - q[0][i] for i in range(3)]
+            n = [u[1]*w[2] - u[2]*w[1], u[2]*w[0] - u[0]*w[2], u[0]*w[1] - u[1]*w[0]]
+            m = math.sqrt(sum(x*x for x in n))
+            return abs(n[1]) / m if m else 1.0
+
+        # Height alone took the boots with the floor.
+        #
+        # Two per cent of this figure is three and a half centimetres, and a
+        # boot is taller than that — so a rule that drops everything below the
+        # line sliced a horizontal band off the bottom of both boots and left a
+        # ragged stepped rim where it happened to cross their triangles. That
+        # rim is what the fill then closed, and a notched outline at the toe is
+        # what it looked like: not compression, not aliasing, a cut in the
+        # wrong place.
+        #
+        # What is actually down there is a floor, and a floor is *flat*. So a
+        # triangle below the line goes only if it lies level, or if it is
+        # further out than the figure's own footprint — which catches the lip
+        # where the slab turns down at its edge, half a body-length away from
+        # anything real. The boots keep their walls, the hole left is the
+        # outline of a sole rather than a slice through one, and the fill has
+        # something sensible to close.
         keep = []
         for t in range(0, len(idx), 3):
             a, b, c = idx[t], idx[t+1], idx[t+2]
             if pos[a*3+1] < cut and pos[b*3+1] < cut and pos[c*3+1] < cut:
-                continue
+                level = upward(a, b, c) > 0.966            # within 15 degrees
+                away = min(math.hypot(pos[v*3], pos[v*3+2])
+                           for v in (a, b, c)) > foot * 1.5
+                if level or away: continue
             keep.extend((a, b, c))
         removed = (len(idx) - len(keep)) // 3
         # Compact: drop vertices no surviving triangle references.

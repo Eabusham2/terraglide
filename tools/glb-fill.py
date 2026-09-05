@@ -188,6 +188,29 @@ for mesh in J.get('meshes', []):
         tris = [(wid[idx[t]], wid[idx[t+1]], wid[idx[t+2]])
                 for t in range(0, len(idx), 3)]
         tris = [t for t in tris if t[0] != t[1] and t[1] != t[2] and t[0] != t[2]]
+        # Shave the spikes off the rim before tracing it.
+        #
+        # A cut across a surface never lands on a tidy line: it leaves single
+        # triangles hanging on by one corner, and a rim made of those is a
+        # fringe of little spines. They are easy to name — a triangle with two
+        # or three of its own edges on the boundary is attached to the surface
+        # by at most one edge, which is not attached at all — and taking one
+        # away can expose the next, so it goes round until a pass finds none.
+        shaved = 0
+        for _pass in range(8):
+            edges = defaultdict(int)
+            for a, b, c in tris:
+                for e in ((a, b), (b, c), (c, a)):
+                    edges[(min(e), max(e))] += 1
+            loose = [t for t in tris
+                     if sum(1 for e in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0]))
+                            if edges[(min(e), max(e))] == 1) >= 2]
+            if not loose: break
+            drop = set(map(tuple, loose))
+            tris = [t for t in tris if tuple(t) not in drop]
+            shaved += len(loose)
+        if shaved: print(f'  shaved {shaved} spikes off the cut')
+
         patches = []          # the rim of each hole, in welded ids
         plane = {}            # and the flat it was closed on
         new_tris = []         # (which patch, triangle) for every triangle added

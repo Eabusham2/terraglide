@@ -19,6 +19,20 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuff
 const SIZE = Math.min(4096, Math.max(200,
   Number(new URLSearchParams(location.search).get('size')) || 700));
 renderer.setSize(SIZE, SIZE);
+/*
+  And drawn at twice that, then resolved down.
+
+  Four-sample multisampling smooths the edge of a silhouette and does nothing
+  at all for what is inside it, so a black boot against dark ground came out
+  with a notched, stepped outline and a smooth shading gradient down a trouser
+  leg came out in bands — both of which read as a compressed picture and are
+  neither: the atlas is a 1024 PNG uploaded at 1024, and the positions,
+  normals and coordinates are all float32. It was the shot that was low
+  resolution, not the model in it. Rendering into a buffer twice as wide and
+  letting the browser resolve it into the screenshot samples every pixel four
+  times over, inside the silhouette as well as on it.
+*/
+renderer.setPixelRatio(2);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
 
