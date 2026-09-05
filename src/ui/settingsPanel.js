@@ -258,7 +258,7 @@ const SECTIONS = [
         key: 'detailedPlayerModel',
         label: 'Detailed player model (does not animate)',
         type: 'toggle',
-        help: 'A generated character mesh instead of the built one. More detail standing still, but it is a single fused mesh with no skeleton: it will not walk, will not open its wings, and is not used in first person. A real trade, not an upgrade. Not in the single-file build.',
+        help: 'A generated character mesh instead of the built one. It arrived as one fused surface with no skeleton, so it is given the joints the built figure has, at load: it walks, glides and holds a firework the way the built one does. It came with its own feathered wings, which it wears instead of the elytra rather than as well as it. Not used in first person, and the face is a bake rather than a face. Not in the single-file build.',
       },
       { key: 'showBody', label: 'Show your body in first person', type: 'toggle', help: 'Your legs and boots below you when you look down. Your arms and the rocket in your hand are drawn either way.' },
       {

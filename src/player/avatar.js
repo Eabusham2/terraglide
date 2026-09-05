@@ -244,6 +244,117 @@ const LEG_LENGTH = 0.46;
 const BOOT_HEIGHT = 0.05;
 
 /**
+ * The joints to give the scanned body.
+ *
+ * A generated mesh arrives as one fused surface with no skeleton, which is why
+ * it stood there rigid while the built figure walked, and why the firework hung
+ * in mid-air beside it: the hand the rocket is held in belongs to the built
+ * arm, and the scan's own hand was wherever the scan happened to have left it.
+ *
+ * These are the joints the built figure has and therefore the only ones worth
+ * giving it — a shoulder each side, a hip each side, and a neck. No elbow, no
+ * knee, no spine, because the built model has none either and the two have to
+ * move alike. `at` is where the joint turns, in the same body-space numbers the
+ * built rig is laid out in above, so the two skeletons are the same skeleton.
+ * `spans` are the lengths of body that joint owns, used only to work out which
+ * vertices follow it — a list, because a shoulder needs a collarbone as well
+ * as a spine to hang off.
+ *
+ * The arm segment starts below the shoulder rather than at it, so the cap of
+ * the shoulder stays with the chest instead of swinging away from it.
+ *
+ * The neck joint sits at the middle of the head rather than at the throat, for
+ * the same reason the built head is a box that turns about its own centre: a
+ * head hung off the throat *swings* when it pitches, and the glide pitches it
+ * seventy degrees, which left the scan flying along with its face dangling
+ * under its chest. Turning about the middle changes where it looks without
+ * moving where it is.
+ */
+const SCAN_JOINTS = [
+  {
+    name: 'spine',
+    at: [0, 0, 0],
+    /*
+      Two lengths, not one: the spine, and a collarbone across the top of it.
+
+      With the spine alone, every point on the shoulder was nearer the arm than
+      the middle of the chest, so the arm owned the whole shoulder — and a
+      shoulder that swings out with the arm drags the chest out with it. From
+      above that reads as a man twice his own width, with the surface torn open
+      where the part that followed the arm parted from the part that did not.
+      A collarbone is the thing a real shoulder hangs off, and putting one in
+      is what stops the arm claiming it.
+    */
+    spans: [[[0, HIP_Y - 0.03, 0], [0, 0.84, 0]], [[-0.13, 0.80, 0], [0.13, 0.80, 0]]],
+  },
+  { name: 'head', at: [0, 0.92, 0], spans: [[[0, 0.88, 0], [0, 1.0, 0]]] },
+  { name: 'armL', at: [-0.115, 0.79, 0], spans: [[[-0.125, 0.72, 0], [-0.13, 0.42, 0]]], side: -1 },
+  { name: 'armR', at: [0.115, 0.79, 0], spans: [[[0.125, 0.72, 0], [0.13, 0.42, 0]]], side: 1 },
+  { name: 'legL', at: [-0.051, HIP_Y, 0], spans: [[[-0.051, HIP_Y - 0.04, 0], [-0.055, 0.02, 0]]], side: -1 },
+  { name: 'legR', at: [0.051, HIP_Y, 0], spans: [[[0.051, HIP_Y - 0.04, 0], [0.055, 0.02, 0]]], side: 1 },
+  /*
+    And the wings it came with.
+
+    It was generated wearing a spread pair, and the game strapped an elytra on
+    over the top of them: two pairs at once, which is what "2 elytra" was. The
+    answer is not to cut its wings off — that was tried, and every rule that
+    took the feathers also took a strip of sleeve or left a ruff across the
+    shoulders that read as a backpack, and the weld needed to close the wound
+    afterwards merged eight thousand vertices that shared a place but not a
+    texture coordinate, which is what put cracks all over a figure that had
+    none. They are better wings than the built sheet anyway. So they get a
+    joint each and fold on the same signal, and the built pair comes off.
+  */
+  { name: 'wingL', at: [-0.10, 0.78, 0.05], spans: [[[-0.16, 0.85, 0.05], [-0.68, 1.10, 0.05]]], side: -1, wing: true },
+  { name: 'wingR', at: [0.10, 0.78, 0.05], spans: [[[0.16, 0.85, 0.05], [0.68, 1.10, 0.05]]], side: 1, wing: true },
+];
+/**
+ * How far from the midline a person still reaches, at this height — the
+ * envelope that separates the figure from what it is wearing on its back.
+ * Anything outside it is wing, and the wing joint takes it over a hand's width
+ * of blending rather than at a line, so the root bends instead of tearing.
+ */
+function scanWidest(y) {
+  if (y > 0.84) return 0.13;    // above the shoulders: a head and a neck
+  if (y > 0.58) return 0.19;    // shoulders, and the arms hanging off them
+  if (y > 0.14) return 0.24;    // arms at the sides, hands the widest thing
+  return 0.32;                  // and the feet, which turn out
+}
+/*
+  Narrow, deliberately.
+
+  A wide blend at the wing root does not soften the fold, it webs it: the
+  feathers stay joined to the jacket by a sheet of stretched triangles that
+  tears open as the sweep goes past inside out, which from above is the mess
+  across the shoulders. A wing is a thing that is hinged to a back, not grown
+  out of it, so it gets close to a hinge — and the seam that leaves is under
+  the wing, which is the one place on the figure nothing can see.
+*/
+const SCAN_WING_BLEND = 0.03;
+/** How far back the wings sweep when they fold, matching the built pair. */
+const SCAN_WING_FOLD = 1.5;
+/** And how far down, so a folded wing lies on the back rather than over it. */
+const SCAN_WING_DROP = 0.55;
+/**
+ * How sharply a vertex prefers its nearest joint.
+ *
+ * Cubed was too soft. A shoulder rotates through ninety degrees when the arms
+ * go out, and at that angle a wide half-and-half band does not bend, it webs:
+ * the arm and the chest stay joined by a sheet of stretched triangles, which
+ * from above is a man twice his own width with the surface torn open where the
+ * stretch went past inside out. The sixth power keeps the blend to the joint
+ * itself, which is the only place a blend belongs.
+ */
+const SKIN_FALLOFF = 6;
+/** Added to every distance so a vertex sitting on a bone is not divided by
+ *  zero, and so the joint itself blends rather than snapping. */
+const SKIN_SOFTEN = 0.015;
+/** Half the width of the band across the midline where left and right share a
+ *  limb. Legs are set 0.051 apart, so this keeps them from dragging on each
+ *  other while still letting the crotch stretch between them. */
+const SKIN_MIDLINE = 0.03;
+
+/**
  * How far the wing lifts out of its own plane by the tip, as a fraction of
  * standing height. Applied by the square of how far out a point is, so the
  * root sits flat against the back and the curve gathers toward the tip —
@@ -724,6 +835,10 @@ export class Avatar {
     this.firstPerson = false;
     /** Optional generated mesh; null until asked for. See loadModel(). */
     this.model = null;
+    /** Its skeleton, by joint name, once it has one. See rigTheScan(). */
+    this.scanBones = null;
+    this.scanBoneList = [];
+    this.scanSkins = [];
     this.root.visible = false;
   }
 
@@ -923,14 +1038,41 @@ export class Avatar {
         new GLTFLoader().load(`${base}player.glb`, resolve, undefined, reject),
       );
       const model = gltf.scene;
-      // Normalise to a 1-unit-tall figure standing on the origin, matching the
-      // built model's convention so the same root transform drives both.
+      model.updateMatrixWorld(true);
+      /*
+        Normalise to a 1-unit-tall figure standing on the origin and facing
+        -Z, matching the built model's convention so the same root transform
+        drives both.
+
+        The turn is not cosmetic. A scan has no idea which way is forward, and
+        this one was reconstructed facing +Z while every other thing in this
+        file — the eyes, the toes, the direction the shoulders lead in — faces
+        -Z. It was therefore on backwards from the day it was added: every
+        photograph of it is the back of a head, and in a glide it flew face
+        down and feet first with the firework out behind it.
+      */
       const box = new THREE.Box3().setFromObject(model);
       const size = box.getSize(new THREE.Vector3());
       const centre = box.getCenter(new THREE.Vector3());
-      const scale = 1 / Math.max(size.y, 1e-6);
-      model.scale.setScalar(scale);
-      model.position.set(-centre.x * scale, -box.min.y * scale, -centre.z * scale);
+      /*
+        Measured to the top of the head, not the top of the box.
+
+        The wings reach higher than the crown does, so scaling the bounding box
+        to one unit made the wings a body height and the person seven eighths
+        of one — everybody 20 cm shorter than the number in their settings, and
+        every measurement taken off the figure was of a shorter man than the
+        one being drawn. A head is on the midline and a wing tip is not, so the
+        crown is the highest point in a narrow column up the middle.
+      */
+      const crown = this.crownOf(model, centre, size.y);
+      const scale = 1 / Math.max(crown - box.min.y, 1e-6);
+      const place = new THREE.Matrix4().makeRotationY(Math.PI);
+      place.premultiply(new THREE.Matrix4().makeScale(scale, scale, scale));
+      // A half turn about Y negates x and z, so the centring adds where it
+      // would otherwise subtract.
+      place.premultiply(new THREE.Matrix4().makeTranslation(
+        centre.x * scale, -box.min.y * scale, centre.z * scale,
+      ));
 
       /*
         Paper is not a mirror and neither is a person.
@@ -962,24 +1104,182 @@ export class Avatar {
         child.material.needsUpdate = true;
       });
 
-      this.model = new THREE.Group();
-      this.model.add(model);
       /*
         On the body, not on the root.
 
         The pose lives on `body` — it is rotated and moved every frame for the
         lean, the bank and the prone glide, about the eye. Hung off the root
         instead, the scan ignored all of it and stood bolt upright while
-        gliding, which is most of what "it does not work with movement" is. It
-        still cannot move an arm, because it has no skeleton; it can at least
-        lie down when you are lying down, and lean when you lean.
+        gliding, which is most of what "it does not work with movement" is.
       */
+      this.model = this.rigTheScan(model, place);
       this.body.add(this.model);
+      this.root.updateMatrixWorld(true);
+      // Bound after it is in the scene and while every joint is still at rest,
+      // because that pose is what the weights are measured against.
+      for (const skinned of this.scanSkins) skinned.bind(new THREE.Skeleton(this.scanBoneList));
       this.applyModelMode();
       return true;
     } catch {
       return false;
     }
+  }
+
+  /**
+   * The top of the head: the highest point in a narrow column up the midline.
+   *
+   * Anything a scanned figure wears on its back can out-reach its own skull —
+   * this one's wings do, by an eighth of its height — and the bounding box
+   * cannot tell the two apart. A column is enough to, because a head is on the
+   * midline and a wing tip is a long way off it.
+   */
+  crownOf(model, centre, tall) {
+    const near = tall * 0.06;
+    const point = new THREE.Vector3();
+    let top = -Infinity;
+    model.traverse((child) => {
+      const position = child.isMesh && child.geometry?.getAttribute('position');
+      if (!position) return;
+      for (let v = 0; v < position.count; v += 1) {
+        point.fromBufferAttribute(position, v).applyMatrix4(child.matrixWorld);
+        if (Math.abs(point.x - centre.x) > near) continue;
+        if (point.y > top) top = point.y;
+      }
+    });
+    return Number.isFinite(top) ? top : centre.y + tall / 2;
+  }
+
+  /**
+   * Put a skeleton inside the scan, so it moves when the built figure moves.
+   *
+   * The mesh is baked into body space first — scaled, stood on the floor and
+   * turned to face -Z — so that the bones can be laid out in exactly the
+   * numbers the built rig uses above rather than in whatever frame the scanner
+   * happened to leave. Then every vertex is given the four joints nearest it,
+   * weighted by distance, which is what makes a shoulder bend instead of
+   * shearing off: hard parenting to the nearest bone is the same rig with the
+   * blending removed, and it tears at every joint.
+   */
+  rigTheScan(source, place) {
+    const group = new THREE.Group();
+    const bones = SCAN_JOINTS.map((joint) => {
+      const bone = new THREE.Bone();
+      bone.position.set(...joint.at);
+      return bone;
+    });
+    const named = {};
+    SCAN_JOINTS.forEach((joint, i) => { named[joint.name] = bones[i]; });
+    // Every joint hangs off the spine, which sits at the origin and never
+    // turns: it is the "not a limb" bone, not a back that bends.
+    for (let i = 1; i < bones.length; i += 1) bones[0].add(bones[i]);
+
+    this.scanBoneList = bones;
+    this.scanBones = named;
+    this.scanSkins = [];
+    source.updateMatrixWorld(true);
+    const meshes = [];
+    source.traverse((child) => { if (child.isMesh) meshes.push(child); });
+    const into = new THREE.Matrix4();
+    for (const mesh of meshes) {
+      const geometry = mesh.geometry.clone();
+      geometry.applyMatrix4(into.copy(place).multiply(mesh.matrixWorld));
+      this.weighScan(geometry);
+      const skinned = new THREE.SkinnedMesh(geometry, mesh.material);
+      skinned.frustumCulled = false;   // it is one figure, and it deforms
+      group.add(skinned);
+      this.scanSkins.push(skinned);
+    }
+    group.add(bones[0]);
+    return group;
+  }
+
+  /** Which joints each vertex follows, and by how much. */
+  weighScan(geometry) {
+    const position = geometry.getAttribute('position');
+    const count = position.count;
+    const index = new Uint16Array(count * 4);
+    const weight = new Float32Array(count * 4);
+    const point = new THREE.Vector3();
+    const start = new THREE.Vector3();
+    const along = new THREE.Vector3();
+    const from = new THREE.Vector3();
+    const share = new Array(SCAN_JOINTS.length);
+    for (let v = 0; v < count; v += 1) {
+      point.fromBufferAttribute(position, v);
+      // How far outside a person this point is. Nothing but the wings is, and
+      // distance alone will not say so: a wing root sits closer to the spine
+      // than the shoulder it grows out of.
+      const beyond = clamp(
+        (Math.abs(point.x) - scanWidest(point.y)) / SCAN_WING_BLEND, 0, 1,
+      );
+      for (let j = 0; j < SCAN_JOINTS.length; j += 1) {
+        const joint = SCAN_JOINTS[j];
+        let reach = Infinity;
+        for (const [a, b] of joint.spans) {
+          start.set(...a);
+          along.set(...b).sub(start);
+          from.copy(point).sub(start);
+          const t = clamp(from.dot(along) / Math.max(along.lengthSq(), 1e-9), 0, 1);
+          reach = Math.min(reach, from.addScaledVector(along, -t).length());
+        }
+        let w = 1 / Math.pow(reach + SKIN_SOFTEN, SKIN_FALLOFF);
+        // A left leg belongs to the left of the body. Without this the two
+        // legs sit close enough to weight each other and walk as one.
+        if (joint.side) {
+          w *= clamp(0.5 + (point.x * joint.side) / (2 * SKIN_MIDLINE), 0, 1);
+        }
+        share[j] = w * (joint.wing ? beyond : 1 - beyond);
+      }
+      let total = 0;
+      for (let k = 0; k < 4; k += 1) {
+        let best = -1;
+        let most = 0;
+        for (let j = 0; j < share.length; j += 1) {
+          if (share[j] > most) { most = share[j]; best = j; }
+        }
+        if (best < 0) break;
+        index[v * 4 + k] = best;
+        weight[v * 4 + k] = most;
+        total += most;
+        share[best] = 0;
+      }
+      if (total > 0) for (let k = 0; k < 4; k += 1) weight[v * 4 + k] /= total;
+      else weight[v * 4] = 1;
+    }
+    geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(index, 4));
+    geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(weight, 4));
+  }
+
+  /**
+   * Hand the built figure's pose to the scan's skeleton.
+   *
+   * Copied rather than shared, because the built rig's pivots carry the boxes
+   * as well and the scan is a second body wearing the same joints.
+   */
+  poseScan(open = 0) {
+    const bone = this.scanBones;
+    if (!bone) return;
+    bone.head.quaternion.copy(this.head.quaternion);
+    bone.armL.quaternion.copy(this.armL.pivot.quaternion);
+    bone.armR.quaternion.copy(this.armR.pivot.quaternion);
+    bone.legL.quaternion.copy(this.legL.pivot.quaternion);
+    bone.legR.quaternion.copy(this.legR.pivot.quaternion);
+    /*
+      The wings are the one joint that is not a copy, because the scan's are
+      modelled already open and the built ones are modelled shut: the same
+      angle means opposite things on the two bodies. So they take the signal
+      rather than the pose — fully out at full deployment, swept back along the
+      spine at none — which is the same sweep the built pair makes, arrived at
+      from the other end.
+    */
+    const fold = SCAN_WING_FOLD * (1 - open);
+    // Swept back *and* dropped. Sweeping alone leaves a spread wing pointing
+    // up and behind, which stands over the shoulders like a pack rather than
+    // lying along the spine, and standing still is where the figure is looked
+    // at longest.
+    const drop = SCAN_WING_DROP * (1 - open);
+    bone.wingL.rotation.set(0, fold, drop);
+    bone.wingR.rotation.set(0, -fold, -drop);
   }
 
   /**
@@ -1383,7 +1683,16 @@ export class Avatar {
     // eyes rather than your ankles they are where a back is: directly behind
     // your head. Drawing them in first person put a metre of canvas through
     // the camera. You cannot see your own wings, so do not draw them.
-    this.wings.visible = player.elytraDeployed && !this.firstPerson;
+    /*
+      One pair of wings at a time.
+
+      The scanned body came with its own, spread from its shoulders, and they
+      are better wings than this sheet is — so when it is the body on screen,
+      the built pair comes off and the scan's fold on the same signal instead.
+      Drawing both is what "2 elytra" was.
+    */
+    this.wings.visible = player.elytraDeployed && !this.firstPerson
+      && !(this.model && this.model.visible);
     const wing = this.wingPose;
     this.wingL.rotation.set(wing.x * open, -wing.y + 1.5 * (1 - open), wing.z * open);
     this.wingR.rotation.set(wing.x * open, wing.y - 1.5 * (1 - open), -wing.z * open);
@@ -1479,6 +1788,10 @@ export class Avatar {
     // group sat at the camera's own origin, so switching back to it drew
     // nothing: every part of it was at (0, 0, 0), inside the near plane.
     if (this.viewModel.visible) this.updateHand(player, dt, camera);
+    // After every limb has been posed and before the rocket is aimed off the
+    // shoulder, so the scanned body arrives at the same attitude in the same
+    // frame rather than a frame behind the arm holding its firework.
+    this.poseScan(open);
     this.aimRocket(player);
     // Last, because it measures against where the camera actually is.
     this.hideWhatIsInYourEye(camera);

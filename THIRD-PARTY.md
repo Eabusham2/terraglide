@@ -175,8 +175,17 @@ drawn in every mode.
 `assets/player.glb` is a generated character mesh — TRELLIS.2 on Hugging Face,
 from a prompt, then reduced by `tools/glb-optimise.py`: the baked ground plane
 cut away, textures halved and re-encoded, normals and UVs quantised, 3.9 MB
-down to 0.9 MB. It depicts no real person. Off by default, and never fetched by
+down to 0.7 MB. It depicts no real person. Off by default, and never fetched by
 the single-file build.
+
+It was generated wearing a pair of feathered wings, which it wore on top of the
+elytra the game already gives you, and which — reaching higher than its own
+crown — were what the loader measured when it scaled the figure to the player's
+height. The wings are kept and hinged rather than cut off, the built pair comes
+off instead, and the loader measures the top of the head. It had no skeleton
+either, so it stood rigid while the built figure walked; it is given the built
+figure's own joints at load, and every vertex weighted to the four nearest of
+them.
 
 It went out smudged black for a fortnight, and the reduction was what did it.
 glTF requires every vertex attribute to sit on a four-byte boundary, so three

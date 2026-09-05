@@ -134,6 +134,22 @@ for mesh in J['meshes']:
             if a == b or b == c or a == c: continue
             tris.append((a, b, c))
 
+        # A weld radius is only ever right for the mesh it was measured on, and
+        # counting merged vertices does not tell you whether it was: a third of
+        # this file's vertices sit exactly on top of another, because that is
+        # how a texture seam is stored, and merging those is the whole point.
+        # What separates a repair from a collapse is what happens to the
+        # *triangles*. Two per cent of the longest side mended a torn firework;
+        # the same number on the character folded 84% of it away and said
+        # nothing, because a mesh that has been screwed into a ball is still a
+        # valid mesh. Losing the surface is not a tolerance being generous.
+        lost = len(idx) // 3 - len(tris)
+        if lost > len(idx) / 3 * 0.05:
+            raise SystemExit(
+                f'glb-heal: tolerance {TOL} collapses {lost} of {len(idx)//3} '
+                f'triangles ({300.0*lost/len(idx):.0f}%) to nothing. That is a '
+                f'collapse, not a repair — pass a smaller one.')
+
         # 2. Fill, and keep filling.
         #
         # One pass is not enough. Closing a loop joins triangles that were not

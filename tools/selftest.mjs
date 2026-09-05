@@ -3681,6 +3681,218 @@ console.log('\nNothing ships with holes in it');
     checked > 0);
 }
 
+console.log('\nThe scanned body is a body, and it moves like one');
+{
+  /*
+    Three faults, all of them in one photograph the day they were found: a
+    second pair of wings, a firework hanging in mid-air beside the hand that
+    was supposed to be holding it, and nothing on the figure moving at all.
+
+    They turned out to be two things. The mesh was generated with feathered
+    wings spread from its shoulders — a second elytra that could never fold,
+    and, because they reach higher than the crown does, the thing the loader
+    was measuring when it scaled the figure to the player's height. And the
+    scan had no skeleton, so it stood rigid while the built figure walked, and
+    the hand the rocket is held in was the built arm's, which the scan's own
+    arm had no reason to be anywhere near.
+  */
+  const { readFileSync } = await import('node:fs');
+  const raw = readFileSync(new URL('../assets/player.glb', import.meta.url));
+  let off = 12;
+  let json = null;
+  let bin = null;
+  while (off < raw.length) {
+    const len = raw.readUInt32LE(off);
+    const kind = raw.toString('utf8', off + 4, off + 8);
+    if (kind === 'JSON') json = JSON.parse(raw.toString('utf8', off + 8, off + 8 + len));
+    else if (kind.startsWith('BIN')) bin = raw.subarray(off + 8, off + 8 + len);
+    off += 8 + len;
+  }
+  const prim = json.meshes[0].primitives[0];
+  const acc = json.accessors[prim.attributes.POSITION];
+  const view = json.bufferViews[acc.bufferView];
+  const stride = view.byteStride ?? 12;
+  const base = (view.byteOffset ?? 0) + (acc.byteOffset ?? 0);
+  const at = (v, c) => bin.readFloatLE(base + v * stride + c * 4);
+  const lo = acc.min;
+  const hi = acc.max;
+  const tall = hi[1] - lo[1];
+  const midX = (lo[0] + hi[0]) / 2;
+  const midZ = (lo[2] + hi[2]) / 2;
+  let widest = 0;
+  let crownOff = 0;
+  let toes = 0;
+  let feet = 0;
+  for (let v = 0; v < acc.count; v += 1) {
+    const x = Math.abs(at(v, 0) - midX) / tall;
+    const y = (at(v, 1) - lo[1]) / tall;
+    const z = (at(v, 2) - midZ) / tall;
+    if (x > widest) widest = x;
+    // The tallest thing on a person is the top of the head, and a head sits on
+    // the midline. With the wings on, the top of this box was a wing tip half
+    // a body-height out to the side, and that is what the height was measured
+    // from — so the figure came out an eighth shorter than the settings asked.
+    if (y > 0.95 && x > crownOff) crownOff = x;
+    if (y < 0.08) { toes += z; feet += 1; }
+  }
+  /*
+    The wings stay on.
+
+    Cutting them off was tried and it is in the history: every rule that took
+    the feathers took a strip of sleeve with them or left a ruff across the
+    shoulders that reads as a backpack, and the weld needed to close the wound
+    afterwards merged eight thousand vertices that shared a place but not a
+    texture coordinate — which dragged the picture across the atlas at every
+    chart boundary and covered a clean figure in cracks. They are better wings
+    than the built sheet anyway. So they are kept, hinged, and folded on the
+    same signal, and the built pair comes off instead.
+
+    What that leaves is a mesh whose bounding box is not the person: it is a
+    third wider than he is and an eighth taller, because the wings out-reach
+    his own crown. Anything that measures the box to size him is therefore
+    wrong, and the loader must measure the head.
+  */
+  ok(`the scan still has its wings  (${widest.toFixed(2)} of its height each side)`,
+    widest > 0.35);
+  ok(`and they out-reach the crown, so the box is not the man  `
+    + `(${crownOff.toFixed(2)} off the midline at the top)`, crownOff > 0.3);
+
+  /*
+    Which way it faces is half in the file and half in the loader, so neither
+    half means anything on its own. The scan was reconstructed facing +Z while
+    every other thing in this project faces -Z — the eyes, the toes, the way
+    the shoulders lead — so it went out on backwards, and every photograph
+    taken of it was the back of a head. The loader turns it. If a later scan
+    arrives already facing the right way, that turn becomes the bug, so the
+    two are checked against each other rather than separately.
+  */
+  const avatarSource = readFileSync(new URL('../src/player/avatar.js', import.meta.url), 'utf8');
+  const turns = /makeRotationY\(Math\.PI\)/.test(avatarSource);
+  const forwardIsPlusZ = toes / Math.max(feet, 1) > 0;
+  ok(`the scan ends up facing -Z  (file faces ${forwardIsPlusZ ? '+Z' : '-Z'}, `
+    + `loader ${turns ? 'turns it' : 'does not'})`, forwardIsPlusZ === turns);
+
+  // And the skeleton. Built here rather than loaded, because the point is the
+  // weighting and the driving, and neither needs a browser to fetch a file.
+  const THREE = await import('../vendor/three/three.module.js');
+  const { Avatar } = await import('../src/player/avatar.js');
+  const rig = new Avatar(new THREE.Scene());
+  const parts = {
+    chest: [0.0, 0.68, 0.0],
+    head: [0.0, 0.94, 0.0],
+    leftHand: [-0.13, 0.45, 0.0],
+    rightHand: [0.13, 0.45, 0.0],
+    leftShin: [-0.05, 0.15, 0.0],
+    rightShin: [0.05, 0.15, 0.0],
+  };
+  const names = Object.keys(parts);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(
+    names.flatMap((n) => parts[n]), 3));
+  const stand = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
+  const holder = new THREE.Group();
+  holder.add(stand);
+  const skinned = rig.rigTheScan(holder, new THREE.Matrix4());
+  rig.body.add(skinned);
+  rig.root.updateMatrixWorld(true);
+  for (const mesh of rig.scanSkins) mesh.bind(new THREE.Skeleton(rig.scanBoneList));
+
+  const bones = rig.scanBoneList.map((_, i) => i);
+  const index = rig.scanSkins[0].geometry.getAttribute('skinIndex');
+  const weightOf = rig.scanSkins[0].geometry.getAttribute('skinWeight');
+  const wants = { chest: 'spine', head: 'head', leftHand: 'armL', rightHand: 'armR',
+    leftShin: 'legL', rightShin: 'legR' };
+  const jointNames = ['spine', 'head', 'armL', 'armR', 'legL', 'legR'];
+  for (let v = 0; v < names.length; v += 1) {
+    let best = 0;
+    let most = -1;
+    for (let k = 0; k < 4; k += 1) {
+      if (weightOf.getComponent(v, k) > most) {
+        most = weightOf.getComponent(v, k);
+        best = index.getComponent(v, k);
+      }
+    }
+    ok(`${names[v]} follows the ${jointNames[bones[best]]}  `
+      + `(${Math.round(most * 100)}%)`, jointNames[bones[best]] === wants[names[v]]);
+  }
+
+  // And it actually deforms: swing the built right shoulder and the scan's
+  // right hand goes with it while its left stays put. This is the whole of
+  // "no animation", measured rather than looked at.
+  const before = [0, 3].map((v) => rig.scanSkins[0].getVertexPosition(v, new THREE.Vector3()).clone());
+  rig.armR.pivot.rotation.x = -1.2;
+  rig.poseScan();
+  rig.root.updateMatrixWorld(true);
+  const after = [0, 3].map((v) => rig.scanSkins[0].getVertexPosition(v, new THREE.Vector3()).clone());
+  ok(`the right hand swings with the right shoulder  `
+    + `(${(after[1].distanceTo(before[1]) * 100).toFixed(1)} cm of a 1 m figure)`,
+    after[1].distanceTo(before[1]) > 0.1);
+  ok(`and the chest stays where it was  `
+    + `(${(after[0].distanceTo(before[0]) * 100).toFixed(1)} cm)`,
+    after[0].distanceTo(before[0]) < 0.02);
+  ok('the pose is handed over every frame',
+    /this\.poseScan\(open\);/.test(avatarSource));
+
+  /*
+    And the height comes off the head. A wing tip is the highest point in the
+    file and a head is the highest point on the midline, so a column up the
+    middle is the difference between a figure the height the settings asked
+    for and one an eighth short of it.
+  */
+  {
+    const column = new THREE.Group();
+    const head = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
+    head.geometry.setAttribute('position', new THREE.Float32BufferAttribute(
+      [0, 1.7, 0, 0.02, 1.68, 0, -0.02, 1.68, 0], 3));
+    const wing = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
+    wing.geometry.setAttribute('position', new THREE.Float32BufferAttribute(
+      [0.9, 2.0, 0, 0.8, 1.9, 0, 1.0, 1.9, 0], 3));
+    column.add(head, wing);
+    column.updateMatrixWorld(true);
+    const top = rig.crownOf(column, new THREE.Vector3(0, 1, 0), 2);
+    ok(`the crown is the head, not the wing tip  (${top.toFixed(2)} against 2.00)`,
+      Math.abs(top - 1.7) < 1e-3);
+  }
+
+  // The wings fold. Same signal the built pair takes, arrived at from the
+  // other end, because the scan's are modelled open and the built ones shut.
+  {
+    const wingTip = new THREE.Vector3(-0.55, 1.02, 0.05);
+    const withWing = new THREE.BufferGeometry();
+    withWing.setAttribute('position', new THREE.Float32BufferAttribute(
+      [wingTip.x, wingTip.y, wingTip.z, 0, 0.68, 0], 3));
+    const wingRig = new Avatar(new THREE.Scene());
+    const holder2 = new THREE.Group();
+    holder2.add(new THREE.Mesh(withWing, new THREE.MeshBasicMaterial()));
+    wingRig.body.add(wingRig.rigTheScan(holder2, new THREE.Matrix4()));
+    wingRig.root.updateMatrixWorld(true);
+    for (const mesh of wingRig.scanSkins) {
+      mesh.bind(new THREE.Skeleton(wingRig.scanBoneList));
+    }
+    const out = new THREE.Vector3();
+    wingRig.poseScan(1);
+    wingRig.root.updateMatrixWorld(true);
+    const spread = wingRig.scanSkins[0].getVertexPosition(0, out).clone();
+    const chestOpen = wingRig.scanSkins[0].getVertexPosition(1, out).clone();
+    wingRig.poseScan(0);
+    wingRig.root.updateMatrixWorld(true);
+    const tucked = wingRig.scanSkins[0].getVertexPosition(0, out).clone();
+    const chestShut = wingRig.scanSkins[0].getVertexPosition(1, out).clone();
+    ok(`the wing tip folds away  (${(spread.distanceTo(tucked) * 100).toFixed(0)} cm `
+      + 'of a 1 m figure)', spread.distanceTo(tucked) > 0.3);
+    ok(`and the chest does not go with it  `
+      + `(${(chestOpen.distanceTo(chestShut) * 1000).toFixed(1)} mm)`,
+      chestOpen.distanceTo(chestShut) < 0.01);
+  }
+
+  // One pair at a time. Drawing the built sheet over the scan's own feathers
+  // is what "2 elytra" was, and it is a line in update() rather than a
+  // property of either body, so it is checked where it is decided.
+  ok('the built elytra comes off when the scan is the body',
+    /this\.wings\.visible = player\.elytraDeployed && !this\.firstPerson\s*\n\s*&& !\(this\.model && this\.model\.visible\);/
+      .test(avatarSource));
+}
+
 console.log('\nNothing ships with normals it cannot use');
 {
   /*
@@ -6455,7 +6667,15 @@ console.log('\nGenerated art stays where it belongs');
   // silent fallback and no idea why the world looks flat.
   // The generated character mesh: real, optional, and honest about what it is.
   ok('the player mesh is declared', !!manifest.model?.player);
-  ok('and says it cannot animate', /skeleton|animate/i.test(manifest.model?.note ?? ''));
+  /*
+    It used to have to say it *could not* animate, because it could not: one
+    fused surface with no skeleton. It is given one at load now, so what the
+    manifest owes a reader is the opposite — what joints it gets and where they
+    came from — and this check moved with it rather than being deleted for
+    having gone red.
+  */
+  ok('and the notes say what was done to it',
+    /skeleton/i.test(Object.values(manifest.model ?? {}).join(' ')));
   {
     const glb = new URL(`../assets/${manifest.model.player}`, import.meta.url);
     ok('the mesh is present', existsSync(glb));
