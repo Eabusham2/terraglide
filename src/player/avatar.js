@@ -274,6 +274,7 @@ const SCAN_JOINTS = [
   {
     name: 'spine',
     at: [0, 0, 0],
+    seed: (x, y) => Math.abs(x) < 0.06 && y > 0.55 && y < 0.80,
     /*
       Two lengths, not one: the spine, and a collarbone across the top of it.
 
@@ -287,11 +288,16 @@ const SCAN_JOINTS = [
     */
     spans: [[[0, HIP_Y - 0.03, 0], [0, 0.84, 0]], [[-0.13, 0.80, 0], [0.13, 0.80, 0]]],
   },
-  { name: 'head', at: [0, 0.92, 0], spans: [[[0, 0.88, 0], [0, 1.0, 0]]] },
-  { name: 'armL', at: [-0.115, 0.79, 0], spans: [[[-0.125, 0.72, 0], [-0.13, 0.42, 0]]], side: -1 },
-  { name: 'armR', at: [0.115, 0.79, 0], spans: [[[0.125, 0.72, 0], [0.13, 0.42, 0]]], side: 1 },
-  { name: 'legL', at: [-0.051, HIP_Y, 0], spans: [[[-0.051, HIP_Y - 0.04, 0], [-0.055, 0.02, 0]]], side: -1 },
-  { name: 'legR', at: [0.051, HIP_Y, 0], spans: [[[0.051, HIP_Y - 0.04, 0], [0.055, 0.02, 0]]], side: 1 },
+  { name: 'head', at: [0, 0.92, 0], spans: [[[0, 0.88, 0], [0, 1.0, 0]]],
+    seed: (x, y) => y > 0.90 && Math.abs(x) < 0.10 },
+  { name: 'armL', at: [-0.115, 0.79, 0], spans: [[[-0.125, 0.72, 0], [-0.13, 0.42, 0]]], side: -1,
+    seed: (x, y) => x < -0.145 && x > -0.24 && y > 0.44 && y < 0.70 },
+  { name: 'armR', at: [0.115, 0.79, 0], spans: [[[0.125, 0.72, 0], [0.13, 0.42, 0]]], side: 1,
+    seed: (x, y) => x > 0.145 && x < 0.24 && y > 0.44 && y < 0.70 },
+  { name: 'legL', at: [-0.051, HIP_Y, 0], spans: [[[-0.051, HIP_Y - 0.04, 0], [-0.055, 0.02, 0]]], side: -1,
+    seed: (x, y) => x < -0.015 && x > -0.13 && y < 0.38 },
+  { name: 'legR', at: [0.051, HIP_Y, 0], spans: [[[0.051, HIP_Y - 0.04, 0], [0.055, 0.02, 0]]], side: 1,
+    seed: (x, y) => x > 0.015 && x < 0.13 && y < 0.38 },
   /*
     And the wings it came with.
 
@@ -305,9 +311,15 @@ const SCAN_JOINTS = [
     none. They are better wings than the built sheet anyway. So they get a
     joint each and fold on the same signal, and the built pair comes off.
   */
-  { name: 'wingL', at: [-0.10, 0.78, 0.05], spans: [[[-0.16, 0.85, 0.05], [-0.68, 1.10, 0.05]]], side: -1, wing: true },
-  { name: 'wingR', at: [0.10, 0.78, 0.05], spans: [[[0.16, 0.85, 0.05], [0.68, 1.10, 0.05]]], side: 1, wing: true },
+  { name: 'wingL', at: [-0.10, 0.78, 0.05], spans: [[[-0.16, 0.85, 0.05], [-0.68, 1.10, 0.05]]], side: -1, wing: true,
+    seed: (x) => x < -0.30 },
+  { name: 'wingR', at: [0.10, 0.78, 0.05], spans: [[[0.16, 0.85, 0.05], [0.68, 1.10, 0.05]]], side: 1, wing: true,
+    seed: (x) => x > 0.30 },
 ];
+/** The joints, in the order the skeleton holds them — which is what a skin
+ *  index means. Exported so a test can name what it found rather than count. */
+export const SCAN_JOINT_NAMES = SCAN_JOINTS.map((joint) => joint.name);
+
 /**
  * How far from the midline a person still reaches, at this height — the
  * envelope that separates the figure from what it is wearing on its back.
@@ -331,10 +343,31 @@ function scanWidest(y) {
   the wing, which is the one place on the figure nothing can see.
 */
 const SCAN_WING_BLEND = 0.03;
-/** How far back the wings sweep when they fold, matching the built pair. */
-const SCAN_WING_FOLD = 1.5;
-/** And how far down, so a folded wing lies on the back rather than over it. */
-const SCAN_WING_DROP = 0.55;
+/**
+ * The scan's wings are modelled as an angel's — spread out *and up* from the
+ * shoulders, about thirty-seven degrees above the horizontal.
+ *
+ * That is fine while it stands and wrong the moment it flies. A glide lays the
+ * body down about the eye, so what was up on the figure becomes forward in the
+ * world, and a wing thirty-seven degrees above the shoulder becomes a wing
+ * thirty-seven degrees ahead of the head — which is what those pink slabs
+ * across the face were. Levelling them in the figure's own frame is the fix,
+ * and it costs the standing pose nothing, because a folded wing is swept back
+ * along the spine anyway.
+ */
+const SCAN_WING_LEVEL = 0.62;
+/**
+ * Folding is mostly downward, not backward.
+ *
+ * Sweeping a wing ninety degrees about the spine takes it from out at the side
+ * to straight out behind, and since the two roots are only a hand apart the
+ * pair then overlap across the back as a chunky X — which is the backpack,
+ * seen from behind. A folded wing hangs *down* the back with the tip near the
+ * waist and only a little sweep in it, so most of the fold belongs on the
+ * other axis.
+ */
+const SCAN_WING_FOLD = 1.1;
+const SCAN_WING_TUCK = 0.6;
 /**
  * How sharply a vertex prefers its nearest joint.
  *
@@ -1193,44 +1226,43 @@ export class Avatar {
     return group;
   }
 
-  /** Which joints each vertex follows, and by how much. */
+  /**
+   * Which joints each vertex follows, and by how much.
+   *
+   * Measured *along the surface*, not through the air, and that is the whole
+   * of it. Straight-line distance cannot tell a flank from an arm: the side of
+   * a jacket and the inside of the sleeve beside it are two centimetres apart,
+   * so the arm bone wins the entire flank, and then the arm drags half the
+   * chest with it every time it swings — which from behind, in a glide, was a
+   * body flattened into a pancake with its legs ballooned out sideways,
+   * because the legs had taken the hips the same way and the wings had taken
+   * the shoulders.
+   *
+   * Over the surface those distances are honest. To get from the flank to the
+   * sleeve you have to go up and around the armpit, so the flank is a long way
+   * from the arm and a short way from the chest, and it stays with the chest.
+   *
+   * So: weld by position (a texture seam is one place, and the walk has to
+   * cross it), seed each joint with a patch of body nobody could argue about,
+   * and let every joint's distance spread out from its own seeds through the
+   * mesh. Each vertex then leans on whichever joints are nearest *through the
+   * body*, which is what a joint actually moves.
+   */
   weighScan(geometry) {
     const position = geometry.getAttribute('position');
+    const index = geometry.getIndex();
     const count = position.count;
-    const index = new Uint16Array(count * 4);
-    const weight = new Float32Array(count * 4);
-    const point = new THREE.Vector3();
-    const start = new THREE.Vector3();
-    const along = new THREE.Vector3();
-    const from = new THREE.Vector3();
+    const reach = this.surfaceReach(position, index);
+
     const share = new Array(SCAN_JOINTS.length);
+    const skinIndex = new Uint16Array(count * 4);
+    const skinWeight = new Float32Array(count * 4);
     for (let v = 0; v < count; v += 1) {
-      point.fromBufferAttribute(position, v);
-      // How far outside a person this point is. Nothing but the wings is, and
-      // distance alone will not say so: a wing root sits closer to the spine
-      // than the shoulder it grows out of.
-      const beyond = clamp(
-        (Math.abs(point.x) - scanWidest(point.y)) / SCAN_WING_BLEND, 0, 1,
-      );
-      for (let j = 0; j < SCAN_JOINTS.length; j += 1) {
-        const joint = SCAN_JOINTS[j];
-        let reach = Infinity;
-        for (const [a, b] of joint.spans) {
-          start.set(...a);
-          along.set(...b).sub(start);
-          from.copy(point).sub(start);
-          const t = clamp(from.dot(along) / Math.max(along.lengthSq(), 1e-9), 0, 1);
-          reach = Math.min(reach, from.addScaledVector(along, -t).length());
-        }
-        let w = 1 / Math.pow(reach + SKIN_SOFTEN, SKIN_FALLOFF);
-        // A left leg belongs to the left of the body. Without this the two
-        // legs sit close enough to weight each other and walk as one.
-        if (joint.side) {
-          w *= clamp(0.5 + (point.x * joint.side) / (2 * SKIN_MIDLINE), 0, 1);
-        }
-        share[j] = w * (joint.wing ? beyond : 1 - beyond);
-      }
       let total = 0;
+      for (let j = 0; j < SCAN_JOINTS.length; j += 1) {
+        const d = reach[j][v];
+        share[j] = Number.isFinite(d) ? 1 / Math.pow(d + SKIN_SOFTEN, SKIN_FALLOFF) : 0;
+      }
       for (let k = 0; k < 4; k += 1) {
         let best = -1;
         let most = 0;
@@ -1238,16 +1270,152 @@ export class Avatar {
           if (share[j] > most) { most = share[j]; best = j; }
         }
         if (best < 0) break;
-        index[v * 4 + k] = best;
-        weight[v * 4 + k] = most;
+        skinIndex[v * 4 + k] = best;
+        skinWeight[v * 4 + k] = most;
         total += most;
         share[best] = 0;
       }
-      if (total > 0) for (let k = 0; k < 4; k += 1) weight[v * 4 + k] /= total;
-      else weight[v * 4] = 1;
+      if (total > 0) for (let k = 0; k < 4; k += 1) skinWeight[v * 4 + k] /= total;
+      else skinWeight[v * 4] = 1;
     }
-    geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(index, 4));
-    geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(weight, 4));
+    geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndex, 4));
+    geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeight, 4));
+  }
+
+  /**
+   * How far every vertex is from every joint, walking over the mesh.
+   *
+   * One Dijkstra per joint from that joint's seed patch, over the mesh welded
+   * by position — welded because a texture seam is stored as two vertices at
+   * one place, and a walk that will not cross one is not a walk over the
+   * surface, it is a walk over the pieces the atlas was cut into.
+   */
+  surfaceReach(position, index) {
+    const count = position.count;
+    const joints = SCAN_JOINTS.length;
+    // Weld. A tenth of a millimetre on a figure a metre tall.
+    const grid = 1e-4;
+    const place = new Map();
+    const welded = new Int32Array(count);
+    const px = [];
+    const py = [];
+    const pz = [];
+    for (let v = 0; v < count; v += 1) {
+      const x = position.getX(v);
+      const y = position.getY(v);
+      const z = position.getZ(v);
+      const key = `${Math.round(x / grid)},${Math.round(y / grid)},${Math.round(z / grid)}`;
+      let id = place.get(key);
+      if (id === undefined) {
+        id = px.length;
+        place.set(key, id);
+        px.push(x); py.push(y); pz.push(z);
+      }
+      welded[v] = id;
+    }
+    const nodes = px.length;
+
+    // Neighbours, from the triangles.
+    const near = new Array(nodes);
+    for (let n = 0; n < nodes; n += 1) near[n] = [];
+    const link = (a, b) => {
+      if (a !== b && !near[a].includes(b)) { near[a].push(b); near[b].push(a); }
+    };
+    const idx = index ? index.array : null;
+    const tris = idx ? idx.length : count;
+    for (let t = 0; t + 2 < tris; t += 3) {
+      const a = welded[idx ? idx[t] : t];
+      const b = welded[idx ? idx[t + 1] : t + 1];
+      const c = welded[idx ? idx[t + 2] : t + 2];
+      link(a, b); link(b, c); link(c, a);
+    }
+
+    const out = [];
+    for (let j = 0; j < joints; j += 1) {
+      const joint = SCAN_JOINTS[j];
+      const far = new Float64Array(nodes).fill(Infinity);
+      // A tiny binary heap. Nothing here is big enough to want more.
+      const heapNode = [];
+      const heapCost = [];
+      const push = (node, cost) => {
+        heapNode.push(node); heapCost.push(cost);
+        let i = heapNode.length - 1;
+        while (i > 0) {
+          const up = (i - 1) >> 1;
+          if (heapCost[up] <= heapCost[i]) break;
+          [heapNode[up], heapNode[i]] = [heapNode[i], heapNode[up]];
+          [heapCost[up], heapCost[i]] = [heapCost[i], heapCost[up]];
+          i = up;
+        }
+      };
+      const pop = () => {
+        const top = heapNode[0];
+        const last = heapNode.pop();
+        const lastCost = heapCost.pop();
+        if (heapNode.length) {
+          heapNode[0] = last; heapCost[0] = lastCost;
+          let i = 0;
+          for (;;) {
+            const l = i * 2 + 1;
+            const r = l + 1;
+            let small = i;
+            if (l < heapNode.length && heapCost[l] < heapCost[small]) small = l;
+            if (r < heapNode.length && heapCost[r] < heapCost[small]) small = r;
+            if (small === i) break;
+            [heapNode[small], heapNode[i]] = [heapNode[i], heapNode[small]];
+            [heapCost[small], heapCost[i]] = [heapCost[i], heapCost[small]];
+            i = small;
+          }
+        }
+        return top;
+      };
+      let seeded = 0;
+      for (let n = 0; n < nodes; n += 1) {
+        if (!joint.seed || !joint.seed(px[n], py[n], pz[n])) continue;
+        far[n] = 0;
+        push(n, 0);
+        seeded += 1;
+      }
+      /*
+        A seed patch that catches nothing loses the joint outright — its
+        distance stays infinite, its weight stays zero, and whatever it was
+        meant to hold is quietly handed to whichever joint is next nearest.
+        On a mesh shaped differently to the one the patches were measured on
+        that is silent and total: the spine went missing on a figure whose
+        chest happened to have no vertex on the midline, and the arms and legs
+        divided the torso between them. So a joint that finds nothing falls
+        back to the vertices nearest where it turns.
+      */
+      if (!seeded) {
+        let best = Infinity;
+        for (let n = 0; n < nodes; n += 1) {
+          const d = (px[n] - joint.at[0]) ** 2 + (py[n] - joint.at[1]) ** 2
+            + (pz[n] - joint.at[2]) ** 2;
+          if (d < best) best = d;
+        }
+        const within = (Math.sqrt(best) + 0.05) ** 2;
+        for (let n = 0; n < nodes; n += 1) {
+          const d = (px[n] - joint.at[0]) ** 2 + (py[n] - joint.at[1]) ** 2
+            + (pz[n] - joint.at[2]) ** 2;
+          if (d > within) continue;
+          far[n] = 0;
+          push(n, 0);
+        }
+      }
+      while (heapNode.length) {
+        const cost = heapCost[0];
+        const n = pop();
+        if (cost > far[n]) continue;
+        for (const m of near[n]) {
+          const step = cost + Math.hypot(px[m] - px[n], py[m] - py[n], pz[m] - pz[n]);
+          if (step < far[m]) { far[m] = step; push(m, step); }
+        }
+      }
+      const perVertex = new Float64Array(count);
+      for (let v = 0; v < count; v += 1) perVertex[v] = far[welded[v]];
+      out.push(perVertex);
+    }
+    return out;
   }
 
   /**
@@ -1273,13 +1441,10 @@ export class Avatar {
       from the other end.
     */
     const fold = SCAN_WING_FOLD * (1 - open);
-    // Swept back *and* dropped. Sweeping alone leaves a spread wing pointing
-    // up and behind, which stands over the shoulders like a pack rather than
-    // lying along the spine, and standing still is where the figure is looked
-    // at longest.
-    const drop = SCAN_WING_DROP * (1 - open);
-    bone.wingL.rotation.set(0, fold, drop);
-    bone.wingR.rotation.set(0, -fold, -drop);
+    // Levelled always, swept back and tucked further down when they are shut.
+    const down = SCAN_WING_LEVEL + SCAN_WING_TUCK * (1 - open);
+    bone.wingL.rotation.set(0, fold, down);
+    bone.wingR.rotation.set(0, -fold, -down);
   }
 
   /**

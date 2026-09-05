@@ -3553,7 +3553,7 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
 console.log('\nA scanned body stands in for a person, not for their kit');
 {
   const THREE = await import('../vendor/three/three.module.js');
-  const { Avatar } = await import('../src/player/avatar.js');
+  const { Avatar, SCAN_JOINT_NAMES } = await import('../src/player/avatar.js');
   const { settings } = await import('../src/core/settings.js');
   const avatar = new Avatar(new THREE.Scene());
   avatar.setVisible(true);
@@ -3772,38 +3772,84 @@ console.log('\nThe scanned body is a body, and it moves like one');
   ok(`the scan ends up facing -Z  (file faces ${forwardIsPlusZ ? '+Z' : '-Z'}, `
     + `loader ${turns ? 'turns it' : 'does not'})`, forwardIsPlusZ === turns);
 
-  // And the skeleton. Built here rather than loaded, because the point is the
-  // weighting and the driving, and neither needs a browser to fetch a file.
+  /*
+    And the skeleton. Built here rather than loaded, because what is being
+    tested is the weighting, and the weighting is the thing that went wrong
+    three times in a row.
+
+    The test body is a ladder, not a cloud of points, and that matters: joints
+    are handed out by distance *along the surface*, and a cloud has no surface.
+    Straight-line distance is what got this wrong in the first place — the side
+    of a jacket and the sleeve beside it are two centimetres apart, so the arm
+    took the whole flank and then dragged half the chest every time it swung.
+    Over the surface the flank is a long way from the arm, because you have to
+    go up and around the armpit to get there. So the shape below has a torso
+    with two flanks, arms joined to it only at the shoulders, and a flank point
+    two centimetres from the arm and a third of a body away over the skin.
+
+    A graph is enough to express that: a triangle (a, b, b) links a to b and
+    nothing else, so an edge list is a mesh here.
+  */
   const THREE = await import('../vendor/three/three.module.js');
-  const { Avatar } = await import('../src/player/avatar.js');
-  const rig = new Avatar(new THREE.Scene());
-  const parts = {
-    chest: [0.0, 0.68, 0.0],
-    head: [0.0, 0.94, 0.0],
-    leftHand: [-0.13, 0.45, 0.0],
-    rightHand: [0.13, 0.45, 0.0],
-    leftShin: [-0.05, 0.15, 0.0],
-    rightShin: [0.05, 0.15, 0.0],
+  const { Avatar, SCAN_JOINT_NAMES } = await import('../src/player/avatar.js');
+  const P = [];
+  const E = [];
+  const put = (x, y, z = 0) => { P.push([x, y, z]); return P.length - 1; };
+  const chain = (pts, from = null) => {
+    let last = from;
+    const made = [];
+    for (const [x, y, z] of pts) {
+      const v = put(x, y, z ?? 0);
+      if (last !== null) E.push([last, v]);
+      made.push(v);
+      last = v;
+    }
+    return made;
   };
-  const names = Object.keys(parts);
+  // Torso: two flanks and the rungs between them.
+  const leftFlank = [];
+  const rightFlank = [];
+  const middle = [];
+  for (let i = 0; i <= 8; i += 1) {
+    const y = 0.45 + (i * (0.84 - 0.45)) / 8;
+    leftFlank.push(put(-0.11, y, 0));
+    middle.push(put(0, y, 0));
+    rightFlank.push(put(0.11, y, 0));
+    E.push([leftFlank[i], middle[i]]);
+    E.push([middle[i], rightFlank[i]]);
+    if (i) {
+      E.push([leftFlank[i - 1], leftFlank[i]]);
+      E.push([middle[i - 1], middle[i]]);
+      E.push([rightFlank[i - 1], rightFlank[i]]);
+    }
+  }
+  const shoulderL = leftFlank[8];
+  const shoulderR = rightFlank[8];
+  const hipL = leftFlank[0];
+  const hipR = rightFlank[0];
+  const armLpts = chain([[-0.14, 0.76], [-0.15, 0.68], [-0.16, 0.60], [-0.17, 0.52], [-0.17, 0.45]], shoulderL);
+  const armRpts = chain([[0.14, 0.76], [0.15, 0.68], [0.16, 0.60], [0.17, 0.52], [0.17, 0.45]], shoulderR);
+  chain([[-0.05, 0.36], [-0.05, 0.26], [-0.05, 0.15], [-0.05, 0.04]], hipL);
+  chain([[0.05, 0.36], [0.05, 0.26], [0.05, 0.15], [0.05, 0.04]], hipR);
+  const headPts = chain([[0, 0.88], [0, 0.95], [0, 1.0]], leftFlank[8]);
+  E.push([headPts[0], rightFlank[8]]);
+  const wingLpts = chain([[-0.22, 0.90, 0.05], [-0.4, 0.98, 0.05], [-0.6, 1.05, 0.05]], shoulderL);
+  chain([[0.22, 0.90, 0.05], [0.4, 0.98, 0.05], [0.6, 1.05, 0.05]], shoulderR);
+
+  const rig = new Avatar(new THREE.Scene());
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(
-    names.flatMap((n) => parts[n]), 3));
-  const stand = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial());
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(P.flat(), 3));
+  geometry.setIndex(E.flatMap(([a, b]) => [a, b, b]));
   const holder = new THREE.Group();
-  holder.add(stand);
-  const skinned = rig.rigTheScan(holder, new THREE.Matrix4());
-  rig.body.add(skinned);
+  holder.add(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial()));
+  rig.body.add(rig.rigTheScan(holder, new THREE.Matrix4()));
   rig.root.updateMatrixWorld(true);
   for (const mesh of rig.scanSkins) mesh.bind(new THREE.Skeleton(rig.scanBoneList));
 
-  const bones = rig.scanBoneList.map((_, i) => i);
+  const jointNames = SCAN_JOINT_NAMES;
   const index = rig.scanSkins[0].geometry.getAttribute('skinIndex');
   const weightOf = rig.scanSkins[0].geometry.getAttribute('skinWeight');
-  const wants = { chest: 'spine', head: 'head', leftHand: 'armL', rightHand: 'armR',
-    leftShin: 'legL', rightShin: 'legR' };
-  const jointNames = ['spine', 'head', 'armL', 'armR', 'legL', 'legR'];
-  for (let v = 0; v < names.length; v += 1) {
+  const owner = (v) => {
     let best = 0;
     let most = -1;
     for (let k = 0; k < 4; k += 1) {
@@ -3812,24 +3858,51 @@ console.log('\nThe scanned body is a body, and it moves like one');
         best = index.getComponent(v, k);
       }
     }
-    ok(`${names[v]} follows the ${jointNames[bones[best]]}  `
-      + `(${Math.round(most * 100)}%)`, jointNames[bones[best]] === wants[names[v]]);
+    return [jointNames[best], most];
+  };
+  const wants = [
+    ['the flank stays with the chest', leftFlank[4], 'spine'],
+    ['the chest is the chest', rightFlank[6], 'spine'],
+    ['the arm is the arm', armLpts[2], 'armL'],
+    ['and so is the other one', armRpts[2], 'armR'],
+    ['the hand goes with its arm', armLpts[4], 'armL'],
+    ['the head is the head', headPts[1], 'head'],
+    ['the wing tip is the wing', wingLpts[2], 'wingL'],
+  ];
+  for (const [label, v, want] of wants) {
+    const [got, much] = owner(v);
+    ok(`${label}  (${got}, ${Math.round(much * 100)}%)`, got === want);
+  }
+  // The flank is nearer the arm than the middle of the chest in a straight
+  // line. That is the whole point: over the surface it is not, so it stays
+  // with the chest.
+  {
+    const flank = new THREE.Vector3(...P[leftFlank[4]]);
+    const toArm = Math.min(...armLpts.map(
+      (v) => flank.distanceTo(new THREE.Vector3(...P[v]))));
+    const toSpine = flank.distanceTo(new THREE.Vector3(...P[middle[4]]));
+    ok(`and through the air it was nearer the arm all along  `
+      + `(${(toArm * 100).toFixed(0)} cm to the arm, ${(toSpine * 100).toFixed(0)} `
+      + 'cm to the middle)', toArm < toSpine);
   }
 
   // And it actually deforms: swing the built right shoulder and the scan's
-  // right hand goes with it while its left stays put. This is the whole of
+  // right hand goes with it while its chest stays put. This is the whole of
   // "no animation", measured rather than looked at.
-  const before = [0, 3].map((v) => rig.scanSkins[0].getVertexPosition(v, new THREE.Vector3()).clone());
+  const grab = (v) => rig.scanSkins[0].getVertexPosition(v, new THREE.Vector3()).clone();
+  const beforeHand = grab(armRpts[4]);
+  const beforeChest = grab(rightFlank[6]);
   rig.armR.pivot.rotation.x = -1.2;
-  rig.poseScan();
+  rig.poseScan(1);
   rig.root.updateMatrixWorld(true);
-  const after = [0, 3].map((v) => rig.scanSkins[0].getVertexPosition(v, new THREE.Vector3()).clone());
+  const afterHand = grab(armRpts[4]);
+  const afterChest = grab(rightFlank[6]);
   ok(`the right hand swings with the right shoulder  `
-    + `(${(after[1].distanceTo(before[1]) * 100).toFixed(1)} cm of a 1 m figure)`,
-    after[1].distanceTo(before[1]) > 0.1);
+    + `(${(afterHand.distanceTo(beforeHand) * 100).toFixed(1)} cm of a 1 m figure)`,
+    afterHand.distanceTo(beforeHand) > 0.1);
   ok(`and the chest stays where it was  `
-    + `(${(after[0].distanceTo(before[0]) * 100).toFixed(1)} cm)`,
-    after[0].distanceTo(before[0]) < 0.02);
+    + `(${(afterChest.distanceTo(beforeChest) * 100).toFixed(1)} cm)`,
+    afterChest.distanceTo(beforeChest) < 0.02);
   ok('the pose is handed over every frame',
     /this\.poseScan\(open\);/.test(avatarSource));
 
@@ -3857,29 +3930,18 @@ console.log('\nThe scanned body is a body, and it moves like one');
   // The wings fold. Same signal the built pair takes, arrived at from the
   // other end, because the scan's are modelled open and the built ones shut.
   {
-    const wingTip = new THREE.Vector3(-0.55, 1.02, 0.05);
-    const withWing = new THREE.BufferGeometry();
-    withWing.setAttribute('position', new THREE.Float32BufferAttribute(
-      [wingTip.x, wingTip.y, wingTip.z, 0, 0.68, 0], 3));
-    const wingRig = new Avatar(new THREE.Scene());
-    const holder2 = new THREE.Group();
-    holder2.add(new THREE.Mesh(withWing, new THREE.MeshBasicMaterial()));
-    wingRig.body.add(wingRig.rigTheScan(holder2, new THREE.Matrix4()));
-    wingRig.root.updateMatrixWorld(true);
-    for (const mesh of wingRig.scanSkins) {
-      mesh.bind(new THREE.Skeleton(wingRig.scanBoneList));
-    }
     const out = new THREE.Vector3();
-    wingRig.poseScan(1);
-    wingRig.root.updateMatrixWorld(true);
-    const spread = wingRig.scanSkins[0].getVertexPosition(0, out).clone();
-    const chestOpen = wingRig.scanSkins[0].getVertexPosition(1, out).clone();
-    wingRig.poseScan(0);
-    wingRig.root.updateMatrixWorld(true);
-    const tucked = wingRig.scanSkins[0].getVertexPosition(0, out).clone();
-    const chestShut = wingRig.scanSkins[0].getVertexPosition(1, out).clone();
+    rig.armR.pivot.rotation.x = 0;
+    rig.poseScan(1);
+    rig.root.updateMatrixWorld(true);
+    const spread = grab(wingLpts[2]);
+    const chestOpen = grab(rightFlank[6]);
+    rig.poseScan(0);
+    rig.root.updateMatrixWorld(true);
+    const tucked = grab(wingLpts[2]);
+    const chestShut = grab(rightFlank[6]);
     ok(`the wing tip folds away  (${(spread.distanceTo(tucked) * 100).toFixed(0)} cm `
-      + 'of a 1 m figure)', spread.distanceTo(tucked) > 0.3);
+      + 'of a 1 m figure)', spread.distanceTo(tucked) > 0.2);
     ok(`and the chest does not go with it  `
       + `(${(chestOpen.distanceTo(chestShut) * 1000).toFixed(1)} mm)`,
       chestOpen.distanceTo(chestShut) < 0.01);
@@ -5988,7 +6050,7 @@ console.log('\nTouch controls follow how you are actually playing');
 console.log('\nCloth is woven at the size of cloth');
 {
   const THREE = await import('../vendor/three/three.module.js');
-  const { Avatar } = await import('../src/player/avatar.js');
+  const { Avatar, SCAN_JOINT_NAMES } = await import('../src/player/avatar.js');
   const rig = new Avatar(new THREE.Scene());
 
   // The wrapping was set to repeat and the repeat itself never was, so it

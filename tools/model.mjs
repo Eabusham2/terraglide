@@ -60,7 +60,10 @@ page.on('pageerror', (e) => console.log('PAGE ERROR', e.message));
 // `node tools/model.mjs --scan` photographs the generated body instead of the
 // built one. Both have to be judgeable from here.
 const scan = process.argv.includes('--scan');
-await page.goto(`http://127.0.0.1:${PORT}/tools/model.html${scan ? '?scan' : ''}`,
+// --weights paints the scan by which joint owns each vertex. See model.html.
+const weights = process.argv.includes('--weights');
+const query = weights ? '?scan&weights' : (scan ? '?scan' : '');
+await page.goto(`http://127.0.0.1:${PORT}/tools/model.html${query}`,
   { waitUntil: 'load' });
 await page.waitForFunction(() => window.__ready === true, null, { timeout: 60000 });
 
@@ -70,7 +73,8 @@ for (const view of views) {
   await page.evaluate((v) => window.__pose(v), view);
   await page.waitForTimeout(250);
   const shot = await page.screenshot();
-  await writeFile(join(OUT, `model-${scan ? 'scan-' : ''}${view}.png`), shot);
+  const tag = weights ? 'weights-' : (scan ? 'scan-' : '');
+  await writeFile(join(OUT, `model-${tag}${view}.png`), shot);
   const stats = await page.evaluate(() => window.__measure());
   const cell = (s, w) => (s.n === 0 ? '--'.padStart(w)
     : `${Math.round(s.mean)}${s.blown > 0.25 ? '!' : ''}`.padStart(w));
