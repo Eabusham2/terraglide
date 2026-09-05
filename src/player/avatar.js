@@ -393,8 +393,8 @@ const SCAN_WING_LEVEL = 0.62;
  * waist and only a little sweep in it, so most of the fold belongs on the
  * other axis.
  */
-const SCAN_WING_FOLD = 1.42;
-const SCAN_WING_TUCK = 0.72;
+const SCAN_WING_FOLD = 1.1;
+const SCAN_WING_TUCK = 0.6;
 /**
  * How sharply a vertex prefers its nearest joint.
  *
@@ -1629,6 +1629,7 @@ export class Avatar {
     const down = SCAN_WING_LEVEL + SCAN_WING_TUCK * (1 - open);
     bone.wingL.rotation.set(0, fold, down);
     bone.wingR.rotation.set(0, -fold, -down);
+
   }
 
   /**
