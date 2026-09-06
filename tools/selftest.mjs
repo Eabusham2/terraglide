@@ -3940,19 +3940,46 @@ console.log('\nThe scanned body is a body, and it moves like one');
   const reachChest = grab(rightFlank[6]);
   const reachLeft = grab(armLpts[4]);
   /*
-    Forward, and the direction is the point.
+    Forward, in the attitude it is used in, which is the whole difficulty.
 
     This asked how far the hand had moved and not which way, and passed while
-    the arm reached 28 cm backwards — over the shoulder, behind the head,
-    pointing the firework at where he had already been. A test that measures
-    a magnitude and reports it as a direction is worse than no test, because
-    it is quoted as proof. The figure faces -Z, so forward is a negative z.
+    the arm reached 28 cm backwards. Asking which way but with the figure
+    standing up passed too, while the arm reached at the floor — because in a
+    glide the body is turned face-down about the eye, so the chest points at
+    the ground and the crown points along the flight path, and "toward the
+    body's own front" is then "downward". Two tests, both measuring something
+    true, neither measuring the thing that matters.
+
+    So the body is put in its glide attitude first and the hand is measured
+    in the world. A glider travels the way its head is pointing.
   */
-  ok(`a burning firework reaches the right arm forward  `
-    + `(${(reachHand.distanceTo(glidingHand) * 100).toFixed(1)} cm, `
-    + `${((glidingHand.z - reachHand.z) * 100).toFixed(1)} cm of it forward)`,
-    reachHand.distanceTo(glidingHand) > 0.1
-    && reachHand.z < glidingHand.z - 0.1);
+  const wasLean = rig.body.rotation.x;
+  rig.body.rotation.x = -Math.PI / 2;            // face-down, as a glide does
+  /*
+    And measured in the world, which needs saying, because the obvious way to
+    do it silently does nothing at all.
+
+    `getVertexPosition` hands back a point in the *mesh's own* space: a skinned
+    mesh in the attached bind mode rebuilds its bind inverse from its own world
+    matrix on every update, so whatever an ancestor is doing is divided straight
+    back out again. Turn the body face-down and the numbers do not move by a
+    millimetre — which is exactly what happened, and it looked like the reach
+    being backwards rather than like the ruler being in the wrong frame. So the
+    point is carried out to the world by hand afterwards.
+  */
+  const inTheWorld = (v) => rig.scanSkins[0].localToWorld(grab(v));
+  rig.scanReach = 0; rig.poseScan(1); rig.root.updateMatrixWorld(true);
+  const flatHand = inTheWorld(armRpts[4]);
+  rig.scanReach = 1; rig.poseScan(1); rig.root.updateMatrixWorld(true);
+  const flownHand = inTheWorld(armRpts[4]);
+  const wentForward = flatHand.z - flownHand.z;
+  const wentUp = flownHand.y - flatHand.y;
+  ok(`a burning firework reaches the right arm along the flight path  `
+    + `(${(wentForward * 100).toFixed(1)} cm forward, `
+    + `${(wentUp * 100).toFixed(1)} cm up)`,
+    wentForward > 0.15 && wentUp > -0.05);
+  rig.body.rotation.x = wasLean;
+  rig.scanReach = 1; rig.poseScan(1); rig.root.updateMatrixWorld(true);
   ok(`and moves the chest not at all  `
     + `(${(reachChest.distanceTo(beforeChest) * 100).toFixed(1)} cm)`,
     reachChest.distanceTo(beforeChest) < 0.005);

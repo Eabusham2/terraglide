@@ -450,20 +450,27 @@ const SCAN_CLAVICLE = 0;
 /**
  * How far the firework arm reaches forward while a rocket is burning.
  *
- * Positive about X, and that sign was measured rather than reasoned about.
- * It was written negative first, on the grounds that a negative turn about X
- * carries an arm hanging along -Y toward the front — which is true of the
- * built figure's shoulder and false of this bone, because the scan's joints
- * were laid out to its own axes and not to the built rig's. The hand went
- * 28 cm *backwards*, and the check that was supposed to catch it asked how
- * far the hand had moved and not which way, so it passed.
+ * Measured in the world while the body is actually gliding, which took three
+ * goes to get right and is worth writing down.
  *
- * Swept, not guessed: +0.7 puts the hand 18 cm forward, +1.4 puts it 28 cm
- * forward and 24 up, +2.6 starts curling it back over the head again. 1.4 is
- * the arm out level and ahead, which is where you hold something that is
- * pushing you.
+ * It was written -1.4 first, reasoned from "a negative turn about X carries an
+ * arm hanging along -Y toward the front". Then measured on the rig at rest,
+ * where the hand went 28 cm *backwards*, and flipped to +1.4. Both of those
+ * asked about the body standing up. In a glide the body is rotated face-down
+ * about the eye, so the chest points at the ground and the top of the head
+ * points along the flight path — and an arm swung toward the body's own front
+ * is then an arm swung at the floor. Which is what it did: +1.4 moved the
+ * hand 0.61 down and 0.52 forward.
+ *
+ * So it is swept in world space, in the pose it is actually used in. Both
+ * signs reach forward eventually and they differ in where the hand ends up:
+ * positive puts it forward and below the body, negative forward and above it.
+ * At -2.2 the hand goes 0.99 forward and 0.50 up in level flight and 0.87
+ * forward, 0.30 up in a dive — out ahead of the head, which is where a person
+ * being pushed by something holds it, and which is the way the built figure
+ * has always swept its arm.
  */
-const SCAN_ROCKET_REACH = 1.4;
+const SCAN_ROCKET_REACH = -2.2;
 /** The axis an arm swings forward about, and a scratch to build the turn in. */
 const ACROSS = new THREE.Vector3(1, 0, 0);
 const _swing = new THREE.Quaternion();
