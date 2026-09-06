@@ -311,15 +311,60 @@ for mesh in J['meshes']:
         # anything real. The boots keep their walls, the hole left is the
         # outline of a sole rather than a slice through one, and the fill has
         # something sensible to close.
-        keep = []
+        #
+        # And the floor is one *thing*, not every flat thing down there.
+        #
+        # Cutting on flatness alone still took the underside of the boots with
+        # it, because a boot sole is as flat as the floor it stands on and the
+        # two are welded into one surface. What tells them apart is size: the
+        # slab is a single connected sheet of ten thousand triangles reaching
+        # half a body-length out, and everything else lying flat down there is
+        # a scrap of the figure twenty triangles across. So the candidates are
+        # grouped by what they are joined to, and the group that is the floor
+        # goes, along with any group reaching past the footprint — that is the
+        # lip where the slab turns down at its rim — and any group under
+        # twenty, which are crumbs rather than sole. A hundred and ten
+        # triangles of the generator's own sole survive that this used to
+        # delete and fill back in with a flat colour.
+        near = {}
+        def cell(v):
+            return (round(pos[v*3] / 1e-6), round(pos[v*3+1] / 1e-6),
+                    round(pos[v*3+2] / 1e-6))
+        def root(a):
+            while near.setdefault(a, a) != a:
+                near[a] = near[near[a]]
+                a = near[a]
+            return a
+        def join(a, b):
+            ra, rb = root(a), root(b)
+            if ra != rb: near[ra] = rb
+
+        doomed = []
         for t in range(0, len(idx), 3):
             a, b, c = idx[t], idx[t+1], idx[t+2]
-            if pos[a*3+1] < cut and pos[b*3+1] < cut and pos[c*3+1] < cut:
-                level = upward(a, b, c) > 0.966            # within 15 degrees
-                away = min(math.hypot(pos[v*3], pos[v*3+2])
-                           for v in (a, b, c)) > foot * 1.5
-                if level or away: continue
-            keep.extend((a, b, c))
+            if not (pos[a*3+1] < cut and pos[b*3+1] < cut and pos[c*3+1] < cut):
+                continue
+            level = upward(a, b, c) > 0.966                # within 15 degrees
+            away = min(math.hypot(pos[v*3], pos[v*3+2])
+                       for v in (a, b, c)) > foot * 1.5
+            if not (level or away): continue
+            ka, kb, kc = cell(a), cell(b), cell(c)
+            join(ka, kb); join(kb, kc)
+            doomed.append((t, ka, away))
+        size = {}
+        outer = set()
+        for _t, ka, away in doomed:
+            size[root(ka)] = size.get(root(ka), 0) + 1
+            if away: outer.add(root(ka))
+        floor = max(size, key=size.get) if size else None
+        gone = {t for t, ka, _away in doomed
+                if root(ka) == floor or root(ka) in outer
+                or size[root(ka)] < 20}
+
+        keep = []
+        for t in range(0, len(idx), 3):
+            if t in gone: continue
+            keep.extend((idx[t], idx[t+1], idx[t+2]))
         removed = (len(idx) - len(keep)) // 3
         # Compact: drop vertices no surviving triangle references.
         used = sorted(set(keep))

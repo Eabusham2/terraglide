@@ -213,6 +213,7 @@ for mesh in J.get('meshes', []):
         tris = [(wid[idx[t]], wid[idx[t+1]], wid[idx[t+2]])
                 for t in range(0, len(idx), 3)]
         tris = [t for t in tris if t[0] != t[1] and t[1] != t[2] and t[0] != t[2]]
+
         # Shave the spikes off the rim before tracing it.
         #
         # A cut across a surface never lands on a tidy line: it leaves single
@@ -227,6 +228,16 @@ for mesh in J.get('meshes', []):
             for a, b, c in tris:
                 for e in ((a, b), (b, c), (c, a)):
                     edges[(min(e), max(e))] += 1
+            # Two of its own edges on the boundary means a triangle is
+            # hanging on by one corner, which is not attached at all.
+            #
+            # Needles with a single boundary edge were shaved as well for a
+            # while, on the grounds that a sliver at a cut is a shard rather
+            # than surface. It is not worth it: on this mesh it removed
+            # nothing anybody could see and left sixty-six open edges through
+            # the soles, because taking a triangle out of a rim that is
+            # already non-manifold leaves boundary loops one and two vertices
+            # long, and a loop of two is not a loop.
             loose = [t for t in tris
                      if sum(1 for e in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0]))
                             if edges[(min(e), max(e))] == 1) >= 2]
