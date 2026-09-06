@@ -450,13 +450,20 @@ const SCAN_CLAVICLE = 0;
 /**
  * How far the firework arm reaches forward while a rocket is burning.
  *
- * Negative about X swings an arm that hangs along -Y toward the front. The
- * built figure uses -2.5 for its glide, which is a hundred and forty degrees
- * and is what bunched this body up; -1.4 puts the forearm out level with the
- * shoulder, which is where you hold something that is pushing you, and stops
- * well short of the range where the scanned deltoid starts to fold.
+ * Positive about X, and that sign was measured rather than reasoned about.
+ * It was written negative first, on the grounds that a negative turn about X
+ * carries an arm hanging along -Y toward the front — which is true of the
+ * built figure's shoulder and false of this bone, because the scan's joints
+ * were laid out to its own axes and not to the built rig's. The hand went
+ * 28 cm *backwards*, and the check that was supposed to catch it asked how
+ * far the hand had moved and not which way, so it passed.
+ *
+ * Swept, not guessed: +0.7 puts the hand 18 cm forward, +1.4 puts it 28 cm
+ * forward and 24 up, +2.6 starts curling it back over the head again. 1.4 is
+ * the arm out level and ahead, which is where you hold something that is
+ * pushing you.
  */
-const SCAN_ROCKET_REACH = -1.4;
+const SCAN_ROCKET_REACH = 1.4;
 /** The axis an arm swings forward about, and a scratch to build the turn in. */
 const ACROSS = new THREE.Vector3(1, 0, 0);
 const _swing = new THREE.Quaternion();

@@ -98,7 +98,8 @@ def picture_of(J, BIN):
             try:
                 from PIL import Image
                 import io as _io
-                return Image.open(_io.BytesIO(BIN[s:s + bv['byteLength']])).convert('RGB')
+                im2 = Image.open(_io.BytesIO(BIN[s:s + bv['byteLength']]))
+                return im2 if im2.mode in ('RGB', 'RGBA') else im2.convert('RGB')
             except Exception:
                 return None
     return None
@@ -115,15 +116,29 @@ def add_view(data, **extra):
     return len(views) - 1
 
 
-for im in J.get('images', []):
-    if 'bufferView' not in im: continue
-    bv = J['bufferViews'][im['bufferView']]
-    s = bv.get('byteOffset', 0)
-    im['bufferView'] = add_view(BIN[s:s + bv['byteLength']])
+# The pictures are copied through after the meshes, not before: a flat colour
+# may have been painted into a corner of the base colour one that nothing
+# draws on, and it has to be encoded after that has happened rather than
+# before. Every other image, and this one if nothing was painted, comes
+# through byte for byte.
+def carry_images(painted_any):
+    for i, im in enumerate(J.get('images', [])):
+        if 'bufferView' not in im: continue
+        bv = J['bufferViews'][im['bufferView']]
+        s0 = bv.get('byteOffset', 0)
+        data = BIN[s0:s0 + bv['byteLength']]
+        if painted_any and i == BASE_IMAGE:
+            import io as _io
+            buf = _io.BytesIO()
+            was = (im.get('mimeType') or '').lower()
+            if 'png' in was: PICTURE.save(buf, 'PNG', optimize=True)
+            else: PICTURE.save(buf, 'JPEG', quality=95, optimize=True)
+            data = buf.getvalue()
+        im['bufferView'] = add_view(data)
 
 
 
-def triangulate(loop, first, pos):
+def triangulate(loop, first, pos, middle=None):
     """Close one boundary loop, wound so the fill faces the way the surface does.
 
     A fan from one corner is exact on a crack a few vertices long and wrong on
@@ -152,6 +167,32 @@ def triangulate(loop, first, pos):
         return ([(loop[0], loop[i + 1], loop[i])
                  for i in range(1, len(loop) - 1)], None)
     n = [c / ln for c in n]
+
+    # And the shading normal is turned outward.
+    #
+    # Seventy-two of a hundred and sixty-one filled sole normals came out
+    # pointing up *into* the boot, so the underside of both boots was lit by
+    # the sky rather than the ground and showed as pale blue-grey wedges at
+    # the toe. Which way round a loop gets traced is an accident of where the
+    # walk started, so the sign has to come from somewhere else.
+    #
+    # Not from the rim's own normals: those were tried and they are worse than
+    # useless here, because the rim *is* the cut and half of every vertex on
+    # it belonged to the floor, whose normal points straight up. They average
+    # upward and would turn every sole the wrong way with confidence. The
+    # figure's own middle is the honest reference — a patch closing a hole
+    # faces away from the body, whatever the hole is.
+    #
+    # Only the normal is flipped, never the winding. Reversing the outline was
+    # tried and it stops the fill terminating: the patch's edges then run the
+    # same way as the boundary edges instead of against them, so the boundary
+    # is never consumed and the next round finds the same hole again — eleven
+    # filled holes became forty-four and the file grew by 40 KB of triangles
+    # laid over each other.
+    if middle:
+        here = [sum(q[k] for q in p) / len(p) for k in range(3)]
+        out = [here[k] - middle[k] for k in range(3)]
+        if sum(n[k] * out[k] for k in range(3)) < 0: n = [-c for c in n]
     up = [0.0, 0.0, 1.0] if abs(n[2]) < 0.9 else [1.0, 0.0, 0.0]
     e1 = [up[1]*n[2] - up[2]*n[1], up[2]*n[0] - up[0]*n[2], up[0]*n[1] - up[1]*n[0]]
     m = math.sqrt(sum(c * c for c in e1)) or 1.0
@@ -189,13 +230,26 @@ def triangulate(loop, first, pos):
     return out, normal
 
 
+BASE_IMAGE = None
+def base_image_of(J):
+    for mesh in J.get('meshes', []):
+        for prim in mesh['primitives']:
+            mat = (J.get('materials') or [None])[prim.get('material', 0)]
+            slot = (mat or {}).get('pbrMetallicRoughness', {}).get('baseColorTexture')
+            if slot: return J['textures'][slot['index']].get('source')
+    return None
+BASE_IMAGE = base_image_of(J)
 PICTURE = picture_of(J, BIN)
+PAINTED = [False]
 filled = added = 0
 for mesh in J.get('meshes', []):
     for prim in mesh['primitives']:
         if 'indices' not in prim: continue
         attrs = {name: read(i) for name, i in prim['attributes'].items()}
         pos, pa, _ = attrs['POSITION']
+        # The middle of the figure, so a patch can be turned to face away from
+        # it rather than whichever way its outline happened to be walked.
+        middle = [(pa['min'][k] + pa['max'][k]) / 2 for k in range(3)]
         idx = [v[0] for v in read(prim['indices'])[0]]
         span = max(pa['max'][i] - pa['min'][i] for i in range(3)) or 1.0
         q = span * 1e-5
@@ -203,12 +257,14 @@ for mesh in J.get('meshes', []):
         # Weld to find the boundaries, and only to find them.
         weld, wid = {}, [0] * pa['count']
         first = {}
+        members = defaultdict(list)
         for v in range(pa['count']):
             k = tuple(round(c / q) for c in pos[v])
             if k not in weld:
                 weld[k] = len(weld)
                 first[weld[k]] = v
             wid[v] = weld[k]
+            members[weld[k]].append(v)
 
         tris = [(wid[idx[t]], wid[idx[t+1]], wid[idx[t+2]])
                 for t in range(0, len(idx), 3)]
@@ -271,7 +327,7 @@ for mesh in J.get('meshes', []):
             for loop in loops:
                 patch = len(patches)
                 patches.append(loop)
-                shape, plane[patch] = triangulate(loop, first, pos)
+                shape, plane[patch] = triangulate(loop, first, pos, middle)
                 for tri in shape:
                     new_tris.append((patch, tri))
                     tris.append(tri)
@@ -308,12 +364,55 @@ for mesh in J.get('meshes', []):
         uv_acc = attrs.get('TEXCOORD_0', (None, {}))[1]
         FULL = {5121: 255.0, 5123: 65535.0}
         span = FULL.get(uv_acc.get('componentType')) if uv_acc.get('normalized') else None
+        def pick_uv(u):
+            return (u[0] / span, u[1] / span) if span else (u[0], u[1])
         def pick(u):
             if PICTURE is None: return (0, 0, 0)
-            a, b = (u[0] / span, u[1] / span) if span else (u[0], u[1])
+            a, b = pick_uv(u)
             w, h = PICTURE.size
             return PICTURE.getpixel((min(int(a * w), w - 1) % w,
                                      min(int(b * h), h - 1) % h))
+        # Somewhere in the picture nothing is drawn, to paint flat colours in.
+        #
+        # The mask is built from the triangles as they are, with a two-texel
+        # margin so nothing lands where filtering could reach a real chart,
+        # and blocks are handed out 32 square so that even the fourth mip
+        # level is still entirely one colour.
+        painted_blocks = []
+        def paint(colour):
+            """A flat block of `colour` in unused atlas, and its middle."""
+            if PICTURE is None: return list(uvs[0])
+            W0, H0 = PICTURE.size
+            if not painted_blocks:
+                used = bytearray(W0 * H0)
+                for t in range(0, len(idx), 3):
+                    tri = idx[t:t+3]
+                    xs = [pick_uv(uvs[v])[0] * W0 for v in tri]
+                    ys = [pick_uv(uvs[v])[1] * H0 for v in tri]
+                    for y in range(max(0, int(min(ys)) - 2), min(H0, int(max(ys)) + 3)):
+                        row = y * W0
+                        for x in range(max(0, int(min(xs)) - 2), min(W0, int(max(xs)) + 3)):
+                            used[row + x] = 1
+                for by in range(0, H0 - 32, 32):
+                    for bx in range(0, W0 - 32, 32):
+                        if all(used[(by+dy) * W0 + bx+dx] == 0
+                               for dy in range(0, 32, 4) for dx in range(0, 32, 4)):
+                            painted_blocks.append([bx, by])
+            if not painted_blocks: return list(uvs[first[0]])
+            bx, by = painted_blocks.pop(0)
+            PAINTED[0] = True
+            # Whatever the picture carries besides colour is left as it was,
+            # so the only thing that changes about this corner is what it
+            # looks like — and nothing was ever looking at it.
+            for dy in range(32):
+                for dx in range(32):
+                    was = PICTURE.getpixel((bx + dx, by + dy))
+                    PICTURE.putpixel((bx + dx, by + dy), colour + tuple(was[3:]))
+            u = (bx + 16) / W0
+            v = (by + 16) / H0
+            if span: return [int(round(u * span)), int(round(v * span))]
+            return [u, v]
+
         if uvs and new_tris:
             sides = []
             for t in range(0, len(idx), 3):
@@ -326,31 +425,56 @@ for mesh in J.get('meshes', []):
                 wide = max(max(u[k] for u in rim) - min(u[k] for u in rim)
                            for k in range(2))
                 if wide < usual * 4: continue     # inside one chart: keep it
-                # Not the rim — two rings in from it.
+                # Not the rim — two rings in from it, and then painted.
                 #
-                # The rim is the cut, and the cut is exactly where the floor
-                # was: those vertices carry the slab's coordinates, so a
-                # colour chosen from them is the colour of the floor. On this
-                # figure that is a blue-grey at luminance 57 against a boot at
-                # 14, which is a bright line drawn right round the bottom of
-                # both boots — the sole was being painted the ground it was
-                # standing on. Two steps into the surviving surface is past
-                # the cut and onto real boot, and the representative one of
-                # those is the per-channel median of what is there. Still a
-                # real point on the real picture; just not one on the seam.
+                # The rim is the cut, and the cut is where the floor was, so
+                # those vertices carry the slab's coordinates: a colour chosen
+                # from them is the colour of the ground the boot stood on, a
+                # blue-grey at luminance 57 against a boot at 14. Two steps
+                # into the surviving surface is past the seam and onto real
+                # boot, and the representative one of those is the
+                # per-channel median of what is there.
+                #
+                # Pointing at that texel is still not enough. One texel has
+                # neighbours, and bilinear filtering and every mip level after
+                # the first average them in — so a coordinate landing in a
+                # busy part of the atlas drags a stripe of whatever is beside
+                # it around the bottom of the boot. It was blue-grey lawn, and
+                # then, aimed at a real boot texel, an orange and green
+                # zig-zag. So the colour is *painted*: a flat block of it in a
+                # corner of the picture no triangle has ever used — 41 per
+                # cent of this atlas is never sampled by anything — and the
+                # patch and its rim point at the middle of that. Nothing that
+                # was drawn is overwritten, and there is nothing to bleed.
                 pool = set()
                 for v in loop: pool.update(near_of.get(v, ()))
                 deeper = set()
                 for v in pool: deeper.update(near_of.get(v, ()))
                 pool = (deeper | pool) - set(loop)
-                where = [uvs[first[v]] for v in pool] or rim
-                seen = [pick(u) for u in where]
-                mid = tuple(sorted(c[k] for c in seen)[len(seen) // 2]
-                            for k in range(3))
-                spot[patch] = min(
-                    zip(where, seen),
-                    key=lambda pair: sum((pair[1][k] - mid[k]) ** 2
-                                         for k in range(3)))[0]
+                seen = [pick(uvs[first[v]]) for v in pool] or [pick(u) for u in rim]
+                mid_col = tuple(sorted(c[k] for c in seen)[len(seen) // 2]
+                                for k in range(3))
+                spot[patch] = paint(mid_col)
+
+        # The rim is left alone, and that is a decision rather than an
+        # oversight.
+        #
+        # A vertex on the cut still carries the floor's coordinate, so the
+        # last ring of boot triangles reads the ground and shades from black
+        # leather to blue-grey along the very bottom of each boot — 37 of the
+        # 601 vertices down there. Pointing those vertices at the painted
+        # block instead makes it worse, not better: the triangles they belong
+        # to have their *other* corners on real boot, so the coordinate now
+        # sweeps from one corner of the atlas to the other and the triangle
+        # reads everything in between. A thin blue line became a bright
+        # multi-coloured one, twice, once aimed at a real texel and once at
+        # the painted block.
+        #
+        # Fixing it properly means giving those triangles three fresh corners
+        # each and flattening them, which trades a subtle wrong colour on the
+        # last two millimetres of boot for no texture there at all. Left as
+        # it is, and written down here so the next attempt starts from what
+        # was already tried.
 
         new_rows = {name: [] for name in attrs}
         painted = {}
@@ -411,6 +535,7 @@ for mesh in J.get('meshes', []):
                 struct.pack(f'<{len(flat)}{"I" if wide else "H"}', *flat),
                 target=34963)}
 
+carry_images(PAINTED[0])
 J['bufferViews'] = views
 J['buffers'] = [{'byteLength': len(out)}]
 js = json.dumps(J, separators=(',', ':')).encode('utf8')

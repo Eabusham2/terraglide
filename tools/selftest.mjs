@@ -3939,9 +3939,20 @@ console.log('\nThe scanned body is a body, and it moves like one');
   const reachHand = grab(armRpts[4]);
   const reachChest = grab(rightFlank[6]);
   const reachLeft = grab(armLpts[4]);
+  /*
+    Forward, and the direction is the point.
+
+    This asked how far the hand had moved and not which way, and passed while
+    the arm reached 28 cm backwards — over the shoulder, behind the head,
+    pointing the firework at where he had already been. A test that measures
+    a magnitude and reports it as a direction is worse than no test, because
+    it is quoted as proof. The figure faces -Z, so forward is a negative z.
+  */
   ok(`a burning firework reaches the right arm forward  `
-    + `(${(reachHand.distanceTo(glidingHand) * 100).toFixed(1)} cm)`,
-    reachHand.distanceTo(glidingHand) > 0.1);
+    + `(${(reachHand.distanceTo(glidingHand) * 100).toFixed(1)} cm, `
+    + `${((glidingHand.z - reachHand.z) * 100).toFixed(1)} cm of it forward)`,
+    reachHand.distanceTo(glidingHand) > 0.1
+    && reachHand.z < glidingHand.z - 0.1);
   ok(`and moves the chest not at all  `
     + `(${(reachChest.distanceTo(beforeChest) * 100).toFixed(1)} cm)`,
     reachChest.distanceTo(beforeChest) < 0.005);
