@@ -3923,6 +3923,34 @@ console.log('\nThe scanned body is a body, and it moves like one');
     glidingHand.distanceTo(beforeHand) < 0.005);
   rig.poseScan(0);
   rig.root.updateMatrixWorld(true);
+  /*
+    And a firework moves one arm and nothing else.
+
+    The pose the generator built has nothing to say about holding something
+    that is pushing you, so while a rocket burns the right arm reaches
+    forward — one joint, on top of what it already has. The point of the
+    check is the "and nothing else": every previous attempt to make the glide
+    look right moved a shoulder or a collarbone as well, and every one of
+    them bunched the jacket up into a ball.
+  */
+  rig.scanReach = 1;
+  rig.poseScan(1);
+  rig.root.updateMatrixWorld(true);
+  const reachHand = grab(armRpts[4]);
+  const reachChest = grab(rightFlank[6]);
+  const reachLeft = grab(armLpts[4]);
+  ok(`a burning firework reaches the right arm forward  `
+    + `(${(reachHand.distanceTo(glidingHand) * 100).toFixed(1)} cm)`,
+    reachHand.distanceTo(glidingHand) > 0.1);
+  ok(`and moves the chest not at all  `
+    + `(${(reachChest.distanceTo(beforeChest) * 100).toFixed(1)} cm)`,
+    reachChest.distanceTo(beforeChest) < 0.005);
+  ok(`nor the other arm  `
+    + `(${(reachLeft.distanceTo(grab(armLpts[4])) * 100).toFixed(1)} cm)`,
+    Math.abs(reachLeft.x - grab(armLpts[4]).x) < 0.005);
+  rig.scanReach = 0;
+  rig.poseScan(0);
+  rig.root.updateMatrixWorld(true);
   // A face, because the mesh came without one. A head with no front is a
   // figure you cannot tell the facing of at any distance, which is the same
   // reason the built model has eyes at all.

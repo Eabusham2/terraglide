@@ -447,6 +447,19 @@ const SKIN_MIDLINE = 0.03;
  * — a diagnostic angle, against a torso that is on screen the whole time.
  */
 const SCAN_CLAVICLE = 0;
+/**
+ * How far the firework arm reaches forward while a rocket is burning.
+ *
+ * Negative about X swings an arm that hangs along -Y toward the front. The
+ * built figure uses -2.5 for its glide, which is a hundred and forty degrees
+ * and is what bunched this body up; -1.4 puts the forearm out level with the
+ * shoulder, which is where you hold something that is pushing you, and stops
+ * well short of the range where the scanned deltoid starts to fold.
+ */
+const SCAN_ROCKET_REACH = -1.4;
+/** The axis an arm swings forward about, and a scratch to build the turn in. */
+const ACROSS = new THREE.Vector3(1, 0, 0);
+const _swing = new THREE.Quaternion();
 /** Passes of neighbour-averaging over the skin weights. See weighScan(). */
 const SKIN_SMOOTHING = 12;
 
@@ -1785,6 +1798,14 @@ export class Avatar {
       bone[`clav${side}`].quaternion.identity().slerp(want, SCAN_CLAVICLE * held);
       bone[`arm${side}`].quaternion.identity().slerp(want, (1 - SCAN_CLAVICLE) * held);
     }
+    // The one exception, and it is one joint: the arm holding the firework
+    // reaches forward while it is burning. Applied on top of whatever the arm
+    // already has rather than instead of it, and scaled by `open` so it is
+    // only ever a flying pose — on the ground the built swing still rules.
+    if (this.scanReach > 0.001) {
+      _swing.setFromAxisAngle(ACROSS, SCAN_ROCKET_REACH * this.scanReach * open);
+      bone.armR.quaternion.multiply(_swing);
+    }
     bone.legL.quaternion.copy(this.legL.pivot.quaternion);
     bone.legR.quaternion.copy(this.legR.pivot.quaternion);
     /*
@@ -2052,6 +2073,27 @@ export class Avatar {
     const gliding = player.mode === 'glide';
     const flying = player.mode === 'fly';
     this.glideBlend = damp(this.glideBlend, gliding || flying ? 1 : 0, 7, dt);
+
+    /*
+      How long since a firework, and whether the scanned arm is still out.
+
+      The scanned body is generated flying and is left alone in the air — see
+      poseScan — but a firework is a thing you hold *out*, and an arm hanging
+      at your side while a rocket burns off your hip is the one moment that
+      pose has nothing to say about. So one arm goes forward, and only that
+      arm: no shoulder, no chest, no second limb, nothing that can bunch the
+      jacket up again.
+
+      It comes back down when both of two things are true — three seconds
+      clear of the last firework, and nosed over. Climbing is what a firework
+      is *for*, so the arm staying out through the climb is the pose matching
+      what the player is doing; it relaxes as the arc tips over the top.
+    */
+    this.sinceRocket = player.rocketsFired !== this.firedCount
+      ? 0 : Math.min((this.sinceRocket ?? 99) + dt, 99);
+    this.firedCount = player.rocketsFired;
+    const powered = this.sinceRocket < 3 || (player.pitch ?? 0) > 0;
+    this.scanReach = damp(this.scanReach ?? 0, powered ? 1 : 0, 5, dt);
 
     const forwardSpeed =
       player.velocity.x * Math.sin(player.yaw) - player.velocity.z * Math.cos(player.yaw);
