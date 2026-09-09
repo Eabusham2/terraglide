@@ -196,6 +196,35 @@ const POSES = {
       horizontalSpeed: 45, velocity: new THREE.Vector3(0, 0, -45) },
     camera: [0, 1.75, 3.4], look: [0, 1.75, 0],
   },
+  // Dead ahead of a glide, which is the view a second flier would have of you
+  // and the one that says whether the figure has two arms. From behind and
+  // from above the near arm hides the far one against the body, and "he has
+  // one arm" is a thing that can be true of the model or true only of the
+  // angle it was photographed from.
+  'glide-front': {
+    player: { elytraDeployed: true, onGround: false, pitch: -0.2, horizontalSpeed: 44,
+      velocity: new THREE.Vector3(0, -8, -44), mode: 'glide' },
+    camera: [0, 2.5, -3.9], look: [0, 1.35, 0],
+  },
+  // And from underneath, level: the side of a flier everyone else sees most of
+  // the time, and the side the soles are on.
+  'glide-below': {
+    player: { elytraDeployed: true, onGround: false, mode: 'glide', pitch: 0,
+      horizontalSpeed: 45, velocity: new THREE.Vector3(0, 0, -45) },
+    camera: [0, -2.4, 1.2], look: [0, 1.4, 0],
+  },
+  // Climbing on a firework, which is what puts the right arm out ahead: the
+  // reach is on while the rocket burns or while the flight path points up.
+  'rocket-side': {
+    player: { elytraDeployed: true, onGround: false, mode: 'glide', pitch: 0.35,
+      horizontalSpeed: 40, velocity: new THREE.Vector3(0, 12, -40) },
+    camera: [4.6, 2.2, 0], look: [0, 1.4, 0],
+  },
+  'rocket-front': {
+    player: { elytraDeployed: true, onGround: false, mode: 'glide', pitch: 0.35,
+      horizontalSpeed: 40, velocity: new THREE.Vector3(0, 12, -40) },
+    camera: [2.6, 2.6, -3.2], look: [0, 1.4, 0],
+  },
   'stand-front': { player: {}, camera: [0, 1.1, -3.6], look: [0, 1.0, 0] },
   'stand-side': { player: {}, camera: [3.6, 1.1, 0], look: [0, 1.0, 0] },
   'stand-back': { player: {}, camera: [0, 1.4, 3.6], look: [0, 1.0, 0] },

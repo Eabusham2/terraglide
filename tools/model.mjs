@@ -71,7 +71,9 @@ await page.goto(`http://127.0.0.1:${PORT}/tools/model.html${query}`,
   { waitUntil: 'load' });
 await page.waitForFunction(() => window.__ready === true, null, { timeout: 60000 });
 
-const views = ['glide-behind', 'glide-above', 'glide-side', 'wings-plan', 'wings-astern', 'walk', 'stand-front', 'stand-side', 'stand-back'];
+const views = ['glide-behind', 'glide-above', 'glide-side', 'glide-front', 'glide-below',
+  'rocket-side', 'rocket-front', 'wings-plan', 'wings-astern', 'walk',
+  'stand-front', 'stand-side', 'stand-back'];
 console.log(`${'view'.padEnd(13)} ${'jacket'.padStart(7)} ${'trouser'.padStart(8)} ${'skin'.padStart(6)} ${'wing'.padStart(6)}   (0-255 mean; ! = over a quarter of it above 200)`);
 for (const view of views) {
   await page.evaluate((v) => window.__pose(v), view);
