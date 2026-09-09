@@ -1,0 +1,111 @@
+<meta charset="utf-8">
+<title>the asset on its own</title>
+<style>html,body{margin:0;background:#8a8f96;overflow:hidden}canvas{display:block}</style>
+<script type="module">
+/*
+  The asset by itself, with nothing of the game around it.
+
+  Every picture of the player so far has been of the *rig*: the mesh cut,
+  filled, painted, weighted, boned and posed, lit by the world's own sun. That
+  is the right thing to judge the game by and the wrong thing to judge the
+  generator by, because when something looks wrong in one of those shots there
+  is no way to tell whether the generator made it wrong or this pipeline did.
+
+  So this loads a GLB straight off disk and photographs it: no skeleton, no
+  pose, no cloud shadow, no sun — a plain neutral studio, the model in its own
+  rest attitude, from every side. What is wrong here was wrong when it arrived.
+*/
+import * as THREE from '../vendor/three/three.module.js';
+import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
+
+const q = new URLSearchParams(location.search);
+const src = q.get('src') ?? '../assets/player.glb';
+const size = Number(q.get('size') ?? 900);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(2);          // supersampled, as the model shots are
+renderer.setSize(size, size);
+renderer.toneMapping = THREE.NoToneMapping;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.append(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x8a8f96);
+// A studio, not a sky: an even hemisphere so nothing is in silhouette, and one
+// soft key from the front-left so form still reads. Deliberately dull — the
+// point is to see the asset's own colour, not to flatter it.
+scene.add(new THREE.HemisphereLight(0xffffff, 0x9aa0a6, 2.0));
+const key = new THREE.DirectionalLight(0xffffff, 1.6);
+key.position.set(-3, 4, 5);
+scene.add(key);
+const fill = new THREE.DirectionalLight(0xffffff, 0.7);
+fill.position.set(4, 1, -4);
+scene.add(fill);
+
+const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
+
+const loaded = await new GLTFLoader().loadAsync(src);
+const model = loaded.scene;
+scene.add(model);
+
+// Frame it from its own bounds rather than from a guess at its scale.
+model.updateMatrixWorld(true);
+const box = new THREE.Box3().setFromObject(model);
+const middle = box.getCenter(new THREE.Vector3());
+const span = box.getSize(new THREE.Vector3());
+const radius = Math.max(span.x, span.y, span.z) * 0.5;
+const back = radius / Math.tan((camera.fov / 2) * Math.PI / 180) * 1.25;
+
+window.__bounds = {
+  min: box.min.toArray().map((n) => Number(n.toFixed(4))),
+  max: box.max.toArray().map((n) => Number(n.toFixed(4))),
+};
+window.__parts = [];
+model.traverse((child) => {
+  if (!child.isMesh) return;
+  const g = child.geometry;
+  window.__parts.push({
+    name: child.name || '(unnamed)',
+    triangles: (g.getIndex() ? g.getIndex().count : g.getAttribute('position').count) / 3,
+    vertices: g.getAttribute('position').count,
+    attributes: Object.keys(g.attributes),
+    material: child.material?.name || '(unnamed)',
+    map: child.material?.map ? `${child.material.map.image?.width}x${child.material.map.image?.height}` : null,
+  });
+});
+
+/** Look at it from a bearing and an elevation, both in degrees. */
+window.__view = (bearing, elevation) => {
+  const b = bearing * Math.PI / 180;
+  const e = elevation * Math.PI / 180;
+  camera.position.set(
+    middle.x + back * Math.cos(e) * Math.sin(b),
+    middle.y + back * Math.sin(e),
+    middle.z + back * Math.cos(e) * Math.cos(b),
+  );
+  camera.lookAt(middle);
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+};
+
+/** And close in on a part of it, in fractions of the model's own height. */
+window.__closeup = (bearing, elevation, at, wide) => {
+  const b = bearing * Math.PI / 180;
+  const e = elevation * Math.PI / 180;
+  const aim = new THREE.Vector3(
+    box.min.x + span.x * at[0], box.min.y + span.y * at[1], box.min.z + span.z * at[2],
+  );
+  const away = span.y * wide / Math.tan((camera.fov / 2) * Math.PI / 180) * 0.5;
+  camera.position.set(
+    aim.x + away * Math.cos(e) * Math.sin(b),
+    aim.y + away * Math.sin(e),
+    aim.z + away * Math.cos(e) * Math.cos(b),
+  );
+  camera.lookAt(aim);
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+};
+
+window.__view(180, 0);
+window.__ready = true;
+</script>

@@ -1,0 +1,106 @@
+# Keeps the published site in step with main.
+#
+# TerraGlide has no build step — the repository *is* the site — so this just
+# mirrors main onto the gh-pages branch, minus the bits that are development
+# tooling rather than part of the game.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gh-pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+
+      - name: Build the two single-file downloads
+        run: |
+          node tools/bundle.mjs
+          node tools/online.mjs
+
+      # After the build, not before: the two single files are build outputs
+      # and are no longer tracked in the source tree, and the self-test reads
+      # both of them — including a check that the bundle matches the sources.
+      - name: Verify the modules parse and the maths still holds
+        run: |
+          node tools/check.mjs
+          node tools/selftest.mjs
+
+      - name: Assemble the site
+        run: |
+          rm -rf _site
+          mkdir _site
+          cp -r index.html terraglide.html terraglide-online.html terraglide.bundle.js src styles vendor assets LICENSE THIRD-PARTY.md README.md _site/
+          # The textures are part of the served game — without assets/ the site
+          # silently falls back to flat colour and nobody can tell why.
+          test -f _site/assets/manifest.json
+          # The page asks for the bundle first and only falls back to seventy-
+          # seven separate module requests if it is not there. That fallback is
+          # the failure this was built to remove — at one per cent packet loss
+          # it booted zero times out of three — so a site published without the
+          # bundle is a site that still has the bug. Fail the build instead.
+          test -f _site/terraglide.bundle.js
+          # src/ is still published: the module fallback needs it, and so does
+          # the online single-file edition.
+          test -f _site/src/main.js
+          # Stamp the bundle's own fingerprint into the URL the page asks for.
+          #
+          # Without this the page requests `terraglide.bundle.js` at a URL that
+          # never changes, and GitHub Pages serves it with max-age=600. So for
+          # ten minutes after a deploy — longer on a phone that is holding the
+          # response for its own reasons — anyone who had opened the site
+          # recently keeps running the old three megabytes and sees none of the
+          # change. That has cost real time already: a fix was tested against
+          # code that did not contain it, twice.
+          #
+          # The fingerprint is over the sources, so an unchanged deploy keeps
+          # the same URL and the cache still does its job.
+          STAMP=$(grep -o '__TERRAGLIDE_BUNDLE__ = "[0-9a-f]*"' _site/terraglide.bundle.js | head -1 | grep -o '[0-9a-f]\{8,\}')
+          test -n "$STAMP"
+          sed -i "s|'./terraglide.bundle.js'|'./terraglide.bundle.js?v=$STAMP'|" _site/index.html
+          grep -q "terraglide.bundle.js?v=$STAMP" _site/index.html
+          # Stop GitHub's Jekyll pass from touching plain static files.
+          touch _site/.nojekyll
+
+      # Both downloads also live on their own branch, so they can be fetched
+      # without the site and without a build. Force-pushed: it is an output,
+      # not a history.
+      - name: Publish the downloads to the singlefiles branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          rm -rf _files
+          mkdir _files
+          cp terraglide.html terraglide-online.html _files/
+          git show origin/singlefiles:README.md > _files/README.md 2>/dev/null \
+            || git show ${GITHUB_SHA}:README.md > _files/README.md
+          cd _files
+          git init -q -b singlefiles
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Both single files, built from ${GITHUB_SHA::7}"
+          git push -q --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" singlefiles
+
+      - name: Push to gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd _site
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Publish ${GITHUB_SHA::7}"
+          git push -q --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
