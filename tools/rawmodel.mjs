@@ -13,7 +13,10 @@ import { join } from 'node:path';
 import { createServer } from 'node:http';
 
 const ROOT = new URL('..', import.meta.url).pathname;
-const OUT = join(ROOT, 'shots');
+// Under shots/raw, which is not tracked: these are working comparisons of
+// candidate files — several sets of fourteen 1400-pixel renders per session —
+// and the repo carries the finished views in shots/ instead.
+const OUT = join(ROOT, 'shots', 'raw');
 await mkdir(OUT, { recursive: true });
 
 const arg = (name, fallback) => {

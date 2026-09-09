@@ -6924,20 +6924,103 @@ console.log('\nGenerated art stays where it belongs');
     /*
       The limit was 1.2 MB, and meeting it was what made the figure soft.
 
-      The generator hands back a 1024-pixel PNG; tools/glb-optimise.py halved
-      it to 512 and re-encoded it as JPEG, which is three quarters of the
-      picture gone plus everything JPEG does to a hard edge — the low quality,
-      the mush on the sleeve seams, the smeared boot. That trade is right for
-      something everybody downloads and wrong for one nobody gets unless they
-      switch it on: it is off by default and never in the single-file build.
+      The generator hands back a PNG; tools/glb-optimise.py halved it and
+      re-encoded it as JPEG, which is three quarters of the picture gone plus
+      everything JPEG does to a hard edge — the low quality, the mush on the
+      sleeve seams, the smeared boot. That trade is right for something
+      everybody downloads and wrong for one nobody gets unless they switch it
+      on: it is off by default and never in the single-file build.
 
-      So the picture ships whole and the limit is now the size of a mesh with
-      a whole picture on it. It is still a limit: four megabytes catches a
-      second texture creeping in, or the ground plane coming back.
+      So the picture ships whole. Four megabytes was the size of this mesh with
+      a whole 1024-pixel picture on it; this one carries 2048, which is four
+      times the texels and most of the file. Eight still does the job the limit
+      is for — it catches a second texture creeping in (the metal-roughness map
+      nothing reads is 1.3 MB on its own) or the ground plane coming back.
     */
-    ok('and small enough to be worth downloading', size < 4_000_000,
+    ok('and small enough to be worth downloading', size < 8_000_000,
       `${Math.round(size / 1024)} KB`);
     ok('and is a real GLB', readFileSync(glb).subarray(0, 4).toString() === 'glTF');
+    /*
+      No floor, and no holes where a floor was cut away.
+
+      This figure was generated standing on its reference image's contact
+      shadow, so the generator built a square plate under it and fused the
+      boots into it. Everything that followed was downstream of that: a rule
+      that dropped level triangles in the bottom slice took the soles with the
+      plate, an ear-clipping fill closed the holes that left, a flat colour was
+      painted into an unused corner of the atlas to give the patch something to
+      sample, and both undersides still came out shaded wrong.
+
+      The shadow is gone from the reference now — see tools/ref-clean.py — so
+      the generator built no plate, and the mesh arrives closed. These two are
+      what keep it that way: a plate would show as a wide sheet of level
+      triangles along the bottom, and a cut plate as open edges down there.
+    */
+    {
+      const raw = readFileSync(glb);
+      let off = 12;
+      let json = null;
+      let bin = null;
+      while (off < raw.length) {
+        const len = raw.readUInt32LE(off);
+        const type = raw.toString('utf8', off + 4, off + 8);
+        if (type === 'JSON') json = JSON.parse(raw.toString('utf8', off + 8, off + 8 + len));
+        else if (type.startsWith('BIN')) bin = raw.subarray(off + 8, off + 8 + len);
+        off += 8 + len;
+      }
+      const GET = {
+        5121: [1, (b, o) => b.readUInt8(o)], 5123: [2, (b, o) => b.readUInt16LE(o)],
+        5125: [4, (b, o) => b.readUInt32LE(o)], 5126: [4, (b, o) => b.readFloatLE(o)],
+      };
+      const read = (i, n) => {
+        const a = json.accessors[i];
+        const view = json.bufferViews[a.bufferView];
+        const [size, get] = GET[a.componentType];
+        const base = (view.byteOffset ?? 0) + (a.byteOffset ?? 0);
+        const out = new Array(a.count * n);
+        for (let k = 0; k < a.count * n; k += 1) out[k] = get(bin, base + k * size);
+        return out;
+      };
+      const prim = json.meshes[0].primitives[0];
+      const position = read(prim.attributes.POSITION, 3);
+      const indices = read(prim.indices, 1);
+      // Welded by position: a texture seam is two vertices in one place, and an
+      // index-based count calls that a hole when it is not.
+      const id = new Map();
+      const height = [];
+      const weld = new Int32Array(position.length / 3);
+      for (let v = 0; v < weld.length; v += 1) {
+        const key = `${position[v * 3].toFixed(5)},${position[v * 3 + 1].toFixed(5)},`
+          + `${position[v * 3 + 2].toFixed(5)}`;
+        if (!id.has(key)) { id.set(key, height.length); height.push(position[v * 3 + 1]); }
+        weld[v] = id.get(key);
+      }
+      const floor = Math.min(...height);
+      const seen = new Set();
+      let flat = 0;
+      let low = 0;
+      for (let t = 0; t < indices.length; t += 3) {
+        const [a, b, c] = [weld[indices[t]], weld[indices[t + 1]], weld[indices[t + 2]]];
+        for (const [u, v] of [[a, b], [b, c], [c, a]]) seen.add(`${u}-${v}`);
+        const y = [height[a], height[b], height[c]];
+        if (Math.max(...y) < floor + 0.01) {
+          low += 1;
+          if (Math.max(...y) - Math.min(...y) < 0.001) flat += 1;
+        }
+      }
+      let unmatched = 0;
+      for (const key of seen) {
+        const [u, v] = key.split('-');
+        if (!seen.has(`${v}-${u}`)) unmatched += 1;
+      }
+      ok(`the player mesh is closed, so nothing had to be patched  `
+        + `(${unmatched} open edges)`, unmatched === 0);
+      // The plate this figure used to stand on was 10,901 level triangles in
+      // that centimetre; the soles that replace it are 188, because a sole is
+      // nearly flat too. Two thousand is clear of one and nowhere near the other.
+      ok(`and it is not standing on a slab  `
+        + `(${flat} level triangles in the bottom centimetre, of ${low})`, flat < 2000);
+    }
   }
   const avatar2 = readFileSync(new URL('../src/player/avatar.js', import.meta.url), 'utf8');
   ok('it is off by default and first person never uses it',

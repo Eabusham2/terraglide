@@ -173,16 +173,28 @@ real-world counterpart any provider publishes, so it displaces nothing and is
 drawn in every mode.
 
 `assets/player.glb` is a generated character mesh — TRELLIS.2 on Hugging Face,
-from a prompt, then passed through `tools/glb-optimise.py` to cut the baked
-ground plane away and `tools/glb-fill.py` to close the holes that leaves in the
-boot soles. Everything else is exactly as the generator made it: the same
-1024-pixel PNG atlas, byte for byte, and float32 positions, normals and texture
-coordinates. 3.9 MB to 2.8 MB, and most of that saving is a metal-roughness map
-no material reads. It shipped soft for a fortnight when the atlas was halved to
-512 and re-encoded as JPEG to hold the file under a megabyte; that trade is
-right for an asset everybody downloads and wrong for one that is off by default
-and never in the single-file build. It depicts no real person. Off by default,
-and never fetched by the single-file build.
+from a reference image the project keeps, at 1536 geometry resolution with a
+2048-pixel atlas. Nothing is done to it afterwards but `tools/glb-prune.py`,
+which drops the metal-roughness map the loader sets to null anyway: 47,615
+triangles, closed, and the generator's own PNG byte for byte. 7.9 MB to 6.4 MB.
+It depicts no real person. Off by default, and never fetched by the single-file
+build.
+
+The first generation of it stood on a square floor plate, because the reference
+image had a soft contact shadow under the boots and a single-image
+reconstructor reads a shadow as surface. Cutting that plate away afterwards is
+a losing game — the plate and the boots share vertices, so the cut takes the
+bottom off both — and the long tail of ragged toes, pale wedges under the soles
+and shading shards up the shins were each a repair of the repair before.
+`tools/ref-clean.py` takes the shadow out of the reference instead, so the
+generator builds no plate and the mesh comes back with no holes to close.
+`tools/glb-optimise.py` and `tools/glb-fill.py` are no longer in this asset's
+path; they are kept because the firework still goes through them.
+
+It also shipped soft for a fortnight when the atlas was halved to 512 and
+re-encoded as JPEG to hold the file under a megabyte; that trade is right for
+an asset everybody downloads and wrong for one that is off by default and never
+in the single-file build.
 
 It was generated wearing a pair of feathered wings, which it wore on top of the
 elytra the game already gives you, and which — reaching higher than its own

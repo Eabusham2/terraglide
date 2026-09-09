@@ -18,11 +18,24 @@ chunk is rebuilt out of only the views that are still pointed at. Nothing that
 is reachable is re-encoded or moved: geometry and pictures come out byte for
 byte as they went in.
 
-    python tools/glb-prune.py in.glb out.glb
+    python tools/glb-prune.py in.glb out.glb [--drop-metal-rough]
+
+`--drop-metal-rough` takes the metal-roughness slot off every material first,
+so the picture behind it stops being reachable and this drops it. That is not
+second-guessing the generator: TRELLIS writes metallicFactor 1.0 with a
+metal-roughness map, and src/player/avatar.js sets metalness to 0, roughness
+to a constant and both maps to null on every material it loads — because a
+scanned jacket is not a mirror. So the map is fetched over the network,
+decoded, uploaded to the GPU and then never read. On this character that is
+1.3 MB of a 7.9 MB download.
 """
 import json, struct, sys
 
 src, dst = sys.argv[1], sys.argv[2]
+drop_metal_rough = '--drop-metal-rough' in sys.argv[3:]
+
+if drop_metal_rough:
+    pass        # applied below, once the JSON is parsed
 
 raw = open(src, 'rb').read()
 off, J, BIN = 12, None, None
@@ -31,6 +44,12 @@ while off < len(raw):
     if ctype == b'JSON': J = json.loads(raw[off+8:off+8+clen])
     elif ctype == b'BIN\x00': BIN = bytes(raw[off+8:off+8+clen])
     off += 8 + clen
+
+# The slots nothing will ever read, taken off before anything is followed.
+if drop_metal_rough:
+    for mat in J.get('materials', []):
+        pbr = mat.get('pbrMetallicRoughness', {})
+        pbr.pop('metallicRoughnessTexture', None)
 
 # What the renderer can reach.
 materials = set()

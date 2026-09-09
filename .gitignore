@@ -8,3 +8,8 @@ terraglide.bundle.js
 # here meant every source change carried a three-megabyte diff of itself.
 terraglide.html
 terraglide-online.html
+
+# Working renders of candidate GLBs, written by tools/rawmodel.mjs. Several
+# sets of fourteen 1400-pixel images per sitting; the finished views that are
+# worth keeping live in shots/ itself.
+shots/raw/

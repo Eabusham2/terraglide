@@ -1343,12 +1343,52 @@ export class Avatar {
     const ink = new THREE.MeshStandardMaterial({
       color: 0x25201c, roughness: 0.9, metalness: 0, side: THREE.DoubleSide,
     });
-    // Measured off the mesh: the head is a ball of radius 0.071 about
-    // (0, 0.93, -0.042) in the body's frame, which is (0, 0.01, -0.042) in
-    // this joint's.
-    const middle = new THREE.Vector3(0, 0.01, -0.042);
-    const radius = 0.071;
-    const outward = new THREE.Vector3();
+    /*
+      Where the head is, measured off *this* mesh rather than written down from
+      the last one.
+
+      The ball used to be two constants — radius 0.071 about (0, 0.01, -0.042)
+      — read off the body that happened to be shipping when the face was
+      written, and a body regenerated at a different resolution has a head of
+      its own size in its own place. It moved by three centimetres, which is
+      half a head, and both eyes ended up hanging in the air above the skull.
+
+      The mesh already knows. Skinning has just given every vertex a dominant
+      joint, so the vertices the head owns are the head: their middle is its
+      middle and their mean distance from it is its radius. Nothing about the
+      face is a number about one particular file any more.
+    */
+    const joint = SCAN_JOINTS.findIndex((j) => j.name === 'head');
+    const stand = SCAN_JOINTS[joint].at[1];
+    const head = [];
+    const point = new THREE.Vector3();
+    for (const skin of skins) {
+      const position = skin.geometry.getAttribute('position');
+      const index = skin.geometry.getAttribute('skinIndex');
+      const weight = skin.geometry.getAttribute('skinWeight');
+      for (let v = 0; v < position.count; v += 1) {
+        let best = -1;
+        let most = 0;
+        for (let k = 0; k < 4; k += 1) {
+          if (weight.getComponent(v, k) <= most) continue;
+          most = weight.getComponent(v, k);
+          best = index.getComponent(v, k);
+        }
+        // Mostly the head's, so the neck and the collar do not drag the middle
+        // of the ball down into the shoulders.
+        if (best !== joint || most < 0.6) continue;
+        head.push(point.clone().set(
+          position.getX(v), position.getY(v) - stand, position.getZ(v),
+        ));
+      }
+    }
+    const middle = new THREE.Vector3();
+    for (const at of head) middle.add(at);
+    if (head.length) middle.multiplyScalar(1 / head.length);
+    let radius = 0;
+    for (const at of head) radius += at.distanceTo(middle);
+    radius = head.length ? radius / head.length : 0.071;
+    for (const at of head) at.sub(middle);
     /*
       A ball is a good enough guess for where a head is and not for where its
       *face* is. This one has a jaw that recedes, so the middle of the mouth —
@@ -1357,18 +1397,11 @@ export class Avatar {
       vertices anywhere near the direction wanted and keep the one that reaches
       furthest along it.
     */
-    const head = [];
-    const point = new THREE.Vector3();
-    for (const skin of skins) {
-      const position = skin.geometry.getAttribute('position');
-      for (let v = 0; v < position.count; v += 1) {
-        // Body space; the joint this hangs on sits at 0.92.
-        if (position.getY(v) < 0.86) continue;
-        head.push(point.clone().set(
-          position.getX(v), position.getY(v) - 0.92, position.getZ(v),
-        ).sub(middle));
-      }
-    }
+    const outward = new THREE.Vector3();
+    // Everything below is drawn in proportion to the head it goes on. The
+    // numbers were chosen against a radius of 0.071, so that is what they are
+    // in fractions of.
+    const of = radius / 0.071;
     const reachOf = (dir) => {
       let far = radius;
       for (const at of head) {
@@ -1403,8 +1436,8 @@ export class Avatar {
       face.add(mesh);
     };
     for (const side of [-1, 1]) {
-      put(new THREE.Mesh(new THREE.PlaneGeometry(0.022, 0.016), ink),
-        side * 0.030, 0.018);
+      put(new THREE.Mesh(new THREE.PlaneGeometry(0.022 * of, 0.016 * of), ink),
+        side * 0.030 * of, 0.018 * of, 0.0015 * of);
     }
     /*
       One stroke, not a row of tiles.
@@ -1425,10 +1458,10 @@ export class Avatar {
       overlaps to argue about depth.
     */
     const steps = 40;
-    const half = 0.0034;                                  // half the stroke
-    const spread = 0.026;                                 // corner to corner
-    const drop = 0.017;                                   // below the middle
-    const curve = 0.011;                                  // how much it smiles
+    const half = 0.0034 * of;                             // half the stroke
+    const spread = 0.026 * of;                            // corner to corner
+    const drop = 0.017 * of;                              // below the middle
+    const curve = 0.011 * of;                             // how much it smiles
     const along = (t) => {
       const x = t * spread;
       return [x, -drop - (1 - t * t) * curve];
@@ -1440,14 +1473,14 @@ export class Avatar {
     for (let i = 0; i <= steps; i += 1) {
       const t = (i / steps) * 2 - 1;                      // -1 .. 1
       const [x, y] = along(t);
-      surfaceAt(x, y, 0.0015, outward, centre);
+      surfaceAt(x, y, 0.0015 * of, outward, centre);
       // The direction the stroke is running in, measured on the surface
       // rather than assumed, so the width stays square to it round the curve.
       const step = 1 / steps;
       const [ax, ay] = along(Math.min(t + step, 1));
       const [bx, by] = along(Math.max(t - step, -1));
-      surfaceAt(ax, ay, 0.0015, _grip, ahead);
-      surfaceAt(bx, by, 0.0015, _grip, sideways);
+      surfaceAt(ax, ay, 0.0015 * of, _grip, ahead);
+      surfaceAt(bx, by, 0.0015 * of, _grip, sideways);
       ahead.sub(sideways);
       sideways.crossVectors(outward, ahead).normalize().multiplyScalar(half);
       points.push(
