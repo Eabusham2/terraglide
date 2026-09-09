@@ -448,32 +448,33 @@ const SKIN_MIDLINE = 0.03;
  */
 const SCAN_CLAVICLE = 0;
 /**
- * How far the firework arm reaches forward while a rocket is burning.
+ * Where the firework arm points while a rocket is burning.
  *
- * Measured in the world while the body is actually gliding, which took three
- * goes to get right and is worth writing down.
+ * A direction, not an angle, and that is the whole of the fix. This was a turn
+ * of so many radians about the bone's own X, swept until the *displacement* of
+ * the hand came out forward — which it did, 46 cm of it — while the arm itself
+ * ended up straight out from the body like a raised hand, because the pose it
+ * starts from has the arms swept back along the flanks and turning them 126
+ * degrees from there lands square to the spine rather than ahead of the head.
+ * Three sign changes went by before it was clear the number was never the
+ * problem: measuring how far a hand moved cannot tell you where it ended up.
  *
- * It was written -1.4 first, reasoned from "a negative turn about X carries an
- * arm hanging along -Y toward the front". Then measured on the rig at rest,
- * where the hand went 28 cm *backwards*, and flipped to +1.4. Both of those
- * asked about the body standing up. In a glide the body is rotated face-down
- * about the eye, so the chest points at the ground and the top of the head
- * points along the flight path — and an arm swung toward the body's own front
- * is then an arm swung at the floor. Which is what it did: +1.4 moved the
- * hand 0.61 down and 0.52 forward.
+ * So the arm is aimed. The rotation is whatever takes the arm's own rest
+ * direction — the shoulder-to-fist vector this mesh actually has, see
+ * handOfTheScan() — onto this one, and the direction is written in the body's
+ * frame: +Y is the crown, which in a glide is where the figure is going, +X is
+ * its right, and +Z is its back, which in a glide is up. Mostly along the
+ * flight path, a little outboard so the arm clears its own head, and a little
+ * skyward so the firework is not held into the chest.
  *
- * So it is swept in world space, in the pose it is actually used in. Both
- * signs reach forward eventually and they differ in where the hand ends up:
- * positive puts it forward and below the body, negative forward and above it.
- * At -2.2 the hand goes 0.99 forward and 0.50 up in level flight and 0.87
- * forward, 0.30 up in a dive — out ahead of the head, which is where a person
- * being pushed by something holds it, and which is the way the built figure
- * has always swept its arm.
+ * Because it is a direction it survives the mesh being regenerated: a new body
+ * with the arm modelled at a different angle aims the same way, where a fixed
+ * turn would land somewhere new.
  */
-const SCAN_ROCKET_REACH = -2.2;
-/** The axis an arm swings forward about, and a scratch to build the turn in. */
-const ACROSS = new THREE.Vector3(1, 0, 0);
+const SCAN_ROCKET_AIM = new THREE.Vector3(0.28, 0.94, 0.20).normalize();
+/** Scratch for building that turn, and for the arm's own rest direction. */
 const _swing = new THREE.Quaternion();
+const _reach = new THREE.Vector3();
 /** Passes of neighbour-averaging over the skin weights. See weighScan(). */
 const SKIN_SMOOTHING = 12;
 
@@ -1850,8 +1851,18 @@ export class Avatar {
     // already has rather than instead of it, and scaled by `open` so it is
     // only ever a flying pose — on the ground the built swing still rules.
     if (this.scanReach > 0.001) {
-      _swing.setFromAxisAngle(ACROSS, SCAN_ROCKET_REACH * this.scanReach * open);
-      bone.armR.quaternion.multiply(_swing);
+      /*
+        From wherever this body's arm actually points to where it should.
+
+        handOfTheScan() measures the shoulder-to-fist vector off the mesh, and
+        on a body too coarse to measure one it returns nothing — which, with
+        the aim guarded on it, made the arm sit still and report zero rather
+        than fail. An arm hangs off its joint, so -Y is the honest fallback and
+        the reach still happens.
+      */
+      _reach.copy(this.scanGrip ?? _swing.set(0, -1, 0, 0)).normalize();
+      _swing.setFromUnitVectors(_reach, SCAN_ROCKET_AIM);
+      bone.armR.quaternion.slerp(_swing, this.scanReach * open);
     }
     bone.legL.quaternion.copy(this.legL.pivot.quaternion);
     bone.legR.quaternion.copy(this.legR.pivot.quaternion);
