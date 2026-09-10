@@ -31,25 +31,39 @@ deepest crevice keeps a tenth of its colour rather than going to black.
 Wants numpy (pip install numpy) as well as Pillow: it is a few hundred million
 ray-triangle tests and pure Python is hours.
 """
-import io, json, math, struct, sys
+import io, json, math, os, struct, sys
 from collections import defaultdict
 from PIL import Image
 import numpy as np
 
 src, dst = sys.argv[1], sys.argv[2]
-RAYS = int(sys.argv[3]) if len(sys.argv) > 3 else 96
+RAYS = next((int(a) for a in sys.argv[3:] if a.isdigit()), 96)
+# --cache=PATH keeps the measurement, which is the slow half. How dark a given
+# amount of sky should make a texel is a judgement and wants trying a few ways;
+# casting a hundred and seventy thousand rays again to try one is ten minutes
+# for nothing.
+cache = next((a[8:] for a in sys.argv if a.startswith('--cache=')), None)
 # How far a blocker counts. The collar is a centimetre away; the chest is not
 # what makes the side of a neck dark, and counting it darkened the whole
 # throat. Five centimetres on a figure 0.77 units tall is about a hand's width
 # on a person.
 REACH = 0.05
-# What counts as open sky - the brightest tenth of the region keeps its own
-# colour - and how dark the deepest crevice is allowed to go.
-OPEN = 0.90
-FLOOR = 0.15
+# What counts as open sky, and how dark the deepest crevice is allowed to go.
+# The reference is taken from the skin alone and only a little above its own
+# median, because most of a neck is *meant* to look like a neck: at the ninth
+# decile - which on this model is the crown of the head - two thirds of the
+# throat came out in shadow.
+OPEN = 0.55
+FLOOR = 0.18
 # A hemisphere sampled 96 times still has speckle in it, and speckle on a neck
 # reads as dirt. Averaged over the texels around each one, twice.
 SMOOTH = 2
+# And carried out past the charts' edges. tools/glb-pad.py fills this atlas's
+# gutter from the charts around it, so the texels just outside a chart hold a
+# copy of the skin inside it - and darkening only what is inside left every
+# chart on the neck outlined in its own undarkened copy, which is what the
+# bright zigzags across the first bake were.
+GUTTER = 4
 
 raw = open(src, 'rb').read()
 off, J, BIN = 12, None, None
@@ -204,7 +218,11 @@ def blocked(points, normals, candidates):
 
 
 shade = {}
-for n, t in enumerate(target):
+if cache and os.path.exists(cache):
+    shade = {(int(k.split(',')[0]), int(k.split(',')[1])): v
+             for k, v in json.load(open(cache)).items()}
+    print(f'  {len(shade)} texels read back from {cache}')
+for n, t in enumerate(target if not shade else []):
     seen = covers.get(t)
     if not seen: continue
     a, b, c = tri[t]
@@ -220,6 +238,8 @@ for n, t in enumerate(target):
     for (x, y, _, _), sky in zip(seen, open_sky):
         shade[(x, y)] = sky
     if n % 100 == 0: print(f'    {n}/{len(target)}', flush=True)
+if cache and not os.path.exists(cache):
+    json.dump({f'{x},{y}': v for (x, y), v in shade.items()}, open(cache, 'w'))
 
 for _ in range(SMOOTH):
     smoothed = {}
@@ -232,13 +252,34 @@ for _ in range(SMOOTH):
         smoothed[(x, y)] = total / n
     shade = smoothed
 
+# Out past the chart edges, into the texels no triangle covers.
+covered = set()
+for seen in covers.values():
+    for x, y, _, _ in seen: covered.add((x, y))
+for _ in range(GUTTER):
+    spread = {}
+    for (x, y) in shade:
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                at = (x + dx, y + dy)
+                if at in shade or at in covered: continue
+                if not (0 <= at[0] < W and 0 <= at[1] < H): continue
+                spread.setdefault(at, []).append(shade[(x, y)])
+    for at, values in spread.items(): shade[at] = sum(values) / len(values)
+
 if shade:
     sky = np.array(list(shade.values()))
     print(f'  {len(shade)} texels measured; open sky '
           f'{sky.min():.2f}..{sky.max():.2f}, median {np.median(sky):.2f}')
-    reference = np.quantile(sky, OPEN)
+    # The neck's own sky, not the crown's: the reference has to be what an
+    # ordinary piece of throat sees, or every piece of throat is darkened.
+    on_skin = np.array([shade[(x, y)] for t in target if warm[t]
+                        for x, y, _, _ in covers.get(t, ()) if (x, y) in shade])
+    reference = np.quantile(on_skin if len(on_skin) else sky, OPEN)
+    print(f'  on the skin alone: median {np.median(on_skin):.2f}, '
+          f'reference {reference:.2f}')
     for (x, y), value in shade.items():
-        keep = max(FLOOR, min(1.0, (value / reference) ** 1.5))
+        keep = max(FLOOR, min(1.0, value / reference))
         for ch in range(3):
             rgb[ch][x, y] = int(round(rgb[ch][x, y] * keep))
 

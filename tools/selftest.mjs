@@ -7135,6 +7135,107 @@ console.log('\nGenerated art stays where it belongs');
         ok(`and nothing pale is parked against the surface in it  `
           + `(${pale} of ${ring} bordering texels are twice the surface they touch)`,
           pale < ring * 0.01);
+
+        /*
+          And the neck goes dark where the collar closes over it.
+
+          From behind and a little above - a chase camera's own angle - a band
+          of bare skin showed below the collar. It is the neck itself, seen
+          through the slit between the collar's lower lip and the yoke, and
+          what made it read as flesh rather than as a fold is that the
+          generator baked no occlusion at all: a crevice a centimetre deep was
+          painted as bright as a cheek. tools/glb-shade.py measures the sky
+          each texel can see and multiplies it in.
+
+          So the check is on the thing itself and needs no camera: the neck's
+          skin two centimetres below the collar's rim must be much darker than
+          the neck's skin just above it. Before the bake the two were within
+          thirteen per cent of each other - 126 against 144 - because nothing
+          in the atlas knew the collar was there.
+
+          The rim is not one height. It runs from 0.73 of the figure at the
+          back down to 0.68 at the throat, which is what a collar does, so it
+          is measured per fifteen degrees round the neck's own axis.
+        */
+        {
+          const warm = (x, y) => {
+            const at = y * line + x * step;
+            const [r, g, b] = [pixels[at], pixels[at + 1], pixels[at + 2]];
+            // Red leading *green*, not merely blue: this jacket is olive, and
+            // olive passes "red well clear of blue" as easily as a cheek does.
+            // Five repairs went wrong on that before anyone measured it.
+            return r > g + 25 && g > b + 5 && r > 90;
+          };
+          const cover = (t) => {
+            const xs = [0, 1, 2].map((k) => uvs[indices[t + k] * 2] * side);
+            const ys = [0, 1, 2].map((k) => uvs[indices[t + k] * 2 + 1] * rows);
+            const det = (ys[1]-ys[2]) * (xs[0]-xs[2]) + (xs[2]-xs[1]) * (ys[0]-ys[2]);
+            const out = [];
+            if (Math.abs(det) < 1e-9) return out;
+            for (let y = Math.max(0, Math.floor(Math.min(...ys)));
+              y <= Math.min(rows - 1, Math.ceil(Math.max(...ys))); y += 1) {
+              for (let x = Math.max(0, Math.floor(Math.min(...xs)));
+                x <= Math.min(side - 1, Math.ceil(Math.max(...xs))); x += 1) {
+                const l0 = ((ys[1]-ys[2]) * (x+0.5-xs[2]) + (xs[2]-xs[1]) * (y+0.5-ys[2])) / det;
+                const l1 = ((ys[2]-ys[0]) * (x+0.5-xs[2]) + (xs[0]-xs[2]) * (y+0.5-ys[2])) / det;
+                if (l0 < 0 || l1 < 0 || 1 - l0 - l1 < 0) continue;
+                out.push([x, y]);
+              }
+            }
+            return out;
+          };
+          const tall = Math.max(...height) - floor;
+          const skin = [];
+          const cloth = [];
+          const spot = [];
+          for (let t = 0; t < indices.length; t += 3) {
+            const mine = cover(t);
+            if (!mine.length) continue;
+            const hot = mine.filter(([x, y]) => warm(x, y)).length;
+            const mid = [0, 1, 2].map((c) => [0, 1, 2]
+              .reduce((sum, k) => sum + position[indices[t + k] * 3 + c], 0) / 3);
+            const top = Math.max(...[0, 1, 2]
+              .map((k) => (position[indices[t + k] * 3 + 1] - floor) / tall));
+            spot[t] = { mid, top, lift: (mid[1] - floor) / tall, texels: mine };
+            (hot * 2 > mine.length ? skin : cloth).push(t);
+          }
+          const column = skin.filter((t) => spot[t].lift >= 0.75 && spot[t].lift <= 0.80);
+          const ax = column.reduce((sum, t) => sum + spot[t].mid[0], 0) / column.length;
+          const az = column.reduce((sum, t) => sum + spot[t].mid[2], 0) / column.length;
+          const out = (t) => Math.hypot(spot[t].mid[0] - ax, spot[t].mid[2] - az);
+          const round = (t) => Math.atan2(spot[t].mid[0] - ax, az - spot[t].mid[2]) * 180 / Math.PI;
+          const STEP = 15;
+          const rim = new Map();
+          for (const t of cloth) {
+            if (out(t) > 0.085 || spot[t].lift < 0.55 || spot[t].lift > 0.80) continue;
+            let slice = Math.round(round(t) / STEP) * STEP;
+            if (slice === -180) slice = 180;
+            rim.set(slice, Math.max(rim.get(slice) ?? 0, spot[t].top));
+          }
+          const edge = (deg) => {
+            const low = Math.floor(deg / STEP) * STEP;
+            const a = rim.get(low === -180 ? 180 : low);
+            const b = rim.get(low + STEP === -180 ? 180 : low + STEP);
+            return a === undefined || b === undefined
+              ? undefined : a + (b - a) * (deg - low) / STEP;
+          };
+          const gather = (pick) => {
+            const lit = [];
+            for (const t of skin) {
+              if (out(t) > 0.09) continue;
+              const e = edge(round(t));
+              if (e === undefined || !pick(spot[t].lift, e)) continue;
+              for (const [x, y] of spot[t].texels) lit.push(luma(x, y));
+            }
+            lit.sort((p, q) => p - q);
+            return lit.length ? lit[lit.length >> 1] : 0;
+          };
+          const under = gather((h, e) => h < e - 0.02);
+          const above = gather((h, e) => h > e + 0.01 && h < e + 0.06);
+          ok(`and the neck goes dark where the collar closes over it  `
+            + `(${under.toFixed(0)} under the rim against ${above.toFixed(0)} above it)`,
+            above > 0 && under < above * 0.6);
+        }
       }
       // The plate this figure used to stand on was 10,901 level triangles in
       // that centimetre; the soles that replace it are 188, because a sole is
