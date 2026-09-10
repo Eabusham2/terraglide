@@ -225,6 +225,25 @@ const POSES = {
       horizontalSpeed: 40, velocity: new THREE.Vector3(0, 12, -40) },
     camera: [2.6, 2.6, -3.2], look: [0, 1.4, 0],
   },
+  /*
+    Standing, with the firework in hand, close enough to see it.
+
+    Every picture of the rocket until now was of a *flight*: the reach pose,
+    the whole figure, forty metres up. That answers "does the arm go forward"
+    and not "what is he holding", and the two are different questions. These
+    are shot from a metre and a half, at the height of the hand.
+
+    One per slot, because the nose takes the colour of the slot you are on -
+    pale blue, green, yellow, orange, red for one through five - so that what
+    is in the hand and what is lit in the hotbar are visibly the same rocket.
+  */
+  'hold-1': { player: { selectedSlot: 0 }, camera: [1.15, 1.0, -1.15], look: [0.28, 0.86, 0] },
+  'hold-2': { player: { selectedSlot: 1 }, camera: [1.15, 1.0, -1.15], look: [0.28, 0.86, 0] },
+  'hold-3': { player: { selectedSlot: 2 }, camera: [1.15, 1.0, -1.15], look: [0.28, 0.86, 0] },
+  'hold-4': { player: { selectedSlot: 3 }, camera: [1.15, 1.0, -1.15], look: [0.28, 0.86, 0] },
+  'hold-5': { player: { selectedSlot: 4 }, camera: [1.15, 1.0, -1.15], look: [0.28, 0.86, 0] },
+  // And the whole figure holding one, so the hand reads in context.
+  'hold-whole': { player: { selectedSlot: 2 }, camera: [2.2, 1.25, -2.4], look: [0, 0.95, 0] },
   'stand-front': { player: {}, camera: [0, 1.1, -3.6], look: [0, 1.0, 0] },
   'stand-side': { player: {}, camera: [3.6, 1.1, 0], look: [0, 1.0, 0] },
   'stand-back': { player: {}, camera: [0, 1.4, 3.6], look: [0, 1.0, 0] },

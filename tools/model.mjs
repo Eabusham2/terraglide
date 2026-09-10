@@ -73,6 +73,7 @@ await page.waitForFunction(() => window.__ready === true, null, { timeout: 60000
 
 const views = ['glide-behind', 'glide-above', 'glide-side', 'glide-front', 'glide-below',
   'rocket-side', 'rocket-front', 'wings-plan', 'wings-astern', 'walk',
+  'hold-1', 'hold-2', 'hold-3', 'hold-4', 'hold-5', 'hold-whole',
   'stand-front', 'stand-side', 'stand-back'];
 console.log(`${'view'.padEnd(13)} ${'jacket'.padStart(7)} ${'trouser'.padStart(8)} ${'skin'.padStart(6)} ${'wing'.padStart(6)}   (0-255 mean; ! = over a quarter of it above 200)`);
 for (const view of views) {

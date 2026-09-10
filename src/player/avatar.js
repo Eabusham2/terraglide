@@ -2309,11 +2309,21 @@ export class Avatar {
       this.rocketColour = slot;
       const colour = ROCKET_COLOURS[clamp(slot, 0, ROCKET_COLOURS.length - 1)];
       this.noseMat.color.set(colour);
-      // The scanned one has no separate nose, so the whole of it takes the
-      // slot's colour — lightly, so the paper still reads as paper.
+      /*
+        The scanned one has no separate nose, so the whole of it takes the
+        slot's colour — lightly, so the paper still reads as paper.
+
+        "Lightly" was 0.55 of the way to white, and against that firework's own
+        red-and-white stripes it came to nothing: rendered at all five slots,
+        the mean colour of the lit rocket moved by three units out of 255
+        between the first and the last, which is invisible. The built rocket
+        was fine the whole time, because its nose is a plain material with no
+        picture on it to fight. 0.20 is where the stripes take the slot's
+        colour and still read as striped paper.
+      */
       for (const material of this.rocketTints ?? []) {
         material.color.set(colour);
-        material.color.lerp(WHITE_TINT, 0.55);
+        material.color.lerp(WHITE_TINT, 0.20);
       }
     }
 
