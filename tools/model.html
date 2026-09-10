@@ -249,6 +249,8 @@ const POSES = {
   'stand-back': { player: {}, camera: [0, 1.4, 3.6], look: [0, 1.0, 0] },
 };
 
+window.__fist = () => ({ fist: avatar.scanFist ?? null, scale: avatar.rocket?.scale.x ?? null });
+
 window.__pose = (name) => {
   const spec = POSES[name];
   const player = makePlayer(spec.player);

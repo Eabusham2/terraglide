@@ -14,6 +14,12 @@ import { ASSET_BASE } from '../core/paths.js';
 const ARM_LENGTH = 0.3;
 const ROCKET_LEN = 0.19;
 const ROCKET_GRIP = 0.03;
+/**
+ * How wide the built figure's fist is, and so how wide the built firework is:
+ * the tube is 52 mm across and so is the hand, which is why it reads as held.
+ * The scanned figure's hand is another size, and the rocket is scaled to it.
+ */
+const BUILT_FIST = 0.052;
 /** White, for lightening the slot colour before it tints a photograph. */
 const WHITE_TINT = new THREE.Color(0xffffff);
 /** Scratch, so measuring the scan's fist allocates nothing. */
@@ -1309,6 +1315,27 @@ export class Avatar {
     const grip = new THREE.Vector3();
     for (const [y, x, z] of fist) grip.add(_grip.set(x, y, z));
     grip.multiplyScalar(1 / fist.length);
+    /*
+      And how big that fist is, because the firework has to fill it.
+
+      The built rocket's tube is 52 mm across and the built figure's hand is 52
+      mm across: it fills that fist exactly, which is why it has always looked
+      held. The scanned figure's hand is a different size altogether, and the
+      same rocket in it read as a toothpick poking out of a closed fist -
+      nothing about the pose was wrong, the object was simply too small for the
+      hand it was in.
+
+      So measure the fist across, not along: the arm runs down y here, so the
+      span that matters is the x-z one. The mean of the two gives a grip
+      diameter that one long finger or a stray knuckle cannot throw.
+    */
+    const low = [Infinity, Infinity];
+    const high = [-Infinity, -Infinity];
+    for (const [, x, z] of fist) {
+      low[0] = Math.min(low[0], x); high[0] = Math.max(high[0], x);
+      low[1] = Math.min(low[1], z); high[1] = Math.max(high[1], z);
+    }
+    this.scanFist = ((high[0] - low[0]) + (high[1] - low[1])) / 2;
     // Into the shoulder's frame, where the rocket lives. At rest that joint
     // has no rotation, so this is a subtraction.
     const shoulder = SCAN_JOINTS.find((joint) => joint.name === 'armR').at;
@@ -1997,6 +2024,11 @@ export class Avatar {
       const holder = inScanHand ? this.scanBones.armR : this.armR.pivot;
       if (this.rocket.parent !== holder) holder.add(this.rocket);
       this.rocket.position.copy(inScanHand ? this.scanGrip : this.builtGrip);
+      // Sized to whichever hand it is in. BUILT_FIST is what the rocket was
+      // drawn to fill; the scan's own fist is measured in handOfTheScan.
+      const fits = inScanHand && this.scanFist
+        ? clamp(this.scanFist / BUILT_FIST, 1, 3) : 1;
+      if (this.rocket.scale.x !== fits) this.rocket.scale.setScalar(fits);
     }
     const useModel = !!this.model && settings.get('detailedPlayerModel') && !this.firstPerson;
     if (this.model) this.model.visible = useModel;

@@ -88,6 +88,7 @@ for (const view of views) {
   console.log(`${view.padEnd(13)} ${cell(stats.jacket, 7)} ${cell(stats.trousers, 8)}`
     + ` ${cell(stats.skin, 6)} ${cell(stats.wing, 6)}`);
 }
+console.log('rocket in hand:', JSON.stringify(await page.evaluate(() => window.__fist())));
 await browser.close();
 server.close();
 console.log(`\nwrote ${views.length} images to ${OUT}`);
