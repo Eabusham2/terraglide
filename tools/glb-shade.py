@@ -178,6 +178,16 @@ for t in range(len(tri)):
 # a texture-space blur cannot smooth it out, because two triangles that touch
 # on the body can be a long way apart in the atlas.
 GRAZE = 0.12
+# How the first blocker's distance is turned into shadow. A hard cut-off at the
+# reach is itself a hard edge - it draws the collar's own polygonal rim on the
+# neck - so it fades: a blocker at distance d counts 1 - (d/reach)^FALL. The
+# fourth power keeps a blocker a centimetre away worth very nearly a whole ray,
+# which is what the slit under the collar is made of, and still lets one at the
+# far end of the reach go quietly to nothing.
+FALL = 4
+# The measurement is kept as a histogram of first-blocker distances per texel,
+# in this many bins, so that FALL can be tried a dozen ways against one bake.
+BINS = 16
 turn = np.arange(RAYS) + 0.5
 phi = turn * math.pi * (3 - 5 ** 0.5)
 cosine = np.sqrt(np.maximum(GRAZE ** 2, 1 - turn / RAYS))
@@ -235,13 +245,10 @@ def blocked(points, normals, candidates):
         t = np.einsum('ijkl,kl->ijk', q, C) * inv
         real = ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > 1.5e-3) & (t < REACH)
         first = np.minimum(first, np.where(real, t, REACH).min(axis=2))
-    # Counted by how close the blocker is rather than whether there is one.
-    # A hard cut-off at the reach is itself a hard edge: the collar's rim is a
-    # coarse polygon, and a point that sees it at 4.9 cm counting it in full
-    # while its neighbour at 5.1 cm counts it not at all draws that polygon on
-    # the neck. This is what the patches under the jaw actually were - not the
-    # mesh, not the sampling, not the cull, but the shape of this function.
-    return (1 - (first / REACH) ** 2).mean(axis=1)
+    # Kept as a histogram of first-blocker distances, so how much a blocker at
+    # a given distance counts for stays a decision and not another ten minutes.
+    which = np.minimum((first / REACH * BINS).astype(int), BINS)
+    return np.stack([(which == b).sum(axis=1) for b in range(BINS + 1)], axis=1)
 
 
 shade = {}
@@ -267,12 +274,18 @@ for n, t in enumerate(target if not shade else []):
     points = points + (normals + face) * 4e-4
     candidates = near(points.mean(axis=0))
     if not len(candidates): continue
-    open_sky = 1.0 - blocked(points, normals, candidates)
-    for (x, y, _, _), sky in zip(seen, open_sky):
-        shade[(x, y)] = sky
+    spread_of = blocked(points, normals, candidates)
+    for (x, y, _, _), counts in zip(seen, spread_of):
+        shade[(x, y)] = counts.tolist()
     if n % 100 == 0: print(f'    {n}/{len(target)}', flush=True)
 if cache and not os.path.exists(cache):
     json.dump({f'{x},{y}': v for (x, y), v in shade.items()}, open(cache, 'w'))
+
+# Histogram to a single number: how much of this texel's sky is open.
+middles = (np.arange(BINS + 1) + 0.5) / BINS
+weight = np.clip(1 - np.minimum(middles, 1.0) ** FALL, 0, 1)
+weight[BINS] = 0.0                       # the bin for "nothing was hit"
+shade = {at: float(1 - np.dot(counts, weight) / RAYS) for at, counts in shade.items()}
 
 for _ in range(SMOOTH):
     smoothed = {}
