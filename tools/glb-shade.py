@@ -278,7 +278,15 @@ def blocked(points, normals, candidates):
         q = np.cross(s, B[None, None, :, :])
         v = np.einsum('ijkl,ijl->ijk', q, rays) * inv
         t = np.einsum('ijkl,kl->ijk', q, C) * inv
-        real = ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > 1.5e-3) & (t < REACH)
+        # Only the front of a triangle blocks. This mesh is a generated blob
+        # and its parts run through one another - the head's ball carries on
+        # inside the top of the neck - so a point on the neck that happens to
+        # lie inside the head is surrounded by head triangles facing away from
+        # it, and counting those as sky-blockers drew the curve where the two
+        # surfaces cross straight onto the skin. That is the W on this neck.
+        # glTF winds its front faces counter-clockwise, which is det > 0 here.
+        real = ok & (det > 0) & (u >= 0) & (v >= 0) & (u + v <= 1) \
+            & (t > 1.5e-3) & (t < REACH)
         first = np.minimum(first, np.where(real, t, REACH).min(axis=2))
     # Kept as a histogram of first-blocker distances, so how much a blocker at
     # a given distance counts for stays a decision and not another ten minutes.
