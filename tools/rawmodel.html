@@ -25,6 +25,16 @@ const size = Number(q.get('size') ?? 900);
 // which is the only way to tell a crease in the mesh from a line in the
 // texture. They look identical through the atlas and want opposite repairs.
 const plain = q.get('plain') === '1';
+// `&filter=nearest` turns bilinear filtering and mipmapping off. A line that
+// is in the atlas survives it; a line that is filtering pulling texels across
+// a chart boundary — this atlas is packed edge to edge with no gutter —
+// disappears. They look identical otherwise and want opposite repairs.
+const nearest = q.get('filter') === 'nearest';
+// `&uv=1` paints each surface with its own texture coordinate instead of the
+// picture — red is u, green is v — so a mark on the render can be looked up in
+// the atlas by reading the colour at it. Inference about where a fault lives
+// in a 1024-pixel patchwork is guesswork; this is a lookup.
+const showUV = q.get('uv') === '1';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(2);          // supersampled, as the model shots are
@@ -50,6 +60,48 @@ const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
 
 const loaded = await new GLTFLoader().loadAsync(src);
 const model = loaded.scene;
+/*
+  Dressed the way the game dresses it, or the picture lies.
+
+  TRELLIS writes metallicFactor 1.0 with a metal-roughness map, and
+  src/player/avatar.js sets metalness to 0, roughness to a constant and both
+  maps to null on load — a scanned jacket is not a mirror. A viewer that does
+  not do the same is not showing the asset as it is used: pruning the unread
+  map out of a file changed nothing in the game and took the trousers' median
+  from 22 to 2 here, which read as a repair having gone wrong.
+*/
+model.traverse((child) => {
+  if (!child.isMesh || !child.material) return;
+  child.material = child.material.clone();
+  child.material.metalness = 0;
+  child.material.roughness = 0.85;
+  child.material.metalnessMap = null;
+  child.material.roughnessMap = null;
+  if (child.material.map) child.material.map.anisotropy = 16;
+  child.material.needsUpdate = true;
+});
+if (showUV) {
+  model.traverse((child) => {
+    if (!child.isMesh) return;
+    child.material = new THREE.ShaderMaterial({
+      vertexShader: 'varying vec2 vUvOut;\nvoid main(){ vUvOut = uv;'
+        + ' gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: 'varying vec2 vUvOut;\nvoid main(){'
+        + ' gl_FragColor = vec4(vUvOut.x, vUvOut.y, 0.0, 1.0); }',
+    });
+  });
+}
+if (nearest) {
+  model.traverse((child) => {
+    const map = child.isMesh && child.material?.map;
+    if (!map) return;
+    map.magFilter = THREE.NearestFilter;
+    map.minFilter = THREE.NearestFilter;
+    map.generateMipmaps = false;
+    map.anisotropy = 1;
+    map.needsUpdate = true;
+  });
+}
 if (plain) {
   model.traverse((child) => {
     if (!child.isMesh) return;

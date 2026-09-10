@@ -175,7 +175,10 @@ drawn in every mode.
 `assets/player.glb` is a generated character mesh — TRELLIS.2 on Hugging Face,
 from a reference image the project keeps. `tools/glb-unfloor.py` cuts away the
 floor it was built standing on and caps each boot; `tools/glb-prune.py` drops
-the metal-roughness map the loader sets to null anyway. Everything else is
+the metal-roughness map the loader sets to null anyway; `tools/glb-inset.py`
+pulls the texture coordinates that sit on a chart's edge a few texels inward,
+because the atlas is packed with no gutter and a coordinate on an edge samples
+the chart next door. Everything else is
 exactly as the generator made it, including the 1024-pixel PNG atlas byte for
 byte. 3.9 MB to 2.7 MB, 38,096 triangles, closed. It depicts no real person.
 Off by default, and never fetched by the single-file build.

@@ -29,6 +29,10 @@ const size = Number(arg('size', '1400'));
 // Flat white instead of the atlas: a crease in the mesh and a line painted on
 // it look the same through the photograph and want opposite repairs.
 const plain = process.argv.includes('--plain');
+// Bilinear off, to tell a line in the picture from a line the filtering makes.
+const nearest = process.argv.includes('--nearest');
+// Texture coordinates as colour, so a mark on screen can be looked up in the atlas.
+const showUV = process.argv.includes('--uv');
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
   '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.glb': 'model/gltf-binary' };
@@ -61,7 +65,7 @@ const page = await browser.newPage({ viewport: { width: size, height: size } });
 page.on('pageerror', (e) => console.log('PAGE ERROR', e.message));
 const url = src.startsWith('/') ? src : `/${src}`;
 await page.goto(`http://127.0.0.1:${PORT}/tools/rawmodel.html`
-  + `?src=${encodeURIComponent(url)}&size=${size}${plain ? '&plain=1' : ''}`,
+  + `?src=${encodeURIComponent(url)}&size=${size}${plain ? '&plain=1' : ''}${nearest ? '&filter=nearest' : ''}${showUV ? '&uv=1' : ''}`,
   { waitUntil: 'load' });
 await page.waitForFunction(() => window.__ready === true, null, { timeout: 120000 });
 
