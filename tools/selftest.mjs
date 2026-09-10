@@ -7015,6 +7015,127 @@ console.log('\nGenerated art stays where it belongs');
       }
       ok(`the player mesh is closed, so nothing had to be patched  `
         + `(${unmatched} open edges)`, unmatched === 0);
+      /*
+        And nothing pale is parked against the surface in the atlas.
+
+        This atlas is packed edge to edge — a third of it inside a chart and no
+        gutter at all where two charts meet — so a texture coordinate on a
+        chart's edge lands in a texel the boundary runs through and the surface
+        draws a hairline of whatever is next door. That was the pale streak down
+        the trouser leg: the trousers' own texels have a median of 18 and the
+        gutter beside them held 5,456 texels more than twice that.
+
+        It took four wrong answers to find because none of the obvious tests can
+        see it. The mesh is smooth there in flat white. No triangle is stretched
+        or squeezed. The trousers' own texels hold no outlier, because the
+        texels drawing it are not the trousers'. And turning filtering off does
+        not help, because nearest still picks the texel the coordinate lands in.
+
+        So the check is on the thing itself: no texel that borders the surface
+        may be far brighter than the surface it borders. tools/glb-pad.py fills
+        the gutter from the charts and tools/glb-inset.py pulls the coordinates
+        off the edges; this is what says they were run.
+      */
+      {
+        const texture = json.textures?.[json.materials?.[prim.material]
+          ?.pbrMetallicRoughness?.baseColorTexture?.index];
+        const image = json.images?.[texture?.source];
+        const bytes = image && bin.subarray(
+          json.bufferViews[image.bufferView].byteOffset ?? 0,
+          (json.bufferViews[image.bufferView].byteOffset ?? 0)
+          + json.bufferViews[image.bufferView].byteLength,
+        );
+        // Only the size is needed, and a PNG says it in its header.
+        const side = bytes && bytes.subarray(0, 8).toString('latin1') === '\x89PNG\r\n\x1a\n'
+          ? bytes.readUInt32BE(16) : 0;
+        ok(`its atlas is a PNG and says how big it is  (${side} px)`, side > 0);
+
+        // Enough of a PNG reader to get the pixels out: the header, the joined
+        // IDAT stream inflated, and the per-scanline filters undone. No
+        // dependency, and the alternative is not checking.
+        const { inflateSync } = await import('node:zlib');
+        const rows = bytes.readUInt32BE(20);
+        const depth = bytes[24];
+        const kind = bytes[25];
+        const lanes = { 0: 1, 2: 3, 4: 2, 6: 4 }[kind] ?? 0;
+        const parts = [];
+        for (let at = 8; at + 8 <= bytes.length;) {
+          const len = bytes.readUInt32BE(at);
+          const name = bytes.subarray(at + 4, at + 8).toString('latin1');
+          if (name === 'IDAT') parts.push(bytes.subarray(at + 8, at + 8 + len));
+          at += 12 + len;
+        }
+        const flat = inflateSync(Buffer.concat(parts));
+        const step = lanes * (depth / 8);
+        const line = side * step;
+        const pixels = Buffer.alloc(rows * line);
+        for (let y = 0; y < rows; y += 1) {
+          const filter = flat[y * (line + 1)];
+          const src = y * (line + 1) + 1;
+          const dst = y * line;
+          for (let i = 0; i < line; i += 1) {
+            const a = i >= step ? pixels[dst + i - step] : 0;
+            const b = y > 0 ? pixels[dst - line + i] : 0;
+            const c = y > 0 && i >= step ? pixels[dst - line + i - step] : 0;
+            let v = flat[src + i];
+            if (filter === 1) v += a;
+            else if (filter === 2) v += b;
+            else if (filter === 3) v += (a + b) >> 1;
+            else if (filter === 4) {
+              const p = a + b - c;
+              const pa = Math.abs(p - a);
+              const pb = Math.abs(p - b);
+              const pc = Math.abs(p - c);
+              v += (pa <= pb && pa <= pc) ? a : (pb <= pc ? b : c);
+            }
+            pixels[dst + i] = v & 255;
+          }
+        }
+        const luma = (x, y) => {
+          const at = y * line + x * step;
+          return 0.299 * pixels[at] + 0.587 * pixels[at + 1] + 0.114 * pixels[at + 2];
+        };
+
+        // Which texels the surface actually covers.
+        const covered = new Uint8Array(side * rows);
+        const uvs = read(prim.attributes.TEXCOORD_0, 2);
+        for (let t = 0; t < indices.length; t += 3) {
+          const xs = [0, 1, 2].map((k) => uvs[indices[t + k] * 2] * side);
+          const ys = [0, 1, 2].map((k) => uvs[indices[t + k] * 2 + 1] * rows);
+          const det = (ys[1]-ys[2]) * (xs[0]-xs[2]) + (xs[2]-xs[1]) * (ys[0]-ys[2]);
+          if (Math.abs(det) < 1e-9) continue;
+          for (let y = Math.max(0, Math.floor(Math.min(...ys)));
+            y <= Math.min(rows - 1, Math.ceil(Math.max(...ys))); y += 1) {
+            for (let x = Math.max(0, Math.floor(Math.min(...xs)));
+              x <= Math.min(side - 1, Math.ceil(Math.max(...xs))); x += 1) {
+              const l0 = ((ys[1]-ys[2]) * (x+0.5-xs[2]) + (xs[2]-xs[1]) * (y+0.5-ys[2])) / det;
+              const l1 = ((ys[2]-ys[0]) * (x+0.5-xs[2]) + (xs[0]-xs[2]) * (y+0.5-ys[2])) / det;
+              if (l0 < 0 || l1 < 0 || 1 - l0 - l1 < 0) continue;
+              covered[y * side + x] = 1;
+            }
+          }
+        }
+        let pale = 0;
+        let ring = 0;
+        for (let y = 1; y < rows - 1; y += 1) {
+          for (let x = 1; x < side - 1; x += 1) {
+            if (covered[y * side + x]) continue;
+            let sum = 0;
+            let n = 0;
+            for (let dy = -1; dy <= 1; dy += 1) {
+              for (let dx = -1; dx <= 1; dx += 1) {
+                if (covered[(y + dy) * side + x + dx]) { sum += luma(x + dx, y + dy); n += 1; }
+              }
+            }
+            if (!n) continue;
+            ring += 1;
+            if (luma(x, y) > Math.max(sum / n, 8) * 2) pale += 1;
+          }
+        }
+        ok(`and nothing pale is parked against the surface in it  `
+          + `(${pale} of ${ring} bordering texels are twice the surface they touch)`,
+          pale < ring * 0.01);
+      }
       // The plate this figure used to stand on was 10,901 level triangles in
       // that centimetre; the soles that replace it are 188, because a sole is
       // nearly flat too. Two thousand is clear of one and nowhere near the other.
