@@ -103,6 +103,9 @@ const close = [
   // so a camera at eye level sees the collar's outside and nothing of what is
   // or is not under it.
   ['nape', 180, 12, [0.5, 0.80, 0.5], 0.30],
+  // Straight side-on and level, so up on the screen is up on the figure and
+  // there is no projection to reason about when asking what is above what.
+  ['collar-side', 90, 0, [0.5, 0.775, 0.5], 0.26],
   ['nape20', 180, 20, [0.5, 0.80, 0.5], 0.30],
   ['nape30', 180, 30, [0.5, 0.80, 0.5], 0.32],
 ];
