@@ -55,6 +55,11 @@ REACH = 0.05
 # throat came out in shadow.
 OPEN = 0.55
 FLOOR = 0.18
+# How hard the shadow bites once a texel is below the open-sky reference. One
+# is what the measurement says on its own; the crevice under this collar wants
+# more than that to stop reading as skin, and anything the reference calls open
+# is left alone either way.
+BITE = next((float(a[7:]) for a in sys.argv if a.startswith('--bite=')), 2.0)
 # A hemisphere sampled 96 times still has speckle in it, and speckle on a neck
 # reads as dirt. Averaged over the texels around each one, twice.
 SMOOTH = next((int(a[9:]) for a in sys.argv if a.startswith('--smooth=')), 3)
@@ -184,7 +189,7 @@ GRAZE = 0.12
 # fourth power keeps a blocker a centimetre away worth very nearly a whole ray,
 # which is what the slit under the collar is made of, and still lets one at the
 # far end of the reach go quietly to nothing.
-FALL = 4
+FALL = next((float(a[7:]) for a in sys.argv if a.startswith('--fall=')), 4)
 # The measurement is kept as a histogram of first-blocker distances per texel,
 # in this many bins, so that FALL can be tried a dozen ways against one bake.
 BINS = 16
@@ -224,6 +229,24 @@ def blocked(points, normals, candidates):
     up[flip] = np.array([1.0, 0.0, 0.0])
     side = np.cross(up, normals); side /= np.linalg.norm(side, axis=1, keepdims=True)
     other = np.cross(normals, side)
+    """
+      And the fan is spun by a different angle at every point.
+
+      The frame above is built from a fixed world axis, and it has to swap axis
+      when the normal lines up with that one - so two neighbouring texels
+      either side of that swap get fans pointing entirely different ways, and
+      ninety-six rays do not agree to better than a few per cent. That is a
+      hard edge along a contour of the normal, which is why it followed nothing
+      in the mesh, why smooth normals and a softer falloff did not touch it,
+      and why it sat on the front and the back of the neck: those are exactly
+      where the swap happens. Spinning each point's fan by an angle taken from
+      its own coordinates turns that bias into noise, and noise is what the
+      averaging afterwards is for.
+    """
+    spin = np.modf(np.abs(points @ np.array([12.9898, 78.233, 37.719])) * 43758.5453)[0]
+    spin = spin[:, None] * 2 * math.pi
+    side, other = (side * np.cos(spin) + other * np.sin(spin),
+                   other * np.cos(spin) - side * np.sin(spin))
     # rays[p, r] — the fan turned into point p's frame
     rays = (fan[None, :, 0, None] * side[:, None, :]
             + fan[None, :, 1, None] * other[:, None, :]
@@ -325,7 +348,7 @@ if shade:
     print(f'  on the skin alone: median {np.median(on_skin):.2f}, '
           f'reference {reference:.2f}')
     for (x, y), value in shade.items():
-        keep = max(FLOOR, min(1.0, value / reference))
+        keep = max(FLOOR, min(1.0, value / reference) ** BITE)
         for ch in range(3):
             rgb[ch][x, y] = int(round(rgb[ch][x, y] * keep))
 

@@ -92,14 +92,19 @@ def texels(t):
 def is_skin(c):
     """Warm *and* reddest: red clear of green, green clear of blue.
 
-    The obvious test — red well clear of blue — is wrong on this model and was
-    wrong for four attempts before this one. The jacket is olive, and olive is
+    In proportion rather than in counts, because this same test has to
+    recognise skin after tools/glb-shade.py has taken three quarters of the
+    light out of it: (181, 105, 68) in a crevice becomes (45, 26, 17), which is
+    still plainly skin and fails every fixed margin.
+
+    The obvious test - red well clear of blue - is wrong on this model and was
+    wrong for five attempts before this one. The jacket is olive, and olive is
     high red, higher green, low blue: the collar's own (115, 128, 27) passes
     "red minus blue over 45" as comfortably as a cheek does. That is why an
     earlier repair laid a green stripe across the collar and why one before it
     read the sage wing as bare skin. Skin is the only thing here whose red
     leads its green."""
-    return c[0] > c[1] + 25 and c[1] > c[2] + 5 and c[0] > 90
+    return c[0] > c[1] * 1.25 and c[1] > c[2] * 1.1 and c[0] > 40
 
 
 # What each triangle is, decided by most of its own texels rather than by one.

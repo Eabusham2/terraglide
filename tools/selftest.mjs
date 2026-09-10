@@ -7163,8 +7163,12 @@ console.log('\nGenerated art stays where it belongs');
             const [r, g, b] = [pixels[at], pixels[at + 1], pixels[at + 2]];
             // Red leading *green*, not merely blue: this jacket is olive, and
             // olive passes "red well clear of blue" as easily as a cheek does.
-            // Five repairs went wrong on that before anyone measured it.
-            return r > g + 25 && g > b + 5 && r > 90;
+            // Five repairs went wrong on that before anyone measured it. And in
+            // proportion, not in counts, because the shading this check exists
+            // to find takes three quarters of the light out of the skin it is
+            // measuring, and a fixed margin stops recognising it as skin at
+            // exactly the point where the check starts to matter.
+            return r > g * 1.25 && g > b * 1.1 && r > 40;
           };
           const cover = (t) => {
             const xs = [0, 1, 2].map((k) => uvs[indices[t + k] * 2] * side);
