@@ -7137,25 +7137,23 @@ console.log('\nGenerated art stays where it belongs');
           pale < ring * 0.01);
 
         /*
-          And the neck goes dark where the collar closes over it.
+          And no bare skin is left between the collar and the jacket.
 
-          From behind and a little above - a chase camera's own angle - a band
-          of bare skin showed below the collar. It is the neck itself, seen
-          through the slit between the collar's lower lip and the yoke, and
-          what made it read as flesh rather than as a fold is that the
-          generator baked no occlusion at all: a crevice a centimetre deep was
-          painted as bright as a cheek. tools/glb-shade.py measures the sky
-          each texel can see and multiplies it in.
+          From behind, and from behind and a little above - a chase camera's
+          own angle - a band of the neck showed *below* the collar. It is the
+          neck's own tube, seen through the slit between the collar's lower lip
+          and the yoke, and a jacket does not do that: it goes up to its
+          collar. tools/glb-collar.py paints the skin below the rim with the
+          garment beside it.
 
-          So the check is on the thing itself and needs no camera: the neck's
-          skin two centimetres below the collar's rim must be much darker than
-          the neck's skin just above it. Before the bake the two were within
-          thirteen per cent of each other - 126 against 144 - because nothing
-          in the atlas knew the collar was there.
+          So the check is the thing itself and needs no camera: below the
+          collar's rim, close in to the neck, there may be no skin. Before the
+          repair there were thousands of texels of it.
 
-          The rim is not one height. It runs from 0.73 of the figure at the
-          back down to 0.68 at the throat, which is what a collar does, so it
-          is measured per fifteen degrees round the neck's own axis.
+          The rim is not one height - 0.73 of the figure at the back down to
+          0.67 at the throat, which is what a collar does - so it is measured
+          per fifteen degrees round the neck's own axis, from the collar's
+          *outer* wall, which is the part that hides the neck from outside.
         */
         {
           const warm = (x, y) => {
@@ -7163,82 +7161,71 @@ console.log('\nGenerated art stays where it belongs');
             const [r, g, b] = [pixels[at], pixels[at + 1], pixels[at + 2]];
             // Red leading *green*, not merely blue: this jacket is olive, and
             // olive passes "red well clear of blue" as easily as a cheek does.
-            // Five repairs went wrong on that before anyone measured it. And in
-            // proportion, not in counts, because the shading this check exists
-            // to find takes three quarters of the light out of the skin it is
-            // measuring, and a fixed margin stops recognising it as skin at
-            // exactly the point where the check starts to matter.
+            // Five repairs went wrong on that before anyone measured it. In
+            // proportion rather than in counts, so it still knows skin in
+            // shadow.
             return r > g * 1.25 && g > b * 1.1 && r > 40;
           };
-          const cover = (t) => {
-            const xs = [0, 1, 2].map((k) => uvs[indices[t + k] * 2] * side);
-            const ys = [0, 1, 2].map((k) => uvs[indices[t + k] * 2 + 1] * rows);
+          const tall = Math.max(...height) - floor;
+          const uvs2 = uvs;
+          const spots = [];
+          for (let t = 0; t < indices.length; t += 3) {
+            const xs = [0, 1, 2].map((k) => uvs2[indices[t + k] * 2] * side);
+            const ys = [0, 1, 2].map((k) => uvs2[indices[t + k] * 2 + 1] * rows);
             const det = (ys[1]-ys[2]) * (xs[0]-xs[2]) + (xs[2]-xs[1]) * (ys[0]-ys[2]);
-            const out = [];
-            if (Math.abs(det) < 1e-9) return out;
+            if (Math.abs(det) < 1e-9) continue;
+            const at = [0, 1, 2].map((k) => [0, 1, 2]
+              .map((c) => position[indices[t + k] * 3 + c]));
             for (let y = Math.max(0, Math.floor(Math.min(...ys)));
               y <= Math.min(rows - 1, Math.ceil(Math.max(...ys))); y += 1) {
               for (let x = Math.max(0, Math.floor(Math.min(...xs)));
                 x <= Math.min(side - 1, Math.ceil(Math.max(...xs))); x += 1) {
                 const l0 = ((ys[1]-ys[2]) * (x+0.5-xs[2]) + (xs[2]-xs[1]) * (y+0.5-ys[2])) / det;
                 const l1 = ((ys[2]-ys[0]) * (x+0.5-xs[2]) + (xs[0]-xs[2]) * (y+0.5-ys[2])) / det;
-                if (l0 < 0 || l1 < 0 || 1 - l0 - l1 < 0) continue;
-                out.push([x, y]);
+                const l2 = 1 - l0 - l1;
+                if (l0 < 0 || l1 < 0 || l2 < 0) continue;
+                spots.push({
+                  skin: warm(x, y),
+                  at: [0, 1, 2].map((c) => at[0][c] * l0 + at[1][c] * l1 + at[2][c] * l2),
+                });
               }
             }
-            return out;
-          };
-          const tall = Math.max(...height) - floor;
-          const skin = [];
-          const cloth = [];
-          const spot = [];
-          for (let t = 0; t < indices.length; t += 3) {
-            const mine = cover(t);
-            if (!mine.length) continue;
-            const hot = mine.filter(([x, y]) => warm(x, y)).length;
-            const mid = [0, 1, 2].map((c) => [0, 1, 2]
-              .reduce((sum, k) => sum + position[indices[t + k] * 3 + c], 0) / 3);
-            const top = Math.max(...[0, 1, 2]
-              .map((k) => (position[indices[t + k] * 3 + 1] - floor) / tall));
-            spot[t] = { mid, top, lift: (mid[1] - floor) / tall, texels: mine };
-            (hot * 2 > mine.length ? skin : cloth).push(t);
           }
-          const column = skin.filter((t) => spot[t].lift >= 0.75 && spot[t].lift <= 0.80);
-          const ax = column.reduce((sum, t) => sum + spot[t].mid[0], 0) / column.length;
-          const az = column.reduce((sum, t) => sum + spot[t].mid[2], 0) / column.length;
-          const out = (t) => Math.hypot(spot[t].mid[0] - ax, spot[t].mid[2] - az);
-          const round = (t) => Math.atan2(spot[t].mid[0] - ax, az - spot[t].mid[2]) * 180 / Math.PI;
+          const lift = (p) => (p[1] - floor) / tall;
+          const neck = spots.filter((s) => s.skin && lift(s.at) >= 0.75 && lift(s.at) <= 0.80);
+          const ax = neck.reduce((sum, s) => sum + s.at[0], 0) / neck.length;
+          const az = neck.reduce((sum, s) => sum + s.at[2], 0) / neck.length;
+          const out = (p) => Math.hypot(p[0] - ax, p[2] - az);
+          const round = (p) => Math.atan2(p[0] - ax, az - p[2]) * 180 / Math.PI;
           const STEP = 15;
           const rim = new Map();
-          for (const t of cloth) {
-            if (out(t) > 0.085 || spot[t].lift < 0.55 || spot[t].lift > 0.80) continue;
-            let slice = Math.round(round(t) / STEP) * STEP;
+          for (const s of spots) {
+            if (s.skin || out(s.at) < 0.05 || out(s.at) > 0.085) continue;
+            if (lift(s.at) < 0.55 || lift(s.at) > 0.80) continue;
+            let slice = Math.round(round(s.at) / STEP) * STEP;
             if (slice === -180) slice = 180;
-            rim.set(slice, Math.max(rim.get(slice) ?? 0, spot[t].top));
+            rim.set(slice, Math.max(rim.get(slice) ?? 0, lift(s.at)));
           }
-          const edge = (deg) => {
-            const low = Math.floor(deg / STEP) * STEP;
-            const a = rim.get(low === -180 ? 180 : low);
-            const b = rim.get(low + STEP === -180 ? 180 : low + STEP);
-            return a === undefined || b === undefined
-              ? undefined : a + (b - a) * (deg - low) / STEP;
-          };
-          const gather = (pick) => {
-            const lit = [];
-            for (const t of skin) {
-              if (out(t) > 0.09) continue;
-              const e = edge(round(t));
-              if (e === undefined || !pick(spot[t].lift, e)) continue;
-              for (const [x, y] of spot[t].texels) lit.push(luma(x, y));
-            }
-            lit.sort((p, q) => p - q);
-            return lit.length ? lit[lit.length >> 1] : 0;
-          };
-          const under = gather((h, e) => h < e - 0.02);
-          const above = gather((h, e) => h > e + 0.01 && h < e + 0.06);
-          ok(`and the neck goes dark where the collar closes over it  `
-            + `(${under.toFixed(0)} under the rim against ${above.toFixed(0)} above it)`,
-            above > 0 && under < above * 0.6);
+          let bare = 0;
+          let looked = 0;
+          for (const s of spots) {
+            if (out(s.at) > 0.09 || lift(s.at) < 0.50) continue;
+            let slice = Math.round(round(s.at) / STEP) * STEP;
+            if (slice === -180) slice = 180;
+            const line2 = rim.get(slice);
+            if (line2 === undefined || lift(s.at) >= line2 - 0.014) continue;
+            looked += 1;
+            if (s.skin) bare += 1;
+          }
+          // Half a per cent. The file before the repair holds 1,479 of these
+          // and the file after it holds 111 - the rest being the chest under
+          // the zip, which is a long way below the rim and no business of this
+          // check - so the line goes between them with room on both sides. Two
+          // per cent, tried first, passed the broken file as well, which is
+          // not a check.
+          ok(`and no bare skin is left between the collar and the jacket  `
+            + `(${bare} skin texels of ${looked} below the collar's rim)`,
+            looked > 500 && bare < looked * 0.005);
         }
       }
       // The plate this figure used to stand on was 10,901 level triangles in
@@ -8015,7 +8002,19 @@ console.log('\nThe wheel, in whole steps');
     const w = new WheelSteps(2);
     notch(w, -12, 0, 0);
     ok('a stale fragment is forgotten', w.accumulated !== 0 && notch(w, -12, 0, 5000) === 0);
-    ok('and it really was dropped rather than kept', Math.abs(w.accumulated) < 0.2, `${w.accumulated}`);
+    // The accumulator is not empty afterwards and should not be: the event
+    // that arrived *after* the gap is the start of a new gesture and leaves
+    // its own fragment behind. This check used to ask for nearly nothing,
+    // which was right when a fragment this small was dropped outright and
+    // wrong ever since fragments started being added up - it has been failing
+    // at 0.24 against a limit of 0.2 since. What it can ask is that the
+    // leftover is one event's worth and not two, so it is compared against a
+    // wheel that has seen only that one event.
+    const alone = new WheelSteps(2);
+    notch(alone, -12, 0, 0);
+    ok('and it really was dropped rather than kept',
+      Math.abs(w.accumulated - alone.accumulated) < 1e-9,
+      `${w.accumulated} against ${alone.accumulated} for a single event`);
   }
 }
 

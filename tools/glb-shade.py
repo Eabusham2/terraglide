@@ -59,7 +59,7 @@ FLOOR = 0.18
 # is what the measurement says on its own; the crevice under this collar wants
 # more than that to stop reading as skin, and anything the reference calls open
 # is left alone either way.
-BITE = next((float(a[7:]) for a in sys.argv if a.startswith('--bite=')), 2.0)
+BITE = next((float(a[7:]) for a in sys.argv if a.startswith('--bite=')), 1.3)
 # A hemisphere sampled 96 times still has speckle in it, and speckle on a neck
 # reads as dirt. Averaged over the texels around each one, twice.
 SMOOTH = next((int(a[9:]) for a in sys.argv if a.startswith('--smooth=')), 3)

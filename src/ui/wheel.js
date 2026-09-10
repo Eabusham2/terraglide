@@ -43,7 +43,12 @@ export class WheelSteps {
   read(event) {
     // A gap means a new gesture; a half-spent notch from a minute ago should
     // not add itself to this one.
-    const now = event.timeStamp || performance.now();
+    // ?? rather than ||: a timestamp of zero is a real timestamp, and the
+    // first event of a page's life often has one. Falling back to
+    // performance.now() there mixed two clocks in one comparison - the gap to
+    // the *next* event came out hugely negative, never stale, and a fragment
+    // left over from a minute earlier was added to the new gesture after all.
+    const now = event.timeStamp ?? performance.now();
     if (now - this.lastAt > STALE_MS) this.accumulated = 0;
     this.lastAt = now;
 
