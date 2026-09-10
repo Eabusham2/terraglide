@@ -200,9 +200,21 @@ sine = np.sqrt(1 - cosine ** 2)
 fan = np.stack([sine * np.cos(phi), sine * np.sin(phi), cosine], axis=1)
 
 
-def near(point):
-    lo = np.floor((point - REACH) / CELL).astype(int)
-    hi = np.floor((point + REACH) / CELL).astype(int)
+def near(point, extra):
+    """Every triangle within the reach of any point `extra` away from here.
+
+    The candidates are gathered once per triangle, for all of its texels at
+    once, so the box has to hold the reach of the *whole* triangle and not of
+    its middle - otherwise a blocker sits inside one triangle's box and outside
+    its neighbour's, the two disagree by a few per cent, and the boundary
+    between them is drawn on the model as a straight-edged patch. That is what
+    the W-shaped mark on this neck was, and it survived smooth normals, a ray
+    bias, a grazing clamp, a distance falloff and a spun sampling frame,
+    because none of them was it.
+    """
+    span_of = REACH + extra
+    lo = np.floor((point - span_of) / CELL).astype(int)
+    hi = np.floor((point + span_of) / CELL).astype(int)
     out = set()
     for i in range(lo[0], hi[0] + 1):
         for j in range(lo[1], hi[1] + 1):
@@ -218,7 +230,7 @@ def near(point):
     # there in flat white, and not the sampling, but this.
     if len(close):
         span = np.linalg.norm(middle[close] - point, axis=1)
-        close = close[span - reach_of[close] < REACH]
+        close = close[span - reach_of[close] < span_of]
     return close
 
 
@@ -295,7 +307,7 @@ for n, t in enumerate(target if not shade else []):
     face = np.cross(pos[b] - pos[a], pos[c] - pos[a])
     face = face / (np.linalg.norm(face) + 1e-12)
     points = points + (normals + face) * 4e-4
-    candidates = near(points.mean(axis=0))
+    candidates = near(points.mean(axis=0), reach_of[t])
     if not len(candidates): continue
     spread_of = blocked(points, normals, candidates)
     for (x, y, _, _), counts in zip(seen, spread_of):
@@ -347,10 +359,14 @@ if shade:
     reference = np.quantile(on_skin if len(on_skin) else sky, OPEN)
     print(f'  on the skin alone: median {np.median(on_skin):.2f}, '
           f'reference {reference:.2f}')
+    # --map writes the measurement itself into the atlas instead of applying
+    # it, so the sky can be looked at on the model rather than reasoned about.
+    show = '--map' in sys.argv
     for (x, y), value in shade.items():
         keep = max(FLOOR, min(1.0, value / reference) ** BITE)
         for ch in range(3):
-            rgb[ch][x, y] = int(round(rgb[ch][x, y] * keep))
+            rgb[ch][x, y] = int(round(255 * value)) if show \
+                else int(round(rgb[ch][x, y] * keep))
 
 out = Image.merge(mode, tuple(bands))
 buf = io.BytesIO()
