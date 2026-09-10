@@ -26,6 +26,9 @@ const arg = (name, fallback) => {
 const src = arg('src', 'assets/player.glb');
 const tag = arg('tag', 'raw');
 const size = Number(arg('size', '1400'));
+// Flat white instead of the atlas: a crease in the mesh and a line painted on
+// it look the same through the photograph and want opposite repairs.
+const plain = process.argv.includes('--plain');
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
   '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.glb': 'model/gltf-binary' };
@@ -58,7 +61,8 @@ const page = await browser.newPage({ viewport: { width: size, height: size } });
 page.on('pageerror', (e) => console.log('PAGE ERROR', e.message));
 const url = src.startsWith('/') ? src : `/${src}`;
 await page.goto(`http://127.0.0.1:${PORT}/tools/rawmodel.html`
-  + `?src=${encodeURIComponent(url)}&size=${size}`, { waitUntil: 'load' });
+  + `?src=${encodeURIComponent(url)}&size=${size}${plain ? '&plain=1' : ''}`,
+  { waitUntil: 'load' });
 await page.waitForFunction(() => window.__ready === true, null, { timeout: 120000 });
 
 console.log(`${src}`);
@@ -76,7 +80,10 @@ const views = [
   ['back', 0, 0], ['other-side', 270, 0],
   ['above', 180, 60], ['below', 180, -55], ['plan', 180, 89], ['under', 180, -89],
 ];
-for (const [name, bearing, elevation] of views) {
+// `--views=back,side` shoots only those, which is what iterating on one repair
+// wants: fourteen 1400-pixel renders is three minutes a go.
+const only = arg('views', '').split(',').filter(Boolean);
+for (const [name, bearing, elevation] of views.filter((v) => !only.length || only.includes(v[0]))) {
   await page.evaluate(([b, e]) => window.__view(b, e), [bearing, elevation]);
   await page.waitForTimeout(120);
   await writeFile(join(OUT, `${tag}-${name}.png`), await page.screenshot());
@@ -89,7 +96,7 @@ const close = [
   ['soles', 180, -80, [0.5, 0.04, 0.5], 0.3],
   ['wings', 20, 20, [0.5, 0.72, 0.5], 0.6],
 ];
-for (const [name, bearing, elevation, at, wide] of close) {
+for (const [name, bearing, elevation, at, wide] of close.filter((v) => !only.length || only.includes(v[0]))) {
   await page.evaluate(([b, e, a, w]) => window.__closeup(b, e, a, w), [bearing, elevation, at, wide]);
   await page.waitForTimeout(120);
   await writeFile(join(OUT, `${tag}-${name}.png`), await page.screenshot());

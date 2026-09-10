@@ -41,7 +41,8 @@ X0, X1, Y0, Y1 = (float(v) for v in sys.argv[3:7])
 # chest, and the pocket is a pocket — dark because it is dark, not because
 # nothing lit it. Defaults to the whole depth so the older three arguments
 # still mean what they meant.
-_tail = [a for a in sys.argv[8:] if a != 'mark']
+_tail = [a for a in sys.argv[8:]
+         if a not in ('mark', 'bright') and not a.startswith('reach=')]
 Z0 = float(_tail[0]) if _tail else -9.0
 Z1 = float(_tail[1]) if len(_tail) > 1 else 9.0
 DARK = float(sys.argv[7]) if len(sys.argv) > 7 else 40.0
@@ -51,6 +52,14 @@ DARK = float(sys.argv[7]) if len(sys.argv) > 7 else 40.0
 # fault must be; the one that worked was aimed by rendering the mark and
 # seeing the region light up on the shoulder and nowhere else.
 MARK = 'mark' in sys.argv[8:]
+# `bright` looks the other way: for a streak *lighter* than the garment round
+# it rather than darker. The character's trousers carry one — a pale scratch
+# down the left shin that the generator painted, smooth in the geometry and
+# plainly there in the photograph — and no threshold on darkness can find it,
+# because it is not dark. Everything else about the repair is the same: the
+# level is the local median, the median is taken twice so the streak cannot
+# drag its own reference, and the colour comes from the fabric around it.
+BRIGHT = 'bright' in sys.argv[8:]
 
 raw = open(src, 'rb').read()
 off, J, BIN = 12, None, None
@@ -130,13 +139,24 @@ print(f'{len(inside)} triangles in the region')
 # its own neighbourhood, which is exactly what being a gash means.
 lit = defaultdict(list)      # coarse cell -> the colours seen there
 CELL = 0.010 / scale         # a centimetre of the figure, in file units
-RELATIVE = DARK < 1.0
+# Below 1 it is a fraction of the local level; in `bright` mode it is a
+# multiple of it and so is above 1, which would otherwise read as an absolute
+# luminance and mark the whole garment.
+RELATIVE = DARK < 1.0 or BRIGHT
 # Five centimetres, not two. A gash is four across, so a neighbourhood two
 # centimetres wide taken from the middle of one is entirely inside it: the
 # median comes back as dark as the fault, the fault is measured against itself
 # and passes, and only its edges get painted. That is what left the black core
 # of each shoulder ringed in the colour it should have been.
-REACH = range(-5, 6)
+# `reach=N` in centimetres, because five is right for one fault and wrong for
+# another. A shoulder gash is four centimetres across, so a neighbourhood two
+# wide taken from the middle of one is entirely inside it and the gash is
+# measured against itself. A scratch down a trouser leg is five *millimetres*
+# across, and a leg is ten centimetres wide: at five the neighbourhood spans
+# the whole shading gradient, the lit side reads as brighter than its own
+# surroundings, and the mark covers half the garment.
+_reach = next((int(a.split('=')[1]) for a in sys.argv[8:] if a.startswith('reach=')), 5)
+REACH = range(-_reach, _reach + 1)
 def cell_of(v):
     return (int(pos[v][0] / CELL), int(pos[v][1] / CELL), int(pos[v][2] / CELL))
 
@@ -161,7 +181,8 @@ def median(near):
 
 for tri in inside:
     for v in tri:
-        if RELATIVE or luma(colour_of(v)) >= DARK: lit[cell_of(v)].append(colour_of(v))
+        if RELATIVE or (luma(colour_of(v)) >= DARK) != BRIGHT:
+            lit[cell_of(v)].append(colour_of(v))
 
 # Twice, because the first answer is measured against the fault.
 #
@@ -176,10 +197,10 @@ if RELATIVE:
     for tri in inside:
         near = gather(lit, tri)
         if len(near) < 6: continue
-        floor = luma(median(near)) * DARK
+        level = luma(median(near)) * DARK
         for v in tri:
             c = colour_of(v)
-            if luma(c) >= floor: keep[cell_of(v)].append(c)
+            if (luma(c) >= level) != BRIGHT: keep[cell_of(v)].append(c)
     lit = keep
 
 painted = 0
@@ -200,12 +221,16 @@ for tri in inside:
             l0 = ((ys[1]-ys[2]) * (x+0.5-xs[2]) + (xs[2]-xs[1]) * (y+0.5-ys[2])) / det
             l1 = ((ys[2]-ys[0]) * (x+0.5-xs[2]) + (xs[0]-xs[2]) * (y+0.5-ys[2])) / det
             if l0 < -0.02 or l1 < -0.02 or 1 - l0 - l1 < -0.02: continue
-            if luma(px[x, y]) >= floor: continue
+            if (luma(px[x, y]) >= floor) != BRIGHT: continue
             # Kept dim, because it is still the inside of a shoulder — just not
             # a hole cut in one.
             was_here = px[x, y]
+            # A gash is still the inside of a shoulder, so it stays dim; a
+            # streak on a flat garment is simply not there, so it takes the
+            # fabric's own colour with nothing taken off.
             fresh = ((255, 0, 255) if MARK else
-                     tuple(min(255, int(want[ch] * 0.72)) for ch in range(3)))
+                     tuple(min(255, int(want[ch] * (1.0 if BRIGHT else 0.72)))
+                           for ch in range(3)))
             # Whatever the picture carried besides colour stays as it was.
             px[x, y] = fresh + tuple(was_here[3:])
             painted += 1

@@ -21,6 +21,10 @@ import { GLTFLoader } from '../vendor/three/loaders/GLTFLoader.js';
 const q = new URLSearchParams(location.search);
 const src = q.get('src') ?? '../assets/player.glb';
 const size = Number(q.get('size') ?? 900);
+// `&plain=1` throws the photograph away and draws the surface in flat white,
+// which is the only way to tell a crease in the mesh from a line in the
+// texture. They look identical through the atlas and want opposite repairs.
+const plain = q.get('plain') === '1';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(2);          // supersampled, as the model shots are
@@ -46,6 +50,14 @@ const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
 
 const loaded = await new GLTFLoader().loadAsync(src);
 const model = loaded.scene;
+if (plain) {
+  model.traverse((child) => {
+    if (!child.isMesh) return;
+    child.material = new THREE.MeshStandardMaterial({
+      color: 0xdedbd6, roughness: 0.75, metalness: 0,
+    });
+  });
+}
 scene.add(model);
 
 // Frame it from its own bounds rather than from a guess at its scale.
