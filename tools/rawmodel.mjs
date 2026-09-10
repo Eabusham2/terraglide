@@ -99,6 +99,12 @@ const close = [
   ['hands', 200, -10, [0.5, 0.55, 0.5], 0.55],
   ['soles', 180, -80, [0.5, 0.04, 0.5], 0.3],
   ['wings', 20, 20, [0.5, 0.72, 0.5], 0.6],
+  // Down onto the back of the neck. A collar's join is on top of the shoulder,
+  // so a camera at eye level sees the collar's outside and nothing of what is
+  // or is not under it.
+  ['nape', 180, 12, [0.5, 0.80, 0.5], 0.30],
+  ['nape20', 180, 20, [0.5, 0.80, 0.5], 0.30],
+  ['nape30', 180, 30, [0.5, 0.80, 0.5], 0.32],
 ];
 for (const [name, bearing, elevation, at, wide] of close.filter((v) => !only.length || only.includes(v[0]))) {
   await page.evaluate(([b, e, a, w]) => window.__closeup(b, e, a, w), [bearing, elevation, at, wide]);

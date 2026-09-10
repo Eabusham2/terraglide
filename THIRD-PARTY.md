@@ -178,7 +178,9 @@ floor it was built standing on and caps each boot; `tools/glb-prune.py` drops
 the metal-roughness map the loader sets to null anyway; `tools/glb-inset.py`
 pulls the texture coordinates that sit on a chart's edge a few texels inward,
 because the atlas is packed with no gutter and a coordinate on an edge samples
-the chart next door. Everything else is
+the chart next door, and `tools/glb-pad.py` fills that gutter from the charts
+around it; `tools/glb-neck.py` closes the back of the collar onto the neck,
+which the generator left standing off it with a well of bare skin inside. Everything else is
 exactly as the generator made it, including the 1024-pixel PNG atlas byte for
 byte. 3.9 MB to 2.7 MB, 38,096 triangles, closed. It depicts no real person.
 Off by default, and never fetched by the single-file build.
