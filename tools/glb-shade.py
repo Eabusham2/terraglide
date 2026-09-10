@@ -219,7 +219,8 @@ def blocked(points, normals, candidates):
             + fan[None, :, 1, None] * other[:, None, :]
             + fan[None, :, 2, None] * normals[:, None, :])
     a = v0[candidates]; b = e1[candidates]; c = e2[candidates]
-    hit = np.zeros((len(points), RAYS), dtype=bool)
+    # How far along each ray the first blocker is, REACH if there is none.
+    first = np.full((len(points), RAYS), REACH)
     for chunk in range(0, len(candidates), 2048):
         A = a[chunk:chunk+2048]; B = b[chunk:chunk+2048]; C = c[chunk:chunk+2048]
         # Moller-Trumbore, every ray against every triangle in the chunk
@@ -232,9 +233,15 @@ def blocked(points, normals, candidates):
         q = np.cross(s, B[None, None, :, :])
         v = np.einsum('ijkl,ijl->ijk', q, rays) * inv
         t = np.einsum('ijkl,kl->ijk', q, C) * inv
-        near_enough = ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > 1.5e-3) & (t < REACH)
-        hit |= near_enough.any(axis=2)
-    return hit.mean(axis=1)
+        real = ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > 1.5e-3) & (t < REACH)
+        first = np.minimum(first, np.where(real, t, REACH).min(axis=2))
+    # Counted by how close the blocker is rather than whether there is one.
+    # A hard cut-off at the reach is itself a hard edge: the collar's rim is a
+    # coarse polygon, and a point that sees it at 4.9 cm counting it in full
+    # while its neighbour at 5.1 cm counts it not at all draws that polygon on
+    # the neck. This is what the patches under the jaw actually were - not the
+    # mesh, not the sampling, not the cull, but the shape of this function.
+    return (1 - (first / REACH) ** 2).mean(axis=1)
 
 
 shade = {}
