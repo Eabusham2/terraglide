@@ -57,7 +57,7 @@ OPEN = 0.55
 FLOOR = 0.18
 # A hemisphere sampled 96 times still has speckle in it, and speckle on a neck
 # reads as dirt. Averaged over the texels around each one, twice.
-SMOOTH = 2
+SMOOTH = 3
 # And carried out past the charts' edges. tools/glb-pad.py fills this atlas's
 # gutter from the charts around it, so the texels just outside a chart hold a
 # copy of the skin inside it - and darkening only what is inside left every
@@ -92,6 +92,11 @@ def read(index):
 idx = read(prim['indices'])[:, 0].astype(np.int64)
 pos = read(prim['attributes']['POSITION'])
 uv = read(prim['attributes']['TEXCOORD_0'])
+# The shading needs the *smooth* normal, not the triangle's own. Measured about
+# a flat face, the sky each texel sees steps at every triangle edge, and the
+# first neck out of this tool was tiled with faceted patches a shade apart.
+lean = read(prim['attributes']['NORMAL'])
+lean = lean / (np.linalg.norm(lean, axis=1, keepdims=True) + 1e-12)
 tri = idx.reshape(-1, 3)
 slot = J['materials'][prim['material']]['pbrMetallicRoughness']['baseColorTexture']
 picture = J['images'][J['textures'][slot['index']]['source']]
@@ -226,12 +231,16 @@ for n, t in enumerate(target if not shade else []):
     seen = covers.get(t)
     if not seen: continue
     a, b, c = tri[t]
-    points = np.array([pos[a] * l0 + pos[b] * l1 + pos[c] * (1 - l0 - l1)
-                       for _, _, l0, l1 in seen])
+    weights = np.array([[l0, l1, 1 - l0 - l1] for _, _, l0, l1 in seen])
+    points = weights @ pos[[a, b, c]]
+    normals = weights @ lean[[a, b, c]]
+    normals /= np.linalg.norm(normals, axis=1, keepdims=True) + 1e-12
+    # Off the surface far enough not to hit the triangle the texel is on, and
+    # along the flat face as well as the smooth normal, because on a curved
+    # patch the smooth one can lie almost in the plane at a corner.
     face = np.cross(pos[b] - pos[a], pos[c] - pos[a])
     face = face / (np.linalg.norm(face) + 1e-12)
-    normals = np.tile(face, (len(points), 1))
-    points = points + face * 1e-4
+    points = points + (normals + face) * 1e-4
     candidates = near(points.mean(axis=0))
     if not len(candidates): continue
     open_sky = 1.0 - blocked(points, normals, candidates)
