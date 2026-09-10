@@ -57,7 +57,7 @@ OPEN = 0.55
 FLOOR = 0.18
 # A hemisphere sampled 96 times still has speckle in it, and speckle on a neck
 # reads as dirt. Averaged over the texels around each one, twice.
-SMOOTH = 3
+SMOOTH = next((int(a[9:]) for a in sys.argv if a.startswith('--smooth=')), 3)
 # And carried out past the charts' edges. tools/glb-pad.py fills this atlas's
 # gutter from the charts around it, so the texels just outside a chart hold a
 # copy of the skin inside it - and darkening only what is inside left every
@@ -168,9 +168,16 @@ for t in range(len(tri)):
                 grid[(i, j, k)].append(t)
 
 # A cosine-weighted fan of directions about +Z, spun into each normal's frame.
+# Nothing within a few degrees of the surface: a ray that leaves along its own
+# tangent hits the triangle next door immediately, and which of them it hits
+# depends on that triangle rather than on anything real. That is what tiled the
+# underside of the jaw with hard-edged patches a shade darker than the rest -
+# a texture-space blur cannot smooth it out, because two triangles that touch
+# on the body can be a long way apart in the atlas.
+GRAZE = 0.12
 turn = np.arange(RAYS) + 0.5
 phi = turn * math.pi * (3 - 5 ** 0.5)
-cosine = np.sqrt(1 - turn / RAYS)
+cosine = np.sqrt(np.maximum(GRAZE ** 2, 1 - turn / RAYS))
 sine = np.sqrt(1 - cosine ** 2)
 fan = np.stack([sine * np.cos(phi), sine * np.sin(phi), cosine], axis=1)
 
@@ -217,7 +224,7 @@ def blocked(points, normals, candidates):
         q = np.cross(s, B[None, None, :, :])
         v = np.einsum('ijkl,ijl->ijk', q, rays) * inv
         t = np.einsum('ijkl,kl->ijk', q, C) * inv
-        near_enough = ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > 1e-4) & (t < REACH)
+        near_enough = ok & (u >= 0) & (v >= 0) & (u + v <= 1) & (t > 1.5e-3) & (t < REACH)
         hit |= near_enough.any(axis=2)
     return hit.mean(axis=1)
 
@@ -237,10 +244,12 @@ for n, t in enumerate(target if not shade else []):
     normals /= np.linalg.norm(normals, axis=1, keepdims=True) + 1e-12
     # Off the surface far enough not to hit the triangle the texel is on, and
     # along the flat face as well as the smooth normal, because on a curved
-    # patch the smooth one can lie almost in the plane at a corner.
+    # patch the smooth one can lie almost in the plane at a corner. A third of
+    # a millimetre on a figure 0.77 units tall, against triangles about two
+    # and a half millimetres across.
     face = np.cross(pos[b] - pos[a], pos[c] - pos[a])
     face = face / (np.linalg.norm(face) + 1e-12)
-    points = points + (normals + face) * 1e-4
+    points = points + (normals + face) * 4e-4
     candidates = near(points.mean(axis=0))
     if not len(candidates): continue
     open_sky = 1.0 - blocked(points, normals, candidates)
