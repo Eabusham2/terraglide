@@ -158,6 +158,9 @@ print(f'  {len(target)} triangles of neck and head to shade, '
 # Every triangle is a possible blocker; a grid keeps the near ones findable.
 v0 = pos[tri[:, 0]]; e1 = pos[tri[:, 1]] - v0; e2 = pos[tri[:, 2]] - v0
 CELL = 0.04
+# How far each triangle reaches from its own middle, so the cull below can ask
+# whether the triangle is in range rather than whether its middle is.
+reach_of = np.linalg.norm(pos[tri] - middle[:, None, :], axis=2).max(axis=1)
 grid = defaultdict(list)
 lows = np.floor(pos[tri].min(axis=1) / CELL).astype(int)
 highs = np.floor(pos[tri].max(axis=1) / CELL).astype(int)
@@ -192,10 +195,15 @@ def near(point):
                 out.update(grid.get((i, j, k), ()))
     close = np.fromiter(out, dtype=np.int64, count=len(out))
     # A cell is coarser than the reach, so most of what it hands back is out of
-    # range. Dropping those here is what keeps this minutes rather than hours.
+    # range. Dropping those here is what keeps this minutes rather than hours -
+    # but it has to be dropped by the triangle's own extent, not by where its
+    # middle happens to sit. Culling on the middle alone kept a blocker for one
+    # patch of texels and dropped it for the patch next door, and *that* is
+    # what tiled the jaw with hard-edged shades: not the mesh, which is smooth
+    # there in flat white, and not the sampling, but this.
     if len(close):
         span = np.linalg.norm(middle[close] - point, axis=1)
-        close = close[span < REACH + 0.03]
+        close = close[span - reach_of[close] < REACH]
     return close
 
 
