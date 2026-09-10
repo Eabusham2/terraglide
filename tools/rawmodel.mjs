@@ -33,6 +33,8 @@ const plain = process.argv.includes('--plain');
 const nearest = process.argv.includes('--nearest');
 // Texture coordinates as colour, so a mark on screen can be looked up in the atlas.
 const showUV = process.argv.includes('--uv');
+// Position as colour, to read off where a pixel is on the body.
+const showXYZ = process.argv.includes('--xyz');
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
   '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.glb': 'model/gltf-binary' };
@@ -65,7 +67,7 @@ const page = await browser.newPage({ viewport: { width: size, height: size } });
 page.on('pageerror', (e) => console.log('PAGE ERROR', e.message));
 const url = src.startsWith('/') ? src : `/${src}`;
 await page.goto(`http://127.0.0.1:${PORT}/tools/rawmodel.html`
-  + `?src=${encodeURIComponent(url)}&size=${size}${plain ? '&plain=1' : ''}${nearest ? '&filter=nearest' : ''}${showUV ? '&uv=1' : ''}`,
+  + `?src=${encodeURIComponent(url)}&size=${size}${plain ? '&plain=1' : ''}${nearest ? '&filter=nearest' : ''}${showUV ? '&uv=1' : ''}${showXYZ ? '&xyz=1' : ''}`,
   { waitUntil: 'load' });
 await page.waitForFunction(() => window.__ready === true, null, { timeout: 120000 });
 
@@ -108,6 +110,8 @@ const close = [
   ['collar-side', 90, 0, [0.5, 0.775, 0.5], 0.26],
   ['nape20', 180, 20, [0.5, 0.80, 0.5], 0.30],
   ['nape30', 180, 30, [0.5, 0.80, 0.5], 0.32],
+  ['nape45', 180, 45, [0.5, 0.80, 0.5], 0.34],
+  ['nape60', 180, 60, [0.5, 0.80, 0.5], 0.36],
 ];
 for (const [name, bearing, elevation, at, wide] of close.filter((v) => !only.length || only.includes(v[0]))) {
   await page.evaluate(([b, e, a, w]) => window.__closeup(b, e, a, w), [bearing, elevation, at, wide]);

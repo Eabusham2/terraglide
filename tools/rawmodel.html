@@ -35,6 +35,11 @@ const nearest = q.get('filter') === 'nearest';
 // the atlas by reading the colour at it. Inference about where a fault lives
 // in a 1024-pixel patchwork is guesswork; this is a lookup.
 const showUV = q.get('uv') === '1';
+// `&xyz=1` paints each fragment with its own place on the body, scaled into the
+// model's bounding box. Reading a colour off the render then gives the point in
+// three dimensions that drew it — which is the only way I have found to say
+// where something on screen actually *is* without arguing about projection.
+const showXYZ = q.get('xyz') === '1';
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(2);          // supersampled, as the model shots are
@@ -80,6 +85,24 @@ model.traverse((child) => {
   if (child.material.map) child.material.map.anisotropy = 16;
   child.material.needsUpdate = true;
 });
+if (showXYZ) {
+  // Its own bounds: the shared `box` is measured further down, and reaching
+  // forward to it threw before the page ever became ready.
+  model.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(model);
+  const lo = bounds.min.clone();
+  const span = new THREE.Vector3().subVectors(bounds.max, bounds.min);
+  model.traverse((child) => {
+    if (!child.isMesh) return;
+    child.material = new THREE.ShaderMaterial({
+      uniforms: { lo: { value: lo }, span: { value: span } },
+      vertexShader: 'varying vec3 vAt;\nvoid main(){ vAt = position;'
+        + ' gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: 'uniform vec3 lo; uniform vec3 span; varying vec3 vAt;\n'
+        + 'void main(){ gl_FragColor = vec4((vAt - lo) / span, 1.0); }',
+    });
+  });
+}
 if (showUV) {
   model.traverse((child) => {
     if (!child.isMesh) return;
