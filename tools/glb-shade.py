@@ -63,6 +63,14 @@ BITE = next((float(a[7:]) for a in sys.argv if a.startswith('--bite=')), 2.0)
 # A hemisphere sampled 96 times still has speckle in it, and speckle on a neck
 # reads as dirt. Averaged over the texels around each one, twice.
 SMOOTH = next((int(a[9:]) for a in sys.argv if a.startswith('--smooth=')), 3)
+# And smoothed across the *body* as well as across the atlas, over this radius.
+# Two texels that touch on the neck can be a long way apart in the atlas, so a
+# blur in texture space cannot cross between them - which is why the collar's
+# rim, a coarse polygon a few centimetres below, printed its own silhouette on
+# the skin in straight lines and sixteen passes of texture blur did nothing to
+# it. That silhouette is real occlusion; it is only too sharp, because the
+# thing casting it is close and low-poly.
+SOFTEN = next((float(a[10:]) for a in sys.argv if a.startswith('--soften=')), 0.010)
 # And carried out past the charts' edges. tools/glb-pad.py fills this atlas's
 # gutter from the charts around it, so the texels just outside a chart hold a
 # copy of the skin inside it - and darkening only what is inside left every
@@ -329,6 +337,34 @@ middles = (np.arange(BINS + 1) + 0.5) / BINS
 weight = np.clip(1 - np.minimum(middles, 1.0) ** FALL, 0, 1)
 weight[BINS] = 0.0                       # the bin for "nothing was hit"
 shade = {at: float(1 - np.dot(counts, weight) / RAYS) for at, counts in shade.items()}
+
+# Where each measured texel is on the body, so the sky can be averaged over
+# the surface rather than over the picture of it.
+where = {}
+for t in target:
+    a, b, c = tri[t]
+    for x, y, l0, l1 in covers.get(t, ()):
+        if (x, y) in shade:
+            where[(x, y)] = pos[a] * l0 + pos[b] * l1 + pos[c] * (1 - l0 - l1)
+if SOFTEN > 0 and where:
+    box = defaultdict(list)
+    for at, place in where.items():
+        box[tuple(np.floor(place / SOFTEN).astype(int))].append(at)
+    softened = {}
+    for at, place in where.items():
+        cell = np.floor(place / SOFTEN).astype(int)
+        total, load = 0.0, 0.0
+        for i in (-1, 0, 1):
+            for j in (-1, 0, 1):
+                for k in (-1, 0, 1):
+                    for other in box.get((cell[0]+i, cell[1]+j, cell[2]+k), ()):
+                        gap = np.linalg.norm(where[other] - place)
+                        if gap >= SOFTEN: continue
+                        share = 1 - gap / SOFTEN
+                        total += shade[other] * share
+                        load += share
+        softened[at] = total / load if load else shade[at]
+    shade.update(softened)
 
 for _ in range(SMOOTH):
     smoothed = {}
