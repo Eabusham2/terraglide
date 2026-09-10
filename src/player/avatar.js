@@ -20,6 +20,12 @@ const ROCKET_GRIP = 0.03;
  * The scanned figure's hand is another size, and the rocket is scaled to it.
  */
 const BUILT_FIST = 0.052;
+/**
+ * How far up the fist the grip sits, as a share of the fist's own height from
+ * fingertips to wrist. A closed hand holds a stick through the ring its curled
+ * fingers make, which is above the middle of the fist.
+ */
+const GRIP_RISE = 0.45;
 /** White, for lightening the slot colour before it tints a photograph. */
 const WHITE_TINT = new THREE.Color(0xffffff);
 /** Scratch, so measuring the scan's fist allocates nothing. */
@@ -1336,6 +1342,23 @@ export class Avatar {
       low[1] = Math.min(low[1], z); high[1] = Math.max(high[1], z);
     }
     this.scanFist = ((high[0] - low[0]) + (high[1] - low[1])) / 2;
+    /*
+      And lift it into the grip.
+
+      The mean of the fist's vertices is the middle of the whole hand, and a
+      hand does not hold a stick through its middle - it holds it through the
+      ring the curled fingers make, which is in the *upper* half of a closed
+      fist, between the thumb and the forefinger. Sitting the rocket on the
+      mean put it through the bottom of the fist, below the little finger,
+      which reads as a thing about to fall out rather than a thing being held.
+
+      So it rises by a share of the fist's own height, measured here rather
+      than assumed: the hand runs from the fingertips at the bottom of this set
+      to the wrist at the top of it.
+    */
+    const tips = fist[0][0];
+    const wrist = fist[fist.length - 1][0];
+    grip.y += (wrist - tips) * GRIP_RISE;
     // Into the shoulder's frame, where the rocket lives. At rest that joint
     // has no rotation, so this is a subtraction.
     const shoulder = SCAN_JOINTS.find((joint) => joint.name === 'armR').at;
