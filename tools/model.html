@@ -355,9 +355,12 @@ window.__fist = () => window.__grip();
   This one is anchored to the hand, which does not move, so two shots taken
   before and after a nudge can actually be compared.
 */
-window.__atFist = (dist = 0.9, lift = 0.0, behind = false) => {
+window.__atFist = (dist = 0.9, lift = 0.0, behind = false, shift = 0.0) => {
   const middle = new THREE.Vector3().fromArray(window.__grip().middle);
-  camera.position.set(middle.x, middle.y + lift, middle.z + (behind ? dist : -dist));
+  // shift is the viewer's right, which is -X from the front and +X from
+  // behind, because turning round swaps which way your right hand points.
+  const side = behind ? shift : -shift;
+  camera.position.set(middle.x + side, middle.y + lift, middle.z + (behind ? dist : -dist));
   camera.lookAt(middle);
   camera.updateProjectionMatrix();
   renderer.render(scene, camera);
