@@ -53,6 +53,16 @@ const GRIP_FILL = 1.0;
  * that width it would be a groove; at this width it is a demolition.
  */
 const GRIP_GROOVE = false;
+/**
+ * A final nudge on where the firework sits, in metres: up, and to the right as
+ * seen by someone facing the player. The figure faces -Z, so a viewer stands
+ * on -Z looking towards +Z and their right hand points along +X - which is
+ * also away from this body's own right side.
+ *
+ * In metres rather than as a share of the fist, because the asks are in
+ * eighths and sixteenths of an inch and a fraction of a hand is not.
+ */
+const GRIP_NUDGE = [0.003175, 0.001588];
 /** How far out of the fist it sits, as a share of the fist's width. */
 const GRIP_OUT = 0.0;
 /** How far behind the fist's axis it sits, as a share of the fist's width. */
@@ -1412,7 +1422,8 @@ export class Avatar {
     // side - the tail poking through the palm. Held against the outside of the
     // fingers instead, which is where a hand that cannot open has to hold
     // something.
-    grip.x += this.scanFist * GRIP_OUT;
+    grip.x += this.scanFist * GRIP_OUT + GRIP_NUDGE[1];
+    grip.y += GRIP_NUDGE[0];
     // And behind the fingers rather than in front of them. A fist this model
     // cannot open hides whatever passes through its middle, so what makes a
     // thing read as held is the fingers crossing *in front of* it. The hand's
