@@ -57,19 +57,17 @@ const GRIP_GROOVE = false;
  * A final nudge on where the firework sits, in metres: up, and to the right as
  * seen by someone facing the player.
  *
- * These are the numbers the placement was signed off on, so they stay as they
- * are. What did need correcting is the note that used to sit here: it said a
- * viewer's right is +X, and it is not. The figure faces -Z, so a viewer stands
- * on -Z looking towards +Z with up +Y, and their right hand points along -X.
- * +X is the body's own right, which is the viewer's LEFT, because he is facing
- * them. The stored sideways figure is therefore a sixteenth of an inch to the
- * viewer's left, not right - a sixteenth being small enough that nobody was
- * ever going to catch it by eye, which is how it survived.
+ * The sign was backwards here until a pair of shots taken from a camera fixed
+ * on the fist - rather than on the firework, which drags the camera with it
+ * and makes any nudge look like nothing moved - showed the tube going the
+ * other way. The figure faces -Z, so a viewer stands on -Z looking towards +Z
+ * with up +Y, and their right hand points along -X, not +X: +X is the body's
+ * own right, which is the viewer's left because he is facing them.
  *
  * In metres rather than as a share of the fist, because the asks are in
  * eighths and sixteenths of an inch and a fraction of a hand is not.
  */
-const GRIP_NUDGE = [0.003175, 0.001588];
+const GRIP_NUDGE = [0.015875, -0.011112];
 /** How far out of the fist it sits, as a share of the fist's width. */
 const GRIP_OUT = 0.0;
 /** How far behind the fist's axis it sits, as a share of the fist's width. */
