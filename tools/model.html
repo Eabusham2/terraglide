@@ -395,6 +395,92 @@ window.__facingTip = (dist = 1.0, lift = 0.0) => {
   renderer.render(scene, camera);
 };
 
+/*
+  The two ends of the firework, in world space.
+
+  Measured off the mesh rather than assumed: the scanned firework and the
+  built one sit differently against the rocket object's origin, and the held
+  one is scaled, so "the tail is 105 mm down" is only true for one of them.
+  Every vertex is projected onto the rocket's own axis and the two extremes
+  are the nose and the tail.
+*/
+window.__markEnds = () => {
+  const e = window.__ends();
+  for (const [where, colour] of [[e.tail, 0x00ffff], [e.nose, 0xff00ff]]) {
+    const dot = new THREE.Mesh(
+      new THREE.SphereGeometry(0.012, 12, 8),
+      new THREE.MeshBasicMaterial({ color: colour }),
+    );
+    dot.position.fromArray(where);
+    scene.add(dot);
+  }
+  return e;
+};
+
+window.__ends = () => {
+  const foot = avatar.rocket.getWorldPosition(new THREE.Vector3());
+  const dir = avatar.rocket.localToWorld(new THREE.Vector3(0, 1, 0)).sub(foot).normalize();
+  const along = [];
+  const at = new THREE.Vector3();
+  avatar.rocket.traverse((node) => {
+    const pos = node.geometry?.attributes?.position;
+    // Only what is actually drawn: the built firework's tube, cone and stick
+    // hang off the same object with visible false whenever the scan is in
+    // hand, and the built stick reaches 430 mm back - four times the whole
+    // scanned firework.
+    if (!pos || !node.visible || !node.parent?.visible) return;
+    for (let v = 0; v < pos.count; v += 1) {
+      at.fromBufferAttribute(pos, v);
+      node.localToWorld(at);
+      along.push(at.sub(foot).dot(dir));
+    }
+  });
+  if (!along.length) return null;
+  along.sort((a, b) => a - b);
+  // Half a percent in from each end rather than the extremes. The scan carries
+  // a scatter of stray vertices - it is a photogrammetry mesh, not a modelled
+  // one - and going by the furthest of those put the "tail" 250 mm behind a
+  // firework that measures 210 mm on screen.
+  const edge = Math.max(1, Math.round(along.length * 0.005));
+  const lo = along[edge];
+  const hi = along[along.length - 1 - edge];
+  return {
+    dir: dir.toArray(),
+    tail: foot.clone().addScaledVector(dir, lo).toArray(),
+    nose: foot.clone().addScaledVector(dir, hi).toArray(),
+    length: hi - lo,
+  };
+};
+
+/*
+  Square on to the TAIL, from behind, the way __facingTip is square on to the
+  nose from the front: the camera sits on the tail's own height and
+  side-to-side line, so the back of the firework is in the middle of the frame.
+*/
+window.__facingTail = (dist = 0.9, lift = 0.0) => {
+  const tail = new THREE.Vector3().fromArray(window.__ends().tail);
+  camera.position.set(tail.x, tail.y + lift, tail.z + dist);
+  camera.lookAt(tail);
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+};
+
+/*
+  Sighted up the firework from behind its tail - the mirror of __alongRocket.
+  End on, so a lean shows as the nose sitting off to one side of the fins
+  rather than as foreshortening, and the fist shows as what it is or is not
+  wrapped round.
+*/
+window.__alongTail = (back = 0.6, aim = 0.15) => {
+  const ends = window.__ends();
+  const dir = new THREE.Vector3().fromArray(ends.dir);
+  const tail = new THREE.Vector3().fromArray(ends.tail);
+  camera.position.copy(tail).addScaledVector(dir, -back);
+  camera.lookAt(tail.clone().addScaledVector(dir, aim));
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+};
+
 window.__pose = (name) => {
   const spec = POSES[name];
   const player = makePlayer(spec.player);
