@@ -12,22 +12,21 @@
  * look identical and want opposite corrections, which is exactly how five
  * goes in a row went the wrong way.
  *
- * So it is measured, from the posed rig, in two numbers:
+ * So it is measured, from the posed rig: what share of the fist's vertices lie
+ * inside the tube - how much of the hand the firework actually passes through.
+ * That is the quantity, and it took a second try to find it. The first version
+ * measured how far the tube's axis ran from the middle of the fist, which
+ * sounds like the same question and is not: it says nothing about whether the
+ * tube is down among the fingers or sailing over the knuckles, and it called a
+ * placement that reads as gripped from eight angles "buried".
  *
- *   nearest    how close the closest vertex of the fist comes to the rocket's
- *              own axis. Inside the tube's radius, the hand is within the tube
- *              and something is being held.
- *   offCentre  how far that axis passes from the middle of the fist, as a
- *              share of the fist's own radius. Zero is straight through the
- *              middle - buried, and the fault that reads as floating. Past one
- *              is outside the hand altogether - floating for real. Against the
- *              fingers, where a hand actually holds a thing, is just under one.
+ * Calibrated against four placements, each rendered from eight cameras round
+ * the hand and judged from all of them rather than from the front alone:
  *
- * Measured on the three settings that shipped or nearly shipped:
- *
- *   buried through the fist   nearest  9.1 mm   offCentre 0.69
- *   held clear of it         nearest 14.6 mm   offCentre 1.52
- *   against the fingers      nearest  0.8 mm   offCentre 0.94
+ *   held clear of the hand           0.02   floating, obviously
+ *   behind the fingers               0.14   floats from the side
+ *   through the knuckles             0.19   gap from the side
+ *   down through the fingers         0.26   gripped from every angle
  *
  *   node tools/gripcheck.mjs
  */
@@ -76,13 +75,11 @@ if (!grip || grip.nearest === undefined) {
   console.log('gripcheck: the scan or its rocket did not load —', JSON.stringify(grip));
   process.exit(1);
 }
-const held = grip.nearest < grip.radius;
-const placed = grip.offCentre > 0.82 && grip.offCentre < 1.12;
 const mm = (n) => `${(n * 1000).toFixed(1)} mm`;
+const through = grip.through ?? 0;
 console.log(`fist to the rocket's axis   ${mm(grip.nearest)}  (tube radius ${mm(grip.radius)})`);
-console.log(`that axis off the fist's middle  ${grip.offCentre.toFixed(2)} of its radius`);
-console.log(held ? '  the hand is inside the tube' : '  NOT HELD — the tube is clear of the hand');
-console.log(placed ? '  and against the fingers, not through the middle'
-  : (grip.offCentre <= 0.82 ? '  BURIED — the axis runs through the middle of the fist'
-    : '  FLOATING — the axis passes outside the fist'));
-process.exit(held && placed ? 0 : 1);
+console.log(`share of the fist inside the tube  ${(through * 100).toFixed(0)}%`);
+console.log(through >= 0.22
+  ? '  the firework passes through the fingers — held'
+  : '  NOT HELD — too little of the hand is on it; it will read as floating');
+process.exit(through >= 0.22 ? 0 : 1);

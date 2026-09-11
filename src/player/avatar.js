@@ -25,7 +25,7 @@ const BUILT_FIST = 0.052;
  * fingertips to wrist. A closed hand holds a stick through the ring its curled
  * fingers make, which is above the middle of the fist.
  */
-const GRIP_RISE = 0.30;
+const GRIP_RISE = -0.35;
 /**
  * And how much wider than the fist the tube is drawn, so the fingers close
  * round something rather than beside it.
@@ -34,7 +34,7 @@ const GRIP_FILL = 1.0;
 /** How far out of the fist it sits, as a share of the fist's width. */
 const GRIP_OUT = 0.0;
 /** How far behind the fist's axis it sits, as a share of the fist's width. */
-const GRIP_BACK = -0.25;
+const GRIP_BACK = 0.0;
 /** White, for lightening the slot colour before it tints a photograph. */
 const WHITE_TINT = new THREE.Color(0xffffff);
 /** Scratch, so measuring the scan's fist allocates nothing. */
