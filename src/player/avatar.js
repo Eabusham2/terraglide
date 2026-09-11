@@ -33,6 +33,8 @@ const GRIP_RISE = 0.30;
 const GRIP_FILL = 1.0;
 /** How far out of the fist it sits, as a share of the fist's width. */
 const GRIP_OUT = 0.0;
+/** How far behind the fist's axis it sits, as a share of the fist's width. */
+const GRIP_BACK = 0.35;
 /** White, for lightening the slot colour before it tints a photograph. */
 const WHITE_TINT = new THREE.Color(0xffffff);
 /** Scratch, so measuring the scan's fist allocates nothing. */
@@ -242,7 +244,7 @@ const ROCKET_AXIS = new THREE.Vector3(0, 1, 0);
  * three-quarter angle nobody plays at. Carried across the hand it reads from
  * everywhere, and it snaps to the aim as soon as one is lit.
  */
-const HELD_REST = [0.85, 0.30];
+const HELD_REST = [0.35, 0.30];
 /** Scratch for that attitude and for the blend into the aimed one. */
 const _carry = new THREE.Vector3();
 const _carryQuat = new THREE.Quaternion();
@@ -1389,6 +1391,11 @@ export class Avatar {
     // fingers instead, which is where a hand that cannot open has to hold
     // something.
     grip.x += this.scanFist * GRIP_OUT;
+    // And behind the fingers rather than in front of them. A fist this model
+    // cannot open hides whatever passes through its middle, so what makes a
+    // thing read as held is the fingers crossing *in front of* it. The hand's
+    // knuckles face forward, so the tube goes back.
+    grip.z += this.scanFist * GRIP_BACK;
     // Into the shoulder's frame, where the rocket lives. At rest that joint
     // has no rotation, so this is a subtraction.
     const shoulder = SCAN_JOINTS.find((joint) => joint.name === 'armR').at;
