@@ -297,10 +297,21 @@ window.__grip = () => {
     const on = foot.clone().addScaledVector(tip, along);
     nearest = Math.min(nearest, p.distanceTo(on));
   }
+  // Touching is not enough: a tube buried through the middle of the fist also
+  // touches, and that is the one that reads as floating, because every part of
+  // it that meets the hand is hidden inside it. So also: how far the axis
+  // passes from the fist's own centre, against the fist's own radius. Through
+  // the middle is 0; clear of the hand is more than 1; against the fingers,
+  // where a hand holds something, is in between.
+  const middle = fist.reduce((sum, p) => sum.add(p), new THREE.Vector3())
+    .multiplyScalar(1 / fist.length);
+  const spread = fist.reduce((sum, p) => sum + p.distanceTo(middle), 0) / fist.length;
+  const along = Math.max(0, Math.min(0.4, middle.clone().sub(foot).dot(tip)));
+  const centreGap = middle.distanceTo(foot.clone().addScaledVector(tip, along));
   return {
     fist: avatar.scanFist, scale: avatar.rocket.scale.x,
     radius: 0.026 * avatar.rocket.scale.x,
-    nearest, gripped: nearest < 0.026 * avatar.rocket.scale.x,
+    nearest, spread, centreGap, offCentre: centreGap / spread,
   };
 };
 

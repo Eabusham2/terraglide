@@ -9,7 +9,7 @@
     "start": "node serve.mjs",
     "serve": "node serve.mjs",
     "build": "node tools/bundle.mjs && node tools/online.mjs",
-    "check": "npm run build && node tools/check.mjs && node tools/selftest.mjs"
+    "check": "npm run build && node tools/check.mjs && node tools/gripcheck.mjs && node tools/selftest.mjs"
   },
   "engines": {
     "node": ">=18"
