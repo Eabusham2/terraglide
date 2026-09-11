@@ -42,6 +42,17 @@ const GRIP_RISE = -0.15;
  * round something rather than beside it.
  */
 const GRIP_FILL = 1.0;
+/**
+ * Whether to press a groove into the fist for the firework to lie in.
+ *
+ * Off, and it should stay off until the firework is thinner. The groove works
+ * - it is the only thing that can stop a rigid tube clipping through a fist
+ * with no hole in it - but it works by pushing every vertex inside the tube
+ * out to the tube's surface, and this tube is 94 mm across against a fist 94
+ * mm across. Grooving half a hand away does not leave a hand. At a third of
+ * that width it would be a groove; at this width it is a demolition.
+ */
+const GRIP_GROOVE = false;
 /** How far out of the fist it sits, as a share of the fist's width. */
 const GRIP_OUT = 0.0;
 /** How far behind the fist's axis it sits, as a share of the fist's width. */
@@ -1697,7 +1708,92 @@ export class Avatar {
     this.scanFace = this.makeScanFace(this.scanSkins);
     named.head.add(this.scanFace);
     this.scanGrip = this.handOfTheScan();
+    if (GRIP_GROOVE) this.cutTheGrip();
     return group;
+  }
+
+  /**
+   * Cut a groove in the fist for the firework to sit in.
+   *
+   * This is the thing six rounds of moving the rocket about could never fix.
+   * That hand is a closed fist of solid mesh with no hole in it, so a firework
+   * placed anywhere that *looks* held has to pass through skin: it vanishes
+   * into the knuckles and comes out the other side, which is "it's going
+   * through his hand", and it is true of every position, angle and size. The
+   * only placement that does not clip is one that touches nothing, and that
+   * one floats. There is no third option while the hand is solid.
+   *
+   * So the hand gets the hole. Every vertex of the fist that lies inside the
+   * tube is pushed straight out to its surface, which presses a channel the
+   * exact shape of the firework into the closed hand — the fingers then wrap a
+   * groove instead of being run through by a stick. No triangle is added or
+   * removed, nothing is unwelded, and the mesh stays as closed as it was.
+   *
+   * It is cut once, at load, in the bind pose, against the rest attitude. That
+   * is the attitude the firework is carried at while standing, which is the
+   * only time anyone is looking at the hand closely; while a rocket burns the
+   * arm is out in front and the tube is aimed along the flight path anyway.
+   */
+  cutTheGrip() {
+    const arm = this.scanBones?.armR;
+    const bones = this.scanBoneList ?? [];
+    const which = bones.indexOf(arm);
+    if (!this.scanGrip || which < 0 || !this.scanFist) return;
+    const shoulder = SCAN_JOINTS.find((joint) => joint.name === 'armR').at;
+    // Where the tube is, in the same mesh coordinates the vertices are in: the
+    // grip is measured in the shoulder's frame, and at rest that frame is a
+    // translation.
+    const foot = _carry.set(
+      this.scanGrip.x + shoulder[0],
+      this.scanGrip.y + shoulder[1],
+      this.scanGrip.z + shoulder[2],
+    ).clone();
+    const rest = Math.cos(HELD_REST[0]);
+    const along = new THREE.Vector3(
+      rest * Math.sin(HELD_REST[1]), Math.sin(HELD_REST[0]), -rest * Math.cos(HELD_REST[1]),
+    ).normalize();
+    // A little wider than the tube, so the groove clears it rather than
+    // touching it everywhere and z-fighting along the whole length.
+    const bore = 0.026 * clamp((this.scanFist / BUILT_FIST) * GRIP_FILL, 1, 3) * 1.06;
+    const spot = new THREE.Vector3();
+    const off = new THREE.Vector3();
+    let cut = 0;
+    for (const mesh of this.scanSkins) {
+      const place = mesh.geometry.getAttribute('position');
+      const index = mesh.geometry.getAttribute('skinIndex');
+      const weight = mesh.geometry.getAttribute('skinWeight');
+      for (let v = 0; v < place.count; v += 1) {
+        let mine = false;
+        for (let k = 0; k < 4; k += 1) {
+          if (index.getComponent(v, k) === which && weight.getComponent(v, k) >= 0.7) mine = true;
+        }
+        if (!mine) continue;
+        spot.fromBufferAttribute(place, v);
+        off.subVectors(spot, foot);
+        const down = off.dot(along);
+        // Only along the length that is actually in the hand, and a little
+        // past each end so the groove has an opening rather than a blind hole.
+        if (down < -0.14 || down > 0.14) continue;
+        off.addScaledVector(along, -down);
+        const out = off.length();
+        if (out >= bore || out < 1e-6) continue;
+        off.multiplyScalar(bore / out);
+        place.setXYZ(v, foot.x + along.x * down + off.x,
+          foot.y + along.y * down + off.y,
+          foot.z + along.z * down + off.z);
+        cut += 1;
+      }
+      /*
+        Positions only. Recomputing the normals afterwards is the obvious next
+        line and it wrecks the figure: this geometry has split vertices along
+        every texture seam, so computeVertexNormals hands back a faceted hand
+        and a faceted forearm, which looked exactly like the groove had torn
+        the mesh. The groove is a couple of millimetres deep and the normals it
+        leaves behind are near enough.
+      */
+      if (cut) place.needsUpdate = true;
+    }
+    this.scanGripCut = cut;
   }
 
   /**
