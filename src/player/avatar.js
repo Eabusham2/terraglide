@@ -255,7 +255,7 @@ const ROCKET_AXIS = new THREE.Vector3(0, 1, 0);
  * three-quarter angle nobody plays at. Carried across the hand it reads from
  * everywhere, and it snaps to the aim as soon as one is lit.
  */
-const HELD_REST = [0.12, -0.60];
+const HELD_REST = [0.30, 0.40];
 /** Scratch for that attitude and for the blend into the aimed one. */
 const _carry = new THREE.Vector3();
 const _carryQuat = new THREE.Quaternion();
@@ -2651,7 +2651,7 @@ export class Avatar {
       // Along the fist's own long axis where that has been measured, which is
       // the direction the fingers curl around, rather than a world angle
       // guessed at and then argued about.
-      const turn = this.scanGripTurn ?? HELD_REST[1];
+      const turn = HELD_REST[1];
       const rest = Math.cos(HELD_REST[0]);
       _carry.set(
         rest * Math.sin(yaw + turn),
