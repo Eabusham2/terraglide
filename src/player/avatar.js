@@ -36,14 +36,14 @@ const SCAN_ROCKET_FOOT = 0.105;
  * fingertips to wrist. A closed hand holds a stick through the ring its curled
  * fingers make, which is above the middle of the fist.
  */
-const GRIP_RISE = -0.15;
+const GRIP_RISE = 0.15;
 /**
  * And how much wider than the fist the tube is drawn, so the fingers close
  * round something rather than beside it.
  */
 const GRIP_FILL = 1.0;
 /** How far out of the fist it sits, as a share of the fist's width. */
-const GRIP_OUT = -0.10;
+const GRIP_OUT = 0.0;
 /** How far behind the fist's axis it sits, as a share of the fist's width. */
 const GRIP_BACK = 0.0;
 /** White, for lightening the slot colour before it tints a photograph. */
@@ -255,7 +255,7 @@ const ROCKET_AXIS = new THREE.Vector3(0, 1, 0);
  * three-quarter angle nobody plays at. Carried across the hand it reads from
  * everywhere, and it snaps to the aim as soon as one is lit.
  */
-const HELD_REST = [0.35, 0.30];
+const HELD_REST = [0.35, -0.60];
 /** Scratch for that attitude and for the blend into the aimed one. */
 const _carry = new THREE.Vector3();
 const _carryQuat = new THREE.Quaternion();

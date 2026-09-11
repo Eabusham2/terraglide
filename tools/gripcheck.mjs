@@ -28,6 +28,12 @@
  *   through the knuckles             0.19   gap from the side
  *   down through the fingers         0.26   gripped from every angle
  *
+ * It is NOT in npm run check and should not be trusted over a look at the
+ * renders. Twice it agreed with a placement that six cameras showed was wrong:
+ * a number that counts how much of a solid fist a tube passes through cannot
+ * tell you whether the result looks like a hand holding something. It is here
+ * as a quick reading, not as a verdict.
+ *
  *   node tools/gripcheck.mjs
  */
 import { createServer } from 'node:http';
