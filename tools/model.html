@@ -255,7 +255,56 @@ const POSES = {
   'stand-back': { player: {}, camera: [0, 1.4, 3.6], look: [0, 1.0, 0] },
 };
 
-window.__fist = () => ({ fist: avatar.scanFist ?? null, scale: avatar.rocket?.scale.x ?? null });
+/*
+  Does the firework actually touch the hand?
+
+  Looking at a picture and deciding "that reads as held" has now been wrong
+  four times in a row. This measures it: the closest any vertex of the fist
+  comes to the rocket's own axis, against the radius of the tube. Less than the
+  radius and the hand is inside the tube - it is gripped. More, and there is
+  daylight between them, which is what "flying" looks like.
+*/
+window.__grip = () => {
+  const skin = avatar.scanSkins?.[0];
+  if (!skin || !avatar.rocket) return null;
+  const arm = avatar.scanBones?.armR;
+  const armIndex = (avatar.scanBoneList ?? []).indexOf(arm);
+  const geo = skin.geometry;
+  const idx = geo.getAttribute('skinIndex');
+  const wt = geo.getAttribute('skinWeight');
+  const held = [];
+  for (let v = 0; v < idx.count; v += 1) {
+    for (let k = 0; k < 4; k += 1) {
+      if (idx.getComponent(v, k) !== armIndex) continue;
+      if (wt.getComponent(v, k) < 0.7) continue;
+      held.push(v);
+      break;
+    }
+  }
+  if (!held.length || armIndex < 0) return { held: held.length, armIndex };
+  const world = new THREE.Vector3();
+  const points = held.map((v) => {
+    skin.getVertexPosition(v, world);
+    return skin.localToWorld(world.clone());
+  });
+  points.sort((a, b) => a.y - b.y);
+  const fist = points.slice(0, Math.max(10, Math.round(points.length * 0.33)));
+  const foot = avatar.rocket.getWorldPosition(new THREE.Vector3());
+  const tip = avatar.rocket.localToWorld(new THREE.Vector3(0, 1, 0)).sub(foot).normalize();
+  let nearest = Infinity;
+  for (const p of fist) {
+    const along = Math.max(0, Math.min(0.4, p.clone().sub(foot).dot(tip)));
+    const on = foot.clone().addScaledVector(tip, along);
+    nearest = Math.min(nearest, p.distanceTo(on));
+  }
+  return {
+    fist: avatar.scanFist, scale: avatar.rocket.scale.x,
+    radius: 0.026 * avatar.rocket.scale.x,
+    nearest, gripped: nearest < 0.026 * avatar.rocket.scale.x,
+  };
+};
+
+window.__fist = () => window.__grip();
 
 window.__pose = (name) => {
   const spec = POSES[name];
