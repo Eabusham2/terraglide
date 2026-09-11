@@ -255,7 +255,7 @@ const ROCKET_AXIS = new THREE.Vector3(0, 1, 0);
  * three-quarter angle nobody plays at. Carried across the hand it reads from
  * everywhere, and it snaps to the aim as soon as one is lit.
  */
-const HELD_REST = [0.30, 0.40];
+const HELD_REST = [0.45, 0.15];
 /** Scratch for that attitude and for the blend into the aimed one. */
 const _carry = new THREE.Vector3();
 const _carryQuat = new THREE.Quaternion();

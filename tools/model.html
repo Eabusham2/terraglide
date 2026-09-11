@@ -248,6 +248,10 @@ const POSES = {
   // tried here was down the arm with the fist against a black trouser leg,
   // which is the hardest possible read of where a dark object is relative to a
   // hand; four were rendered and compared before these two.
+  // The hand alone, from under and from in front of the palm, to see whether
+  // that fist has any opening in it at all.
+  'hand-under': { player: { selectedSlot: 4 }, camera: [0.34, 0.10, -0.55], look: [0.30, 0.88, 0] },
+  'hand-palm': { player: { selectedSlot: 4 }, camera: [1.05, 0.88, 0.55], look: [0.30, 0.88, 0] },
   'grip-front': { player: { selectedSlot: 4 }, camera: [0.28, 0.92, -1.15], look: [0.28, 0.92, 0] },
   // Round the hand, because judging this from one camera has been wrong every
   // time: a tube that overlaps the fingers from the front can be a tube
