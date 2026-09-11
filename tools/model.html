@@ -339,12 +339,29 @@ window.__grip = () => {
   }
   return {
     fist: avatar.scanFist, scale: avatar.rocket.scale.x, radius,
+    middle: middle.toArray(),
     nearest, spread, centreGap, offCentre: centreGap / spread,
     through: inside / fist.length,
   };
 };
 
 window.__fist = () => window.__grip();
+
+/*
+  Square on to the FIST, not to the firework.
+
+  __facingTip follows the nose, so when the firework is nudged the camera is
+  nudged with it and the picture barely changes - the body slides instead.
+  This one is anchored to the hand, which does not move, so two shots taken
+  before and after a nudge can actually be compared.
+*/
+window.__atFist = (dist = 0.9, lift = 0.0) => {
+  const middle = new THREE.Vector3().fromArray(window.__grip().middle);
+  camera.position.set(middle.x, middle.y + lift, middle.z - dist);
+  camera.lookAt(middle);
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+};
 
 /*
   Sighted straight down the firework.
