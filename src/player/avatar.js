@@ -2013,7 +2013,16 @@ export class Avatar {
       // little of its tube and a guide stick below the fist, which is right
       // for a hand that is modelled open; this fist is a closed lump with no
       // hole in it, so anything below the grip comes out through the palm.
-      mesh.position.set(-centre.x * scale, -box.min.y * scale, -centre.z * scale);
+      // Its foot sits *below* the grip, so the fist is around the middle of it
+      // with a tail showing underneath. That is what makes a closed hand read
+      // as holding something rather than balancing it: an object with the hand
+      // in the middle of it is held; an object with the hand at one end of it
+      // is resting on the hand.
+      mesh.position.set(
+        -centre.x * scale,
+        -box.min.y * scale - ROCKET_GRIP,
+        -centre.z * scale,
+      );
       const held = new THREE.Group();
       held.add(mesh);
       this.rocketModel = held;
