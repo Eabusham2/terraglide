@@ -74,7 +74,7 @@ await page.waitForFunction(() => window.__ready === true, null, { timeout: 60000
 const views = ['glide-behind', 'glide-above', 'glide-side', 'glide-front', 'glide-below',
   'rocket-side', 'rocket-front', 'wings-plan', 'wings-astern', 'walk',
   'hold-1', 'hold-2', 'hold-3', 'hold-4', 'hold-5', 'hold-whole',
-  'grip-front', 'grip-front-wide', 'hand-under', 'hand-palm',
+  'grip-front', 'grip-front-wide', 'grip-square', 'hand-under', 'hand-palm',
   'grip-r0', 'grip-r45', 'grip-r90', 'grip-r135', 'grip-r180', 'grip-r270',
   'grip-rup', 'grip-rdn',
   'stand-front', 'stand-side', 'stand-back'];
