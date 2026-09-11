@@ -30,7 +30,9 @@ const GRIP_RISE = 0.20;
  * And how much wider than the fist the tube is drawn, so the fingers close
  * round something rather than beside it.
  */
-const GRIP_FILL = 1.3;
+const GRIP_FILL = 1.0;
+/** How far out of the fist it sits, as a share of the fist's width. */
+const GRIP_OUT = 0.3;
 /** White, for lightening the slot colour before it tints a photograph. */
 const WHITE_TINT = new THREE.Color(0xffffff);
 /** Scratch, so measuring the scan's fist allocates nothing. */
@@ -1381,6 +1383,12 @@ export class Avatar {
     const tips = fist[0][0];
     const wrist = fist[fist.length - 1][0];
     grip.y += (wrist - tips) * GRIP_RISE;
+    // And out of the hand, not through it. This fist is a closed lump of mesh
+    // with no hole in it, so anything put at its centre comes out the other
+    // side - the tail poking through the palm. Held against the outside of the
+    // fingers instead, which is where a hand that cannot open has to hold
+    // something.
+    grip.x += this.scanFist * GRIP_OUT;
     // Into the shoulder's frame, where the rocket lives. At rest that joint
     // has no rotation, so this is a subtraction.
     const shoulder = SCAN_JOINTS.find((joint) => joint.name === 'armR').at;
@@ -1994,11 +2002,11 @@ export class Avatar {
       const centre = box.getCenter(new THREE.Vector3());
       const scale = ROCKET_LEN / Math.max(size.y, 1e-6);
       mesh.scale.setScalar(scale);
-      mesh.position.set(
-        -centre.x * scale,
-        -box.min.y * scale - ROCKET_GRIP,
-        -centre.z * scale,
-      );
+      // Its foot sits *at* the grip, not below it. The built rocket hangs a
+      // little of its tube and a guide stick below the fist, which is right
+      // for a hand that is modelled open; this fist is a closed lump with no
+      // hole in it, so anything below the grip comes out through the palm.
+      mesh.position.set(-centre.x * scale, -box.min.y * scale, -centre.z * scale);
       const held = new THREE.Group();
       held.add(mesh);
       this.rocketModel = held;
