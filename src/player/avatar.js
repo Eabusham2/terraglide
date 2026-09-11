@@ -21,6 +21,17 @@ const ROCKET_GRIP = 0.03;
  */
 const BUILT_FIST = 0.052;
 /**
+ * How far the scanned firework's foot hangs below the grip.
+ *
+ * It is not ROCKET_GRIP, which is the built one's: that rocket is a plain tube
+ * and a stick, and three centimetres of it below the fist is tail. The scanned
+ * one has *fins* at its base, and with the base three centimetres down those
+ * fins sat exactly at finger height and stuck out through the fingers. Far
+ * enough down that the fins clear the hand entirely and the part inside the
+ * fist is plain tube.
+ */
+const SCAN_ROCKET_FOOT = 0.105;
+/**
  * How far up the fist the grip sits, as a share of the fist's own height from
  * fingertips to wrist. A closed hand holds a stick through the ring its curled
  * fingers make, which is above the middle of the fist.
@@ -2020,7 +2031,7 @@ export class Avatar {
       // is resting on the hand.
       mesh.position.set(
         -centre.x * scale,
-        -box.min.y * scale - ROCKET_GRIP,
+        -box.min.y * scale - SCAN_ROCKET_FOOT,
         -centre.z * scale,
       );
       const held = new THREE.Group();
