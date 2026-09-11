@@ -255,7 +255,7 @@ const ROCKET_AXIS = new THREE.Vector3(0, 1, 0);
  * three-quarter angle nobody plays at. Carried across the hand it reads from
  * everywhere, and it snaps to the aim as soon as one is lit.
  */
-const HELD_REST = [0.35, -0.60];
+const HELD_REST = [0.12, -0.60];
 /** Scratch for that attitude and for the blend into the aimed one. */
 const _carry = new THREE.Vector3();
 const _carryQuat = new THREE.Quaternion();
@@ -1407,6 +1407,27 @@ export class Avatar {
     // thing read as held is the fingers crossing *in front of* it. The hand's
     // knuckles face forward, so the tube goes back.
     grip.z += this.scanFist * GRIP_BACK;
+    /*
+      And which way the hand is set up to hold something.
+
+      Picking a world angle for the firework to lie at is guessing: it came out
+      cutting across the fingers on the diagonal, which is not how a hand holds
+      a stick. A closed fist is longer in one direction than the other, and that
+      long direction *is* the channel the fingers curl around. So measure it -
+      the dominant horizontal axis of the fist's own vertices, which is one
+      line of covariance - and lay the firework along that.
+    */
+    let sxx = 0;
+    let sxz = 0;
+    let szz = 0;
+    const midX = fist.reduce((sum, v) => sum + v[1], 0) / fist.length;
+    const midZ = fist.reduce((sum, v) => sum + v[2], 0) / fist.length;
+    for (const [, x, z] of fist) {
+      sxx += (x - midX) * (x - midX);
+      sxz += (x - midX) * (z - midZ);
+      szz += (z - midZ) * (z - midZ);
+    }
+    this.scanGripTurn = 0.5 * Math.atan2(2 * sxz, sxx - szz);
     // Into the shoulder's frame, where the rocket lives. At rest that joint
     // has no rotation, so this is a subtraction.
     const shoulder = SCAN_JOINTS.find((joint) => joint.name === 'armR').at;
@@ -2627,11 +2648,15 @@ export class Avatar {
     // firework and nosed over, and it comes back to the hand.
     const lit = clamp(this.scanReach ?? 0, 0, 1);
     if (lit < 0.999) {
+      // Along the fist's own long axis where that has been measured, which is
+      // the direction the fingers curl around, rather than a world angle
+      // guessed at and then argued about.
+      const turn = this.scanGripTurn ?? HELD_REST[1];
       const rest = Math.cos(HELD_REST[0]);
       _carry.set(
-        rest * Math.sin(yaw + HELD_REST[1]),
+        rest * Math.sin(yaw + turn),
         Math.sin(HELD_REST[0]),
-        -rest * Math.cos(yaw + HELD_REST[1]),
+        -rest * Math.cos(yaw + turn),
       );
       _carryQuat.setFromUnitVectors(ROCKET_AXIS, _carry);
       this._aimQuat.slerpQuaternions(_carryQuat, this._aimQuat, lit);
