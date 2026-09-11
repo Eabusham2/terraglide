@@ -346,6 +346,38 @@ window.__grip = () => {
 
 window.__fist = () => window.__grip();
 
+/*
+  Sighted straight down the firework.
+
+  "Lined up with the tip" is not a camera placed near the tip - that is just a
+  close-up taken from wherever the camera happened to be, which is what the
+  last one was. It is a camera on the rocket's own axis, ahead of the nose,
+  looking back along it. Then the tube points at the lens and any lean shows as
+  the tail sticking out to one side of the nose rather than as foreshortening.
+*/
+window.__alongRocket = (back = 0.9, aim = 0.0) => {
+  const grip = avatar.rocket.getWorldPosition(new THREE.Vector3());
+  const dir = avatar.rocket.localToWorld(new THREE.Vector3(0, 1, 0)).sub(grip).normalize();
+  const tip = grip.clone().addScaledVector(dir, 0.15);
+  camera.position.copy(tip).addScaledVector(dir, back);
+  camera.lookAt(grip.clone().addScaledVector(dir, aim));
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+};
+
+// Dead in front of the firework's nose: the camera sits on the tip's own
+// height and side-to-side line, square to the figure, so the tip is in the
+// middle of the frame rather than off to one edge.
+window.__facingTip = (dist = 1.0, lift = 0.0) => {
+  const grip = avatar.rocket.getWorldPosition(new THREE.Vector3());
+  const dir = avatar.rocket.localToWorld(new THREE.Vector3(0, 1, 0)).sub(grip).normalize();
+  const tip = grip.clone().addScaledVector(dir, 0.15);
+  camera.position.set(tip.x, tip.y + lift, tip.z - dist);
+  camera.lookAt(tip);
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+};
+
 window.__pose = (name) => {
   const spec = POSES[name];
   const player = makePlayer(spec.player);
