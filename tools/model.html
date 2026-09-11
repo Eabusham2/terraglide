@@ -244,6 +244,12 @@ const POSES = {
   'hold-5': { player: { selectedSlot: 4 }, camera: [1.15, 1.0, -1.15], look: [0.28, 0.86, 0] },
   // And the whole figure holding one, so the hand reads in context.
   'hold-whole': { player: { selectedSlot: 2 }, camera: [2.2, 1.25, -2.4], look: [0, 0.95, 0] },
+  // Square on, framed on the hand and on the whole figure. The first angle
+  // tried here was down the arm with the fist against a black trouser leg,
+  // which is the hardest possible read of where a dark object is relative to a
+  // hand; four were rendered and compared before these two.
+  'grip-front': { player: { selectedSlot: 4 }, camera: [0.28, 0.92, -1.15], look: [0.28, 0.92, 0] },
+  'grip-front-wide': { player: { selectedSlot: 4 }, camera: [0, 1.05, -2.6], look: [0, 1.0, 0] },
   'stand-front': { player: {}, camera: [0, 1.1, -3.6], look: [0, 1.0, 0] },
   'stand-side': { player: {}, camera: [3.6, 1.1, 0], look: [0, 1.0, 0] },
   'stand-back': { player: {}, camera: [0, 1.4, 3.6], look: [0, 1.0, 0] },

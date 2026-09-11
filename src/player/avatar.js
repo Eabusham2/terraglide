@@ -25,7 +25,12 @@ const BUILT_FIST = 0.052;
  * fingertips to wrist. A closed hand holds a stick through the ring its curled
  * fingers make, which is above the middle of the fist.
  */
-const GRIP_RISE = 0.45;
+const GRIP_RISE = 0.20;
+/**
+ * And how much wider than the fist the tube is drawn, so the fingers close
+ * round something rather than beside it.
+ */
+const GRIP_FILL = 1.3;
 /** White, for lightening the slot colour before it tints a photograph. */
 const WHITE_TINT = new THREE.Color(0xffffff);
 /** Scratch, so measuring the scan's fist allocates nothing. */
@@ -222,6 +227,23 @@ const WEAVE_MEAN = 232;
  */
 const TOO_CLOSE_M = 0.12;
 const ROCKET_AXIS = new THREE.Vector3(0, 1, 0);
+/**
+ * How a firework is carried when it is not pushing you: down and out from the
+ * fist, as [pitch, yaw out from the body] in radians.
+ *
+ * Aiming it along your look is right the moment it fires - thrust runs that
+ * way, and a rocket about to throw you at the sky pointing off to one side is
+ * the fault that put this rule in - but it is wrong for a thing merely being
+ * held. Standing still and facing a camera, "along your look" is *at the
+ * camera*, so the whole firework foreshortens into a blob: end-on from the
+ * front, end-on from a chase camera behind, and only ever broadside from a
+ * three-quarter angle nobody plays at. Carried across the hand it reads from
+ * everywhere, and it snaps to the aim as soon as one is lit.
+ */
+const HELD_REST = [-0.95, 0.60];
+/** Scratch for that attitude and for the blend into the aimed one. */
+const _carry = new THREE.Vector3();
+const _carryQuat = new THREE.Quaternion();
 /**
  * Where the held one points, in view space.
  *
@@ -2050,8 +2072,14 @@ export class Avatar {
       // Sized to whichever hand it is in. BUILT_FIST is what the rocket was
       // drawn to fill; the scan's own fist is measured in handOfTheScan.
       const fits = inScanHand && this.scanFist
-        ? clamp(this.scanFist / BUILT_FIST, 1, 3) : 1;
-      if (this.rocket.scale.x !== fits) this.rocket.scale.setScalar(fits);
+        ? clamp((this.scanFist / BUILT_FIST) * GRIP_FILL, 1, 3) : 1;
+      // Girth to the fist, length by rather less. Scaled evenly, filling a
+      // hand 2.3 times the built one made the firework 44 cm long - a sword,
+      // not something you put in a pocket. The square root keeps it thick
+      // enough to be gripped and about 29 cm long, and a firework is allowed
+      // to be stout.
+      const along = Math.sqrt(fits);
+      if (this.rocket.scale.x !== fits) this.rocket.scale.set(fits, along, fits);
     }
     const useModel = !!this.model && settings.get('detailedPlayerModel') && !this.firstPerson;
     if (this.model) this.model.visible = useModel;
@@ -2551,13 +2579,28 @@ export class Avatar {
    * there "along your look" is simply forward out of the screen.
    */
   aimRocket(player) {
+    const yaw = player.yaw ?? 0;
     const cp = Math.cos(player.pitch ?? 0);
     this._aim.set(
-      cp * Math.sin(player.yaw ?? 0),
+      cp * Math.sin(yaw),
       Math.sin(player.pitch ?? 0),
-      -cp * Math.cos(player.yaw ?? 0),
+      -cp * Math.cos(yaw),
     );
     this._aimQuat.setFromUnitVectors(ROCKET_AXIS, this._aim);
+    // Only while it is pushing you. The rest of the time it is carried, on the
+    // same signal that puts the arm forward — three seconds clear of the last
+    // firework and nosed over, and it comes back to the hand.
+    const lit = clamp(this.scanReach ?? 0, 0, 1);
+    if (lit < 0.999) {
+      const rest = Math.cos(HELD_REST[0]);
+      _carry.set(
+        rest * Math.sin(yaw + HELD_REST[1]),
+        Math.sin(HELD_REST[0]),
+        -rest * Math.cos(yaw + HELD_REST[1]),
+      );
+      _carryQuat.setFromUnitVectors(ROCKET_AXIS, _carry);
+      this._aimQuat.slerpQuaternions(_carryQuat, this._aimQuat, lit);
+    }
     this.root.updateMatrixWorld(true);
     // Whatever it is hanging from, which is the built shoulder or the scan's
     // own arm bone depending on which body is on screen — not the built
