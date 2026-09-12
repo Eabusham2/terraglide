@@ -377,7 +377,7 @@ const BOOT_HEIGHT = 0.05;
  * because nothing else is anywhere near it, and the collarbone and the chest
  * get the shoulder back. A bend at the shoulder then bends the shoulder.
  */
-const SCAN_ARM_SETBACK = 0.0;
+const SCAN_ARM_SETBACK = 0.010;
 
 const SCAN_JOINTS = [
   {
