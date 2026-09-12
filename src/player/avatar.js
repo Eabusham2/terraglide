@@ -353,6 +353,24 @@ const BOOT_HEIGHT = 0.05;
  * under its chest. Turning about the middle changes where it looks without
  * moving where it is.
  */
+/**
+ * How far the arm joints are set back from the skin they claim, in metres of
+ * walking over the mesh.
+ *
+ * A vertex goes to whichever joint's seed patch is nearest across the surface,
+ * and from the shoulder seam the walk out along the sleeve and the walk in
+ * across the chest are about the same length - so the shoulder joint took a
+ * wedge of the jacket front with it, halfway to the sternum. Standing that is
+ * invisible. Putting the arm up to fly is a ninety-degree turn on that joint,
+ * and it dragged the chest and the collar up into the armpit with the sleeve.
+ *
+ * Adding a setback to the arms' distances alone moves the boundary out along
+ * the arm without moving any other boundary: the arm still owns the arm,
+ * because nothing else is anywhere near it, and the collarbone and the chest
+ * get the shoulder back. A bend at the shoulder then bends the shoulder.
+ */
+const SCAN_ARM_SETBACK = 0.055;
+
 const SCAN_JOINTS = [
   {
     name: 'spine',
@@ -397,10 +415,10 @@ const SCAN_JOINTS = [
     spans: [[[0.04, 0.80, 0], [0.115, 0.79, 0]]], side: 1,
     seed: (x, y) => x > 0.05 && x < 0.13 && y > 0.76 && y < 0.86 },
   { name: 'armL', at: [-0.115, 0.79, 0], parent: 'clavL',
-    spans: [[[-0.125, 0.72, 0], [-0.13, 0.42, 0]]], side: -1,
+    spans: [[[-0.125, 0.72, 0], [-0.13, 0.42, 0]]], side: -1, setback: SCAN_ARM_SETBACK,
     seed: (x, y) => x < -0.145 && x > -0.24 && y > 0.44 && y < 0.70 },
   { name: 'armR', at: [0.115, 0.79, 0], parent: 'clavR',
-    spans: [[[0.125, 0.72, 0], [0.13, 0.42, 0]]], side: 1,
+    spans: [[[0.125, 0.72, 0], [0.13, 0.42, 0]]], side: 1, setback: SCAN_ARM_SETBACK,
     seed: (x, y) => x > 0.145 && x < 0.24 && y > 0.44 && y < 0.70 },
   { name: 'legL', at: [-0.051, HIP_Y, 0], spans: [[[-0.051, HIP_Y - 0.04, 0], [-0.055, 0.02, 0]]], side: -1,
     seed: (x, y) => x < -0.015 && x > -0.13 && y < 0.38 },
@@ -1867,7 +1885,7 @@ export class Avatar {
     for (let n = 0; n < nodes; n += 1) {
       let total = 0;
       for (let j = 0; j < joints; j += 1) {
-        const d = reach[j][n];
+        const d = reach[j][n] + (SCAN_JOINTS[j].setback ?? 0);
         const w = Number.isFinite(d) ? 1 / Math.pow(d + SKIN_SOFTEN, SKIN_FALLOFF) : 0;
         raw[n * joints + j] = w;
         total += w;
@@ -2789,32 +2807,52 @@ export class Avatar {
       );
       _carryQuat.setFromUnitVectors(ROCKET_AXIS, _carry);
       /*
-        Carried: undo the arm as it stands STILL, not as it stands now.
+        Carried: one grip, kept.
 
         Undoing the joint outright pins the firework to a fixed world angle,
         and a fixed world angle is not a grip. Walking swings the arm about
-        0.8 radians front to back, so the hand turned through the stride while
-        the firework did not, and the fingers slid round the tube twice a step
-        — the same hold that reads as gripped standing reads as a hand opening
-        and closing on it walking.
+        0.8 radians front to back and a glide lays the whole body down through
+        seventy, and through both of those the hand turned while the firework
+        did not: measured in the hand's own frame the tube rolled 62 degrees
+        across one stride and sat 110 degrees off standing in a glide. The
+        hold that reads as gripped standing read as a hand opening and closing
+        on it walking, and as a stick lying across the fingers gliding.
 
-        So the turn is undone against the joint's resting rotation instead,
-        which leaves whatever the arm is doing on top of it: the firework
-        rides the hand, and the grip standing and the grip mid-stride are the
-        same grip. On the scan that resting rotation is the chest's, because
-        the collarbone and the shoulder are both set from the built arm's
-        swing and are both identity when it is not swinging; on the built
-        figure it is simply the shoulder's parent.
+        The firework is a child of the joint it is held by, so its local turn
+        IS the grip: hold that number still and the hold is the same hold
+        wherever the arm goes. It is measured rather than written down, once,
+        the first time this runs on a figure standing upright and not
+        mid-stride — which is the pose the grip was tuned against and the only
+        one that can be read off the rig rather than guessed at.
 
-        A glide is untouched by this. There the arms are left exactly as the
-        generator built them - which is to say both joints are identity - so
-        the resting rotation and the live one are the same rotation and this
-        cancels out to what it did before.
+        Until that frame arrives it is worked out live against the joint's
+        resting rotation, which comes to the same answer standing; the cached
+        one is what carries it into a walk and a glide.
       */
-      const still = (this.scanBones && holder === this.scanBones.armR
-        ? this.scanBones.clavR?.parent : holder.parent) ?? holder;
-      still.getWorldQuaternion(_restHold);
-      _carryLocal.copy(_restHold).invert().multiply(_carryQuat);
+      // Per holder, because the built shoulder and the scan's arm bone are two
+      // different frames: a grip measured against one is nonsense against the
+      // other, and the detailed model can be switched off mid-game.
+      if (this._gripRestFor !== holder) {
+        this._gripRest = null;
+        this._gripRestFor = holder;
+      }
+      if (!this._gripRest && this.glideBlend < 0.02
+        && Math.abs(this.armR.pivot.rotation.x) < 0.02) {
+        holder.getWorldQuaternion(_restHold);
+        this._gripRest = _restHold.clone().invert().multiply(_carryQuat);
+      }
+      if (this._gripRest) {
+        _carryLocal.copy(this._gripRest);
+      } else {
+        // On the scan the resting rotation is the chest's, because the
+        // collarbone and the shoulder are both set from the built arm's swing
+        // and are both identity when it is not swinging; on the built figure
+        // it is simply the shoulder's parent.
+        const still = (this.scanBones && holder === this.scanBones.armR
+          ? this.scanBones.clavR?.parent : holder.parent) ?? holder;
+        still.getWorldQuaternion(_restHold);
+        _carryLocal.copy(_restHold).invert().multiply(_carryQuat);
+      }
       this.rocket.quaternion.slerpQuaternions(_carryLocal, _aimLocal, lit);
     }
 
