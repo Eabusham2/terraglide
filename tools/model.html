@@ -474,18 +474,31 @@ window.__facingTail = (dist = 0.9, lift = 0.0) => {
   rather than as foreshortening, and the fist shows as what it is or is not
   wrapped round.
 */
-window.__alongTail = (back = 0.6, aim = 0.15) => {
+window.__alongTail = (back = 0.6, aim = 0.15, fov = 45, near = 0.01) => {
   const ends = window.__ends();
   const dir = new THREE.Vector3().fromArray(ends.dir);
   const tail = new THREE.Vector3().fromArray(ends.tail);
   camera.position.copy(tail).addScaledVector(dir, -back);
   camera.lookAt(tail.clone().addScaledVector(dir, aim));
+  // Two ways to see more of it, because simply standing further back does not
+  // work: a quarter of a metre behind the tail the camera is already inside
+  // the folded wing, and everything past that is one grey surface. Either
+  // widen the lens from where it still fits, or stand back and clip the wing
+  // off with the near plane - it is between the lens and the hand, so a near
+  // plane set past it removes it and leaves the firework alone.
+  camera.fov = fov;
+  camera.near = near;
   camera.updateProjectionMatrix();
   renderer.render(scene, camera);
 };
 
 window.__pose = (name) => {
   const spec = POSES[name];
+  // Back to the standard lens: __alongTail can leave a wide one and a near
+  // plane a third of a metre out, and a pose shot taken through those is not
+  // the pose shot anyone means.
+  camera.fov = 45;
+  camera.near = 0.01;
   const player = makePlayer(spec.player);
   // Settle, so the damped shoulders, glide blend and head are where they end up
   // rather than one frame into getting there.
