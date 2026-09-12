@@ -385,6 +385,43 @@ window.__fist = () => window.__grip();
   turn is degrees: 0 is the front, 90 the figure's right, 180 the back. Saves
   a named pose per angle when what is wanted is the same pose seen round.
 */
+/*
+  The whole figure, framed to fill the picture, from anywhere round it.
+
+  __around aims at a fixed point on the spot the figure stands on, which is
+  right for standing and wrong for everything else: a glide slides the body
+  forward of that point and tips it, so the same numbers put the figure in a
+  corner with its legs out of shot. This measures where the body actually is
+  and backs off far enough to hold it, so one call frames a walk, a glide and
+  a climb alike.
+
+  turn is degrees round: 0 is the front, 90 the figure's right, 180 the back.
+  lift is degrees above the horizon.
+*/
+window.__frame = (turn = 0, lift = 8, pad = 1.15) => {
+  const box = new THREE.Box3();
+  avatar.root.updateMatrixWorld(true);
+  for (const mesh of (avatar.scanSkins?.length ? avatar.scanSkins : [avatar.root])) {
+    box.expandByObject(mesh);
+  }
+  if (box.isEmpty()) box.setFromObject(avatar.root);
+  const middle = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3()).length();
+  // Far enough that the longest diagonal fits the narrower half-angle, which
+  // for a square frame is either.
+  const dist = (size * pad) / (2 * Math.tan((camera.fov * Math.PI) / 360));
+  const a = (turn * Math.PI) / 180;
+  const up = (lift * Math.PI) / 180;
+  camera.position.set(
+    middle.x + Math.sin(a) * Math.cos(up) * dist,
+    middle.y + Math.sin(up) * dist,
+    middle.z - Math.cos(a) * Math.cos(up) * dist,
+  );
+  camera.lookAt(middle);
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+};
+
 window.__around = (turn = 0, dist = 3.4, height = 1.15, at = 1.0) => {
   const a = (turn * Math.PI) / 180;
   camera.position.set(Math.sin(a) * dist, height, -Math.cos(a) * dist);
