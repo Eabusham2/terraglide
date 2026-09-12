@@ -517,6 +517,47 @@ window.__markEnds = () => {
   moves with the rocket the two pictures look alike whether or not they are -
   it was 62 degrees of roll across one stride and it did not read as one.
 */
+/*
+  How much of each joint's skin some other joint has a hand on.
+
+  "The wing follows the arm" is a claim about weights, and weights are not
+  something a render can settle: a wing that moves with the arm and a wing
+  that merely lies against it look the same from every camera. This counts it
+  — for every vertex the named joint leads, how much weight the other joints
+  hold on it.
+*/
+window.__bleed = (name = 'wingR') => {
+  const names = window.__jointNames;
+  const lead = names.indexOf(name);
+  if (lead < 0) return `no joint called ${name}`;
+  const total = new Float64Array(names.length);
+  let n = 0;
+  for (const mesh of avatar.scanSkins) {
+    const index = mesh.geometry.getAttribute('skinIndex');
+    const weight = mesh.geometry.getAttribute('skinWeight');
+    for (let v = 0; v < index.count; v += 1) {
+      let best = 0;
+      let most = -1;
+      for (let k = 0; k < 4; k += 1) {
+        if (weight.getComponent(v, k) > most) {
+          most = weight.getComponent(v, k);
+          best = index.getComponent(v, k);
+        }
+      }
+      if (best !== lead) continue;
+      n += 1;
+      for (let k = 0; k < 4; k += 1) total[index.getComponent(v, k)] += weight.getComponent(v, k);
+    }
+  }
+  if (!n) return `${name}: leads nothing`;
+  return `${name}: ${n} vertices — ` + names
+    .map((other, j) => [other, total[j] / n])
+    .filter(([, share]) => share > 0.002)
+    .sort((a, b) => b[1] - a[1])
+    .map(([other, share]) => `${other} ${(share * 100).toFixed(1)}%`)
+    .join('  ');
+};
+
 window.__localGrip = () => {
   const e = new THREE.Euler().setFromQuaternion(avatar.rocket.quaternion, 'XYZ');
   const deg = (n) => (n * 180 / Math.PI).toFixed(1).padStart(7);
@@ -758,5 +799,6 @@ window.__pose('stand-front');
 // Exposed so a probe can ask what is actually being drawn, which is a
 // different question from what a screenshot looks like.
 window.__avatar = avatar;
+window.__jointNames = (await import('../src/player/avatar.js')).SCAN_JOINT_NAMES;
 window.__ready = true;
 </script>

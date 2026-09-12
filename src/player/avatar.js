@@ -66,8 +66,15 @@ const GRIP_GROOVE = false;
  *
  * In metres rather than as a share of the fist, because the asks are in
  * eighths and sixteenths of an inch and a fraction of a hand is not.
+ *
+ * The upward figure carries twelve millimetres that are not an ask. The grip
+ * is the mean of the fist's vertices, so which vertices count as fist is part
+ * of it, and clearing the long-range weight dribble (see SKIN_MINOR) let
+ * twelve more millimetres of wrist in and dropped that mean. Twelve back up
+ * puts the firework exactly where it was signed off, measured rather than
+ * eyeballed: -353.8 mm in the hand's own frame, before and after.
  */
-const GRIP_NUDGE = [0.015875, -0.011112];
+const GRIP_NUDGE = [0.027875, -0.011112];
 /** How far out of the fist it sits, as a share of the fist's width. */
 const GRIP_OUT = 0.0;
 /** How far behind the fist's axis it sits, as a share of the fist's width. */
@@ -576,6 +583,25 @@ const _swing = new THREE.Quaternion();
 const _reach = new THREE.Vector3();
 /** Passes of neighbour-averaging over the skin weights. See weighScan(). */
 const SKIN_SMOOTHING = 12;
+/**
+ * A joint with less than this share of the leader's say gets no say.
+ *
+ * Weight falls off with distance, and distance never reaches zero: out at the
+ * hand the shoulder is four times nearer than the chest, which with an inverse
+ * square leaves the chest still holding about a tenth of every knuckle. That
+ * is nothing standing. Putting the arm up to fly is ninety degrees on the
+ * shoulder against a chest that did not move, and a tenth of ninety degrees
+ * pulled the fingers apart into a splayed claw - a hand that closes on a
+ * firework standing and opens into one flying.
+ *
+ * A hand is rigid. So is a wing, which the arms held two percent of for the
+ * same reason and dragged forward by the root whenever the arm reached. What
+ * is NOT rigid is a joint boundary, where two joints genuinely share the skin
+ * and the shares are comparable - and a floor measured against the leader
+ * rather than against a fixed number leaves those alone while clearing out
+ * the long-range dribble everywhere else.
+ */
+const SKIN_MINOR = 0.25;
 
 /**
  * How far the wing lifts out of its own plane by the tip, as a fraction of
@@ -1903,6 +1929,22 @@ export class Avatar {
         }
       }
       const swap = raw; raw = next; next = swap;
+    }
+
+    // The floor, applied once the gradient is settled: anything that is only
+    // still there because distance never quite runs out goes, and what is left
+    // is renormalised so the vertex still adds to one.
+    for (let n = 0; n < nodes; n += 1) {
+      let most = 0;
+      for (let j = 0; j < joints; j += 1) most = Math.max(most, raw[n * joints + j]);
+      if (most <= 0) continue;
+      const floor = most * SKIN_MINOR;
+      let total = 0;
+      for (let j = 0; j < joints; j += 1) {
+        if (raw[n * joints + j] < floor) raw[n * joints + j] = 0;
+        total += raw[n * joints + j];
+      }
+      if (total > 0) for (let j = 0; j < joints; j += 1) raw[n * joints + j] /= total;
     }
 
     const share = new Array(joints);
