@@ -558,6 +558,8 @@ window.__markBend = (a = 'armR', b = 'clavR', thick = 0.005, spokes = 36, stand 
   const found = [];
   const here = new THREE.Vector3();
   const there = new THREE.Vector3();
+  const facing = new THREE.Vector3();
+  const other = new THREE.Vector3();
   for (const mesh of avatar.scanSkins) {
     const index = mesh.geometry.getAttribute('skinIndex');
     const weight = mesh.geometry.getAttribute('skinWeight');
@@ -582,14 +584,26 @@ window.__markBend = (a = 'armR', b = 'clavR', thick = 0.005, spokes = 36, stand 
         if ((lean[u] > 0) === (lean[v] > 0)) continue;
         mesh.getVertexPosition(u, here);
         mesh.getVertexPosition(v, there);
-        const at = here.clone().lerp(there, lean[u] / (lean[u] - lean[v]));
-        found.push(mesh.localToWorld(at));
+        const t2 = lean[u] / (lean[u] - lean[v]);
+        const at = here.clone().lerp(there, t2);
+        // The surface's own direction at that point, carried along with it.
+        // Standing the ring off the arm's AXIS instead was what left the back
+        // of it hanging in the air: over the top of a shoulder, out from the
+        // axis is not out from the skin.
+        const norm = mesh.geometry.getAttribute('normal');
+        facing.fromBufferAttribute(norm, u);
+        other.fromBufferAttribute(norm, v);
+        const way = facing.clone().lerp(other, t2).normalize();
+        found.push({
+          at: mesh.localToWorld(at),
+          way: way.applyQuaternion(mesh.getWorldQuaternion(new THREE.Quaternion())).normalize(),
+        });
       }
     }
   }
   if (found.length < 8) return `only ${found.length} points on the ${a}/${b} line`;
 
-  const middle = found.reduce((sum, p) => sum.add(p), new THREE.Vector3())
+  const middle = found.reduce((sum, p) => sum.add(p.at), new THREE.Vector3())
     .multiplyScalar(1 / found.length);
   // The arm's own long axis, which is the axis the ring goes round.
   const bone = avatar.scanBones?.[a] ?? avatar.scanBones?.armR;
@@ -598,17 +612,45 @@ window.__markBend = (a = 'armR', b = 'clavR', thick = 0.005, spokes = 36, stand 
   const across = new THREE.Vector3(0, 1, 0).cross(axis);
   if (across.lengthSq() < 1e-6) across.set(1, 0, 0);
   across.normalize();
-  const other = new THREE.Vector3().crossVectors(axis, across).normalize();
+  const sideways = new THREE.Vector3().crossVectors(axis, across).normalize();
+
+  /*
+    Crossings nowhere near the arm are thrown out before anything is averaged.
+
+    The hand-over line does not only exist on the arm: the shoulder and the
+    collarbone also share a little skin out on the folded wing that lies
+    against them, and that produced a crossing or two a hand's width off the
+    body. One of those in a spoke drags the whole spoke out with it, and the
+    ring flew off the shoulder into the air at the top.
+
+    Measured against the ring's own median distance from the arm's axis rather
+    than against a number: whatever the arm's size, a crossing half again as
+    far out as the middle of them all is not on it.
+  */
+  const OUTLIER = 1.5;
+  {
+    const off = new THREE.Vector3();
+    const reachOf = (p) => {
+      off.copy(p).sub(middle);
+      return off.addScaledVector(axis, -off.dot(axis)).length();
+    };
+    const sorted = found.map((p) => reachOf(p.at)).sort((x, y) => x - y);
+    const middling = sorted[Math.floor(sorted.length / 2)];
+    for (let i = found.length - 1; i >= 0; i -= 1) {
+      if (reachOf(found[i].at) > middling * OUTLIER) found.splice(i, 1);
+    }
+  }
 
   // Averaged into spokes: several crossings land at nearly the same angle,
   // and taking their mean is what turns a ragged outline into a ring.
   const bins = new Array(spokes).fill(null);
   for (const p of found) {
-    const off = p.clone().sub(middle);
-    const turn = Math.atan2(off.dot(other), off.dot(across));
+    const off = p.at.clone().sub(middle);
+    const turn = Math.atan2(off.dot(sideways), off.dot(across));
     const slot = (Math.floor(((turn + Math.PI) / (Math.PI * 2)) * spokes) + spokes) % spokes;
-    if (!bins[slot]) bins[slot] = { at: new THREE.Vector3(), n: 0 };
-    bins[slot].at.add(p);
+    if (!bins[slot]) bins[slot] = { at: new THREE.Vector3(), way: new THREE.Vector3(), n: 0 };
+    bins[slot].at.add(p.at);
+    bins[slot].way.add(p.way);
     bins[slot].n += 1;
   }
   const loop = bins.filter(Boolean).map((bin) => bin.at.multiplyScalar(1 / bin.n));
@@ -618,9 +660,16 @@ window.__markBend = (a = 'armR', b = 'clavR', thick = 0.005, spokes = 36, stand 
     Averaging the crossings into spokes moves each one towards the middle of
     the limb, because a shoulder is not a circle - so the smoothed loop sits
     INSIDE the arm and all you see of it is the few bits that happen to poke
-    out. Pushing every spoke out from the arm's own axis by a couple of
-    millimetres puts the whole ring back on the outside where it can be seen,
-    and a couple of millimetres is nothing against where the line actually is.
+    out. A few millimetres out puts it back on the outside where it can be
+    seen, and a few millimetres is nothing against where the line actually is.
+
+    Out along the arm's own radius, which sounds wrong over the top of a
+    shoulder and is what works. Along the SKIN's direction instead was tried,
+    on the reading that the ring flying off the arm at the top was the offset
+    pointing into the air - it is not, it was one crossing out on the wing
+    dragging its spoke with it, and that is thrown out above now. Offsetting
+    along the surface leaves the ring broken into dashes wherever the smoothed
+    loop dips inside the mesh, which the radius does not.
   */
   // Rounded once more against its own neighbours. A spoke with two crossings
   // in it and a spoke with nine are not equally sure of themselves, and the
