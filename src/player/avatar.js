@@ -285,6 +285,12 @@ const HELD_REST = [0.049, 0.234];
 /** Scratch for that attitude and for the blend into the aimed one. */
 const _carry = new THREE.Vector3();
 const _carryQuat = new THREE.Quaternion();
+// The two ends of the firework's turn, each already in the frame of whatever
+// the firework hangs from, so the blend between them is a blend of one thing.
+const _carryLocal = new THREE.Quaternion();
+const _aimLocal = new THREE.Quaternion();
+// And the joint's rotation with the walk taken out of it. See aimRocket.
+const _restHold = new THREE.Quaternion();
 /**
  * Where the held one points, in view space.
  *
@@ -2759,7 +2765,18 @@ export class Avatar {
     // same signal that puts the arm forward — three seconds clear of the last
     // firework and nosed over, and it comes back to the hand.
     const lit = clamp(this.scanReach ?? 0, 0, 1);
-    if (lit < 0.999) {
+    this.root.updateMatrixWorld(true);
+    // Whatever it is hanging from, which is the built shoulder or the scan's
+    // own arm bone depending on which body is on screen — not the built
+    // shoulder always, or the aim is undone by a joint the rocket is not on.
+    const holder = this.rocket.parent ?? this.armR.pivot;
+    holder.getWorldQuaternion(this._holdQuat);
+    // Aimed: undo the joint outright, so the tube lies along the look vector
+    // however the arm is turned. That is the whole point of a thrust line.
+    _aimLocal.copy(this._holdQuat).invert().multiply(this._aimQuat);
+    if (lit > 0.999) {
+      this.rocket.quaternion.copy(_aimLocal);
+    } else {
       // Along the fist's own long axis where that has been measured, which is
       // the direction the fingers curl around, rather than a world angle
       // guessed at and then argued about.
@@ -2771,14 +2788,35 @@ export class Avatar {
         -rest * Math.cos(yaw + turn),
       );
       _carryQuat.setFromUnitVectors(ROCKET_AXIS, _carry);
-      this._aimQuat.slerpQuaternions(_carryQuat, this._aimQuat, lit);
+      /*
+        Carried: undo the arm as it stands STILL, not as it stands now.
+
+        Undoing the joint outright pins the firework to a fixed world angle,
+        and a fixed world angle is not a grip. Walking swings the arm about
+        0.8 radians front to back, so the hand turned through the stride while
+        the firework did not, and the fingers slid round the tube twice a step
+        — the same hold that reads as gripped standing reads as a hand opening
+        and closing on it walking.
+
+        So the turn is undone against the joint's resting rotation instead,
+        which leaves whatever the arm is doing on top of it: the firework
+        rides the hand, and the grip standing and the grip mid-stride are the
+        same grip. On the scan that resting rotation is the chest's, because
+        the collarbone and the shoulder are both set from the built arm's
+        swing and are both identity when it is not swinging; on the built
+        figure it is simply the shoulder's parent.
+
+        A glide is untouched by this. There the arms are left exactly as the
+        generator built them - which is to say both joints are identity - so
+        the resting rotation and the live one are the same rotation and this
+        cancels out to what it did before.
+      */
+      const still = (this.scanBones && holder === this.scanBones.armR
+        ? this.scanBones.clavR?.parent : holder.parent) ?? holder;
+      still.getWorldQuaternion(_restHold);
+      _carryLocal.copy(_restHold).invert().multiply(_carryQuat);
+      this.rocket.quaternion.slerpQuaternions(_carryLocal, _aimLocal, lit);
     }
-    this.root.updateMatrixWorld(true);
-    // Whatever it is hanging from, which is the built shoulder or the scan's
-    // own arm bone depending on which body is on screen — not the built
-    // shoulder always, or the aim is undone by a joint the rocket is not on.
-    (this.rocket.parent ?? this.armR.pivot).getWorldQuaternion(this._holdQuat);
-    this.rocket.quaternion.copy(this._holdQuat).invert().multiply(this._aimQuat);
 
     if (!this.viewModel.visible) return;
     this._aimQuat.setFromUnitVectors(ROCKET_AXIS, VIEW_AIM);

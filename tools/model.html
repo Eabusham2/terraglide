@@ -471,6 +471,22 @@ window.__markEnds = () => {
   return e;
 };
 
+/*
+  The firework's angle in the hand's own frame.
+
+  The rocket is a child of the arm bone it is held by, so its local rotation
+  IS the grip: if that number is the same standing and mid-stride, the hold is
+  the same hold. Which is worth having as a number, because from a camera that
+  moves with the rocket the two pictures look alike whether or not they are -
+  it was 62 degrees of roll across one stride and it did not read as one.
+*/
+window.__localGrip = () => {
+  const q = avatar.rocket.quaternion;
+  const e = new THREE.Euler().setFromQuaternion(q, 'XYZ');
+  const deg = (n) => (n * 180 / Math.PI).toFixed(1).padStart(7);
+  return `local euler ${deg(e.x)} ${deg(e.y)} ${deg(e.z)}`;
+};
+
 window.__ends = () => {
   const foot = avatar.rocket.getWorldPosition(new THREE.Vector3());
   const dir = avatar.rocket.localToWorld(new THREE.Vector3(0, 1, 0)).sub(foot).normalize();
@@ -576,7 +592,7 @@ window.__alongTail = (back = 0.6, aim = 0.15, fov = 45, near = 0.01) => {
   renderer.render(scene, camera);
 };
 
-window.__pose = (name) => {
+window.__pose = (name, frames) => {
   const spec = POSES[name];
   // Back to the standard lens: __alongTail can leave a wide one and a near
   // plane a third of a metre out, and a pose shot taken through those is not
@@ -586,7 +602,10 @@ window.__pose = (name) => {
   const player = makePlayer(spec.player);
   // Settle, so the damped shoulders, glide blend and head are where they end up
   // rather than one frame into getting there.
-  for (let i = 0; i < (spec.frames ?? 240); i += 1) avatar.update(player, 1 / 60);
+  // frames overrides the pose's own settle count, which for a walk is which
+  // part of the stride it is caught at. A stride is about 43 frames, so 53,
+  // 64, 74 and 85 are the four quarters of one.
+  for (let i = 0; i < (frames ?? spec.frames ?? 240); i += 1) avatar.update(player, 1 / 60);
   camera.position.set(...spec.camera);
   camera.lookAt(...spec.look);
   renderer.render(scene, camera);
