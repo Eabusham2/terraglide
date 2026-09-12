@@ -558,6 +558,58 @@ window.__bleed = (name = 'wingR') => {
     .join('  ');
 };
 
+/*
+  A camera aimed at one joint of the scan, from anywhere round it.
+
+  The shoulder is where every remaining complaint about this figure is, and it
+  is a hand's breadth across: the whole-figure cameras put it forty pixels
+  wide, which is how a black slit in it kept being answered with "looks fine".
+*/
+window.__atJoint = (name = 'clavR', turn = 0, lift = 20, dist = 0.5) => {
+  const bone = avatar.scanBones?.[name];
+  if (!bone) return `no joint called ${name}`;
+  avatar.root.updateMatrixWorld(true);
+  const at = bone.getWorldPosition(new THREE.Vector3());
+  const a = (turn * Math.PI) / 180;
+  const up = (lift * Math.PI) / 180;
+  camera.position.set(
+    at.x + Math.sin(a) * Math.cos(up) * dist,
+    at.y + Math.sin(up) * dist,
+    at.z - Math.cos(a) * Math.cos(up) * dist,
+  );
+  camera.lookAt(at);
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+  return at.toArray().map((n) => n.toFixed(3)).join(' ');
+};
+
+window.__spin = () => {
+  const bone = avatar.scanBones;
+  if (!bone || !avatar._gripRest || !avatar.scanGrip) return 'no scan';
+  // The turn the spin actually spends, in degrees about the forearm.
+  const before = new THREE.Quaternion().copy(bone.armR.quaternion);
+  avatar.spinTheGrip({ yaw: 0, pitch: 0.35 }, bone, 1);
+  const turn = before.angleTo(bone.armR.quaternion) * 180 / Math.PI;
+  bone.armR.quaternion.copy(before);
+  return `spin would add ${turn.toFixed(1)} degrees about the forearm`;
+};
+
+/** The colour the scanned firework is actually wearing, as drawn. */
+window.__rocketColour = () => {
+  let hit = null;
+  avatar.rocket.traverse((n) => {
+    if (n.visible && n.material?.color && n.geometry?.attributes?.position?.count > 1000) hit = n;
+  });
+  return hit ? `#${hit.material.color.getHexString()}` : 'no scanned firework';
+};
+
+window.__state = () => {
+  const dir = avatar.rocket.localToWorld(new THREE.Vector3(0, 1, 0))
+    .sub(avatar.rocket.getWorldPosition(new THREE.Vector3())).normalize();
+  return `glide ${avatar.glideBlend.toFixed(3)} reach ${(avatar.scanReach ?? 0).toFixed(3)}`
+    + `  tube ${dir.toArray().map((n) => n.toFixed(3)).join(' ')}`;
+};
+
 window.__localGrip = () => {
   const e = new THREE.Euler().setFromQuaternion(avatar.rocket.quaternion, 'XYZ');
   const deg = (n) => (n * 180 / Math.PI).toFixed(1).padStart(7);

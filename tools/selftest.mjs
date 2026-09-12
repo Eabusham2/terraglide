@@ -4016,7 +4016,12 @@ console.log('\nThe scanned body is a body, and it moves like one');
   }
 
   ok('the pose is handed over every frame',
-    /this\.poseScan\(open\);/.test(avatarSource));
+    /this\.poseScan\(open, player\);/.test(avatarSource));
+  // With the player, because the reach settles where the arm points and not
+  // which way up the hand is round that line — and the hand has to come round
+  // to the firework, which needs the thrust line to know how far.
+  ok('and the reaching hand is spun round to the grip it has standing',
+    /this\.spinTheGrip\(player, bone, this\.scanReach \* open\)/.test(avatarSource));
 
   /*
     And the height comes off the head. A wing tip is the highest point in the

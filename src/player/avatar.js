@@ -70,11 +70,12 @@ const GRIP_GROOVE = false;
  * The upward figure carries twelve millimetres that are not an ask. The grip
  * is the mean of the fist's vertices, so which vertices count as fist is part
  * of it, and clearing the long-range weight dribble (see SKIN_MINOR) let
- * twelve more millimetres of wrist in and dropped that mean. Twelve back up
- * puts the firework exactly where it was signed off, measured rather than
- * eyeballed: -353.8 mm in the hand's own frame, before and after.
+ * twelve more millimetres of wrist in and dropped that mean; stopping the arm
+ * at the wing moved it again. Nineteen and a half back up puts the firework
+ * exactly where it was signed off, measured rather than eyeballed: -353.8 mm
+ * in the hand's own frame, through every change to the weights.
  */
-const GRIP_NUDGE = [0.027875, -0.011112];
+const GRIP_NUDGE = [0.035375, -0.011112];
 /** How far out of the fist it sits, as a share of the fist's width. */
 const GRIP_OUT = 0.0;
 /** How far behind the fist's axis it sits, as a share of the fist's width. */
@@ -477,6 +478,21 @@ function scanWidest(y) {
 */
 const SCAN_WING_BLEND = 0.03;
 /**
+ * And a little more sweep while the arm is reaching on a firework.
+ *
+ * The wing root and the deltoid are neighbours on this body - it was
+ * generated with its wings grown out of its back beside the shoulders - so a
+ * shoulder that swings ninety degrees forward passes through the root, and
+ * the leading edge comes out through the sleeve in shards. No weighting fixes
+ * that: the two surfaces are simply in the same place, and the only thing
+ * that moves them apart is moving one of them.
+ *
+ * So the wings sweep back by this much more while the arm is out, and come
+ * back as it does. It is small enough not to read as a flap and enough to
+ * clear an arm.
+ */
+const SCAN_WING_CLEAR = 0.25;
+/**
  * The scan's wings are modelled as an angel's — spread out *and up* from the
  * shoulders, about thirty-seven degrees above the horizontal.
  *
@@ -581,6 +597,17 @@ const SCAN_ROCKET_AIM = new THREE.Vector3(0.28, 0.94, 0.20).normalize();
 /** Scratch for building that turn, and for the arm's own rest direction. */
 const _swing = new THREE.Quaternion();
 const _reach = new THREE.Vector3();
+// Turning the arm so that a normally held firework ends up aiming along the
+// thrust: where the firework points out of the fist, where the thrust goes in
+// the shoulder's own frame, and that frame itself.
+const _reachWant = new THREE.Vector3();
+const _reachFrom = new THREE.Quaternion();
+// Spinning the fist round the firework: see spinTheGrip.
+const _spinQuat = new THREE.Quaternion();
+const _spinAim = new THREE.Quaternion();
+const _spinTwist = new THREE.Quaternion();
+const _spinRest = new THREE.Quaternion();
+const _spinAxis = new THREE.Vector3();
 /** Passes of neighbour-averaging over the skin weights. See weighScan(). */
 const SKIN_SMOOTHING = 12;
 /**
@@ -602,6 +629,8 @@ const SKIN_SMOOTHING = 12;
  * the long-range dribble everywhere else.
  */
 const SKIN_MINOR = 0.25;
+/** Passes of smoothing after that cut, to put the seams back. See weighScan. */
+const SKIN_HEALING = 4;
 
 /**
  * How far the wing lifts out of its own plane by the tip, as a fraction of
@@ -1931,6 +1960,51 @@ export class Avatar {
       const swap = raw; raw = next; next = swap;
     }
 
+    /*
+      And the arms stop at the body.
+
+      scanWidest says how far from the midline a person still reaches at a
+      given height. Past that you are not on a person any more, you are on the
+      pair of wings they are wearing - and an arm has no business moving a
+      wing. Nothing enforced that: the envelope was written and never used, so
+      the only thing keeping the shoulder off the feathers was that the walk
+      across the mesh to the wing root is a bit longer than the walk to the
+      sleeve. It is not much longer. The shoulder held a slice of the wing
+      root, and reaching on a firework took that slice with it and drove the
+      leading edge through the jacket.
+
+      Faded out over a wing blend rather than cut at a line, so the root still
+      bends where it meets the back instead of tearing off it.
+    */
+    {
+      const armJoints = [];
+      SCAN_JOINTS.forEach((joint, j) => {
+        if (joint.name === 'armL' || joint.name === 'armR') armJoints.push(j);
+      });
+      const outX = new Float32Array(nodes);
+      const atY = new Float32Array(nodes);
+      for (let v = 0; v < count; v += 1) {
+        const n = welded[v];
+        outX[n] = Math.abs(position.getX(v));
+        atY[n] = position.getY(v);
+      }
+      for (let n = 0; n < nodes; n += 1) {
+        // The fade ENDS at the envelope rather than starting there, so the
+        // whole of it happens on skin that is arm and nothing else: the arm
+        // bends where it is on its own, and by the time the wing starts it
+        // has no hold left to bend it with. Starting the fade at the envelope
+        // instead puts the gradient on the wing, which is the thing that was
+        // not supposed to move.
+        const past = outX[n] - (scanWidest(atY[n]) - SCAN_WING_BLEND);
+        if (past <= 0) continue;
+        const keep = Math.max(0, 1 - past / SCAN_WING_BLEND);
+        let total = 0;
+        for (const j of armJoints) raw[n * joints + j] *= keep;
+        for (let j = 0; j < joints; j += 1) total += raw[n * joints + j];
+        if (total > 0) for (let j = 0; j < joints; j += 1) raw[n * joints + j] /= total;
+      }
+    }
+
     // The floor, applied once the gradient is settled: anything that is only
     // still there because distance never quite runs out goes, and what is left
     // is renormalised so the vertex still adds to one.
@@ -1945,6 +2019,32 @@ export class Avatar {
         total += raw[n * joints + j];
       }
       if (total > 0) for (let j = 0; j < joints; j += 1) raw[n * joints + j] /= total;
+    }
+
+    /*
+      Then smoothed again, briefly.
+
+      The floor is a cut, and a cut across a boundary is a boundary that
+      jumps: where one joint led eighty-twenty the twenty went, and where it
+      led fifty-forty-five it stayed, so the seam between the collarbone and
+      the shoulder came back as the ragged interleave the first smoothing
+      existed to remove - visible as shards of shoulder poking through the
+      sleeve as soon as the arm turned.
+
+      A few passes put the gradient back at the seams and change nothing where
+      the floor actually mattered: out at the hand every neighbour is the same
+      joint at full weight, and averaging that with itself is itself.
+    */
+    for (let pass = 0; pass < SKIN_HEALING; pass += 1) {
+      for (let n = 0; n < nodes; n += 1) {
+        const neighbours = near[n];
+        for (let j = 0; j < joints; j += 1) {
+          let sum = raw[n * joints + j];
+          for (const m of neighbours) sum += raw[m * joints + j];
+          next[n * joints + j] = sum / (neighbours.length + 1);
+        }
+      }
+      const swap = raw; raw = next; next = swap;
     }
 
     const share = new Array(joints);
@@ -2113,7 +2213,15 @@ export class Avatar {
    * Copied rather than shared, because the built rig's pivots carry the boxes
    * as well and the scan is a second body wearing the same joints.
    */
-  poseScan(open = 0) {
+  /** The thrust line: straight out of the eye, in the world. */
+  aimVector(player, out) {
+    const yaw = player?.yaw ?? 0;
+    const pitch = player?.pitch ?? 0;
+    const cp = Math.cos(pitch);
+    return out.set(cp * Math.sin(yaw), Math.sin(pitch), -cp * Math.cos(yaw));
+  }
+
+  poseScan(open = 0, player = null) {
     const bone = this.scanBones;
     if (!bone) return;
     bone.head.quaternion.copy(this.head.quaternion);
@@ -2160,6 +2268,9 @@ export class Avatar {
       _reach.copy(this.scanGrip ?? _swing.set(0, -1, 0, 0)).normalize();
       _swing.setFromUnitVectors(_reach, SCAN_ROCKET_AIM);
       bone.armR.quaternion.slerp(_swing, this.scanReach * open);
+      // Where the arm points is settled. Which way up the hand is round it is
+      // not, and that is aimRocket's to finish - see spinTheGrip.
+      this.spinTheGrip(player, bone, this.scanReach * open);
     }
     bone.legL.quaternion.copy(this.legL.pivot.quaternion);
     bone.legR.quaternion.copy(this.legR.pivot.quaternion);
@@ -2171,7 +2282,7 @@ export class Avatar {
       spine at none — which is the same sweep the built pair makes, arrived at
       from the other end.
     */
-    const fold = SCAN_WING_FOLD * (1 - open);
+    const fold = SCAN_WING_FOLD * (1 - open) + SCAN_WING_CLEAR * clamp(this.scanReach ?? 0, 0, 1);
     // Levelled always, swept back and tucked further down when they are shut.
     const down = SCAN_WING_LEVEL + SCAN_WING_TUCK * (1 - open);
     bone.wingL.rotation.set(0, fold, down);
@@ -2757,7 +2868,7 @@ export class Avatar {
     // After every limb has been posed and before the rocket is aimed off the
     // shoulder, so the scanned body arrives at the same attitude in the same
     // frame rather than a frame behind the arm holding its firework.
-    this.poseScan(open);
+    this.poseScan(open, player);
     this.aimRocket(player);
     // Last, because it measures against where the camera actually is.
     this.hideWhatIsInYourEye(camera);
@@ -2800,6 +2911,52 @@ export class Avatar {
       leg.limb.getWorldPosition(this._world);
       if (this._world.distanceTo(camera.position) <= limit) leg.pivot.visible = false;
     }
+  }
+
+  /**
+   * Turn the hand about the forearm until it holds the firework the way it
+   * holds it standing.
+   *
+   * The reach above settles where the arm POINTS, and nothing settles which
+   * way up the hand is round that line - so the firework, aimed along the
+   * thrust by aimRocket afterwards, met the fingers at one angle standing and
+   * a different one climbing. Same hand, same firework, two grips, and the
+   * flying one had the tube lying across the fingertips.
+   *
+   * A turn about the arm's own long axis is exactly the freedom that is
+   * spare: it spins the fist round the firework without moving the arm off
+   * the line it was put on. So take the turn that WOULD make the grip the
+   * standing grip, keep only the part of it that is about the forearm - the
+   * twist, in the swing-and-twist sense - and spend that. What is left over
+   * is the part no roll of the wrist could have fixed anyway.
+   *
+   * Weighted by the same signal as the reach, so it arrives and leaves with
+   * it rather than snapping on.
+   */
+  spinTheGrip(player, bone, amount) {
+    if (!(amount > 0.001) || !this._gripRest || !this.scanGrip || !player) return;
+    this.root.updateMatrixWorld(true);
+    bone.armR.getWorldQuaternion(_reachFrom);
+    // What the firework is being asked to do, in the hand's own frame...
+    this.aimVector(player, _reachWant);
+    _spinQuat.setFromUnitVectors(ROCKET_AXIS, _reachWant);
+    _spinAim.copy(_reachFrom).invert().multiply(_spinQuat);
+    // ...against what it does standing.
+    _spinQuat.copy(this._gripRest).invert().premultiply(_spinAim);
+    // The twist of that about the forearm: project the rotation's vector part
+    // onto the axis and keep the scalar part. A quaternion with its vector on
+    // an axis is a rotation about that axis, and normalising what is left is
+    // the twist - no trigonometry, and it degrades gracefully when the turn is
+    // mostly swing, which is the case this has to survive.
+    _spinAxis.copy(this.scanGrip).normalize();
+    const along = _spinAxis.x * _spinQuat.x + _spinAxis.y * _spinQuat.y
+      + _spinAxis.z * _spinQuat.z;
+    _spinTwist.set(_spinAxis.x * along, _spinAxis.y * along, _spinAxis.z * along,
+      _spinQuat.w);
+    if (_spinTwist.lengthSq() < 1e-8) return;
+    _spinTwist.normalize();
+    _spinRest.identity().slerp(_spinTwist, clamp(amount, 0, 1));
+    bone.armR.quaternion.multiply(_spinRest);
   }
 
   /**
@@ -2895,7 +3052,20 @@ export class Avatar {
         still.getWorldQuaternion(_restHold);
         _carryLocal.copy(_restHold).invert().multiply(_carryQuat);
       }
-      this.rocket.quaternion.slerpQuaternions(_carryLocal, _aimLocal, lit);
+      /*
+        And how much of the aim the HAND still has to do.
+
+        None of it, in the air: poseScan turns the arm until the firework it
+        is holding already points along the thrust, so the tube is aimed and
+        the grip is the standing grip at the same time — which is the whole
+        point, and turning the firework in the hand on top of that would undo
+        it. On the ground the arm does not reach at all (the reach is scaled
+        by the same signal that opens the wings), so there the firework has to
+        turn in the hand or a rocket fired standing would not point anywhere.
+      */
+      const byArm = this._gripRest && this.scanBones && holder === this.scanBones.armR
+        ? clamp(this.glideBlend, 0, 1) : 0;
+      this.rocket.quaternion.slerpQuaternions(_carryLocal, _aimLocal, lit * (1 - byArm));
     }
 
     if (!this.viewModel.visible) return;
