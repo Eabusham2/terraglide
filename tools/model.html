@@ -526,6 +526,48 @@ window.__markEnds = () => {
   — for every vertex the named joint leads, how much weight the other joints
   hold on it.
 */
+/*
+  A line round the figure where one joint hands over to another.
+
+  Which is the only honest way to answer "where does it bend": the bend is
+  wherever two joints share the skin equally, and that is a number on every
+  vertex rather than something to point at in a photograph. Every vertex whose
+  say is split within a tenth between the named pair gets a dot, so the dots
+  come out as a band exactly where the fold happens.
+*/
+window.__markBend = (a = 'armR', b = 'clavR', near = 0.10, size = 0.006) => {
+  const names = window.__jointNames;
+  const one = names.indexOf(a);
+  const two = names.indexOf(b);
+  if (one < 0 || two < 0) return `no joint called ${a} or ${b}`;
+  const dot = new THREE.SphereGeometry(size, 6, 4);
+  const paint = new THREE.MeshBasicMaterial({ color: 0xff2020 });
+  const at = new THREE.Vector3();
+  let marked = 0;
+  for (const mesh of avatar.scanSkins) {
+    const index = mesh.geometry.getAttribute('skinIndex');
+    const weight = mesh.geometry.getAttribute('skinWeight');
+    mesh.updateMatrixWorld(true);
+    for (let v = 0; v < index.count; v += 1) {
+      let mine = 0;
+      let theirs = 0;
+      for (let k = 0; k < 4; k += 1) {
+        if (index.getComponent(v, k) === one) mine = weight.getComponent(v, k);
+        if (index.getComponent(v, k) === two) theirs = weight.getComponent(v, k);
+      }
+      if (mine < 0.2 || theirs < 0.2 || Math.abs(mine - theirs) > near) continue;
+      mesh.getVertexPosition(v, at);
+      mesh.localToWorld(at);
+      const pip = new THREE.Mesh(dot, paint);
+      pip.position.copy(at);
+      scene.add(pip);
+      marked += 1;
+    }
+  }
+  renderer.render(scene, camera);
+  return `${marked} vertices on the ${a}/${b} line`;
+};
+
 window.__bleed = (name = 'wingR') => {
   const names = window.__jointNames;
   const lead = names.indexOf(name);
