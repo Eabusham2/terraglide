@@ -621,7 +621,7 @@ const SCAN_CLAVICLE = 0;
  * with the arm modelled at a different angle aims the same way, where a fixed
  * turn would land somewhere new.
  */
-const SCAN_ROCKET_AIM = new THREE.Vector3(0.28, 0.94, 0.20).normalize();
+const SCAN_ROCKET_AIM = new THREE.Vector3(0.92, -0.15, 0.25).normalize();
 /** Scratch for building that turn, and for the arm's own rest direction. */
 const _swing = new THREE.Quaternion();
 const _reach = new THREE.Vector3();
