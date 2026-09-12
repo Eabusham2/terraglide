@@ -388,13 +388,24 @@ const SCAN_ARM_SETBACK = -0.13;
  * the setback, and shrinking the setback took the tilt with it, so the line
  * came up flat.
  */
-const SCAN_ARM_RAKE = 0.15;
+const SCAN_ARM_RAKE = 0.0;
 /** The depth over which it rakes: about half a shoulder, front to back. */
 const SCAN_ARM_REACH = 0.09;
-/** Sideways tilt: how much lower the seam sits on the outer arm than the inner. */
-const SCAN_ARM_SWAY = 0.10;
-/** The across distance the sway pivots about — roughly the middle of the arm. */
+/** Sideways tilt (unused; the slicing plane places the seam). */
+const SCAN_ARM_SWAY = 0.0;
+/** The across distance the sway pivots about. */
 const SCAN_ARM_HIP = 0.17;
+/**
+ * The knife that cuts the arm off the body: a point on the plane and its
+ * normal, pointing down the arm toward the hand, on the figure's right.
+ */
+const SCAN_ARM_WALL = {
+  at: [0.085, 0.86, 0.0],
+  to: [0.30, 0.95, 0.0],
+  soft: 0.030,
+  band: 0.045,
+  only: 0.35,
+};
 
 const SCAN_JOINTS = [
   {
@@ -2006,6 +2017,62 @@ export class Avatar {
         }
       }
       const swap = raw; raw = next; next = swap;
+    }
+
+    /*
+      Slice the arm off at a plane.
+
+      The distance weighting decides where the arm ends by which seed patch is
+      nearest across the mesh, which cannot be aimed - dozens of tries moved
+      the seam by feel. A plane is aimed: a knife at a point and an angle, and
+      where it passes through the arm is the seam. `at` is a point on it, `to`
+      its normal pointing down the arm toward the hand, on the figure's right;
+      the left mirrors. The hand side is the arm's; the body keeps the rest.
+      `soft` feathers the cut so the skin bends rather than tears; `only` is how
+      much say the arm and its collarbone must already have for the plane to
+      touch a node, so it stays on the shoulder and off the chest, and it never
+      touches a wing.
+    */
+    {
+      const at = SCAN_ARM_WALL.at;
+      const to = SCAN_ARM_WALL.to;
+      const len = Math.hypot(to[0], to[1], to[2]) || 1;
+      const px = new Float32Array(nodes);
+      const py = new Float32Array(nodes);
+      const pz = new Float32Array(nodes);
+      for (let v = 0; v < count; v += 1) {
+        const n = welded[v];
+        px[n] = position.getX(v); py[n] = position.getY(v); pz[n] = position.getZ(v);
+      }
+      const ix = {}; const ic = {}; const iw = {};
+      SCAN_JOINTS.forEach((joint, j) => {
+        if (joint.name === 'armL') ix.L = j; if (joint.name === 'armR') ix.R = j;
+        if (joint.name === 'clavL') ic.L = j; if (joint.name === 'clavR') ic.R = j;
+        if (joint.name === 'wingL') iw.L = j; if (joint.name === 'wingR') iw.R = j;
+      });
+      for (let n = 0; n < nodes; n += 1) {
+        const side = px[n] < 0 ? 'L' : 'R';
+        const arm = ix[side];
+        const shoulder = raw[n * joints + arm] + raw[n * joints + ic[side]];
+        if (shoulder < SCAN_ARM_WALL.only) continue;
+        if (raw[n * joints + iw[side]] > 0.15) continue;
+        const turn = side === 'L' ? -1 : 1;
+        const d = ((px[n] - at[0] * turn) * to[0] * turn
+          + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
+        // Only the transition zone right at the cut is re-drawn. Far on the
+        // hand side the node is already all arm and far on the body side all
+        // body, so leaving those alone keeps the hand a hand and the chest a
+        // chest, and confines the plane to the seam it is there to move.
+        if (Math.abs(d) > SCAN_ARM_WALL.band) continue;
+        const hand = clamp(0.5 + d / SCAN_ARM_WALL.soft, 0, 1);
+        let body = 0;
+        for (let j = 0; j < joints; j += 1) if (j !== arm) body += raw[n * joints + j];
+        for (let j = 0; j < joints; j += 1) {
+          const asArm = j === arm ? 1 : 0;
+          const asBody = j === arm ? 0 : (body > 0 ? raw[n * joints + j] / body : 0);
+          raw[n * joints + j] = asBody * (1 - hand) + asArm * hand;
+        }
+      }
     }
 
     /*
