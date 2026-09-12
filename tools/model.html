@@ -527,27 +527,36 @@ window.__markEnds = () => {
   hold on it.
 */
 /*
-  A line round the figure where one joint hands over to another.
+  A ring round the figure where one joint hands over to another.
 
   Which is the only honest way to answer "where does it bend": the bend is
   wherever two joints share the skin equally, and that is a number on every
-  vertex rather than something to point at in a photograph. Every vertex whose
-  say is split within a tenth between the named pair gets a dot, so the dots
-  come out as a band exactly where the fold happens.
+  vertex rather than something to point at in a photograph.
+
+  Drawn as a contour and not as a scatter of the vertices nearest it. A vertex
+  sits where the mesh happens to have put one, so marking the near ones gives a
+  dotted line with gaps wherever the triangles are large - which is most of a
+  shoulder. The line itself runs BETWEEN vertices: on every edge where one
+  joint's share overtakes the other's there is exactly one point where they are
+  equal, and joining those points across each triangle draws the ring properly.
 */
-window.__markBend = (a = 'armR', b = 'clavR', near = 0.10, size = 0.006) => {
+window.__markBend = (a = 'armR', b = 'clavR', thick = 0.004) => {
   const names = window.__jointNames;
   const one = names.indexOf(a);
   const two = names.indexOf(b);
   if (one < 0 || two < 0) return `no joint called ${a} or ${b}`;
-  const dot = new THREE.SphereGeometry(size, 6, 4);
   const paint = new THREE.MeshBasicMaterial({ color: 0xff2020 });
-  const at = new THREE.Vector3();
-  let marked = 0;
+  const here = new THREE.Vector3();
+  const there = new THREE.Vector3();
+  const middle = new THREE.Vector3();
+  let drawn = 0;
   for (const mesh of avatar.scanSkins) {
     const index = mesh.geometry.getAttribute('skinIndex');
     const weight = mesh.geometry.getAttribute('skinWeight');
+    const order = mesh.geometry.getIndex();
     mesh.updateMatrixWorld(true);
+    // How far this vertex leans one way rather than the other. Zero is the line.
+    const lean = new Float32Array(index.count);
     for (let v = 0; v < index.count; v += 1) {
       let mine = 0;
       let theirs = 0;
@@ -555,17 +564,42 @@ window.__markBend = (a = 'armR', b = 'clavR', near = 0.10, size = 0.006) => {
         if (index.getComponent(v, k) === one) mine = weight.getComponent(v, k);
         if (index.getComponent(v, k) === two) theirs = weight.getComponent(v, k);
       }
-      if (mine < 0.2 || theirs < 0.2 || Math.abs(mine - theirs) > near) continue;
-      mesh.getVertexPosition(v, at);
-      mesh.localToWorld(at);
-      const pip = new THREE.Mesh(dot, paint);
-      pip.position.copy(at);
-      scene.add(pip);
-      marked += 1;
+      // Only where the pair between them own the skin; elsewhere the sign of
+      // the difference is meaningless and would draw a ring round the boots.
+      lean[v] = mine + theirs > 0.5 ? mine - theirs : NaN;
+    }
+    const spot = (u, v, out) => {
+      mesh.getVertexPosition(u, here);
+      mesh.getVertexPosition(v, there);
+      const t = lean[u] / (lean[u] - lean[v]);
+      out.copy(here).lerp(there, t);
+      mesh.localToWorld(out);
+    };
+    for (let t = 0; t < order.count; t += 3) {
+      const c = [order.getX(t), order.getX(t + 1), order.getX(t + 2)];
+      if (c.some((v) => Number.isNaN(lean[v]))) continue;
+      const cuts = [];
+      for (const [u, v] of [[c[0], c[1]], [c[1], c[2]], [c[2], c[0]]]) {
+        if ((lean[u] > 0) === (lean[v] > 0)) continue;
+        const at = new THREE.Vector3();
+        spot(u, v, at);
+        cuts.push(at);
+      }
+      if (cuts.length !== 2) continue;
+      const span = cuts[0].distanceTo(cuts[1]);
+      if (span < 1e-6) continue;
+      const bar = new THREE.Mesh(new THREE.CylinderGeometry(thick, thick, span, 6), paint);
+      bar.position.copy(middle.copy(cuts[0]).add(cuts[1]).multiplyScalar(0.5));
+      bar.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        there.copy(cuts[1]).sub(cuts[0]).normalize(),
+      );
+      scene.add(bar);
+      drawn += 1;
     }
   }
   renderer.render(scene, camera);
-  return `${marked} vertices on the ${a}/${b} line`;
+  return `${drawn} segments on the ${a}/${b} line`;
 };
 
 window.__bleed = (name = 'wingR') => {

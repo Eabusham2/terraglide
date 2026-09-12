@@ -378,6 +378,13 @@ const BOOT_HEIGHT = 0.05;
  * get the shoulder back. A bend at the shoulder then bends the shoulder.
  */
 const SCAN_ARM_SETBACK = 0.010;
+/**
+ * How much of that setback is taken away at the back of the shoulder, so the
+ * hand-over line climbs towards the spine instead of running round level.
+ */
+const SCAN_ARM_RAKE = 1.8;
+/** The depth over which it rakes: about half a shoulder, front to back. */
+const SCAN_ARM_REACH = 0.09;
 
 const SCAN_JOINTS = [
   {
@@ -1936,11 +1943,32 @@ export class Avatar {
       joint at once, so the total is preserved and no joint can be smoothed
       away.
     */
+    /*
+      And the hand-over rises towards the back.
+
+      A shoulder seam is not a level ring. It sits low at the front, where the
+      arm swings forward off the chest, and climbs over the top towards the
+      spine - which is what a sleeve looks like on anybody. Level, it read as a
+      band drawn round the arm with a ruler.
+
+      Done by raking the arms' setback rather than by moving the joint: less of
+      it at the back, so the arm reaches further up there and the line lifts;
+      full at the front, where it was already right.
+    */
+    const lift = new Float32Array(nodes);
+    {
+      const behind = new Float32Array(nodes);
+      for (let v = 0; v < count; v += 1) behind[welded[v]] = position.getZ(v);
+      for (let n = 0; n < nodes; n += 1) {
+        lift[n] = 1 - SCAN_ARM_RAKE * clamp(behind[n] / SCAN_ARM_REACH, -1, 1);
+      }
+    }
+
     let raw = new Float32Array(nodes * joints);
     for (let n = 0; n < nodes; n += 1) {
       let total = 0;
       for (let j = 0; j < joints; j += 1) {
-        const d = reach[j][n] + (SCAN_JOINTS[j].setback ?? 0);
+        const d = reach[j][n] + (SCAN_JOINTS[j].setback ?? 0) * lift[n];
         const w = Number.isFinite(d) ? 1 / Math.pow(d + SKIN_SOFTEN, SKIN_FALLOFF) : 0;
         raw[n * joints + j] = w;
         total += w;
@@ -1977,9 +2005,14 @@ export class Avatar {
       bends where it meets the back instead of tearing off it.
     */
     {
+      // The collarbones as well as the shoulders. Cutting the arm off at the
+      // wing and leaving the collarbone on it just moves the problem one joint
+      // along: the pair between them still owned a strip of feathers, and the
+      // strip showed up as the hand-over line running down the wing instead of
+      // stopping at the arm.
       const armJoints = [];
       SCAN_JOINTS.forEach((joint, j) => {
-        if (joint.name === 'armL' || joint.name === 'armR') armJoints.push(j);
+        if (/^(arm|clav)[LR]$/.test(joint.name)) armJoints.push(j);
       });
       const outX = new Float32Array(nodes);
       const atY = new Float32Array(nodes);
