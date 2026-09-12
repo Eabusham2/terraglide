@@ -481,10 +481,11 @@ window.__markEnds = () => {
   it was 62 degrees of roll across one stride and it did not read as one.
 */
 window.__localGrip = () => {
-  const q = avatar.rocket.quaternion;
-  const e = new THREE.Euler().setFromQuaternion(q, 'XYZ');
+  const e = new THREE.Euler().setFromQuaternion(avatar.rocket.quaternion, 'XYZ');
   const deg = (n) => (n * 180 / Math.PI).toFixed(1).padStart(7);
-  return `local euler ${deg(e.x)} ${deg(e.y)} ${deg(e.z)}`;
+  const mm = (n) => (n * 1000).toFixed(1).padStart(7);
+  const p = avatar.rocket.position;
+  return `euler ${deg(e.x)} ${deg(e.y)} ${deg(e.z)}  at ${mm(p.x)} ${mm(p.y)} ${mm(p.z)} mm`;
 };
 
 window.__ends = () => {
