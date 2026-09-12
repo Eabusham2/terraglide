@@ -377,7 +377,7 @@ const BOOT_HEIGHT = 0.05;
  * because nothing else is anywhere near it, and the collarbone and the chest
  * get the shoulder back. A bend at the shoulder then bends the shoulder.
  */
-const SCAN_ARM_SETBACK = -0.059;
+const SCAN_ARM_SETBACK = -0.13;
 /**
  * How much further up the arm reaches at the back of the shoulder than at the
  * front, in the same units as the setback, so the hand-over line climbs
@@ -388,9 +388,13 @@ const SCAN_ARM_SETBACK = -0.059;
  * the setback, and shrinking the setback took the tilt with it, so the line
  * came up flat.
  */
-const SCAN_ARM_RAKE = 0.190;
+const SCAN_ARM_RAKE = 0.15;
 /** The depth over which it rakes: about half a shoulder, front to back. */
 const SCAN_ARM_REACH = 0.09;
+/** Sideways tilt: how much lower the seam sits on the outer arm than the inner. */
+const SCAN_ARM_SWAY = 0.10;
+/** The across distance the sway pivots about — roughly the middle of the arm. */
+const SCAN_ARM_HIP = 0.17;
 
 const SCAN_JOINTS = [
   {
@@ -1964,9 +1968,18 @@ export class Avatar {
     const lift = new Float32Array(nodes);
     {
       const behind = new Float32Array(nodes);
-      for (let v = 0; v < count; v += 1) behind[welded[v]] = position.getZ(v);
+      const outX = new Float32Array(nodes);
+      for (let v = 0; v < count; v += 1) {
+        behind[welded[v]] = position.getZ(v);
+        outX[welded[v]] = Math.abs(position.getX(v));
+      }
       for (let n = 0; n < nodes; n += 1) {
-        lift[n] = -SCAN_ARM_RAKE * clamp(behind[n] / SCAN_ARM_REACH, -1, 1);
+        // Rake tips the ring front-to-back. Sway tips it across: the more of
+        // it there is, the lower the seam sits out on the arm and the higher
+        // it climbs toward the body, which turns a level band into the diagonal
+        // that runs from the collar down to the armpit.
+        lift[n] = -SCAN_ARM_RAKE * clamp(behind[n] / SCAN_ARM_REACH, -1, 1)
+          - SCAN_ARM_SWAY * clamp((outX[n] - SCAN_ARM_HIP) / SCAN_ARM_REACH, -1, 1);
       }
     }
 
