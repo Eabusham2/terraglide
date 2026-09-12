@@ -533,29 +533,36 @@ window.__markEnds = () => {
   wherever two joints share the skin equally, and that is a number on every
   vertex rather than something to point at in a photograph.
 
-  Drawn as a contour and not as a scatter of the vertices nearest it. A vertex
-  sits where the mesh happens to have put one, so marking the near ones gives a
+  Three passes to make it legible, and each earns its place.
+
+  It is a contour, not a scatter of the vertices nearest it. A vertex sits
+  where the mesh happens to have put one, so marking the near ones gives a
   dotted line with gaps wherever the triangles are large - which is most of a
-  shoulder. The line itself runs BETWEEN vertices: on every edge where one
-  joint's share overtakes the other's there is exactly one point where they are
-  equal, and joining those points across each triangle draws the ring properly.
+  shoulder. The line runs BETWEEN vertices: on every edge where one joint's
+  share overtakes the other's there is exactly one point where they are equal.
+
+  Those points are then put in order round the arm rather than left as loose
+  segments. Sorted by their angle about the arm's own long axis, they are a
+  closed loop by construction, and a loop can be drawn as one curve instead of
+  a couple of hundred disconnected bars with holes between them.
+
+  And the loop is smoothed before it is drawn - averaged into a fixed number of
+  spokes and run through a closed spline - so what comes out is a ring you can
+  see the shape of, rather than a jagged one you have to interpret.
 */
-window.__markBend = (a = 'armR', b = 'clavR', thick = 0.004) => {
+window.__markBend = (a = 'armR', b = 'clavR', thick = 0.005, spokes = 36, stand = 0.010) => {
   const names = window.__jointNames;
   const one = names.indexOf(a);
   const two = names.indexOf(b);
   if (one < 0 || two < 0) return `no joint called ${a} or ${b}`;
-  const paint = new THREE.MeshBasicMaterial({ color: 0xff2020 });
+  const found = [];
   const here = new THREE.Vector3();
   const there = new THREE.Vector3();
-  const middle = new THREE.Vector3();
-  let drawn = 0;
   for (const mesh of avatar.scanSkins) {
     const index = mesh.geometry.getAttribute('skinIndex');
     const weight = mesh.geometry.getAttribute('skinWeight');
     const order = mesh.geometry.getIndex();
     mesh.updateMatrixWorld(true);
-    // How far this vertex leans one way rather than the other. Zero is the line.
     const lean = new Float32Array(index.count);
     for (let v = 0; v < index.count; v += 1) {
       let mine = 0;
@@ -568,38 +575,83 @@ window.__markBend = (a = 'armR', b = 'clavR', thick = 0.004) => {
       // the difference is meaningless and would draw a ring round the boots.
       lean[v] = mine + theirs > 0.5 ? mine - theirs : NaN;
     }
-    const spot = (u, v, out) => {
-      mesh.getVertexPosition(u, here);
-      mesh.getVertexPosition(v, there);
-      const t = lean[u] / (lean[u] - lean[v]);
-      out.copy(here).lerp(there, t);
-      mesh.localToWorld(out);
-    };
     for (let t = 0; t < order.count; t += 3) {
       const c = [order.getX(t), order.getX(t + 1), order.getX(t + 2)];
       if (c.some((v) => Number.isNaN(lean[v]))) continue;
-      const cuts = [];
       for (const [u, v] of [[c[0], c[1]], [c[1], c[2]], [c[2], c[0]]]) {
         if ((lean[u] > 0) === (lean[v] > 0)) continue;
-        const at = new THREE.Vector3();
-        spot(u, v, at);
-        cuts.push(at);
+        mesh.getVertexPosition(u, here);
+        mesh.getVertexPosition(v, there);
+        const at = here.clone().lerp(there, lean[u] / (lean[u] - lean[v]));
+        found.push(mesh.localToWorld(at));
       }
-      if (cuts.length !== 2) continue;
-      const span = cuts[0].distanceTo(cuts[1]);
-      if (span < 1e-6) continue;
-      const bar = new THREE.Mesh(new THREE.CylinderGeometry(thick, thick, span, 6), paint);
-      bar.position.copy(middle.copy(cuts[0]).add(cuts[1]).multiplyScalar(0.5));
-      bar.quaternion.setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0),
-        there.copy(cuts[1]).sub(cuts[0]).normalize(),
-      );
-      scene.add(bar);
-      drawn += 1;
     }
   }
+  if (found.length < 8) return `only ${found.length} points on the ${a}/${b} line`;
+
+  const middle = found.reduce((sum, p) => sum.add(p), new THREE.Vector3())
+    .multiplyScalar(1 / found.length);
+  // The arm's own long axis, which is the axis the ring goes round.
+  const bone = avatar.scanBones?.[a] ?? avatar.scanBones?.armR;
+  const axis = (avatar.scanGrip ? avatar.scanGrip.clone() : new THREE.Vector3(0, -1, 0))
+    .normalize().applyQuaternion(bone.getWorldQuaternion(new THREE.Quaternion()));
+  const across = new THREE.Vector3(0, 1, 0).cross(axis);
+  if (across.lengthSq() < 1e-6) across.set(1, 0, 0);
+  across.normalize();
+  const other = new THREE.Vector3().crossVectors(axis, across).normalize();
+
+  // Averaged into spokes: several crossings land at nearly the same angle,
+  // and taking their mean is what turns a ragged outline into a ring.
+  const bins = new Array(spokes).fill(null);
+  for (const p of found) {
+    const off = p.clone().sub(middle);
+    const turn = Math.atan2(off.dot(other), off.dot(across));
+    const slot = (Math.floor(((turn + Math.PI) / (Math.PI * 2)) * spokes) + spokes) % spokes;
+    if (!bins[slot]) bins[slot] = { at: new THREE.Vector3(), n: 0 };
+    bins[slot].at.add(p);
+    bins[slot].n += 1;
+  }
+  const loop = bins.filter(Boolean).map((bin) => bin.at.multiplyScalar(1 / bin.n));
+  /*
+    And stood off the surface.
+
+    Averaging the crossings into spokes moves each one towards the middle of
+    the limb, because a shoulder is not a circle - so the smoothed loop sits
+    INSIDE the arm and all you see of it is the few bits that happen to poke
+    out. Pushing every spoke out from the arm's own axis by a couple of
+    millimetres puts the whole ring back on the outside where it can be seen,
+    and a couple of millimetres is nothing against where the line actually is.
+  */
+  // Rounded once more against its own neighbours. A spoke with two crossings
+  // in it and a spoke with nine are not equally sure of themselves, and the
+  // difference shows as a wobble; one pass of averaging round the loop takes
+  // it out without moving where the line actually goes.
+  for (let pass = 0; pass < 2; pass += 1) {
+    const was = loop.map((p) => p.clone());
+    for (let i = 0; i < loop.length; i += 1) {
+      const before = was[(i - 1 + was.length) % was.length];
+      const after = was[(i + 1) % was.length];
+      loop[i].copy(was[i]).multiplyScalar(2).add(before).add(after).multiplyScalar(0.25);
+    }
+  }
+
+  const along = new THREE.Vector3();
+  for (const p of loop) {
+    along.copy(p).sub(middle);
+    along.addScaledVector(axis, -along.dot(axis));
+    if (along.lengthSq() > 1e-9) p.addScaledVector(along.normalize(), stand);
+  }
+  if (loop.length < 8) return `only ${loop.length} spokes on the ${a}/${b} line`;
+
+  const curve = new THREE.CatmullRomCurve3(loop, true, 'centripetal', 0.5);
+  const ring = new THREE.Mesh(
+    new THREE.TubeGeometry(curve, spokes * 3, thick, 8, true),
+    new THREE.MeshBasicMaterial({ color: 0xff2020 }),
+  );
+  scene.add(ring);
   renderer.render(scene, camera);
-  return `${drawn} segments on the ${a}/${b} line`;
+  return `${found.length} crossings on the ${a}/${b} line, drawn as a ring of `
+    + `${loop.length} spokes`;
 };
 
 window.__bleed = (name = 'wingR') => {
