@@ -269,6 +269,23 @@ const POSES = {
   'grip-rup': { player: { selectedSlot: 4 }, camera: [0.28, 1.55, -0.75], look: [0.28, 0.90, 0] },
   'grip-rdn': { player: { selectedSlot: 4 }, camera: [0.28, 0.30, -0.85], look: [0.28, 0.92, 0] },
   'grip-front-wide': { player: { selectedSlot: 4 }, camera: [0, 1.05, -2.6], look: [0, 1.0, 0] },
+  /*
+    The steep end of a glide, both ways.
+
+    The carried firework is held at a world angle, not at the hand's angle, so
+    the shallow glides above cannot show whether that comes apart: twenty
+    degrees of pitch hides almost anything. Seventy degrees does not.
+  */
+  'dive-steep': {
+    player: { elytraDeployed: true, onGround: false, pitch: -1.2, mode: 'glide',
+      horizontalSpeed: 30, velocity: new THREE.Vector3(0, -60, -30) },
+    camera: [4.0, 1.6, 0], look: [0, 1.3, 0],
+  },
+  'climb-steep': {
+    player: { elytraDeployed: true, onGround: false, pitch: 1.2, mode: 'glide',
+      horizontalSpeed: 30, velocity: new THREE.Vector3(0, 40, -30) },
+    camera: [4.0, 1.6, 0], look: [0, 1.3, 0],
+  },
   'stand-front': { player: {}, camera: [0, 1.1, -3.6], look: [0, 1.0, 0] },
   'stand-side': { player: {}, camera: [3.6, 1.1, 0], look: [0, 1.0, 0] },
   'stand-back': { player: {}, camera: [0, 1.4, 3.6], look: [0, 1.0, 0] },
@@ -362,6 +379,20 @@ window.__fist = () => window.__grip();
   and 180 is dead behind. __atFist only does front and back, and "is it
   sideways" is a question only a side answers.
 */
+/*
+  The whole figure, from anywhere on a circle round it.
+
+  turn is degrees: 0 is the front, 90 the figure's right, 180 the back. Saves
+  a named pose per angle when what is wanted is the same pose seen round.
+*/
+window.__around = (turn = 0, dist = 3.4, height = 1.15, at = 1.0) => {
+  const a = (turn * Math.PI) / 180;
+  camera.position.set(Math.sin(a) * dist, height, -Math.cos(a) * dist);
+  camera.lookAt(0, at, 0);
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+};
+
 window.__roundFist = (turn = 90, dist = 0.9, lift = 0.0) => {
   const middle = new THREE.Vector3().fromArray(window.__grip().middle);
   const a = (turn * Math.PI) / 180;
@@ -480,6 +511,39 @@ window.__ends = () => {
   nose from the front: the camera sits on the tail's own height and
   side-to-side line, so the back of the firework is in the middle of the frame.
 */
+/*
+  Beside the firework, wherever the firework happens to be.
+
+  The fist cameras are built round a figure standing up: they sit at the
+  hand's height and look horizontally, which is the right shot for a man on
+  his feet and the wrong one for a man lying along a glide with his arm out
+  ahead of him - there the same camera frames a shoulder. This one is built
+  round the firework's own axis instead, so it gives the same view of the grip
+  in a walk, a glide and a climb.
+
+  turn is degrees around the tube: 0 is level with it and off to one side, 90
+  is above it.
+*/
+window.__besideRocket = (turn = 0, dist = 0.45) => {
+  const ends = window.__ends();
+  const dir = new THREE.Vector3().fromArray(ends.dir);
+  const tail = new THREE.Vector3().fromArray(ends.tail);
+  const middle = tail.clone().addScaledVector(dir, ends.length / 2);
+  const side = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0));
+  // Straight up or down the tube has no "side": fall back to the world X axis
+  // rather than to a zero vector, which puts the camera inside the firework.
+  if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+  side.normalize();
+  const over = new THREE.Vector3().crossVectors(side, dir).normalize();
+  const a = (turn * Math.PI) / 180;
+  camera.position.copy(middle)
+    .addScaledVector(side, Math.cos(a) * dist)
+    .addScaledVector(over, Math.sin(a) * dist);
+  camera.lookAt(middle);
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+};
+
 window.__facingTail = (dist = 0.9, lift = 0.0) => {
   const tail = new THREE.Vector3().fromArray(window.__ends().tail);
   camera.position.set(tail.x, tail.y + lift, tail.z + dist);
