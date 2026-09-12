@@ -388,7 +388,7 @@ const SCAN_ARM_SETBACK = -0.059;
  * the setback, and shrinking the setback took the tilt with it, so the line
  * came up flat.
  */
-const SCAN_ARM_RAKE = 0.145;
+const SCAN_ARM_RAKE = 0.190;
 /** The depth over which it rakes: about half a shoulder, front to back. */
 const SCAN_ARM_REACH = 0.09;
 

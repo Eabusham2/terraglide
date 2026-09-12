@@ -653,7 +653,35 @@ window.__markBend = (a = 'armR', b = 'clavR', thick = 0.005, spokes = 36, stand 
     bins[slot].way.add(p.way);
     bins[slot].n += 1;
   }
-  const loop = bins.filter(Boolean).map((bin) => bin.at.multiplyScalar(1 / bin.n));
+  /*
+    Every spoke filled, so the loop is a loop.
+
+    A contour only exists where the mesh has triangles for it to cross, and
+    round the back of a shoulder there are stretches with none - so a handful
+    of the spokes came out empty and the ring was drawn through the gap as
+    whatever chord the spline felt like, which is how it ended up cutting
+    across the arm rather than going round it. An empty spoke is filled from
+    the nearest filled one each side, which puts it on the line the ring is
+    already following instead of on a shortcut through the middle.
+  */
+  for (let i = 0; i < spokes; i += 1) {
+    if (bins[i]) continue;
+    let before = 1;
+    let after = 1;
+    while (!bins[(i - before + spokes) % spokes] && before < spokes) before += 1;
+    while (!bins[(i + after) % spokes] && after < spokes) after += 1;
+    if (before >= spokes || after >= spokes) break;
+    const one = bins[(i - before + spokes) % spokes];
+    const two = bins[(i + after) % spokes];
+    bins[i] = {
+      at: one.at.clone().multiplyScalar(1 / one.n)
+        .lerp(two.at.clone().multiplyScalar(1 / two.n), before / (before + after)),
+      n: 1,
+      filled: true,
+    };
+  }
+  const loop = bins.filter(Boolean)
+    .map((bin) => (bin.filled ? bin.at : bin.at.multiplyScalar(1 / bin.n)));
   /*
     And stood off the surface.
 
