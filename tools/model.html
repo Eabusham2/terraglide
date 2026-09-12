@@ -355,6 +355,26 @@ window.__fist = () => window.__grip();
   This one is anchored to the hand, which does not move, so two shots taken
   before and after a nudge can actually be compared.
 */
+/*
+  Anywhere on a circle round the fist, at the fist's own height.
+
+  turn is degrees: 0 is square on to the front, 90 is off the figure's right
+  and 180 is dead behind. __atFist only does front and back, and "is it
+  sideways" is a question only a side answers.
+*/
+window.__roundFist = (turn = 90, dist = 0.9, lift = 0.0) => {
+  const middle = new THREE.Vector3().fromArray(window.__grip().middle);
+  const a = (turn * Math.PI) / 180;
+  camera.position.set(
+    middle.x + Math.sin(a) * dist,
+    middle.y + lift,
+    middle.z - Math.cos(a) * dist,
+  );
+  camera.lookAt(middle);
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+};
+
 window.__atFist = (dist = 0.9, lift = 0.0, behind = false, shift = 0.0) => {
   const middle = new THREE.Vector3().fromArray(window.__grip().middle);
   // shift is the viewer's right, which is -X from the front and +X from
