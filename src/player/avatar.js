@@ -377,7 +377,7 @@ const BOOT_HEIGHT = 0.05;
  * because nothing else is anywhere near it, and the collarbone and the chest
  * get the shoulder back. A bend at the shoulder then bends the shoulder.
  */
-const SCAN_ARM_SETBACK = -0.026;
+const SCAN_ARM_SETBACK = -0.059;
 /**
  * How much further up the arm reaches at the back of the shoulder than at the
  * front, in the same units as the setback, so the hand-over line climbs
@@ -388,7 +388,7 @@ const SCAN_ARM_SETBACK = -0.026;
  * the setback, and shrinking the setback took the tilt with it, so the line
  * came up flat.
  */
-const SCAN_ARM_RAKE = 0.102;
+const SCAN_ARM_RAKE = 0.145;
 /** The depth over which it rakes: about half a shoulder, front to back. */
 const SCAN_ARM_REACH = 0.09;
 
