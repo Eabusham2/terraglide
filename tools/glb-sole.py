@@ -1,41 +1,31 @@
-"""Turn each boot's sole the right way round.
+"""Paint the white out of the bottom of each boot.
 
 Photographed from underneath, the soles came out as a starburst: pale wedges
-radiating from the middle of the foot with dark slits between them. Tried as a
-paint problem and as a lighting problem, and it is neither - on a flat white
-body the wedges are white and the slits are still black, and black on a white
-body is not shading. Tried as holes, and it is not that either: there is not
-one open edge under either boot.
+radiating from the middle of a black boot. It reads as a lighting fault and it
+is not one - sampling the atlas where each of those triangles actually points
+gives a median luminance of 52 out of 255, which is the black rubber the
+generator painted, and a maximum of 254, which is not. Some of the sole's
+triangles are pointing at white.
 
-They are back-faces. Of the 513 triangles in the bottom twelve millimetres of
-the shipped figure, 108 are wound facing UP - under a boot, which is to say
-away from anyone who can see them - and sixty-eight of those carry vertex
-normals pointing down, so they were built as sole and only their winding is
-wrong. A front-facing renderer culls them and you see straight through the
-boot to its dark inside: the slits are the inside of the shoe.
+They are the shoe print that tools/glb-unfloor.py keeps. It drops the baked
+floor and keeps the part of it that lies under a boot, which is right - that
+part IS the sole, in the generator's own geometry with the generator's own
+coordinates. But this atlas is thousands of small charts with no common layout
+and no gutter, so a coordinate that lands a texel outside its chart lands
+somewhere else entirely, and a few dozen of the print's corners land in white.
 
-They are the inside of the shoe. The underside is pleated: the cap's wedges
-alternate, some facing the ground and some facing back up into the boot, and
-the ones facing up are lit from inside the boot, which is to say not at all.
+So the pale ones are sent to the same texel the cap already uses, which is the
+middle of the largest triangle of print and is sole surrounded by sole. Only
+the pale ones: a triangle already looking at black is left alone, because the
+tread the generator painted is worth keeping wherever it survived.
 
-Flipping them over is wrong - this shell is consistently wound everywhere, so
-turning a triangle inside it leaves eighty-four edges running the same way as
-their neighbours and the mesh stops being closed. Laying a ground-facing copy
-on top of each is wrong too: in the same plane the two fight for depth and the
-sole comes out hatched, and lifting the copy clear breaks the weld.
-
-What is wrong with them is which way they are lit from, so that is what is
-changed: their corners are copied - a corner down here is shared with the welt
-going up - and the copies take the cap's single texture coordinate and a normal
-pointing at the ground. They sit exactly on top of the originals, so they weld
-away and the mesh is as closed as it was. The scan is drawn double-sided, so
-these are drawn from underneath, and now they are lit as sole. Triangles
-standing on edge in the band are the welt and are left alone.
+Their corners are copied first - a corner down here is shared with the boot
+wall going up - and the copies sit exactly on top of the originals, so they
+weld away and the mesh is as closed afterwards as before.
 
     python tools/glb-sole.py in.glb out.glb
 """
-import json, math, struct, sys
-from collections import defaultdict
+import json, math, struct, sys, zlib
 
 src, dst = sys.argv[1], sys.argv[2]
 raw = open(src, 'rb').read()
@@ -69,15 +59,59 @@ uv = read(prim['attributes']['TEXCOORD_0'])
 nrm = read(prim['attributes']['NORMAL'])
 floor = min(v[1] for v in pos)
 
-# The underside of a boot, and nothing above it. Twelve millimetres covers the
-# cap, the print kept around it and the wedges that were wound the wrong way,
-# and stops well short of the ankle.
+# The underside of a boot, lying flat, and nothing above it.
 BAND = 0.012
-# How flat a triangle has to be to count as sole rather than welt.
 FLAT = 0.5
+# Above this the triangle is pointing at something that is not black rubber.
+PALE = 0
+
+
+def picture():
+    """The atlas, decoded, so a coordinate can be asked what colour it is."""
+    view = J['bufferViews'][J['images'][0]['bufferView']]
+    png = bytes(BIN[view.get('byteOffset', 0):view.get('byteOffset', 0) + view['byteLength']])
+    at, data = 8, b''
+    while at < len(png):
+        length = struct.unpack('>I', png[at:at + 4])[0]
+        kind = png[at + 4:at + 8]
+        if kind == b'IHDR': w, h, depth, colour = struct.unpack('>IIBB', png[at + 8:at + 18])
+        elif kind == b'IDAT': data += png[at + 8:at + 8 + length]
+        at += 12 + length
+    lines = zlib.decompress(data)
+    step = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[colour]
+    stride = w * step
+    out = bytearray()
+    prev = bytearray(stride)
+    p = 0
+    for _ in range(h):
+        kind = lines[p]; p += 1
+        row = bytearray(lines[p:p + stride]); p += stride
+        for x in range(stride):
+            a = row[x - step] if x >= step else 0
+            b = prev[x]
+            c = prev[x - step] if x >= step else 0
+            if kind == 1: row[x] = (row[x] + a) & 255
+            elif kind == 2: row[x] = (row[x] + b) & 255
+            elif kind == 3: row[x] = (row[x] + (a + b) // 2) & 255
+            elif kind == 4:
+                pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+                row[x] = (row[x] + (a if pa <= pb and pa <= pc else b if pb <= pc else c)) & 255
+        out += row
+        prev = row
+    return w, h, step, bytes(out)
+
+
+W, H, STEP, PIX = picture()
+
+
+def shade(u, v):
+    x = min(W - 1, max(0, int(u * W)))
+    y = min(H - 1, max(0, int((1 - v) * H)))
+    o = (y * W + x) * STEP
+    return (PIX[o] + PIX[o + 1] + PIX[o + 2]) // 3
+
 
 def flatness(t):
-    """Which way the triangle's own corners say it faces: +1 up, -1 down."""
     a, b, c = (pos[idx[t + k]] for k in range(3))
     u = [b[i] - a[i] for i in range(3)]
     v = [c[i] - a[i] for i in range(3)]
@@ -85,99 +119,59 @@ def flatness(t):
     return n[1] / (math.sqrt(sum(q * q for q in n)) or 1)
 
 
-# Flat, and in the bottom of the boot. Anything standing on edge down there is
-# the welt round the sole, which is meant to be seen from the side and keeps
-# both its winding and its paint.
 sole = [t for t in range(0, len(idx), 3)
-        if max(pos[idx[t + k]][1] for k in range(3)) < floor + BAND
-        and abs(flatness(t)) > FLAT]
-if not sole:
-    print('glb-sole: nothing flat down there - nothing changed')
-    sys.exit(0)
+        if max(pos[idx[t + k]][1] for k in range(3)) < floor + BAND]
 
 
 def plan(t):
     return sum(pos[idx[t + k]][0] for k in range(3)) / 3
 
 
-# The cap's coordinate: whichever triangle down there already has all three
-# corners on one texel is unfloor's cap, and that texel is sole.
-flat = {}
-for t in sole:
-    corners = {tuple(uv[idx[t + k]]) for k in range(3)}
-    if len(corners) == 1: flat.setdefault(plan(t) < 0, corners.pop())
-if len(flat) != 2:
-    print(f'glb-sole: found {len(flat)} capped boots, expected two - nothing changed')
+"""
+  The darkest texel this boot actually owns.
+
+  The obvious choice is the one unfloor's cap uses - the middle of the largest
+  triangle of print - and it is a middle grey, about 52 of 255. Painting the
+  sole with it turns the starburst grey rather than removing it, because what
+  is BETWEEN the wedges is the boot itself, which is nearly black. The wedges
+  were never the odd ones out for being pale; the gap between them was the odd
+  one out for being dark, and matching the dark is what makes a sole.
+
+  So: of every coordinate the bottom of this boot points at, the one the atlas
+  is darkest at. It is the boot's own colour by construction - nothing is
+  invented and nothing is sampled from another chart.
+"""
+# Searched over the boot itself, not only its underside: the sole's own
+# coordinates bottom out around 30 of 255 and the wall above them goes lower,
+# and it is the wall the wedges are being compared against by eye.
+WALL = 0.070
+wall = [t for t in range(0, len(idx), 3)
+        if max(pos[idx[t + k]][1] for k in range(3)) < floor + WALL]
+black = {}
+for t in wall:
+    side = plan(t) < 0
+    for k in range(3):
+        here = uv[idx[t + k]]
+        lit = shade(*here)
+        if side not in black or lit < black[side][0]:
+            black[side] = (lit, tuple(here))
+if len(black) != 2:
+    print(f'glb-sole: found {len(black)} boots, expected two - nothing changed')
     sys.exit(1)
+for side in black: black[side] = black[side][1]
 
-# Nothing is flipped, moved or added.
-#
-# Flipping the up-facing ones was the obvious move and it is wrong: this shell
-# is consistently wound everywhere, so turning a triangle over inside it leaves
-# eighty-four edges running the same way as their neighbours, and the file is
-# checked for exactly that. Adding a ground-facing copy on top of each is worse
-# in a quieter way - laid in the same plane the two fight for depth and the
-# sole comes out finely hatched, and lifting the copy clear of the plane breaks
-# the weld and the closedness with it.
-#
-# What is actually wrong with them is the direction they are lit from, and that
-# is the normal, which is free to change. Their corners are copied first - a
-# corner down here is shared with the welt going up, and the welt is neither
-# sole-coloured nor flat - and the copies sit exactly on top of the originals,
-# so they weld away and the mesh is as closed afterwards as before.
-#
-# The scan is drawn double-sided, so a triangle facing up into the boot is
-# still drawn from underneath; with a normal pointing at the ground it is lit
-# as sole rather than as the inside of a shoe.
-"""
-  Flattened, not repainted and not turned over.
-
-  Three things were tried on this before the cause was found. Repainting it -
-  every triangle down there onto the cap's single texel - changed nothing at
-  all. Turning the up-facing ones over opened eighty-four edges, because the
-  shell is consistently wound and a triangle turned inside it is a hole by the
-  only definition that matters. Laying a ground-facing copy over each one made
-  the sole fight itself for depth.
-
-  None of them could have worked, because none of them is what makes the
-  pattern. The underside is PLEATED - the cap's wedges alternate up and down
-  about the sole's plane by a millimetre or two - and each facet catches the
-  light at its own angle. One texel across all of them is still one texel seen
-  at thirty different angles, and the starburst is what that looks like.
-
-  So the pleat is ironed out: every corner of every flat triangle under a boot
-  is put on that boot's own lowest plane. Vertices move together with everyone
-  standing in the same place, so nothing comes apart; a pleat that was a
-  millimetre deep becomes a disc; and a disc with one texel and one normal is a
-  sole.
-"""
-floors = {}
+pale = 0
 for t in sole:
-    side = plan(t) < 0
-    for k in range(3):
-        y = pos[idx[t + k]][1]
-        floors[side] = min(floors.get(side, y), y)
-
-flat_at = {}
-for t in sole:
-    side = plan(t) < 0
-    for k in range(3):
-        p = pos[idx[t + k]]
-        flat_at[(round(p[0], 5), round(p[1], 5), round(p[2], 5))] = floors[side]
-
-made = 0
-for p in pos:
-    key = (round(p[0], 5), round(p[1], 5), round(p[2], 5))
-    if key in flat_at and p[1] != flat_at[key]:
-        p[1] = flat_at[key]
-        made += 1
-
-for t in sole:
+    lit = max(shade(*uv[idx[t + k]]) for k in range(3))
+    if lit <= PALE: continue
     side = plan(t) < 0
     for k in range(3):
         v = idx[t + k]
-        uv[v] = list(flat[side])
-        nrm[v] = [0.0, -1.0, 0.0]
+        pos.append(list(pos[v]))
+        uv.append(list(black[side]))
+        nrm.append([0.0, -1.0, 0.0])
+        idx[t + k] = len(pos) - 1
+    pale += 1
 
 if len(pos) > 65535:
     print('glb-sole: that would need 32-bit indices - nothing changed')
@@ -207,11 +201,11 @@ keep = {}
 for i, view in enumerate(J['bufferViews']):
     if i in was: continue
     start = view.get('byteOffset', 0)
-    at2 = len(blob)
+    here = len(blob)
     blob.extend(BIN[start:start + view['byteLength']])
     while len(blob) % 4: blob.append(0)
     copy = dict(view)
-    copy['byteOffset'] = at2
+    copy['byteOffset'] = here
     views.append(copy)
     keep[i] = len(views) - 1
 for image in J.get('images', []):
@@ -238,6 +232,6 @@ out = struct.pack('<4sII', b'glTF', 2, 12 + 8 + len(text) + 8 + len(blob))
 out += struct.pack('<I4s', len(text), b'JSON') + text
 out += struct.pack('<I4s', len(blob), b'BIN\x00') + bytes(blob)
 open(dst, 'wb').write(out)
-print(f'{len(sole)} flat triangles under the boots; {made} corners ironed onto '
-      f'the sole plane, all on the cap texel with a normal at the ground')
+print(f'{len(sole)} flat triangles under the boots; {pale} were pointing at '
+      f'something paler than {PALE} and now point at the sole')
 print(f'{src} {len(raw)} -> {dst} {len(out)} bytes')

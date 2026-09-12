@@ -1396,21 +1396,6 @@ export class Avatar {
         }
         child.material.metalness = 0;
         child.material.roughness = 0.85;
-        /*
-          And drawn from both sides.
-
-          The underside of each boot is pleated - the cap's wedges alternate,
-          some facing the ground and some facing back up into the shoe - and a
-          front-faces-only draw skips the second kind outright, so looking up
-          at the soles showed pale wedges with the dark inside of a boot
-          between them. Turning those triangles over is not available: the
-          shell is consistently wound, and a triangle turned inside it opens
-          eighty-four edges. Drawing both sides costs a little fill on a figure
-          that is one mesh, and means a surface that exists is a surface you
-          can see. tools/glb-sole.py points their normals at the ground so they
-          light as sole rather than as lining.
-        */
-        child.material.side = THREE.DoubleSide;
         child.material.metalnessMap = null;
         child.material.roughnessMap = null;
         child.material.side = THREE.DoubleSide;
