@@ -402,7 +402,7 @@ const SCAN_ARM_HIP = 0.17;
 const SCAN_ARM_WALL = {
   at: [0.085, 0.86, 0.0],
   to: [0.30, -0.95, 0.0],
-  soft: 0.030,
+  soft: 0.004,
   band: 0.045,
   only: 0.35,
 };
