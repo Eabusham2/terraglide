@@ -377,12 +377,18 @@ const BOOT_HEIGHT = 0.05;
  * because nothing else is anywhere near it, and the collarbone and the chest
  * get the shoulder back. A bend at the shoulder then bends the shoulder.
  */
-const SCAN_ARM_SETBACK = 0.010;
+const SCAN_ARM_SETBACK = -0.026;
 /**
- * How much of that setback is taken away at the back of the shoulder, so the
- * hand-over line climbs towards the spine instead of running round level.
+ * How much further up the arm reaches at the back of the shoulder than at the
+ * front, in the same units as the setback, so the hand-over line climbs
+ * towards the spine instead of running round level.
+ *
+ * A distance and not a multiple of the setback. As a multiple it could not be
+ * asked the two questions separately: raising the whole ring means shrinking
+ * the setback, and shrinking the setback took the tilt with it, so the line
+ * came up flat.
  */
-const SCAN_ARM_RAKE = 5.45;
+const SCAN_ARM_RAKE = 0.102;
 /** The depth over which it rakes: about half a shoulder, front to back. */
 const SCAN_ARM_REACH = 0.09;
 
@@ -1960,7 +1966,7 @@ export class Avatar {
       const behind = new Float32Array(nodes);
       for (let v = 0; v < count; v += 1) behind[welded[v]] = position.getZ(v);
       for (let n = 0; n < nodes; n += 1) {
-        lift[n] = 1 - SCAN_ARM_RAKE * clamp(behind[n] / SCAN_ARM_REACH, -1, 1);
+        lift[n] = -SCAN_ARM_RAKE * clamp(behind[n] / SCAN_ARM_REACH, -1, 1);
       }
     }
 
@@ -1968,7 +1974,8 @@ export class Avatar {
     for (let n = 0; n < nodes; n += 1) {
       let total = 0;
       for (let j = 0; j < joints; j += 1) {
-        const d = reach[j][n] + (SCAN_JOINTS[j].setback ?? 0) * lift[n];
+        const d = reach[j][n] + (SCAN_JOINTS[j].setback === undefined
+          ? 0 : SCAN_JOINTS[j].setback + lift[n]);
         const w = Number.isFinite(d) ? 1 / Math.pow(d + SKIN_SOFTEN, SKIN_FALLOFF) : 0;
         raw[n * joints + j] = w;
         total += w;

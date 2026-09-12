@@ -657,7 +657,8 @@ window.__markBend = (a = 'armR', b = 'clavR', thick = 0.005, spokes = 36, stand 
   const back = loop.reduce((high, p) => (p.z > high.z ? p : high), loop[0]);
   const inch = (m) => `${(m * 1000).toFixed(1)} mm (${(m / 0.0254).toFixed(2)} in)`;
   return `${found.length} crossings on the ${a}/${b} line, drawn as a ring of `
-    + `${loop.length} spokes; back stands ${inch(back.y - front.y)} above front`;
+    + `${loop.length} spokes; back stands ${inch(back.y - front.y)} above front, `
+    + `ring sits at ${inch(loop.reduce((sum, p) => sum + p.y, 0) / loop.length)}`;
 };
 
 window.__bleed = (name = 'wingR') => {
