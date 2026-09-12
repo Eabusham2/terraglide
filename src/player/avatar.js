@@ -377,7 +377,7 @@ const BOOT_HEIGHT = 0.05;
  * because nothing else is anywhere near it, and the collarbone and the chest
  * get the shoulder back. A bend at the shoulder then bends the shoulder.
  */
-const SCAN_ARM_SETBACK = 0.055;
+const SCAN_ARM_SETBACK = 0.020;
 
 const SCAN_JOINTS = [
   {
@@ -1396,6 +1396,21 @@ export class Avatar {
         }
         child.material.metalness = 0;
         child.material.roughness = 0.85;
+        /*
+          And drawn from both sides.
+
+          The underside of each boot is pleated - the cap's wedges alternate,
+          some facing the ground and some facing back up into the shoe - and a
+          front-faces-only draw skips the second kind outright, so looking up
+          at the soles showed pale wedges with the dark inside of a boot
+          between them. Turning those triangles over is not available: the
+          shell is consistently wound, and a triangle turned inside it opens
+          eighty-four edges. Drawing both sides costs a little fill on a figure
+          that is one mesh, and means a surface that exists is a surface you
+          can see. tools/glb-sole.py points their normals at the ground so they
+          light as sole rather than as lining.
+        */
+        child.material.side = THREE.DoubleSide;
         child.material.metalnessMap = null;
         child.material.roughnessMap = null;
         child.material.side = THREE.DoubleSide;
@@ -1995,7 +2010,7 @@ export class Avatar {
         // has no hold left to bend it with. Starting the fade at the envelope
         // instead puts the gradient on the wing, which is the thing that was
         // not supposed to move.
-        const past = outX[n] - (scanWidest(atY[n]) - SCAN_WING_BLEND);
+        const past = outX[n] - (scanWidest(atY[n]) - SCAN_WING_BLEND * 0.5);
         if (past <= 0) continue;
         const keep = Math.max(0, 1 - past / SCAN_WING_BLEND);
         let total = 0;

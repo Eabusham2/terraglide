@@ -174,7 +174,10 @@ drawn in every mode.
 
 `assets/player.glb` is a generated character mesh — TRELLIS.2 on Hugging Face,
 from a reference image the project keeps. `tools/glb-unfloor.py` cuts away the
-floor it was built standing on and caps each boot; `tools/glb-prune.py` drops
+floor it was built standing on and caps each boot, and `tools/glb-sole.py`
+irons out the pleat that capping leaves in each sole — its wedges alternate up
+and down about the sole's own plane by a millimetre or two, which from
+underneath catches the light at thirty angles and reads as a starburst; `tools/glb-prune.py` drops
 the metal-roughness map the loader sets to null anyway; `tools/glb-inset.py`
 pulls the texture coordinates that sit on a chart's edge a few texels inward,
 because the atlas is packed with no gutter and a coordinate on an edge samples
