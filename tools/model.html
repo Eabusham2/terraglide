@@ -650,8 +650,14 @@ window.__markBend = (a = 'armR', b = 'clavR', thick = 0.005, spokes = 36, stand 
   );
   scene.add(ring);
   renderer.render(scene, camera);
+  // How far the ring is tilted, which is the thing being asked for in inches:
+  // the height of its backmost point against its frontmost. The figure faces
+  // -Z, so the back is the largest Z.
+  const front = loop.reduce((low, p) => (p.z < low.z ? p : low), loop[0]);
+  const back = loop.reduce((high, p) => (p.z > high.z ? p : high), loop[0]);
+  const inch = (m) => `${(m * 1000).toFixed(1)} mm (${(m / 0.0254).toFixed(2)} in)`;
   return `${found.length} crossings on the ${a}/${b} line, drawn as a ring of `
-    + `${loop.length} spokes`;
+    + `${loop.length} spokes; back stands ${inch(back.y - front.y)} above front`;
 };
 
 window.__bleed = (name = 'wingR') => {

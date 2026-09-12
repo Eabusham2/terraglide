@@ -382,7 +382,7 @@ const SCAN_ARM_SETBACK = 0.010;
  * How much of that setback is taken away at the back of the shoulder, so the
  * hand-over line climbs towards the spine instead of running round level.
  */
-const SCAN_ARM_RAKE = 1.8;
+const SCAN_ARM_RAKE = 5.45;
 /** The depth over which it rakes: about half a shoulder, front to back. */
 const SCAN_ARM_REACH = 0.09;
 
