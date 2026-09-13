@@ -1131,18 +1131,60 @@ window.__drawWall = () => {
   const worldAt = skin.localToWorld(at.clone());
   const worldTip = skin.localToWorld(tip);
   const normal = worldTip.sub(worldAt).normalize();
-  const size = 0.15 * (avatar.root.scale.x || 1);
-  // A single thin plane, no thickness, so edge-on it is a line.
+  const s = avatar.root.scale.x || 1;
+  // A long, thin plane: tall down the arm (0.62), shallow through the body
+  // (0.14), no thickness - so square on from the front it is one vertical
+  // line, and from the side it is the wall the arm is cut off along. The
+  // rotation carries local Y to world Y, so the tall dimension stands up.
   const face = new THREE.Mesh(
-    new THREE.PlaneGeometry(size, size),
-    new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.5,
-      depthWrite: false, side: THREE.DoubleSide }),
+    new THREE.PlaneGeometry(0.14 * s, 0.62 * s),
+    new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.55,
+      depthWrite: false, depthTest: false, side: THREE.DoubleSide }),
   );
   face.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
   face.position.copy(worldAt);
   scene.add(face);
   renderer.render(scene, camera);
   return `wall at ${w.at} normal ${w.to}`;
+};
+// Paint every scan vertex by the joint it most belongs to, so the arm, the
+// wing, the collarbone and the chest are told apart by eye and the crevice
+// between the arm and the wing can be seen rather than guessed at.
+window.__paintJoints = () => {
+  const names = window.__jointNames;
+  const hue = {
+    armL: 0xff2020, armR: 0xff2020,      // arm: red
+    wingL: 0x2060ff, wingR: 0x2060ff,    // wing: blue
+    clavL: 0x20c020, clavR: 0x20c020,    // collarbone: green
+    spine: 0xf0d000, head: 0x00d0d0,     // chest: yellow, head: cyan
+    legL: 0xc000c0, legR: 0xc000c0,      // legs: magenta
+  };
+  const cols = names.map((n) => new THREE.Color(hue[n] ?? 0x808080));
+  window.__paintWas = window.__paintWas || new Map();
+  for (const mesh of avatar.scanSkins) {
+    if (!window.__paintWas.has(mesh)) window.__paintWas.set(mesh, mesh.material);
+    const index = mesh.geometry.getAttribute('skinIndex');
+    const weight = mesh.geometry.getAttribute('skinWeight');
+    const rgb = new Float32Array(index.count * 3);
+    for (let v = 0; v < index.count; v += 1) {
+      let best = 0; let most = -1;
+      for (let k = 0; k < 4; k += 1) {
+        const w = weight.getComponent(v, k);
+        if (w > most) { most = w; best = index.getComponent(v, k); }
+      }
+      const c = cols[best] || cols[0];
+      rgb[v * 3] = c.r; rgb[v * 3 + 1] = c.g; rgb[v * 3 + 2] = c.b;
+    }
+    mesh.geometry.setAttribute('color', new THREE.BufferAttribute(rgb, 3));
+    mesh.material = new THREE.MeshBasicMaterial({ vertexColors: true });
+  }
+  renderer.render(scene, camera);
+  return 'painted: arm red, wing blue, clav green, chest yellow';
+};
+window.__unpaint = () => {
+  if (window.__paintWas) for (const [m, mat] of window.__paintWas) m.material = mat;
+  renderer.render(scene, camera);
+  return 'restored';
 };
 window.__ready = true;
 </script>

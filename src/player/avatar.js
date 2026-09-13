@@ -400,7 +400,7 @@ const SCAN_ARM_HIP = 0.17;
  * normal, pointing down the arm toward the hand, on the figure's right.
  */
 export const SCAN_ARM_WALL = {
-  at: [0.130, 0.760, 0.0],
+  at: [0.155, 0.760, 0.0],
   to: [1.0, 0.0, 0.0],
   soft: 0.004,
   band: 0.075,
@@ -2171,6 +2171,62 @@ export class Avatar {
             raw[n * joints + j] = j === arm ? 0 : (body > 0 ? raw[n * joints + j] / body : 0);
           }
         }
+      }
+      /*
+        No arm weight on a wing vertex, anywhere.
+
+        The scan was generated with its wings grown out of its back, welded
+        to the deltoid, so the distance weighting leaves the arm a claim on
+        the feathers behind the shoulder. The plane above steps around those
+        vertices rather than cut them - the two surfaces share a place, and a
+        plane through one runs through the other - so they keep that claim,
+        and it reads as a second, ragged cut edge scattered across the wing:
+        the mess that made the seam look like anything but a slice. They are
+        under the elytra where nothing sees them, so giving them wholly back
+        to the wing and the body they mostly belong to costs nothing and
+        closes the loop on the one arm the eye can find.
+      */
+      for (let n = 0; n < nodes; n += 1) {
+        const side = px[n] < 0 ? 'L' : 'R';
+        const arm = ix[side];
+        if (raw[n * joints + iw[side]] <= 0.06 || raw[n * joints + arm] <= 0) continue;
+        raw[n * joints + arm] = 0;
+        let rest = 0;
+        for (let j = 0; j < joints; j += 1) rest += raw[n * joints + j];
+        if (rest > 0) for (let j = 0; j < joints; j += 1) raw[n * joints + j] /= rest;
+        else raw[n * joints + iw[side]] = 1;
+      }
+      /*
+        And nothing inboard of the plane is the arm, up at the shoulder.
+
+        The gate that lets the plane cut a node needs the arm and its
+        collarbone to already own a third of it, so the shreds in the crevice
+        behind the deltoid - low on both, arm only because nothing else was
+        nearer over the torn weld - slip past it and keep a stray arm claim
+        the plane never overrode. They sit on the body side of the line, so
+        up in the shoulder band, where the cut lives, the plane alone decides
+        for every node the arm might touch: outboard of the line it is arm,
+        inboard it is not, gate or no gate. Below the band the natural weights
+        hold, so the length of the arm is left as it was.
+      */
+      for (let n = 0; n < nodes; n += 1) {
+        if (py[n] < 0.68) continue;
+        const side = px[n] < 0 ? 'L' : 'R';
+        const arm = ix[side];
+        if (raw[n * joints + arm] <= 0) continue;
+        const turn = side === 'L' ? -1 : 1;
+        const d = ((px[n] - at[0] * turn) * to[0] * turn
+          + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
+        // Keep it only if it is outboard of the line and no further back than
+        // the arm itself reaches. The feather roots that survive as shards sit
+        // outboard, so the plane keeps them, but a hand's-width behind the arm
+        // where no arm is - so a depth limit is what tells the two apart.
+        if (d > 0 && pz[n] < 0.05) continue;
+        raw[n * joints + arm] = 0;
+        let rest = 0;
+        for (let j = 0; j < joints; j += 1) rest += raw[n * joints + j];
+        if (rest > 0) for (let j = 0; j < joints; j += 1) raw[n * joints + j] /= rest;
+        else raw[n * joints + ic[side]] = 1;
       }
     }
 
