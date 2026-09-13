@@ -1076,6 +1076,48 @@ window.__wallSpec = (await import('../src/player/avatar.js')).SCAN_ARM_WALL;
   thickness. Red where it would pass through the body if it reached that far,
   so it is obvious whether the cut is around the arm or across the chest.
 */
+/*
+  The real cut: the edge of the arm's territory, where it stops being the joint
+  a vertex most belongs to. Unlike the plane, this is what actually moves the
+  skin - a loop around the arm - so it is the honest thing to look at.
+*/
+window.__markArmEdge = (thick = 0.006) => {
+  const names = window.__jointNames;
+  const armR = names.indexOf('armR');
+  const paint = new THREE.MeshBasicMaterial({ color: 0xff2020 });
+  for (const mesh of avatar.scanSkins) {
+    const index = mesh.geometry.getAttribute('skinIndex');
+    const weight = mesh.geometry.getAttribute('skinWeight');
+    const order = mesh.geometry.getIndex();
+    mesh.updateMatrixWorld(true);
+    // +1 where armR is the vertex's own joint, -1 where it is not. The cut is
+    // where this crosses zero.
+    const owns = new Float32Array(index.count);
+    for (let v = 0; v < index.count; v += 1) {
+      let best = 0; let most = -1;
+      for (let k = 0; k < 4; k += 1) {
+        const w = weight.getComponent(v, k);
+        if (w > most) { most = w; best = index.getComponent(v, k); }
+      }
+      owns[v] = best === armR ? 1 : -1;
+    }
+    const here = new THREE.Vector3(); const there = new THREE.Vector3();
+    for (let t = 0; t < order.count; t += 3) {
+      const c = [order.getX(t), order.getX(t + 1), order.getX(t + 2)];
+      for (const [u, v] of [[c[0], c[1]], [c[1], c[2]], [c[2], c[0]]]) {
+        if ((owns[u] > 0) === (owns[v] > 0)) continue;
+        mesh.getVertexPosition(u, here); mesh.getVertexPosition(v, there);
+        const at = here.clone().lerp(there, owns[u] / (owns[u] - owns[v]));
+        mesh.localToWorld(at);
+        const dot = new THREE.Mesh(new THREE.SphereGeometry(thick, 6, 4), paint);
+        dot.position.copy(at); scene.add(dot);
+      }
+    }
+  }
+  renderer.render(scene, camera);
+  return 'arm edge drawn';
+};
+
 window.__drawWall = () => {
   const w = window.__wallSpec;
   const skin = avatar.scanSkins[0];
