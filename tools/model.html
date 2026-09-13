@@ -1131,7 +1131,7 @@ window.__drawWall = () => {
   const worldAt = skin.localToWorld(at.clone());
   const worldTip = skin.localToWorld(tip);
   const normal = worldTip.sub(worldAt).normalize();
-  const size = 0.34 * (avatar.root.scale.x || 1);
+  const size = 0.15 * (avatar.root.scale.x || 1);
   // A single thin plane, no thickness, so edge-on it is a line.
   const face = new THREE.Mesh(
     new THREE.PlaneGeometry(size, size),

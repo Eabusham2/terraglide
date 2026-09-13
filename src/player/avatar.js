@@ -400,10 +400,10 @@ const SCAN_ARM_HIP = 0.17;
  * normal, pointing down the arm toward the hand, on the figure's right.
  */
 export const SCAN_ARM_WALL = {
-  at: [0.110, 0.760, 0.0],
+  at: [0.130, 0.760, 0.0],
   to: [1.0, 0.0, 0.0],
   soft: 0.004,
-  band: 0.045,
+  band: 0.075,
   only: 0.35,
 };
 
@@ -2156,18 +2156,20 @@ export class Avatar {
         const turn = side === 'L' ? -1 : 1;
         const d = ((px[n] - at[0] * turn) * to[0] * turn
           + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
-        // Only the transition zone right at the cut is re-drawn. Far on the
-        // hand side the node is already all arm and far on the body side all
-        // body, so leaving those alone keeps the hand a hand and the chest a
-        // chest, and confines the plane to the seam it is there to move.
-        if (Math.abs(d) > SCAN_ARM_WALL.band) continue;
-        const hand = clamp(0.5 + d / SCAN_ARM_WALL.soft, 0, 1);
-        let body = 0;
-        for (let j = 0; j < joints; j += 1) if (j !== arm) body += raw[n * joints + j];
-        for (let j = 0; j < joints; j += 1) {
-          const asArm = j === arm ? 1 : 0;
-          const asBody = j === arm ? 0 : (body > 0 ? raw[n * joints + j] / body : 0);
-          raw[n * joints + j] = asBody * (1 - hand) + asArm * hand;
+        // A clean slice, so hard and everywhere in the zone, not a blend in a
+        // thin band. Over the whole shoulder the plane alone decides: on the
+        // hand side the node is all arm, on the body side it keeps its other
+        // joints and none of the arm. The boundary is then exactly where the
+        // plane crosses the surface - one line - instead of the ragged
+        // interleave the scan's own weights leave.
+        if (d > 0) {
+          for (let j = 0; j < joints; j += 1) raw[n * joints + j] = (j === arm ? 1 : 0);
+        } else {
+          let body = 0;
+          for (let j = 0; j < joints; j += 1) if (j !== arm) body += raw[n * joints + j];
+          for (let j = 0; j < joints; j += 1) {
+            raw[n * joints + j] = j === arm ? 0 : (body > 0 ? raw[n * joints + j] / body : 0);
+          }
         }
       }
     }
