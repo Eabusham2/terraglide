@@ -1,0 +1,336 @@
+import { Emitter } from '../core/events.js';
+import { WheelSteps } from '../ui/wheel.js';
+import { keybinds } from '../core/keybinds.js';
+import { settings } from '../core/settings.js';
+
+/**
+ * Keyboard and mouse.
+ *
+ * Two mouse modes, switchable live:
+ *
+ *  locked — pointer is captured, the mouse only looks around, and *either*
+ *           button fires a rocket. This is the flying mode.
+ *  pan    — the cursor stays free for the map and panels. Hold left to drag the
+ *           view around, right click boosts, a plain left click lands. The two
+ *           buttons can be swapped in Settings.
+ */
+
+/**
+ * How far the pointer may wander before a press counts as a drag rather than
+ * a click.
+ *
+ * Four pixels was too tight to be reliable. The distance is *accumulated* from
+ * every mousemove between press and release — not the straight line from one
+ * to the other — so a hand resting on a mouse, or any trackpad at all, spends
+ * it on noise before you have let go. A click that misses is a click that does
+ * nothing, which is why stowing the wings in pan mode worked about half the
+ * time.
+ */
+const DRAG_THRESHOLD = 9;
+/** A press this short is a click even if the pointer wandered further. */
+const CLICK_TIME_MS = 220;
+const CLICK_SLOP = 26;
+
+export class InputManager extends Emitter {
+  constructor(canvas) {
+    super();
+    this.canvas = canvas;
+    this.keys = new Set();
+    /**
+     * Keys pressed since the last time movement was sampled.
+     *
+     * A key can go down and up again entirely between two frames — a quick tap
+     * on a machine drawing at twenty frames a second is fifty milliseconds and
+     * the tap is thirty — and a snapshot of what is *currently* held never
+     * sees it. Every press is held for at least one poll, so a tap always
+     * counts once however slowly the frame is arriving.
+     *
+     * Counted rather than flagged, because two taps can land inside one slow
+     * frame and a flag would merge them into one — which is exactly what a
+     * double tap must not do.
+     */
+    this.tapped = new Map();
+    this.pointerLocked = false;
+    this.dragging = false;
+    this.dragMoved = 0;
+    this.dragButton = -1;
+    this.suspended = false;
+    this.lastPointer = { x: 0, y: 0 };
+    this.wheel = new WheelSteps(1);
+
+    this.onKeyDown = this.onKeyDown.bind(this);
+    this.onKeyUp = this.onKeyUp.bind(this);
+    this.onMouseMove = this.onMouseMove.bind(this);
+    this.onMouseDown = this.onMouseDown.bind(this);
+    this.onMouseUp = this.onMouseUp.bind(this);
+    this.onWheel = this.onWheel.bind(this);
+    this.onPointerLockChange = this.onPointerLockChange.bind(this);
+    this.onPointerLockError = this.onPointerLockError.bind(this);
+    this.onBlur = this.onBlur.bind(this);
+
+    window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
+    window.addEventListener('mousemove', this.onMouseMove);
+    canvas.addEventListener('mousedown', this.onMouseDown);
+    window.addEventListener('mouseup', this.onMouseUp);
+    canvas.addEventListener('wheel', this.onWheel, { passive: false });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    document.addEventListener('pointerlockchange', this.onPointerLockChange);
+    // Chrome rejects a lock request that comes too soon after the last exit and
+    // reports it *only* through this event on some paths — no promise, no
+    // throw. Without it the rejection went unrecorded, the next click asked
+    // again immediately, and the pointer never locked at all.
+    document.addEventListener('pointerlockerror', this.onPointerLockError);
+    window.addEventListener('blur', this.onBlur);
+
+    settings.on('change', ({ key }) => {
+      if (key === 'mouseMode' && settings.get('mouseMode') === 'pan') this.exitPointerLock();
+    });
+  }
+
+  dispose() {
+    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
+    window.removeEventListener('mousemove', this.onMouseMove);
+    window.removeEventListener('mouseup', this.onMouseUp);
+    document.removeEventListener('pointerlockchange', this.onPointerLockChange);
+    document.removeEventListener('pointerlockerror', this.onPointerLockError);
+    window.removeEventListener('blur', this.onBlur);
+  }
+
+  /** Suspend gameplay input while a panel or the world map has focus. */
+  setSuspended(suspended) {
+    this.suspended = suspended;
+    if (suspended) {
+      this.keys.clear();
+      this.tapped.clear();
+      this.exitPointerLock();
+    }
+  }
+
+  isDown(action) {
+    if (this.suspended) return false;
+    const code = keybinds.codeFor(action);
+    return code ? this.keys.has(code) : false;
+  }
+
+  /** Held now, or pressed at any point since the last poll. See `tapped`. */
+  wasDown(action) {
+    if (this.suspended) return false;
+    const code = keybinds.codeFor(action);
+    return code ? this.keys.has(code) || this.tapped.has(code) : false;
+  }
+
+  /** Movement snapshot the controller consumes each frame. */
+  movement() {
+    const keys = {
+      forward: this.wasDown('forward'),
+      back: this.wasDown('back'),
+      left: this.wasDown('left'),
+      right: this.wasDown('right'),
+      jump: this.wasDown('jump'),
+      sprint: this.wasDown('sprint'),
+      crouch: this.wasDown('crouch'),
+      // How many separate presses of jump happened since the last poll, so a
+      // double tap survives a frame slow enough to contain both of them.
+      jumpPresses: this.tapped.get(keybinds.codeFor('jump')) ?? 0,
+    };
+    this.tapped.clear();
+    // Touch and keyboard both feed the same snapshot, so either can drive and
+    // holding both does the obvious thing.
+    const touch = this.touch ? this.touch.movement() : null;
+    if (touch) for (const key of Object.keys(keys)) keys[key] = keys[key] || touch[key];
+    return keys;
+  }
+
+  attachTouch(touch) {
+    this.touch = touch;
+  }
+
+  requestPointerLock() {
+    if (settings.get('mouseMode') !== 'locked' || this.pointerLocked || this.suspended) return;
+    // Browsers reject a lock request made too soon after the last exit, so back
+    // off and let the next click try again instead of wedging.
+    const now = performance.now();
+    if (now - (this.lockRejectedAt ?? -Infinity) < 1300) return;
+    try {
+      const promise = this.canvas.requestPointerLock();
+      if (promise && typeof promise.catch === 'function') {
+        promise.catch(() => {
+          this.lockRejectedAt = performance.now();
+        });
+      }
+    } catch {
+      this.lockRejectedAt = now;
+    }
+  }
+
+  exitPointerLock() {
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
+
+  onPointerLockChange() {
+    const locked = document.pointerLockElement === this.canvas;
+    if (!locked && this.pointerLocked) {
+      this.keys.clear();
+      this.tapped.clear();
+    }
+    this.pointerLocked = locked;
+    if (locked) this.lockRejectedAt = -Infinity;
+    this.emit('pointerlock', locked);
+  }
+
+  onPointerLockError() {
+    this.lockRejectedAt = performance.now();
+  }
+
+  onBlur() {
+    this.keys.clear();
+    this.tapped.clear();
+    this.dragging = false;
+  }
+
+  onKeyDown(event) {
+    const target = event.target;
+    if (target instanceof HTMLElement) {
+      const tag = target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
+      // A button that still has focus turns Space and Enter into a click on
+      // it. That is why jumping on a fresh boot opened the controls card and
+      // teleported you somewhere else: the HUD's own buttons were focused, and
+      // Space pressed whichever one you had last touched. Preventing the
+      // default is not enough on its own — the focus has to go, or every
+      // subsequent Space is a coin toss.
+      if (tag === 'BUTTON' || tag === 'A') {
+        target.blur();
+        if (event.code === 'Space' || event.code === 'Enter' || event.code === 'NumpadEnter') {
+          event.preventDefault();
+        }
+      }
+    }
+
+    // Let the browser keep its own shortcuts when a modifier is held — but not
+    // for the modifier keys themselves, or holding crouch would silently
+    // disable every other key you pressed with it.
+    const modifierItself =
+      event.code === 'ControlLeft' ||
+      event.code === 'ControlRight' ||
+      event.code === 'AltLeft' ||
+      event.code === 'AltRight';
+    if (!modifierItself && (event.ctrlKey || event.metaKey || event.altKey)) return;
+
+    // F-keys, Space and Tab would otherwise scroll the page, open browser help,
+    // or — the one that actually bit — press whichever HUD button still has
+    // focus. That has to happen whether or not the key is bound to anything,
+    // so it comes before the unbound early return rather than after it.
+    if (event.code.startsWith('F') || event.code === 'Space' || event.code === 'Tab') {
+      event.preventDefault();
+    }
+
+    const actions = keybinds.actionsFor(event.code);
+    if (actions.length === 0) return;
+
+    const first = !this.keys.has(event.code);
+    this.keys.add(event.code);
+    this.tapped.set(event.code, (this.tapped.get(event.code) ?? 0) + 1);
+    for (const action of actions) {
+      this.emit('action', { id: action, repeat: !first, event });
+    }
+  }
+
+  onKeyUp(event) {
+    this.keys.delete(event.code);
+    for (const action of keybinds.actionsFor(event.code)) {
+      this.emit('actionUp', { id: action, event });
+    }
+  }
+
+  onMouseDown(event) {
+    if (this.suspended) return;
+    // A click that lands on the HUD, a panel or the minimap belongs to them.
+    if (event.target !== this.canvas) return;
+    const mode = settings.get('mouseMode');
+    const swap = settings.get('swapMouseButtons');
+
+    if (mode === 'locked') {
+      if (!this.pointerLocked) {
+        event.preventDefault();
+        this.requestPointerLock();
+        return;
+      }
+      // Either button boosts while the pointer is captured.
+      if (event.button === 0 || event.button === 2) {
+        event.preventDefault();
+        this.emit('boost', { button: event.button });
+      }
+      return;
+    }
+
+    // Pan mode: drag with one button to look, click the other to boost, and a
+    // plain click (no drag) lands.
+    const lookButton = swap ? 2 : 0;
+    const boostButton = swap ? 0 : 2;
+    if (event.button === lookButton) {
+      event.preventDefault();
+      this.dragging = true;
+      this.dragMoved = 0;
+      this.dragStartedAt = performance.now();
+      this.dragButton = event.button;
+      this.lastPointer.x = event.clientX;
+      this.lastPointer.y = event.clientY;
+      this.canvas.classList.add('dragging');
+    } else if (event.button === boostButton) {
+      event.preventDefault();
+      this.emit('boost', { button: event.button });
+    }
+  }
+
+  onMouseUp(event) {
+    if (!this.dragging || event.button !== this.dragButton) return;
+    this.dragging = false;
+    this.dragButton = -1;
+    this.canvas.classList.remove('dragging');
+    // A click rather than a drag: that is the "land" action in pan mode.
+    // Short *or* small counts, because the two failure modes are different —
+    // a mouse gives you a tiny slow click and a trackpad a quick messy one.
+    const held = performance.now() - (this.dragStartedAt ?? 0);
+    const click =
+      this.dragMoved < DRAG_THRESHOLD || (held < CLICK_TIME_MS && this.dragMoved < CLICK_SLOP);
+    if (click && !this.suspended) this.emit('land', {});
+  }
+
+  onMouseMove(event) {
+    if (this.suspended) return;
+    const sensitivity = settings.get('sensitivity') * 0.0022;
+    const invert = settings.get('invertY') ? -1 : 1;
+
+    if (this.pointerLocked) {
+      this.emit('look', {
+        dx: event.movementX * sensitivity,
+        dy: event.movementY * sensitivity * invert,
+      });
+      return;
+    }
+
+    if (this.dragging) {
+      const dx = event.clientX - this.lastPointer.x;
+      const dy = event.clientY - this.lastPointer.y;
+      this.lastPointer.x = event.clientX;
+      this.lastPointer.y = event.clientY;
+      this.dragMoved += Math.abs(dx) + Math.abs(dy);
+      this.emit('look', { dx: dx * sensitivity * 1.4, dy: dy * sensitivity * 1.4 * invert });
+    }
+  }
+
+  onWheel(event) {
+    if (this.suspended) return;
+    event.preventDefault();
+    // One hotbar slot per notch, accumulated — a trackpad sends a stream of
+    // small deltas for one flick and this used to step on every one of them,
+    // so a light gesture ran through the whole hotbar.
+    const steps = this.wheel.read(event);
+    for (let i = 0; i < Math.abs(steps); i++) {
+      this.emit('wheel', { delta: steps > 0 ? -1 : 1, shift: event.shiftKey });
+    }
+  }
+}

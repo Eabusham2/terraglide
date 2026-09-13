@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <!--
+      TerraGlide, online edition. Everything the page needs comes from
+      https://eabusham2.github.io/terraglide/
+      so this file never goes stale and never needs rebuilding. It needs a
+      network; for a copy that does not, use terraglide.html from the same
+      place.
+
+      Change the URLs below to point at your own mirror. TerraGlide by
+      Eabusham2 — https://github.com/eabusham2/terraglide
+    -->
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <title>TerraGlide</title>
+    <link rel="stylesheet" href="https://eabusham2.github.io/terraglide/styles/main.css" />
+    <meta name="description" content="Explore the real world on foot and by elytra, over stitched satellite, elevation and street-level map data." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Crect%20width%3D%2232%22%20height%3D%2232%22%20fill%3D%22%231b2330%22%2F%3E%3Cpath%20d%3D%22M15%205l-11%205c-1%207%201%2013%205%2017l6-6z%22%20fill%3D%22%23b9c6a4%22%2F%3E%3Cpath%20d%3D%22M17%205l11%205c1%207-1%2013-5%2017l-6-6z%22%20fill%3D%22%238b9a79%22%2F%3E%3Cpath%20d%3D%22M15%205l-11%205c-.4%202.6-.4%205.2%200%207.6l11-4.6z%22%20fill%3D%22%23d3ddc2%22%2F%3E%3Cpath%20d%3D%22M17%205l11%205c.4%202.6.4%205.2%200%207.6l-11-4.6z%22%20fill%3D%22%239fae8c%22%2F%3E%3Cpath%20d%3D%22M15%204h2v20h-2z%22%20fill%3D%22%235d5647%22%2F%3E%3C%2Fsvg%3E" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="viewport"></canvas>
+      <div id="ui"></div>
+      <div id="boot">
+        <div class="boot-inner">
+          <h1>TerraGlide</h1>
+          <p id="boot-status">Starting engine&hellip;</p>
+        </div>
+      </div>
+    </div>
+    <script>
+      /* Where the game's code lives. tools/online.mjs rewrites both of these to
+         absolute URLs on the published site, which is the whole trick that
+         makes the online single-file edition work. */
+      window.__TERRAGLIDE_PACK__ = "https://eabusham2.github.io/terraglide/terraglide.bundle.js";
+      window.__TERRAGLIDE_ENTRY__ = "https://eabusham2.github.io/terraglide/src/main.js";
+    </script>
+    <script>
+      /*
+        Opened by double-clicking, out of the zip.
+
+        Browsers refuse to load ES modules from file:// — the origin is opaque,
+        the fetch is a cross-origin one, and there is nobody to grant it. So
+        main.js never runs and the watchdog below eventually blamed the network
+        for it: "the code did not finish downloading". There is no network
+        involved. Nothing was downloading. The advice was wrong and it took
+        twenty seconds of a blank screen to give it.
+
+        The file that does work is in the same folder, because it is in the same
+        zip: terraglide.html carries the whole game inline and has no modules to
+        refuse. So go there, at once, rather than explaining a browser rule to
+        somebody who wanted to play a game.
+
+        Only when the code itself is local files. The online edition is this same
+        page with its entry pointing at the published site, and that loads from
+        file:// perfectly well — sending it away would swap a working page for a
+        three-megabyte download.
+      */
+      if (location.protocol === 'file:' && window.__TERRAGLIDE_ENTRY__.indexOf('http') !== 0) {
+        var status = document.getElementById('boot-status');
+        if (status) status.textContent = 'Opening the single-file copy\u2026';
+        location.replace('./terraglide.html');
+      }
+
+      /*
+        One request for the code, and ask again if it does not arrive.
+
+        This page used to load seventy-seven separate ES modules, and a browser
+        does not retry a module fetch that fails. One dropped response — a
+        single flaky moment on the wifi — ended the boot for good, with the
+        screen still reading "Starting engine...". Measured, dropping requests
+        at random:
+
+          perfect connection    booted 3 of 3, in 2.3 s
+          0.5 per cent dropped  booted 2 of 3
+          1 per cent dropped    booted 0 of 3
+          2 per cent dropped    booted 0 of 3
+          5 per cent dropped    booted 0 of 3
+
+        One per cent loss is an ordinary evening on home wifi, and it takes
+        every machine on that network down at once — whatever the operating
+        system or the browser, which is the report that came back from seven of
+        them.
+
+        A classic script is not a module, so the page can watch this one fail
+        and ask again, which is the thing the module loader will not do. Three
+        goes, backing off, and only then the old module path — which still has
+        to be there, because a plain checkout of this repository has no built
+        bundle beside it and the repository is supposed to be the site.
+      */
+      var packTries = 0;
+      function loadModules() {
+        var m = document.createElement('script');
+        m.type = 'module';
+        m.src = window.__TERRAGLIDE_ENTRY__;
+        document.head.appendChild(m);
+      }
+      function loadPack() {
+        var s = document.createElement('script');
+        // A fresh query on each retry, so a failure the browser has cached as
+        // a failure is not simply handed back. The published page already
+        // carries the bundle's fingerprint as a query — that is what stops a
+        // deploy being invisible to a phone that has the old one cached — so
+        // the separator has to be chosen rather than assumed.
+        var pack = window.__TERRAGLIDE_PACK__;
+        s.src = packTries ? pack + (pack.indexOf('?') < 0 ? '?' : '&') + 'retry=' + packTries : pack;
+        s.onerror = function () {
+          packTries += 1;
+          if (packTries < 3) setTimeout(loadPack, 400 * packTries);
+          else loadModules();
+        };
+        document.head.appendChild(s);
+      }
+      loadPack();
+
+      /*
+        A watchdog for the one failure that says nothing.
+
+        The page loads sixty-odd separate ES modules. If any single one of them
+        does not arrive — a filtered school network, a captive portal, a proxy
+        that mangles one response — the module graph never finishes, main.js
+        never runs, and the boot screen sits on "Starting engine…" for ever
+        with no error anywhere a player can see. It is indistinguishable from
+        the game simply being broken, and it is the report that came back.
+
+        This cannot fix the network. What it can do is stop the silence: if
+        nothing has started after a while, say what that means and point at the
+        single-file build, which is one request instead of sixty and works when
+        this does not.
+      */
+      window.addEventListener('error', (event) => {
+        if (!/\.m?js/.test(String(event.filename ?? ''))) return;
+        window.__terraglideLoadError = String(event.message ?? 'script error');
+      }, true);
+      setTimeout(() => {
+        /*
+          What this asks has to be what it means.
+
+          It used to be `if (window.terraglide) return`, and main.js publishes
+          that handle *before* it awaits game.start(). So the object existing
+          proved only that the constructor had run \u2014 and for the whole of
+          start(), or for ever if anything in it never settled, the watchdog
+          returned here and said nothing. Hanging start() on purpose and
+          watching the screen still read "Building interface" at thirty seconds,
+          with no message and no link, is what turned that from a reading into a
+          fact. `__terraglideStarted` is set after start() resolves and
+          `__terraglideSpoke` when the page has already explained itself, so
+          neither a live game nor a reported failure gets talked over.
+        */
+        if (window.__terraglideStarted || window.__terraglideSpoke) return;
+        const status = document.getElementById('boot-status');
+        if (!status) return;
+        const stage = window.__terraglideStage;
+        /*
+          Two different faults wear the same frozen screen, and the advice for
+          one is wrong for the other.
+
+          No stage means main.js never ran: sixty-odd module requests and one of
+          them never arrived, which is a network in the way. A stage means the
+          code did arrive, did run, and stopped somewhere specific \u2014 and
+          blaming the network there is the confident wrong answer this boot path
+          has already given once.
+        */
+        const detail = window.__terraglideLoadError
+          ? 'A script failed to load: ' + window.__terraglideLoadError
+          : stage
+            ? 'The game loaded and started, then stopped while it was still '
+              + '"' + stage + '". The code got here, so this is not the '
+              + 'network in the way \u2014 the report below says what did answer.'
+            : 'The game\'s code did not finish arriving. Something between here and '
+              + 'the files is blocking or rewriting one of them \u2014 a filtered network, '
+              + 'a proxy, an extension \u2014 rather than a fault in the game.';
+        status.textContent = 'Could not start';
+        const inner = status.parentNode;
+        const p = document.createElement('p');
+        p.style.cssText = 'max-width:46ch;margin:10px auto 0;color:#767d87;font-size:12px;line-height:1.5';
+        p.textContent = detail;
+        const link = document.createElement('p');
+        link.style.cssText = 'margin:10px auto 0;font-size:12px';
+        link.innerHTML = 'Try <a href="https://eabusham2.github.io/terraglide/terraglide.html" style="color:#9fb8d8">terraglide.html</a>'
+          + ' \u2014 the whole game in one file, one request instead of sixty.';
+        inner.appendChild(p);
+        inner.appendChild(link);
+
+        /*
+          A screen that cannot start cannot press F4, and F4 is where every
+          other answer in this game lives. Without something here, the only
+          thing a player can report is "it hangs" \u2014 which is what came back, on
+          seven machines across three operating systems and four browsers, and
+          it is not enough to act on from the outside.
+
+          So this asks the questions itself. Each probe is one request whose
+          answer distinguishes a real cause: the modules on this origin, the
+          textures beside them, and one provider \u2014 so "nothing at all",
+          "everything but the providers" and "this machine only" are three
+          different reports rather than one shrug.
+        */
+        const report = document.createElement('pre');
+        report.style.cssText = 'max-width:52ch;margin:14px auto 0;padding:8px 10px;text-align:left;'
+          + 'background:#141a24;border:1px solid #263041;border-radius:6px;color:#8b93a0;'
+          + 'font-size:11px;line-height:1.45;white-space:pre-wrap;word-break:break-word';
+        inner.appendChild(report);
+        const button = document.createElement('button');
+        button.textContent = 'Copy this report';
+        button.style.cssText = 'margin:10px auto 0;padding:6px 12px;font:inherit;font-size:12px;'
+          + 'color:#cfd8e3;background:#232c3a;border:1px solid #36435a;border-radius:6px;cursor:pointer';
+        inner.appendChild(button);
+
+        const gl = (() => {
+          try {
+            const c = document.createElement('canvas');
+            return c.getContext('webgl2') ? 'yes' : 'no';
+          } catch (e) { return 'threw: ' + e.message; }
+        })();
+        const store = (() => {
+          try { localStorage.setItem('__tg', '1'); localStorage.removeItem('__tg'); return 'yes'; }
+          catch (e) { return 'blocked (' + e.name + ')'; }
+        })();
+        const lines = [
+          'TerraGlide could not start \u2014 ' + new Date().toISOString(),
+          'stage      ' + (stage || 'never ran (modules did not finish arriving)'),
+          'loadError  ' + (window.__terraglideLoadError || 'none reported'),
+          'page       ' + location.href,
+          'browser    ' + navigator.userAgent,
+          'webgl2     ' + gl,
+          'workers    ' + (typeof Worker === 'function' ? 'yes' : 'no'),
+          'storage    ' + store,
+          'bitmap     ' + (typeof createImageBitmap === 'function' ? 'yes' : 'no'),
+          'online     ' + navigator.onLine,
+        ];
+        const draw = () => { report.textContent = lines.join('\n'); };
+        draw();
+
+        const probe = (label, url) => {
+          const started = Date.now();
+          const stop = new AbortController();
+          const timer = setTimeout(() => stop.abort(), 10000);
+          const done = (text) => {
+            clearTimeout(timer);
+            lines.push('probe      ' + label + ' \u2014 ' + text + ' (' + (Date.now() - started) + ' ms)');
+            draw();
+          };
+          return fetch(url, { signal: stop.signal, cache: 'no-store' })
+            .then((r) => r.text().then((body) => {
+              // A portal answers 200 with its own page. Saying "200" there is
+              // the same lie that made this screen necessary.
+              const html = /^\s*<(!doctype|html)/i.test(body);
+              done('HTTP ' + r.status + (html && !/\.html/.test(url) ? ' but the body is HTML \u2014 something rewrote it' : ''));
+            }))
+            .catch((e) => done('failed: ' + (e.name === 'AbortError' ? 'no answer in 10 s' : e.message)));
+        };
+        Promise.all([
+          probe('this site\'s code', './src/main.js'),
+          probe('this site\'s textures', './assets/manifest.json'),
+          probe('Esri imagery', 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/3/3/4'),
+        ]).then(() => { lines.push('\u2014 end of report \u2014'); draw(); });
+
+        button.addEventListener('click', () => {
+          const text = lines.join('\n');
+          const copied = () => { button.textContent = 'Copied'; };
+          try {
+            navigator.clipboard.writeText(text).then(copied, () => {
+              // No clipboard permission, or an insecure origin. Selecting it is
+              // still a copy, just one the player finishes themselves.
+              const range = document.createRange();
+              range.selectNodeContents(report);
+              const sel = getSelection();
+              sel.removeAllRanges();
+              sel.addRange(range);
+              button.textContent = 'Selected \u2014 press Ctrl/Cmd+C';
+            });
+          } catch (e) { button.textContent = 'Select the text above and copy it'; }
+        });
+      }, 20000);
+    </script>
+  </body>
+</html>
