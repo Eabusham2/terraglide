@@ -399,9 +399,9 @@ const SCAN_ARM_HIP = 0.17;
  * The knife that cuts the arm off the body: a point on the plane and its
  * normal, pointing down the arm toward the hand, on the figure's right.
  */
-const SCAN_ARM_WALL = {
-  at: [0.085, 0.86, 0.0],
-  to: [0.30, -0.95, 0.0],
+export const SCAN_ARM_WALL = {
+  at: [0.110, 0.760, 0.0],
+  to: [1.0, 0.0, 0.0],
   soft: 0.004,
   band: 0.045,
   only: 0.35,

@@ -1065,5 +1065,42 @@ window.__pose('stand-front');
 // different question from what a screenshot looks like.
 window.__avatar = avatar;
 window.__jointNames = (await import('../src/player/avatar.js')).SCAN_JOINT_NAMES;
+window.__wallSpec = (await import('../src/player/avatar.js')).SCAN_ARM_WALL;
+/*
+  Draw the cutting plane itself, as a thin wall in the world.
+
+  Everything above has been about where the arm's weight ends; this shows the
+  knife that decides it. `at` is a point on the plane and `to` its normal; the
+  wall is a slab centred there, thin along the normal and wide across it, on
+  the figure's right (+X). The band it actually cuts within is drawn as its
+  thickness. Red where it would pass through the body if it reached that far,
+  so it is obvious whether the cut is around the arm or across the chest.
+*/
+window.__drawWall = () => {
+  const w = window.__wallSpec;
+  const skin = avatar.scanSkins[0];
+  skin.updateMatrixWorld(true);
+  // The plane maths in weighScan runs in the geometry's own coordinates - the
+  // raw position attribute, before the mesh's place transform. So build the
+  // wall there and carry it to the world through the mesh's own matrix, the
+  // same journey every vertex takes.
+  const at = new THREE.Vector3(w.at[0], w.at[1], w.at[2]);
+  const tip = at.clone().add(new THREE.Vector3(w.to[0], w.to[1], w.to[2]));
+  const worldAt = skin.localToWorld(at.clone());
+  const worldTip = skin.localToWorld(tip);
+  const normal = worldTip.sub(worldAt).normalize();
+  const size = 0.34 * (avatar.root.scale.x || 1);
+  // A single thin plane, no thickness, so edge-on it is a line.
+  const face = new THREE.Mesh(
+    new THREE.PlaneGeometry(size, size),
+    new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.5,
+      depthWrite: false, side: THREE.DoubleSide }),
+  );
+  face.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+  face.position.copy(worldAt);
+  scene.add(face);
+  renderer.render(scene, camera);
+  return `wall at ${w.at} normal ${w.to}`;
+};
 window.__ready = true;
 </script>
