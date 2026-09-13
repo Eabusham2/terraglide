@@ -406,6 +406,13 @@ export const SCAN_ARM_WALL = {
   band: 0.075,
   only: 0.35,
 };
+/** The armpit height: the cut is an armhole loop from here up, not a seam that
+ *  runs on down the length of the sleeve. */
+const SCAN_ARM_PIT = 0.68;
+/** How far back the cut reaches. The elytra is welded to the back of the
+ *  shoulder, so the arm stops short of it: only the front of the shoulder,
+ *  ahead of this depth, swings with the arm; the rest stays with the body. */
+const SCAN_ARM_BACK = 0.01;
 
 const SCAN_JOINTS = [
   {
@@ -2153,6 +2160,12 @@ export class Avatar {
         const shoulder = raw[n * joints + arm] + raw[n * joints + ic[side]];
         if (shoulder < SCAN_ARM_WALL.only) continue;
         if (raw[n * joints + iw[side]] > 0.15) continue;
+        // Only at the shoulder, not down the whole arm. The plane is a wall
+        // with no bottom, so left to run it slices the inner arm off the outer
+        // all the way to the wrist - a seam down the length of the sleeve. The
+        // cut is an armhole: it lives in the band from the armpit up, and below
+        // that the arm is one solid piece the natural weights already own.
+        if (py[n] < SCAN_ARM_PIT) continue;
         const turn = side === 'L' ? -1 : 1;
         const d = ((px[n] - at[0] * turn) * to[0] * turn
           + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
@@ -2210,7 +2223,7 @@ export class Avatar {
         hold, so the length of the arm is left as it was.
       */
       for (let n = 0; n < nodes; n += 1) {
-        if (py[n] < 0.68) continue;
+        if (py[n] < SCAN_ARM_PIT) continue;
         const side = px[n] < 0 ? 'L' : 'R';
         const arm = ix[side];
         if (raw[n * joints + arm] <= 0) continue;
@@ -2218,10 +2231,11 @@ export class Avatar {
         const d = ((px[n] - at[0] * turn) * to[0] * turn
           + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
         // Keep it only if it is outboard of the line and no further back than
-        // the arm itself reaches. The feather roots that survive as shards sit
-        // outboard, so the plane keeps them, but a hand's-width behind the arm
-        // where no arm is - so a depth limit is what tells the two apart.
-        if (d > 0 && pz[n] < 0.05) continue;
+        // the arm reaches short of the elytra. The feather roots that survive
+        // as shards sit outboard, so the plane keeps them, but back where the
+        // wing is welded on - so a depth limit is what tells the two apart and
+        // keeps the cut off the elytra.
+        if (d > 0 && pz[n] < SCAN_ARM_BACK) continue;
         raw[n * joints + arm] = 0;
         let rest = 0;
         for (let j = 0; j < joints; j += 1) rest += raw[n * joints + j];
