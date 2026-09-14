@@ -401,7 +401,7 @@ const SCAN_ARM_HIP = 0.17;
  */
 export const SCAN_ARM_WALL = {
   at: [0.110, 0.680, 0.0],
-  to: [1.0, -0.09, 0.0],
+  to: [1.0, -0.045, 0.0],
   soft: 0.004,
   band: 0.075,
   only: 0.35,
