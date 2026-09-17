@@ -1200,6 +1200,36 @@ window.__angle = (azDeg, elDeg, radius) => {
   camera.updateProjectionMatrix();
   renderer.render(scene, camera);
 };
+// Draw the shoulder cut — the slicing plane and the actual edge it leaves —
+// and frame it on the right shoulder from an azimuth (0 front, 90 side).
+window.__wallShot = (azDeg, radius = 0.62, elDeg = 4) => {
+  const bone = avatar.scanBones?.armR;
+  const target = bone ? bone.getWorldPosition(new THREE.Vector3())
+    : new THREE.Vector3(0.3, 1.3, 0);
+  window.__drawWall();
+  window.__markArmEdge();
+  const az = azDeg * Math.PI / 180;
+  const el = elDeg * Math.PI / 180;
+  camera.position.copy(target).add(new THREE.Vector3(
+    Math.sin(az) * Math.cos(el) * radius,
+    Math.sin(el) * radius,
+    -Math.cos(az) * Math.cos(el) * radius));
+  camera.lookAt(target);
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+};
+// The held rocket's actual transform in the current pose — position, turn and
+// scale relative to whatever it hangs from — for comparing one build to another.
+window.__rocketXform = () => {
+  const r = avatar.rocket;
+  r.updateMatrixWorld(true);
+  const wp = r.getWorldPosition(new THREE.Vector3());
+  const wq = r.getWorldQuaternion(new THREE.Quaternion());
+  return {
+    pos: r.position.toArray(), quat: r.quaternion.toArray(), scale: r.scale.toArray(),
+    worldPos: wp.toArray(), worldQuat: wq.toArray(),
+  };
+};
 window.__scanGrip = () => ({
   grip: avatar.scanGrip ? avatar.scanGrip.toArray() : null,
   fist: avatar.scanFist ?? null,
