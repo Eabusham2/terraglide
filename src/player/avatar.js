@@ -80,6 +80,26 @@ const GRIP_NUDGE = [0.035375, -0.011112];
 const GRIP_OUT = 0.0;
 /** How far behind the fist's axis it sits, as a share of the fist's width. */
 const GRIP_BACK = 0.0;
+/*
+  The grip, frozen to where it was signed off.
+
+  handOfTheScan() measures the fist off the skinned mesh, so the shoulder
+  cut — which re-weights the arm — drags the hold every time the cut is
+  tuned: the same GRIP_NUDGE that reads as -353.8 mm before the cut reads as
+  -334.3 mm after it, the firework creeping up and out of the hand. The cure
+  is to stop measuring. These are the exact numbers handOfTheScan() produced
+  at the commit where the standing grip was approved (b81120e) — the grip
+  vector in the shoulder's frame, the fist's width, and the lay angle —
+  captured once and pinned here so the firework sits in the hand the same way
+  no matter what the arm cut does afterwards. Nose out the front, fins out
+  the back, level. Re-derive by rendering that commit and reading
+  window.__scanGrip(); do not hand-edit.
+*/
+const SCAN_GRIP_LOCK = {
+  grip: [0.05019238208580014, -0.3537787383715969, -0.02659918510831961],
+  fist: 0.0901755653321743,
+  turn: 1.4403373228047305,
+};
 /** White, for lightening the slot colour before it tints a photograph. */
 const WHITE_TINT = new THREE.Color(0xffffff);
 /** Scratch, so measuring the scan's fist allocates nothing. */
@@ -377,7 +397,42 @@ const BOOT_HEIGHT = 0.05;
  * because nothing else is anywhere near it, and the collarbone and the chest
  * get the shoulder back. A bend at the shoulder then bends the shoulder.
  */
-const SCAN_ARM_SETBACK = 0.055;
+const SCAN_ARM_SETBACK = -0.13;
+/**
+ * How much further up the arm reaches at the back of the shoulder than at the
+ * front, in the same units as the setback, so the hand-over line climbs
+ * towards the spine instead of running round level.
+ *
+ * A distance and not a multiple of the setback. As a multiple it could not be
+ * asked the two questions separately: raising the whole ring means shrinking
+ * the setback, and shrinking the setback took the tilt with it, so the line
+ * came up flat.
+ */
+const SCAN_ARM_RAKE = 0.0;
+/** The depth over which it rakes: about half a shoulder, front to back. */
+const SCAN_ARM_REACH = 0.09;
+/** Sideways tilt (unused; the slicing plane places the seam). */
+const SCAN_ARM_SWAY = 0.0;
+/** The across distance the sway pivots about. */
+const SCAN_ARM_HIP = 0.17;
+/**
+ * The knife that cuts the arm off the body: a point on the plane and its
+ * normal, pointing down the arm toward the hand, on the figure's right.
+ */
+export const SCAN_ARM_WALL = {
+  at: [0.110, 0.680, 0.0],
+  to: [1.0, -0.045, 0.0],
+  soft: 0.004,
+  band: 0.075,
+  only: 0.35,
+};
+/** The armpit height: the cut is an armhole loop from here up, not a seam that
+ *  runs on down the length of the sleeve. */
+const SCAN_ARM_PIT = 0.68;
+/** How far back the cut reaches. The elytra is welded to the back of the
+ *  shoulder, so the arm stops short of it: only the front of the shoulder,
+ *  ahead of this depth, swings with the arm; the rest stays with the body. */
+const SCAN_ARM_BACK = 0.01;
 
 const SCAN_JOINTS = [
   {
@@ -593,7 +648,7 @@ const SCAN_CLAVICLE = 0;
  * with the arm modelled at a different angle aims the same way, where a fixed
  * turn would land somewhere new.
  */
-const SCAN_ROCKET_AIM = new THREE.Vector3(0.28, 0.94, 0.20).normalize();
+const SCAN_ROCKET_AIM = new THREE.Vector3(0.92, -0.15, 0.25).normalize();
 /** Scratch for building that turn, and for the arm's own rest direction. */
 const _swing = new THREE.Quaternion();
 const _reach = new THREE.Vector3();
@@ -1802,7 +1857,12 @@ export class Avatar {
     // with the rest of the scan in first person.
     this.scanFace = this.makeScanFace(this.scanSkins);
     named.head.add(this.scanFace);
-    this.scanGrip = this.handOfTheScan();
+    // Pinned, not measured: handOfTheScan() still derives these numbers (and
+    // is how SCAN_GRIP_LOCK was captured), but the live hold reads from the
+    // lock so the arm cut cannot drag it. See SCAN_GRIP_LOCK.
+    this.scanFist = SCAN_GRIP_LOCK.fist;
+    this.scanGripTurn = SCAN_GRIP_LOCK.turn;
+    this.scanGrip = new THREE.Vector3().fromArray(SCAN_GRIP_LOCK.grip);
     if (GRIP_GROOVE) this.cutTheGrip();
     return group;
   }
@@ -1936,11 +1996,42 @@ export class Avatar {
       joint at once, so the total is preserved and no joint can be smoothed
       away.
     */
+    /*
+      And the hand-over rises towards the back.
+
+      A shoulder seam is not a level ring. It sits low at the front, where the
+      arm swings forward off the chest, and climbs over the top towards the
+      spine - which is what a sleeve looks like on anybody. Level, it read as a
+      band drawn round the arm with a ruler.
+
+      Done by raking the arms' setback rather than by moving the joint: less of
+      it at the back, so the arm reaches further up there and the line lifts;
+      full at the front, where it was already right.
+    */
+    const lift = new Float32Array(nodes);
+    {
+      const behind = new Float32Array(nodes);
+      const outX = new Float32Array(nodes);
+      for (let v = 0; v < count; v += 1) {
+        behind[welded[v]] = position.getZ(v);
+        outX[welded[v]] = Math.abs(position.getX(v));
+      }
+      for (let n = 0; n < nodes; n += 1) {
+        // Rake tips the ring front-to-back. Sway tips it across: the more of
+        // it there is, the lower the seam sits out on the arm and the higher
+        // it climbs toward the body, which turns a level band into the diagonal
+        // that runs from the collar down to the armpit.
+        lift[n] = -SCAN_ARM_RAKE * clamp(behind[n] / SCAN_ARM_REACH, -1, 1)
+          - SCAN_ARM_SWAY * clamp((outX[n] - SCAN_ARM_HIP) / SCAN_ARM_REACH, -1, 1);
+      }
+    }
+
     let raw = new Float32Array(nodes * joints);
     for (let n = 0; n < nodes; n += 1) {
       let total = 0;
       for (let j = 0; j < joints; j += 1) {
-        const d = reach[j][n] + (SCAN_JOINTS[j].setback ?? 0);
+        const d = reach[j][n] + (SCAN_JOINTS[j].setback === undefined
+          ? 0 : SCAN_JOINTS[j].setback + lift[n]);
         const w = Number.isFinite(d) ? 1 / Math.pow(d + SKIN_SOFTEN, SKIN_FALLOFF) : 0;
         raw[n * joints + j] = w;
         total += w;
@@ -1977,9 +2068,14 @@ export class Avatar {
       bends where it meets the back instead of tearing off it.
     */
     {
+      // The collarbones as well as the shoulders. Cutting the arm off at the
+      // wing and leaving the collarbone on it just moves the problem one joint
+      // along: the pair between them still owned a strip of feathers, and the
+      // strip showed up as the hand-over line running down the wing instead of
+      // stopping at the arm.
       const armJoints = [];
       SCAN_JOINTS.forEach((joint, j) => {
-        if (joint.name === 'armL' || joint.name === 'armR') armJoints.push(j);
+        if (/^(arm|clav)[LR]$/.test(joint.name)) armJoints.push(j);
       });
       const outX = new Float32Array(nodes);
       const atY = new Float32Array(nodes);
@@ -1995,7 +2091,7 @@ export class Avatar {
         // has no hold left to bend it with. Starting the fade at the envelope
         // instead puts the gradient on the wing, which is the thing that was
         // not supposed to move.
-        const past = outX[n] - (scanWidest(atY[n]) - SCAN_WING_BLEND);
+        const past = outX[n] - (scanWidest(atY[n]) - SCAN_WING_BLEND * 0.5);
         if (past <= 0) continue;
         const keep = Math.max(0, 1 - past / SCAN_WING_BLEND);
         let total = 0;
@@ -2045,6 +2141,164 @@ export class Avatar {
         }
       }
       const swap = raw; raw = next; next = swap;
+    }
+
+    /*
+      Slice the arm off at a plane.
+
+      Last of all, after the floor and the healing passes, so nothing blends
+      arm weight back across it. When it ran before them the healing smeared
+      the arm onto two thousand body vertices and raising the arm dragged the
+      chest.
+
+      The distance weighting decides where the arm ends by which seed patch is
+      nearest across the mesh, which cannot be aimed - dozens of tries moved
+      the seam by feel. A plane is aimed: a knife at a point and an angle, and
+      where it passes through the arm is the seam. `at` is a point on it, `to`
+      its normal pointing down the arm toward the hand, on the figure's right;
+      the left mirrors. The hand side is the arm's; the body keeps the rest.
+      `soft` feathers the cut so the skin bends rather than tears; `only` is how
+      much say the arm and its collarbone must already have for the plane to
+      touch a node, so it stays on the shoulder and off the chest, and it never
+      touches a wing.
+    */
+    {
+      const at = SCAN_ARM_WALL.at;
+      const to = SCAN_ARM_WALL.to;
+      const len = Math.hypot(to[0], to[1], to[2]) || 1;
+      const px = new Float32Array(nodes);
+      const py = new Float32Array(nodes);
+      const pz = new Float32Array(nodes);
+      for (let v = 0; v < count; v += 1) {
+        const n = welded[v];
+        px[n] = position.getX(v); py[n] = position.getY(v); pz[n] = position.getZ(v);
+      }
+      const ix = {}; const ic = {}; const iw = {};
+      SCAN_JOINTS.forEach((joint, j) => {
+        if (joint.name === 'armL') ix.L = j; if (joint.name === 'armR') ix.R = j;
+        if (joint.name === 'clavL') ic.L = j; if (joint.name === 'clavR') ic.R = j;
+        if (joint.name === 'wingL') iw.L = j; if (joint.name === 'wingR') iw.R = j;
+      });
+      for (let n = 0; n < nodes; n += 1) {
+        const side = px[n] < 0 ? 'L' : 'R';
+        const arm = ix[side];
+        const shoulder = raw[n * joints + arm] + raw[n * joints + ic[side]];
+        if (shoulder < SCAN_ARM_WALL.only) continue;
+        if (raw[n * joints + iw[side]] > 0.15) continue;
+        // Only at the shoulder, not down the whole arm. The plane is a wall
+        // with no bottom, so left to run it slices the inner arm off the outer
+        // all the way to the wrist - a seam down the length of the sleeve. The
+        // cut is an armhole: it lives in the band from the armpit up, and below
+        // that the arm is one solid piece the natural weights already own.
+        if (py[n] < SCAN_ARM_PIT) continue;
+        const turn = side === 'L' ? -1 : 1;
+        const d = ((px[n] - at[0] * turn) * to[0] * turn
+          + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
+        // A clean slice, so hard and everywhere in the zone, not a blend in a
+        // thin band. Over the whole shoulder the plane alone decides: on the
+        // hand side the node is all arm, on the body side it keeps its other
+        // joints and none of the arm. The boundary is then exactly where the
+        // plane crosses the surface - one line - instead of the ragged
+        // interleave the scan's own weights leave.
+        if (d > 0) {
+          for (let j = 0; j < joints; j += 1) raw[n * joints + j] = (j === arm ? 1 : 0);
+        } else {
+          let body = 0;
+          for (let j = 0; j < joints; j += 1) if (j !== arm) body += raw[n * joints + j];
+          for (let j = 0; j < joints; j += 1) {
+            raw[n * joints + j] = j === arm ? 0 : (body > 0 ? raw[n * joints + j] / body : 0);
+          }
+        }
+      }
+      /*
+        No arm weight on a wing vertex, anywhere.
+
+        The scan was generated with its wings grown out of its back, welded
+        to the deltoid, so the distance weighting leaves the arm a claim on
+        the feathers behind the shoulder. The plane above steps around those
+        vertices rather than cut them - the two surfaces share a place, and a
+        plane through one runs through the other - so they keep that claim,
+        and it reads as a second, ragged cut edge scattered across the wing:
+        the mess that made the seam look like anything but a slice. They are
+        under the elytra where nothing sees them, so giving them wholly back
+        to the wing and the body they mostly belong to costs nothing and
+        closes the loop on the one arm the eye can find.
+      */
+      for (let n = 0; n < nodes; n += 1) {
+        const side = px[n] < 0 ? 'L' : 'R';
+        const arm = ix[side];
+        if (raw[n * joints + iw[side]] <= 0.06 || raw[n * joints + arm] <= 0) continue;
+        raw[n * joints + arm] = 0;
+        let rest = 0;
+        for (let j = 0; j < joints; j += 1) rest += raw[n * joints + j];
+        if (rest > 0) for (let j = 0; j < joints; j += 1) raw[n * joints + j] /= rest;
+        else raw[n * joints + iw[side]] = 1;
+      }
+      /*
+        And nothing inboard of the plane is the arm, up at the shoulder.
+
+        The gate that lets the plane cut a node needs the arm and its
+        collarbone to already own a third of it, so the shreds in the crevice
+        behind the deltoid - low on both, arm only because nothing else was
+        nearer over the torn weld - slip past it and keep a stray arm claim
+        the plane never overrode. They sit on the body side of the line, so
+        up in the shoulder band, where the cut lives, the plane alone decides
+        for every node the arm might touch: outboard of the line it is arm,
+        inboard it is not, gate or no gate. Below the band the natural weights
+        hold, so the length of the arm is left as it was.
+      */
+      for (let n = 0; n < nodes; n += 1) {
+        if (py[n] < SCAN_ARM_PIT) continue;
+        const side = px[n] < 0 ? 'L' : 'R';
+        const arm = ix[side];
+        if (raw[n * joints + arm] <= 0) continue;
+        const turn = side === 'L' ? -1 : 1;
+        const d = ((px[n] - at[0] * turn) * to[0] * turn
+          + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
+        // Keep it only if it is outboard of the line and no further back than
+        // the arm reaches short of the elytra. The feather roots that survive
+        // as shards sit outboard, so the plane keeps them, but back where the
+        // wing is welded on - so a depth limit is what tells the two apart and
+        // keeps the cut off the elytra.
+        if (d > 0 && pz[n] < SCAN_ARM_BACK) continue;
+        raw[n * joints + arm] = 0;
+        let rest = 0;
+        for (let j = 0; j < joints; j += 1) rest += raw[n * joints + j];
+        if (rest > 0) for (let j = 0; j < joints; j += 1) raw[n * joints + j] /= rest;
+        else raw[n * joints + ic[side]] = 1;
+      }
+    }
+
+
+    /*
+      Arm weight is all or nothing.
+
+      A body vertex that carries even a fifth of an arm's pull drifts when the
+      arm turns, and two thousand torso vertices carried exactly that from the
+      distance falloff - so raising the arm dragged the chest however cleanly
+      the seam was cut. The seam plane only re-cuts the shoulder it gates on;
+      it never reaches these. So, last: unless an arm joint is the one a vertex
+      most belongs to, it gets none of that arm at all, and the rest is
+      renormalised. Only vertices the arm actually owns move with it, and the
+      body is frozen outright - the Lego joint asked for, at the cost of a hard
+      seam, which is what a Lego joint is.
+    */
+    {
+      const arms = [];
+      SCAN_JOINTS.forEach((joint, j) => { if (/^arm[LR]$/.test(joint.name)) arms.push(j); });
+      for (let n = 0; n < nodes; n += 1) {
+        let lead = 0;
+        let most = -1;
+        for (let j = 0; j < joints; j += 1) {
+          const w = raw[n * joints + j];
+          if (w > most) { most = w; lead = j; }
+        }
+        if (arms.includes(lead)) continue;   // the arm owns it: keep it
+        let total = 0;
+        for (const j of arms) raw[n * joints + j] = 0;
+        for (let j = 0; j < joints; j += 1) total += raw[n * joints + j];
+        if (total > 0) for (let j = 0; j < joints; j += 1) raw[n * joints + j] /= total;
+      }
     }
 
     const share = new Array(joints);
