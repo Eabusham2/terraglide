@@ -80,6 +80,26 @@ const GRIP_NUDGE = [0.035375, -0.011112];
 const GRIP_OUT = 0.0;
 /** How far behind the fist's axis it sits, as a share of the fist's width. */
 const GRIP_BACK = 0.0;
+/*
+  The grip, frozen to where it was signed off.
+
+  handOfTheScan() measures the fist off the skinned mesh, so the shoulder
+  cut — which re-weights the arm — drags the hold every time the cut is
+  tuned: the same GRIP_NUDGE that reads as -353.8 mm before the cut reads as
+  -334.3 mm after it, the firework creeping up and out of the hand. The cure
+  is to stop measuring. These are the exact numbers handOfTheScan() produced
+  at the commit where the standing grip was approved (b81120e) — the grip
+  vector in the shoulder's frame, the fist's width, and the lay angle —
+  captured once and pinned here so the firework sits in the hand the same way
+  no matter what the arm cut does afterwards. Nose out the front, fins out
+  the back, level. Re-derive by rendering that commit and reading
+  window.__scanGrip(); do not hand-edit.
+*/
+const SCAN_GRIP_LOCK = {
+  grip: [0.05019238208580014, -0.3537787383715969, -0.02659918510831961],
+  fist: 0.0901755653321743,
+  turn: 1.4403373228047305,
+};
 /** White, for lightening the slot colour before it tints a photograph. */
 const WHITE_TINT = new THREE.Color(0xffffff);
 /** Scratch, so measuring the scan's fist allocates nothing. */
@@ -1837,7 +1857,12 @@ export class Avatar {
     // with the rest of the scan in first person.
     this.scanFace = this.makeScanFace(this.scanSkins);
     named.head.add(this.scanFace);
-    this.scanGrip = this.handOfTheScan();
+    // Pinned, not measured: handOfTheScan() still derives these numbers (and
+    // is how SCAN_GRIP_LOCK was captured), but the live hold reads from the
+    // lock so the arm cut cannot drag it. See SCAN_GRIP_LOCK.
+    this.scanFist = SCAN_GRIP_LOCK.fist;
+    this.scanGripTurn = SCAN_GRIP_LOCK.turn;
+    this.scanGrip = new THREE.Vector3().fromArray(SCAN_GRIP_LOCK.grip);
     if (GRIP_GROOVE) this.cutTheGrip();
     return group;
   }

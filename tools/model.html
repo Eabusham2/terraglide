@@ -1186,5 +1186,24 @@ window.__unpaint = () => {
   renderer.render(scene, camera);
   return 'restored';
 };
+// Orbit the camera around the held firework: azimuth from the front, an
+// elevation that tilts down onto the hand, at a radius in metres.
+window.__angle = (azDeg, elDeg, radius) => {
+  const target = avatar.rocket.getWorldPosition(new THREE.Vector3());
+  const az = azDeg * Math.PI / 180;
+  const el = elDeg * Math.PI / 180;
+  camera.position.copy(target).add(new THREE.Vector3(
+    Math.sin(az) * Math.cos(el) * radius,
+    Math.sin(el) * radius,
+    -Math.cos(az) * Math.cos(el) * radius));
+  camera.lookAt(target);
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+};
+window.__scanGrip = () => ({
+  grip: avatar.scanGrip ? avatar.scanGrip.toArray() : null,
+  fist: avatar.scanFist ?? null,
+  turn: avatar.scanGripTurn ?? null,
+});
 window.__ready = true;
 </script>
