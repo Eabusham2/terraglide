@@ -1138,8 +1138,11 @@ window.__drawWall = () => {
   // rotation carries local Y to world Y, so the tall dimension stands up.
   const face = new THREE.Mesh(
     new THREE.PlaneGeometry(0.14 * s, 0.62 * s),
-    new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.55,
-      depthWrite: false, depthTest: false, side: THREE.DoubleSide }),
+    // depthTest on, so the body occludes it: it reads as a real 3D wall the
+    // arm is sliced by, hidden where the figure is in front of it, not a flat
+    // square painted over the whole frame.
+    new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.5,
+      depthWrite: false, depthTest: true, side: THREE.DoubleSide }),
   );
   face.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
   face.position.copy(worldAt);
