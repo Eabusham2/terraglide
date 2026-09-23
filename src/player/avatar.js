@@ -420,19 +420,72 @@ const SCAN_ARM_HIP = 0.17;
  * normal, pointing down the arm toward the hand, on the figure's right.
  */
 export const SCAN_ARM_WALL = {
-  at: [0.110, 0.680, 0.0],
-  to: [1.0, -0.045, 0.0],
+  at: [0.102, 0.720, 0.0],
+  to: [1.0, -0.07, 0.0],
   soft: 0.004,
   band: 0.075,
   only: 0.35,
 };
 /** The armpit height: the cut is an armhole loop from here up, not a seam that
  *  runs on down the length of the sleeve. */
-const SCAN_ARM_PIT = 0.68;
+const SCAN_ARM_PIT = 0.72;
 /** How far back the cut reaches. The elytra is welded to the back of the
  *  shoulder, so the arm stops short of it: only the front of the shoulder,
  *  ahead of this depth, swings with the arm; the rest stays with the body. */
 const SCAN_ARM_BACK = 0.01;
+/*
+  Below the armpit the arm is its sleeve, and nothing more.
+
+  The cut decides the shoulder, but under it the distance weighting decides,
+  and the scan was generated with the arm hanging against the jacket - fused
+  to it in places, so the mesh itself runs from the sleeve into the side of
+  the torso. The weighting follows that surface and hands the arm the whole
+  side and front panel of the jacket under it, pocket and all. Raise the arm
+  and that panel comes with it: a web of jacket from the armpit to the hip,
+  stretched between the arm and the body - the opposite of a clean cut.
+
+  So under the armpit the arm keeps only what lies on the sleeve: an elliptical
+  tube round the sleeve's own centre line, measured off the scan in cross
+  section. The centre drifts in toward the shoulder as it climbs (the arm
+  hangs out from the body); `across` and `through` are the sleeve's half-width
+  side to side and front to back; `keep` is the margin, which sits in the gap
+  between the sleeve's inner wall (about 1.1) and the jacket wall beside it
+  (about 1.4). The hand, below `from`, is only ever the arm's and is left alone.
+  Mirrored for the left arm.
+*/
+const SCAN_SLEEVE = {
+  bottom: [0.185, 0.48],   // sleeve centre x at this height...
+  top: [0.152, 0.66],      // ...and at this one
+  z: -0.035,
+  across: 0.045,
+  through: 0.058,
+  keep: 1.25,
+  from: 0.48,
+  over: 0.05,              // and how far past the armpit the sleeve is still the arm's
+};
+
+/**
+ * Which side of the cut a point is on, and how far: positive on the arm's,
+ * negative on the body's, zero on the knife itself. The same knife weighScan
+ * cuts the weights with - the plane and the depth limit over the armpit, the
+ * sleeve's tube under it - put as one distance, so splitAtTheCut can part the
+ * seam exactly where the knife crosses each edge. Mirrored for the left arm.
+ */
+function armCutSide(x, y, z) {
+  const turn = x < 0 ? -1 : 1;
+  const { at, to } = SCAN_ARM_WALL;
+  const sleeve = SCAN_SLEEVE;
+  const drift = (sleeve.top[0] - sleeve.bottom[0]) / (sleeve.top[1] - sleeve.bottom[1]);
+  const centre = turn * (sleeve.bottom[0] + drift * (y - sleeve.bottom[1]));
+  const tube = (sleeve.keep - Math.hypot((x - centre) / sleeve.across, (z - sleeve.z) / sleeve.through))
+    * sleeve.across;
+  const plane = ((x - at[0] * turn) * to[0] * turn + (y - at[1]) * to[1] + (z - at[2]) * to[2])
+    / Math.hypot(to[0], to[1], to[2]);
+  const under = Math.min(tube, SCAN_ARM_PIT - y);
+  const over = Math.min(y - SCAN_ARM_PIT, plane,
+    Math.max(SCAN_ARM_BACK - z, Math.min(tube, SCAN_ARM_PIT + sleeve.over - y)));
+  return Math.max(under, over);
+}
 
 const SCAN_JOINTS = [
   {
@@ -1846,7 +1899,7 @@ export class Avatar {
     for (const mesh of meshes) {
       const geometry = mesh.geometry.clone();
       geometry.applyMatrix4(into.copy(place).multiply(mesh.matrixWorld));
-      this.weighScan(geometry);
+      this.weighScan(geometry, mesh.material?.map);
       const skinned = new THREE.SkinnedMesh(geometry, mesh.material);
       skinned.frustumCulled = false;   // it is one figure, and it deforms
       group.add(skinned);
@@ -1973,7 +2026,7 @@ export class Avatar {
    * mesh. Each vertex then leans on whichever joints are nearest *through the
    * body*, which is what a joint actually moves.
    */
-  weighScan(geometry) {
+  weighScan(geometry, picture) {
     const position = geometry.getAttribute('position');
     const index = geometry.getIndex();
     const count = position.count;
@@ -2267,6 +2320,52 @@ export class Avatar {
         if (rest > 0) for (let j = 0; j < joints; j += 1) raw[n * joints + j] /= rest;
         else raw[n * joints + ic[side]] = 1;
       }
+      /*
+        And under the armpit, the arm keeps only its sleeve. See SCAN_SLEEVE:
+        anything the arm owns down there that is off the sleeve's tube - the
+        jacket wall and front panel the weighting bridged onto - goes back to
+        the body, so raising the arm lifts the sleeve and leaves the jacket.
+      */
+      const sleeve = SCAN_SLEEVE;
+      const drift = (sleeve.top[0] - sleeve.bottom[0]) / (sleeve.top[1] - sleeve.bottom[1]);
+      const spine = SCAN_JOINTS.findIndex((joint) => joint.name === 'spine');
+      for (let n = 0; n < nodes; n += 1) {
+        if (py[n] >= SCAN_ARM_PIT + sleeve.over || py[n] < sleeve.from) continue;
+        const side = px[n] < 0 ? 'L' : 'R';
+        const arm = ix[side];
+        const turn = side === 'L' ? -1 : 1;
+        const centre = turn * (sleeve.bottom[0] + drift * (py[n] - sleeve.bottom[1]));
+        const u = (px[n] - centre) / sleeve.across;
+        const w = (pz[n] - sleeve.z) / sleeve.through;
+        const onSleeve = u * u + w * w < sleeve.keep * sleeve.keep;
+        /*
+          On the sleeve, it is the arm's - all of it. Just over the armpit the
+          depth limit above splits the sleeve front from back, and the back of
+          the upper sleeve stayed with the body: raise the arm and its underside
+          was open. The feather roots that limit is there for sit up at the
+          back of the shoulder, off the tube, so taking the tube takes the
+          sleeve and leaves them. Never a wing vertex, never inboard of the
+          cut, and only where the arm and its collarbone already have the same
+          say the cut itself asks for - the flank of the chest next to the arm
+          is inside the tube's reach but is the chest's, and stays so.
+        */
+        if (onSleeve) {
+          const d = ((px[n] - at[0] * turn) * to[0] * turn
+            + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
+          const claim = raw[n * joints + arm] + raw[n * joints + ic[side]];
+          if (raw[n * joints + iw[side]] <= 0.06 && claim >= SCAN_ARM_WALL.only
+            && (py[n] < SCAN_ARM_PIT || d > 0)) {
+            for (let j = 0; j < joints; j += 1) raw[n * joints + j] = (j === arm ? 1 : 0);
+          }
+          continue;
+        }
+        if (py[n] >= SCAN_ARM_PIT || raw[n * joints + arm] <= 0) continue;
+        raw[n * joints + arm] = 0;
+        let rest = 0;
+        for (let j = 0; j < joints; j += 1) rest += raw[n * joints + j];
+        if (rest > 0) for (let j = 0; j < joints; j += 1) raw[n * joints + j] /= rest;
+        else raw[n * joints + spine] = 1;
+      }
     }
 
 
@@ -2293,7 +2392,12 @@ export class Avatar {
           const w = raw[n * joints + j];
           if (w > most) { most = w; lead = j; }
         }
-        if (arms.includes(lead)) continue;   // the arm owns it: keep it
+        if (arms.includes(lead)) {
+          // The arm owns it, so all of it: a vertex left 60/40 between arm and
+          // chest moves partway and smears the seam. The arm is one rigid piece.
+          for (let j = 0; j < joints; j += 1) raw[n * joints + j] = j === lead ? 1 : 0;
+          continue;
+        }
         let total = 0;
         for (const j of arms) raw[n * joints + j] = 0;
         for (let j = 0; j < joints; j += 1) total += raw[n * joints + j];
@@ -2325,6 +2429,376 @@ export class Avatar {
     }
     geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndex, 4));
     geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeight, 4));
+    this.splitAtTheCut(geometry, picture);
+  }
+
+  /**
+   * Tear the mesh along the cut, so the arm comes away rather than stretches.
+   *
+   * With the weights all or nothing, every vertex is wholly an arm's or wholly
+   * the body's - but a triangle is not. The ones along the seam have a corner
+   * on each side, and turning the arm drags those corners apart into a web of
+   * stretched skin between the sleeve and the chest. A Lego arm has no web:
+   * the pieces are separate.
+   *
+   * Handing each seam triangle whole to one side or the other leaves the edge
+   * a sawtooth - every tooth a triangle - so instead each one is cut where the
+   * knife (armCutSide) crosses the two edges that cross the seam: its lone
+   * corner keeps the small triangle, the other two keep the rest. Neighbours
+   * share those points, so the edge is one continuous line along the knife
+   * rather than a row of teeth. And before cutting, a vertex whose neighbours are nearly
+   * all on the other side is noise - a single spike the weighting left - and
+   * joins them. In the rest pose nothing moves; turning the arm opens the seam
+   * cleanly instead of stretching it.
+   */
+  splitAtTheCut(geometry, picture) {
+    const index = geometry.getIndex();
+    if (!index) return;
+    const position = geometry.getAttribute('position');
+    const skinIndex = geometry.getAttribute('skinIndex');
+    const skinWeight = geometry.getAttribute('skinWeight');
+    const count = position.count;
+    const joints = SCAN_JOINTS.length;
+    const arms = new Set();
+    SCAN_JOINTS.forEach((joint, j) => { if (/^arm[LR]$/.test(joint.name)) arms.add(j); });
+    // Which arm owns each vertex outright, or -1 for the body.
+    const owner = new Int32Array(count).fill(-1);
+    for (let v = 0; v < count; v += 1) {
+      const j = skinIndex.getX(v);
+      if (arms.has(j) && skinWeight.getX(v) > 0.999) owner[v] = j;
+    }
+    const tri = index.array;
+
+    // Weld by position, so a texture seam does not read as a gap in the surface.
+    const grid = 1e-4;
+    const place = new Map();
+    const welded = new Int32Array(count);
+    let nodes = 0;
+    for (let v = 0; v < count; v += 1) {
+      const key = `${Math.round(position.getX(v) / grid)},${Math.round(position.getY(v) / grid)},${Math.round(position.getZ(v) / grid)}`;
+      let n = place.get(key);
+      if (n === undefined) { n = nodes; nodes += 1; place.set(key, n); }
+      welded[v] = n;
+    }
+    const near = Array.from({ length: nodes }, () => new Set());
+    for (let t = 0; t < tri.length; t += 3) {
+      const a = welded[tri[t]];
+      const b = welded[tri[t + 1]];
+      const c = welded[tri[t + 2]];
+      near[a].add(b).add(c); near[b].add(a).add(c); near[c].add(a).add(b);
+    }
+    const label = new Int32Array(nodes);
+    const sample = new Int32Array(nodes);     // a vertex standing for each node
+    for (let v = 0; v < count; v += 1) { label[welded[v]] = owner[v]; sample[welded[v]] = v; }
+
+    // Spikes: a node whose neighbours are three quarters on another side joins them.
+    const start = Int32Array.from(label);
+    const tally = new Map();
+    for (let pass = 0; pass < 2; pass += 1) {
+      const next = Int32Array.from(label);
+      for (let n = 0; n < nodes; n += 1) {
+        if (near[n].size < 3) continue;
+        tally.clear();
+        for (const m of near[n]) tally.set(label[m], (tally.get(label[m]) ?? 0) + 1);
+        let best = label[n];
+        let most = 0;
+        for (const [side, k] of tally) if (k > most) { most = k; best = side; }
+        if (best !== label[n] && most >= 0.75 * near[n].size) next[n] = best;
+      }
+      label.set(next);
+    }
+    // A vertex that changed sides takes that side's skin: all arm, or the skin
+    // of a neighbour on the body.
+    for (let v = 0; v < count; v += 1) {
+      const side = label[welded[v]];
+      if (side === owner[v]) continue;
+      if (side >= 0) {
+        skinIndex.setXYZW(v, side, 0, 0, 0);
+        skinWeight.setXYZW(v, 1, 0, 0, 0);
+      } else {
+        let donor = -1;
+        // A neighbour that was the body's all along: one only just moved there
+        // may not have had its own skin changed yet.
+        for (const m of near[welded[v]]) if (label[m] < 0 && start[m] < 0) { donor = sample[m]; break; }
+        if (donor < 0) continue;
+        skinIndex.setXYZW(v, skinIndex.getX(donor), skinIndex.getY(donor), skinIndex.getZ(donor), skinIndex.getW(donor));
+        skinWeight.setXYZW(v, skinWeight.getX(donor), skinWeight.getY(donor), skinWeight.getZ(donor), skinWeight.getW(donor));
+      }
+      owner[v] = side;
+    }
+
+    // Cut each seam triangle through its two crossing edges, where the knife
+    // crosses them. Halfway along each edge zigzags across the scan's long
+    // thin triangles - the teeth under a raised sleeve - while the knife is a
+    // smooth surface, so cutting on it leaves one clean line. Halfway only
+    // where the two ends disagree with the knife: a spike moved above.
+    const knife = new Float32Array(count);
+    for (let v = 0; v < count; v += 1) {
+      knife[v] = armCutSide(position.getX(v), position.getY(v), position.getZ(v));
+    }
+    const along = (a, b) => {
+      const fa = knife[a];
+      const fb = knife[b];
+      const agree = (fa > 0) !== (fb > 0) && (owner[a] >= 0) === (fa > 0) && (owner[b] >= 0) === (fb > 0);
+      return agree ? fa / (fa - fb) : 0.5;
+    };
+    const extra = [];            // [end, end, the end whose skin it takes, side, how far from a to b]
+    const mids = new Map();
+    const mid = (a, b, side) => {
+      const key = (Math.min(a, b) * count + Math.max(a, b)) * (joints + 1) + (side + 1);
+      let id = mids.get(key);
+      if (id === undefined) {
+        id = count + extra.length;
+        extra.push([a, b, owner[a] === side ? a : b, side, along(a, b)]);
+        mids.set(key, id);
+      }
+      return id;
+    };
+    const out = [];
+    for (let t = 0; t < tri.length; t += 3) {
+      const v = [tri[t], tri[t + 1], tri[t + 2]];
+      const o = [owner[v[0]], owner[v[1]], owner[v[2]]];
+      if (o[0] === o[1] && o[1] === o[2]) { out.push(v[0], v[1], v[2]); continue; }
+      const lone = o[0] === o[1] ? 2 : (o[0] === o[2] ? 1 : (o[1] === o[2] ? 0 : -1));
+      if (lone < 0) { out.push(v[0], v[1], v[2]); continue; }   // three sides at once: never on this body
+      const L = v[lone];
+      const P = v[(lone + 1) % 3];
+      const Q = v[(lone + 2) % 3];
+      const own = owner[L];
+      const rest = owner[P];
+      out.push(L, mid(L, P, own), mid(L, Q, own));
+      out.push(mid(L, P, rest), P, Q);
+      out.push(mid(L, P, rest), Q, mid(L, Q, rest));
+    }
+    if (!extra.length) return;
+    // Grow every attribute by the new points: where the knife crossed the edge
+    // for where it is and how it looks, and the skin of its own side.
+    for (const name of Object.keys(geometry.attributes)) {
+      const attr = geometry.getAttribute(name);
+      const size = attr.itemSize;
+      const grown = new (name === 'skinIndex' ? Uint16Array : Float32Array)((count + extra.length) * size);
+      for (let v = 0; v < count; v += 1) {
+        for (let s = 0; s < size; s += 1) grown[v * size + s] = attr.getComponent(v, s);
+      }
+      extra.forEach(([a, b, from, side, t], i) => {
+        const at = (count + i) * size;
+        if (name === 'skinIndex' || name === 'skinWeight') {
+          for (let s = 0; s < size; s += 1) {
+            grown[at + s] = side >= 0
+              ? (s === 0 ? (name === 'skinIndex' ? side : 1) : 0)
+              : attr.getComponent(from, s);
+          }
+          return;
+        }
+        for (let s = 0; s < size; s += 1) {
+          grown[at + s] = attr.getComponent(a, s) * (1 - t) + attr.getComponent(b, s) * t;
+        }
+        if (name === 'normal') {
+          const l = Math.hypot(grown[at], grown[at + 1], grown[at + 2]) || 1;
+          for (let s = 0; s < 3; s += 1) grown[at + s] /= l;
+        }
+      });
+      geometry.setAttribute(name, new THREE.BufferAttribute(grown, size));
+    }
+    geometry.setIndex(new THREE.BufferAttribute(Uint32Array.from(out), 1));
+    this.capTheCut(geometry, count, picture);
+  }
+
+  /**
+   * Close both sides of the cut, so the pieces are solid.
+   *
+   * The scan has the sleeve fused to the jacket under the arm - one sheet of
+   * surface from the chest into the sleeve, with no inner wall to either -
+   * so however cleanly the seam is parted, raising the arm opens a hole in
+   * the side of the chest and another along the underside of the sleeve, and
+   * both look into a hollow figure. A Lego arm comes off a Lego body with
+   * both pieces closed. So every loop the cut leaves open, on the arm and on
+   * the body, gets a lid: a fan from the loop's middle, one colour, lit flat.
+   * In the rest pose the two lids lie on each other inside the figure, where
+   * nothing sees them. `first` is where the points the cut added begin.
+   */
+  capTheCut(geometry, first, picture) {
+    const position = geometry.getAttribute('position');
+    const skinIndex = geometry.getAttribute('skinIndex');
+    const skinWeight = geometry.getAttribute('skinWeight');
+    const count = position.count;
+    const tri = geometry.getIndex().array;
+    const arms = new Set();
+    SCAN_JOINTS.forEach((joint, j) => { if (/^arm[LR]$/.test(joint.name)) arms.add(j); });
+    const sideOf = (v) => (arms.has(skinIndex.getX(v)) && skinWeight.getX(v) > 0.999 ? skinIndex.getX(v) : -1);
+    // One node per place on each side: the copies of a point either side of a
+    // texture seam are one point on the loop.
+    const grid = 1e-5;
+    const place = new Map();
+    const nodeOf = (v, side) => {
+      const key = `${side},${Math.round(position.getX(v) / grid)},${Math.round(position.getY(v) / grid)},${Math.round(position.getZ(v) / grid)}`;
+      let n = place.get(key);
+      if (n === undefined) { n = place.size; place.set(key, n); }
+      return n;
+    };
+    // The edges along the cut, and how many triangles on their side use each:
+    // one, and it is the edge of a hole.
+    const edges = new Map();
+    for (let t = 0; t < tri.length; t += 3) {
+      const side = sideOf(tri[t]);
+      for (let k = 0; k < 3; k += 1) {
+        const p = tri[t + k];
+        const q = tri[t + (k + 1) % 3];
+        if (p < first || q < first) continue;
+        const a = nodeOf(p, side);
+        const b = nodeOf(q, side);
+        if (a === b) continue;
+        const key = a < b ? `${a},${b}` : `${b},${a}`;
+        const edge = edges.get(key);
+        if (edge) edge.uses += 1;
+        else edges.set(key, { uses: 1, a, b, p, q, side });
+      }
+    }
+    const next = new Map();
+    const tangled = new Set();
+    for (const edge of edges.values()) {
+      if (edge.uses !== 1) continue;
+      if (next.has(edge.a)) tangled.add(edge.a);
+      next.set(edge.a, edge);
+    }
+    // Walk each hole round; one that does not close, or crosses itself, is left.
+    const loops = [];
+    const seen = new Set();
+    for (const begin of next.keys()) {
+      if (seen.has(begin)) continue;
+      const loop = [];
+      let at = begin;
+      let closed = false;
+      while (next.has(at) && !seen.has(at)) {
+        seen.add(at);
+        const edge = next.get(at);
+        loop.push(edge);
+        at = edge.b;
+        if (at === begin) { closed = true; break; }
+      }
+      if (closed && loop.length >= 3 && !loop.some((edge) => tangled.has(edge.a))) loops.push(loop);
+    }
+    if (!loops.length) return;
+
+    // How light the texture is under a vertex, if the picture can be read.
+    let light = null;
+    const uv = geometry.getAttribute('uv');
+    const image = picture?.image;
+    if (uv && image?.width && typeof document !== 'undefined') {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const pen = canvas.getContext('2d', { willReadFrequently: true });
+        pen.drawImage(image, 0, 0);
+        const pixels = pen.getImageData(0, 0, image.width, image.height).data;
+        light = (v) => {
+          const u = uv.getX(v) - Math.floor(uv.getX(v));
+          let t = uv.getY(v) - Math.floor(uv.getY(v));
+          if (picture.flipY) t = 1 - t;
+          const x = Math.min(image.width - 1, Math.floor(u * image.width));
+          const y = Math.min(image.height - 1, Math.floor(t * image.height));
+          const at = (y * image.width + x) * 4;
+          return pixels[at] * 0.3 + pixels[at + 1] * 0.59 + pixels[at + 2] * 0.11;
+        };
+      } catch {
+        light = null;
+      }
+    }
+
+    const added = [];    // [vertex it copies, x, y, z, normal, the loop's look, skin]
+    const lids = [];
+    const point = (v) => new THREE.Vector3(position.getX(v), position.getY(v), position.getZ(v));
+    // The middle of each piece: an arm, or the body.
+    const heart = new Map();
+    for (let v = 0; v < count; v += 1) {
+      const side = sideOf(v);
+      if (!heart.has(side)) heart.set(side, [new THREE.Vector3(), 0]);
+      const sum = heart.get(side);
+      sum[0].add(point(v));
+      sum[1] += 1;
+    }
+    for (const loop of loops) {
+      const middle = new THREE.Vector3();
+      for (const edge of loop) middle.add(point(edge.p));
+      middle.divideScalar(loop.length);
+      // Wound against the edge it closes, so it faces out the way the surface
+      // round it does; lit by the sum of its triangles, so flat.
+      const normal = new THREE.Vector3();
+      const u = new THREE.Vector3();
+      const w = new THREE.Vector3();
+      for (const edge of loop) {
+        const q = point(edge.q);
+        normal.add(u.subVectors(point(edge.p), q).cross(w.subVectors(middle, q)));
+      }
+      normal.normalize();
+      // The jacket is a shell with a lining, and the knife goes through both:
+      // the lining's loop sits inside the jacket's, wound the other way. Its
+      // lid would face into the piece, black with the lining, over the
+      // jacket's. The jacket's lid closes the cut on its own; the lining's is
+      // left off.
+      const [sum, many] = heart.get(loop[0].side);
+      if (normal.dot(u.copy(middle).sub(w.copy(sum).divideScalar(many))) <= 0) continue;
+      // One colour, off the rim. Not its darkest: the scan baked the crease
+      // of the armpit into its texture near black, and a lid that colour
+      // reads as the hole it closes. The rim ranked by how light it is, three
+      // quarters of the way up - the jacket, not the crease and not a
+      // highlight. Without the picture to hand, the rim point nearest the middle.
+      let look = loop[0].p;
+      if (light) {
+        const ranked = loop.map((edge) => edge.p).sort((m, n) => light(m) - light(n));
+        look = ranked[Math.floor(0.75 * (ranked.length - 1))];
+      } else {
+        let best = Infinity;
+        for (const edge of loop) {
+          const d = point(edge.p).distanceToSquared(middle);
+          if (d < best) { best = d; look = edge.p; }
+        }
+      }
+      // The rim keeps its own skin, so the lid moves with the edge it closes;
+      // the middle takes the arm, or the body's skin averaged round the rim.
+      const side = loop[0].side;
+      const pull = new Map();
+      for (const edge of loop) {
+        for (let k = 0; k < 4; k += 1) {
+          const j = skinIndex.getComponent(edge.p, k);
+          pull.set(j, (pull.get(j) ?? 0) + skinWeight.getComponent(edge.p, k));
+        }
+      }
+      const strongest = side >= 0 ? [[side, 1]] : [...pull].sort((m, n) => n[1] - m[1]).slice(0, 4);
+      const total = strongest.reduce((sum, [, k]) => sum + k, 0) || 1;
+      const skin = [0, 0, 0, 0, 0, 0, 0, 0];
+      strongest.forEach(([j, k], i) => { skin[i] = j; skin[4 + i] = k / total; });
+      const centre = count + added.length;
+      added.push([look, middle.x, middle.y, middle.z, normal, look, skin]);
+      const rim = new Map();
+      for (const edge of loop) {
+        rim.set(edge.a, count + added.length);
+        const p = point(edge.p);
+        added.push([edge.p, p.x, p.y, p.z, normal, look, null]);
+      }
+      for (const edge of loop) lids.push(rim.get(edge.b), rim.get(edge.a), centre);
+    }
+
+    for (const name of Object.keys(geometry.attributes)) {
+      const attr = geometry.getAttribute(name);
+      const size = attr.itemSize;
+      const grown = new (name === 'skinIndex' ? Uint16Array : Float32Array)((count + added.length) * size);
+      grown.set(attr.array.subarray(0, count * size));
+      added.forEach(([from, x, y, z, normal, look, skin], i) => {
+        const at = (count + i) * size;
+        for (let s = 0; s < size; s += 1) {
+          if (name === 'position') grown[at + s] = [x, y, z][s];
+          else if (name === 'normal') grown[at + s] = [normal.x, normal.y, normal.z][s];
+          else if (name === 'skinIndex' && skin) grown[at + s] = skin[s];
+          else if (name === 'skinWeight' && skin) grown[at + s] = skin[4 + s];
+          else if (name === 'skinIndex' || name === 'skinWeight') grown[at + s] = attr.getComponent(from, s);
+          else grown[at + s] = attr.getComponent(look, s);
+        }
+      });
+      geometry.setAttribute(name, new THREE.BufferAttribute(grown, size));
+    }
+    geometry.setIndex(new THREE.BufferAttribute(Uint32Array.from([...tri, ...lids]), 1));
   }
 
   /**
