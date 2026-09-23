@@ -433,6 +433,10 @@ const SCAN_ARM_PIT = 0.72;
  *  shoulder, so the arm stops short of it: only the front of the shoulder,
  *  ahead of this depth, swings with the arm; the rest stays with the body. */
 const SCAN_ARM_BACK = 0.01;
+/** The foot of the weld: the scan has the sleeve fused to the jacket from the
+ *  armpit down to here, and below it the two are apart - so the cut has to go
+ *  through the weld, and below it the sleeve comes away whole. */
+const SCAN_ARM_WELD = 0.62;
 /*
   Below the armpit the arm is its sleeve, and nothing more.
 
@@ -481,10 +485,13 @@ function armCutSide(x, y, z) {
     * sleeve.across;
   const plane = ((x - at[0] * turn) * to[0] * turn + (y - at[1]) * to[1] + (z - at[2]) * to[2])
     / Math.hypot(to[0], to[1], to[2]);
-  const under = Math.min(tube, SCAN_ARM_PIT - y);
+  const under = Math.min(tube, SCAN_ARM_PIT - y, plane);
+  // Below the weld the sleeve is all the arm's and nothing there is cut; the
+  // only edge is across the foot of the weld, where the sleeve meets it.
+  const below = Math.min(SCAN_ARM_WELD - y, plane);
   const over = Math.min(y - SCAN_ARM_PIT, plane,
     Math.max(SCAN_ARM_BACK - z, Math.min(tube, SCAN_ARM_PIT + sleeve.over - y)));
-  return Math.max(under, over);
+  return Math.max(below, under, over);
 }
 
 const SCAN_JOINTS = [
@@ -2329,15 +2336,64 @@ export class Avatar {
       const sleeve = SCAN_SLEEVE;
       const drift = (sleeve.top[0] - sleeve.bottom[0]) / (sleeve.top[1] - sleeve.bottom[1]);
       const spine = SCAN_JOINTS.findIndex((joint) => joint.name === 'spine');
+      /*
+        Below the weld the sleeve and the jacket are apart, so there the sleeve
+        is not a shape to measure but everything the arm reaches over the
+        surface without climbing past the weld: from the heart of the tube, out
+        to its edges however ragged, and never onto the jacket. The tube's own
+        edge sliced the inner wall of the sleeve there, and every slice was a
+        splinter of cap sticking out under a raised arm.
+      */
+      const apart = new Uint8Array(nodes);
+      const walk = [];
+      for (let n = 0; n < nodes; n += 1) {
+        if (py[n] >= SCAN_ARM_WELD || py[n] < sleeve.from) continue;
+        const turn = px[n] < 0 ? -1 : 1;
+        const centre = turn * (sleeve.bottom[0] + drift * (py[n] - sleeve.bottom[1]));
+        const u = (px[n] - centre) / sleeve.across;
+        const w = (pz[n] - sleeve.z) / sleeve.through;
+        if (u * u + w * w < 1) { apart[n] = 1; walk.push(n); }
+      }
+      while (walk.length) {
+        const n = walk.pop();
+        for (const m of near[n]) {
+          if (apart[m] || py[m] >= SCAN_ARM_WELD || py[m] < sleeve.from) continue;
+          if ((px[m] < 0) !== (px[n] < 0) || raw[m * joints + iw[px[m] < 0 ? 'L' : 'R']] > 0.06) continue;
+          apart[m] = 1;
+          walk.push(m);
+        }
+      }
       for (let n = 0; n < nodes; n += 1) {
         if (py[n] >= SCAN_ARM_PIT + sleeve.over || py[n] < sleeve.from) continue;
         const side = px[n] < 0 ? 'L' : 'R';
         const arm = ix[side];
         const turn = side === 'L' ? -1 : 1;
+        if (py[n] < SCAN_ARM_WELD) {
+          if (apart[n]) {
+            for (let j = 0; j < joints; j += 1) raw[n * joints + j] = (j === arm ? 1 : 0);
+            continue;
+          }
+          if (raw[n * joints + arm] <= 0) continue;
+          raw[n * joints + arm] = 0;
+          let rest = 0;
+          for (let j = 0; j < joints; j += 1) rest += raw[n * joints + j];
+          if (rest > 0) for (let j = 0; j < joints; j += 1) raw[n * joints + j] /= rest;
+          else raw[n * joints + spine] = 1;
+          continue;
+        }
         const centre = turn * (sleeve.bottom[0] + drift * (py[n] - sleeve.bottom[1]));
         const u = (px[n] - centre) / sleeve.across;
         const w = (pz[n] - sleeve.z) / sleeve.through;
-        const onSleeve = u * u + w * w < sleeve.keep * sleeve.keep;
+        const d = ((px[n] - at[0] * turn) * to[0] * turn
+          + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
+        // And under the armpit, only outboard of the wall: the sleeve is welded
+        // to the jacket for a hand's width below it, and the knife carries on
+        // down through the weld in the same line. The tube's own wall is
+        // curved, and the arm's lid across it was a chord with the crease of
+        // the sleeve standing proud of it - the jagged dark strips under a
+        // raised arm. On the wall the lid lies on the cut, and nothing reaches
+        // past it.
+        const onSleeve = u * u + w * w < sleeve.keep * sleeve.keep && d > 0;
         /*
           On the sleeve, it is the arm's - all of it. Just over the armpit the
           depth limit above splits the sleeve front from back, and the back of
@@ -2350,11 +2406,8 @@ export class Avatar {
           is inside the tube's reach but is the chest's, and stays so.
         */
         if (onSleeve) {
-          const d = ((px[n] - at[0] * turn) * to[0] * turn
-            + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
           const claim = raw[n * joints + arm] + raw[n * joints + ic[side]];
-          if (raw[n * joints + iw[side]] <= 0.06 && claim >= SCAN_ARM_WALL.only
-            && (py[n] < SCAN_ARM_PIT || d > 0)) {
+          if (raw[n * joints + iw[side]] <= 0.06 && claim >= SCAN_ARM_WALL.only) {
             for (let j = 0; j < joints; j += 1) raw[n * joints + j] = (j === arm ? 1 : 0);
           }
           continue;
