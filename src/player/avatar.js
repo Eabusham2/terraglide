@@ -449,6 +449,11 @@ const SCAN_ARM_COAT = 0.05;
  *  armpit down to here, and below it the two are apart - so the cut has to go
  *  through the weld, and below it the sleeve comes away whole. */
 const SCAN_ARM_WELD = 0.62;
+/** And through the weld, under the armpit, the sleeve and the jacket are
+ *  parted rather than cut: each side of the seam is eased this far off it, a
+ *  hair either way, so they are two surfaces touching - as they are below the
+ *  weld - and the only cut is the armhole, from the armpit up. */
+const SCAN_ARM_GAP = 0.0001;
 /*
   Below the armpit the arm is its sleeve, and nothing more.
 
@@ -2746,7 +2751,53 @@ export class Avatar {
       geometry.setAttribute(name, new THREE.BufferAttribute(grown, size));
     }
     geometry.setIndex(new THREE.BufferAttribute(Uint32Array.from(out), 1));
+    this.partUnderThePit(geometry, count, extra.map(([, , , side]) => side), owner);
     this.capTheCut(geometry, count, picture);
+  }
+
+  /**
+   * Under the armpit, part the sleeve from the jacket instead of cutting it.
+   *
+   * The scan has them welded into one surface for a hand's width below the
+   * armpit, so the seam has to run down through the weld - but a Lego arm is
+   * only joined at the shoulder, and below that the sleeve and the body are
+   * two things side by side. So each side of the seam under the armpit is
+   * eased off it, a hair outboard for the arm and inboard for the body, fading
+   * to nothing a centimetre away and at the armpit itself: two surfaces
+   * touching, the way they are below the weld, and the one cut left is the
+   * armhole. See SCAN_ARM_GAP.
+   */
+  partUnderThePit(geometry, first, sides, owner) {
+    const position = geometry.getAttribute('position');
+    const count = position.count;
+    const reach = 0.012;
+    const fade = 0.005;
+    // Where the seam runs under the armpit.
+    const seam = [];
+    for (let v = first; v < count; v += 1) {
+      if (position.getY(v) < SCAN_ARM_PIT) seam.push([position.getX(v), position.getY(v), position.getZ(v)]);
+    }
+    if (!seam.length) return;
+    const { to } = SCAN_ARM_WALL;
+    const len = Math.hypot(to[0], to[1], to[2]);
+    for (let v = 0; v < count; v += 1) {
+      const y = position.getY(v);
+      if (y >= SCAN_ARM_PIT) continue;
+      const x = position.getX(v);
+      const z = position.getZ(v);
+      let near = reach * reach;
+      for (const [sx, sy, sz] of seam) {
+        const d = (x - sx) ** 2 + (y - sy) ** 2 + (z - sz) ** 2;
+        if (d < near) near = d;
+      }
+      if (near >= reach * reach) continue;
+      const side = v < first ? owner[v] : sides[v - first];
+      const turn = x < 0 ? -1 : 1;
+      const ease = (1 - Math.sqrt(near) / reach) ** 2 * Math.min(1, (SCAN_ARM_PIT - y) / fade);
+      const push = (side >= 0 ? 1 : -1) * SCAN_ARM_GAP * ease / len;
+      position.setXYZ(v, x + to[0] * turn * push, y + to[1] * push, z + to[2] * push);
+    }
+    position.needsUpdate = true;
   }
 
   /**
