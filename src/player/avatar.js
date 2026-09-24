@@ -2391,6 +2391,31 @@ export class Avatar {
         for (let j = 0; j < joints; j += 1) raw[n * joints + j] = (j === arm ? 1 : 0);
       }
       /*
+        And the feathers behind the arm are the wing's. Outboard of the wall and
+        behind the depth limit, what is not the jacket's green is the face of
+        the folded wing, pressed against the back of the sleeve - but the
+        weighting gave half of it to the chest, so when the wing folded that
+        half stayed where it was, and with the arm raised it hung in the air in
+        grey shards where the arm had been. Only under the armpit: over it the
+        feathers are the wing's root, bridged across the back of the shoulder,
+        and folding them with the wing tears the bridge. Only where the picture
+        can be read.
+      */
+      if (colour) {
+        for (let n = 0; n < nodes; n += 1) {
+          if (coat[n] || py[n] < SCAN_ARM_WELD || py[n] >= SCAN_ARM_PIT + SCAN_SLEEVE.over || pz[n] < SCAN_ARM_BACK) continue;
+          const side = px[n] < 0 ? 'L' : 'R';
+          const turn = side === 'L' ? -1 : 1;
+          const d = ((px[n] - at[0] * turn) * to[0] * turn
+            + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
+          if (d <= 0) continue;
+          let lead = 0;
+          for (let j = 1; j < joints; j += 1) if (raw[n * joints + j] > raw[n * joints + lead]) lead = j;
+          if (lead === ix[side] || lead === iw[side]) continue;
+          for (let j = 0; j < joints; j += 1) raw[n * joints + j] = (j === iw[side] ? 1 : 0);
+        }
+      }
+      /*
         And under the armpit, the arm keeps only its sleeve. See SCAN_SLEEVE:
         anything the arm owns down there that is off the sleeve's tube - the
         jacket wall and front panel the weighting bridged onto - goes back to
