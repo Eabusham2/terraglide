@@ -427,7 +427,6 @@ export const SCAN_ARM_WALL = {
   at: [0.102, 0.720, 0.0],
   to: [1.0, -0.07, 0.0],
   up: [1.0, 0.0, 0.0],
-  over: 0.088,             // where the wall over the armpit stands, across
   soft: 0.004,
   band: 0.075,
   only: 0.35,
@@ -497,10 +496,8 @@ const SCAN_SLEEVE = {
 function wallSide(x, y, z) {
   const turn = x < 0 ? -1 : 1;
   const { at } = SCAN_ARM_WALL;
-  const high = y >= at[1];
-  const to = high ? SCAN_ARM_WALL.up : SCAN_ARM_WALL.to;
-  const x0 = high ? SCAN_ARM_WALL.over : at[0];
-  return ((x - x0 * turn) * to[0] * turn + (y - at[1]) * to[1] + (z - at[2]) * to[2])
+  const to = y >= at[1] ? SCAN_ARM_WALL.up : SCAN_ARM_WALL.to;
+  return ((x - at[0] * turn) * to[0] * turn + (y - at[1]) * to[1] + (z - at[2]) * to[2])
     / Math.hypot(to[0], to[1], to[2]);
 }
 
@@ -2970,7 +2967,7 @@ export class Avatar {
       const wall = new THREE.Vector3(up[0] * turn, up[1], up[2]).normalize();
       const onWall = (p) => {
         if (side >= 0 || p.y < SCAN_ARM_PIT || p.z < SCAN_ARM_BACK) return p;
-        const d = (p.x - SCAN_ARM_WALL.over * turn) * wall.x + (p.y - at[1]) * wall.y + (p.z - at[2]) * wall.z;
+        const d = (p.x - at[0] * turn) * wall.x + (p.y - at[1]) * wall.y + (p.z - at[2]) * wall.z;
         return d > 0 ? p.addScaledVector(wall, -d) : p;
       };
       const flat = side >= 0 ? normal : wall.clone().multiplyScalar(wall.dot(normal) < 0 ? -1 : 1);
