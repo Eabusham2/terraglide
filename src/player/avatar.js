@@ -454,6 +454,15 @@ const SCAN_ARM_WELD = 0.62;
  *  hair either way, so they are two surfaces touching - as they are below the
  *  weld - and the only cut is the armhole, from the armpit up. */
 const SCAN_ARM_GAP = 0.0001;
+/** The arm continued past its cut, round, as a Lego arm is. Raised, the
+ *  side of the arm that faced the chest is its underside, and the cut left it
+ *  flat there - a long diagonal face from the shoulder halfway down the arm.
+ *  This is the sleeve carried on through the cut: a rounded solid on the arm,
+ *  centred on the cut, so at rest its inner half is inside the chest and its
+ *  outer half inside the sleeve, and nothing shows; arm out, it is the arm's
+ *  round underside all the way to the shoulder. Centre, half-extents, on the
+ *  right, and `lean`: how far it moves out per unit down, along the sleeve. */
+const SCAN_ARM_PLUG = { at: [0.137, 0.685, -0.033], radii: [0.050, 0.09, 0.048], lean: -0.18 };
 /*
   Below the armpit the arm is its sleeve, and nothing more.
 
@@ -2760,6 +2769,7 @@ export class Avatar {
     geometry.setIndex(new THREE.BufferAttribute(Uint32Array.from(out), 1));
     this.partUnderThePit(geometry, count, extra.map(([, , , side]) => side), owner);
     this.capTheCut(geometry, count, picture);
+    this.plugTheArm(geometry, picture, count);
   }
 
   /**
@@ -2820,6 +2830,123 @@ export class Avatar {
    * In the rest pose the two lids lie on each other inside the figure, where
    * nothing sees them. `first` is where the points the cut added begin.
    */
+  /** See SCAN_ARM_PLUG. */
+  plugTheArm(geometry, picture, first) {
+    const position = geometry.getAttribute('position');
+    const skinIndex = geometry.getAttribute('skinIndex');
+    const skinWeight = geometry.getAttribute('skinWeight');
+    const index = geometry.getIndex();
+    if (!index) return;
+    const count = position.count;
+    const colour = textureUnder(geometry, picture);
+    const [cx, cy, cz] = SCAN_ARM_PLUG.at;
+    const [rx, ry, rz] = SCAN_ARM_PLUG.radii;
+    // A long capsule: round the whole way, rounding off only at its ends.
+    const solid = new THREE.CapsuleGeometry(1, 6, 8, 24, 12);
+    const shape = solid.getAttribute('position');
+    const bend = solid.getAttribute('normal');
+    const plugs = [];
+    for (const name of ['armL', 'armR']) {
+      const arm = SCAN_JOINTS.findIndex((joint) => joint.name === name);
+      const turn = name === 'armL' ? -1 : 1;
+      // Its look: the sleeve's own green, from the upper arm - lit, not the crease.
+      const near = [];
+      for (let v = 0; v < count; v += 1) {
+        if (skinIndex.getX(v) !== arm || skinWeight.getX(v) < 0.999) continue;
+        const y = position.getY(v);
+        if (y < 0.5 || y > 0.75 || position.getX(v) * turn < 0.15) continue;
+        if (colour) {
+          const [r, g, b] = colour(v);
+          if (!(g > r * 1.12 && g > b * 1.3)) continue;
+        }
+        near.push(v);
+      }
+      if (!near.length) continue;
+      const light = (v) => {
+        if (!colour) return 0;
+        const [r, g, b] = colour(v);
+        return r * 0.3 + g * 0.59 + b * 0.11;
+      };
+      near.sort((m, n) => light(m) - light(n));
+      // The sleeve's own skin round the fill, away from the cut: the fill is
+      // kept inside it, so at rest it never shows through, and only on the
+      // cut's side - where the sleeve has no skin - does it reach past, into
+      // the chest.
+      const skin = [];
+      for (let v = 0; v < first; v += 1) {
+        if (skinIndex.getX(v) !== arm || skinWeight.getX(v) < 0.999) continue;
+        const x = position.getX(v);
+        const y = position.getY(v);
+        const z = position.getZ(v);
+        if (Math.abs(y - cy) > ry + 0.02 || wallSide(x, y, z) < 0.01) continue;
+        skin.push([x * turn - SCAN_ARM_PLUG.lean * (y - cy) - cx, y, z - cz]);
+      }
+      plugs.push({ arm, turn, skin, look: near[Math.floor(0.75 * (near.length - 1))] });
+    }
+    if (!plugs.length) { solid.dispose(); return; }
+    const each = shape.count;
+    // How far out each point of the fill may go: all the way, unless the
+    // sleeve's skin in that direction is nearer.
+    for (const plug of plugs) {
+      plug.reach = new Float32Array(each).fill(1);
+      for (let i = 0; i < each; i += 1) {
+        const ox = shape.getX(i) * rx;
+        const oz = shape.getZ(i) * rz;
+        const out = Math.hypot(ox, oz);
+        if (out < 1e-6) continue;
+        const y = cy + (shape.getY(i) / 4) * ry;
+        const aim = Math.atan2(oz, ox);
+        let wall = Infinity;
+        for (const [sx, sy, sz] of plug.skin) {
+          if (Math.abs(sy - y) > 0.012) continue;
+          let turned = Math.atan2(sz, sx) - aim;
+          turned = Math.atan2(Math.sin(turned), Math.cos(turned));
+          if (Math.abs(turned) > 0.25) continue;
+          wall = Math.min(wall, Math.hypot(sx, sz));
+        }
+        if (wall < Infinity) plug.reach[i] = Math.min(1, (0.85 * wall) / out);
+      }
+    }
+    const total = count + each * plugs.length;
+    for (const name of Object.keys(geometry.attributes)) {
+      const attr = geometry.getAttribute(name);
+      const size = attr.itemSize;
+      const grown = new (name === 'skinIndex' ? Uint16Array : Float32Array)(total * size);
+      grown.set(attr.array.subarray(0, count * size));
+      plugs.forEach(({ arm, turn, look, reach }, k) => {
+        for (let i = 0; i < each; i += 1) {
+          const at = (count + k * each + i) * size;
+          const y = cy + (shape.getY(i) / 4) * ry;
+          const f = reach[i];
+          const p = [turn * (cx + shape.getX(i) * rx * f + SCAN_ARM_PLUG.lean * (y - cy)), y, cz + shape.getZ(i) * rz * f];
+          const n = [turn * bend.getX(i) / rx, bend.getY(i) / (ry / 4), bend.getZ(i) / rz];
+          const l = Math.hypot(n[0], n[1], n[2]) || 1;
+          for (let c = 0; c < size; c += 1) {
+            if (name === 'position') grown[at + c] = p[c];
+            else if (name === 'normal') grown[at + c] = n[c] / l;
+            else if (name === 'skinIndex') grown[at + c] = c === 0 ? arm : 0;
+            else if (name === 'skinWeight') grown[at + c] = c === 0 ? 1 : 0;
+            else grown[at + c] = attr.getComponent(look, c);
+          }
+        }
+      });
+      geometry.setAttribute(name, new THREE.BufferAttribute(grown, size));
+    }
+    const tri = Array.from(index.array);
+    const faces = solid.getIndex().array;
+    plugs.forEach(({ turn }, k) => {
+      for (let f = 0; f < faces.length; f += 3) {
+        const a = count + k * each + faces[f];
+        const b = count + k * each + faces[f + 1];
+        const c = count + k * each + faces[f + 2];
+        // Mirrored, the winding turns inside out; turn it back.
+        if (turn < 0) tri.push(a, c, b); else tri.push(a, b, c);
+      }
+    });
+    geometry.setIndex(new THREE.BufferAttribute(Uint32Array.from(tri), 1));
+    solid.dispose();
+  }
+
   capTheCut(geometry, first, picture) {
     const position = geometry.getAttribute('position');
     const skinIndex = geometry.getAttribute('skinIndex');
