@@ -2421,7 +2421,9 @@ export class Avatar {
           if (d <= 0) continue;
           let lead = 0;
           for (let j = 1; j < joints; j += 1) if (raw[n * joints + j] > raw[n * joints + lead]) lead = j;
-          if (lead === ix[side] || lead === iw[side]) continue;
+          // Under the armpit even where the weighting gave the arm the most:
+          // what is grey there is not the sleeve, and on the arm it hung in shards.
+          if (lead === iw[side] || (lead === ix[side] && py[n] >= SCAN_ARM_PIT)) continue;
           for (let j = 0; j < joints; j += 1) raw[n * joints + j] = (j === iw[side] ? 1 : 0);
         }
       }
@@ -2490,7 +2492,12 @@ export class Avatar {
         // the sleeve standing proud of it - the jagged dark strips under a
         // raised arm. On the wall the lid lies on the cut, and nothing reaches
         // past it.
-        const onSleeve = u * u + w * w < sleeve.keep * sleeve.keep && d > 0;
+        // Under the armpit, the back of the sleeve too: the jacket's green
+        // behind the depth limit stayed on the body behind the raised arm,
+        // where its bottom should have been. Only the green - the grey there is
+        // the face of the folded wing, and on the arm it hung off in shards.
+        const back = py[n] < SCAN_ARM_PIT && coat[n] === 1;
+        const onSleeve = d > 0 && (u * u + w * w < sleeve.keep * sleeve.keep || back);
         /*
           On the sleeve, it is the arm's - all of it. Just over the armpit the
           depth limit above splits the sleeve front from back, and the back of
@@ -2504,7 +2511,7 @@ export class Avatar {
         */
         if (onSleeve) {
           const claim = raw[n * joints + arm] + raw[n * joints + ic[side]];
-          if (raw[n * joints + iw[side]] <= 0.06 && claim >= SCAN_ARM_WALL.only) {
+          if (raw[n * joints + iw[side]] <= 0.06 && (claim >= SCAN_ARM_WALL.only || coat[n] === 1)) {
             for (let j = 0; j < joints; j += 1) raw[n * joints + j] = (j === arm ? 1 : 0);
           }
           continue;
