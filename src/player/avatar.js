@@ -420,7 +420,7 @@ const SCAN_ARM_HIP = 0.17;
  * normal, pointing down the arm toward the hand, on the figure's right.
  */
 export const SCAN_ARM_WALL = {
-  at: [0.112, 0.720, 0.0],
+  at: [0.107, 0.720, 0.0],
   to: [1.0, -0.07, 0.0],
   soft: 0.004,
   band: 0.075,
