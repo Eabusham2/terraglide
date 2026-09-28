@@ -422,6 +422,7 @@ const SCAN_ARM_HIP = 0.17;
 export const SCAN_ARM_WALL = {
   at: [0.107, 0.720, 0.0],
   to: [1.0, -0.07, 0.0],
+  up: [1.0, -0.10, 0.0],   // over the armpit: the same line, its top leaning a touch further out
   soft: 0.004,
   band: 0.075,
   only: 0.35,
@@ -482,17 +483,25 @@ const SCAN_SLEEVE = {
  * sleeve's tube under it - put as one distance, so splitAtTheCut can part the
  * seam exactly where the knife crosses each edge. Mirrored for the left arm.
  */
+/** How far outboard of the wall a point is: `to` under the armpit, `up` over
+ *  it, pivoting at the armpit so the line's foot stays put. */
+function wallSide(x, y, z) {
+  const turn = x < 0 ? -1 : 1;
+  const { at } = SCAN_ARM_WALL;
+  const to = y >= at[1] ? SCAN_ARM_WALL.up : SCAN_ARM_WALL.to;
+  return ((x - at[0] * turn) * to[0] * turn + (y - at[1]) * to[1] + (z - at[2]) * to[2])
+    / Math.hypot(to[0], to[1], to[2]);
+}
+
 function armCutSide(x, y, z) {
   const turn = x < 0 ? -1 : 1;
-  const { at, to } = SCAN_ARM_WALL;
   const sleeve = SCAN_SLEEVE;
   const drift = (sleeve.top[0] - sleeve.bottom[0]) / (sleeve.top[1] - sleeve.bottom[1]);
   const centre = turn * (sleeve.bottom[0] + drift * (y - sleeve.bottom[1]));
   const tube = (sleeve.keep - Math.hypot((x - centre) / sleeve.across, (z - sleeve.z) / sleeve.through))
     * sleeve.across;
-  const plane = ((x - at[0] * turn) * to[0] * turn + (y - at[1]) * to[1] + (z - at[2]) * to[2])
-    / Math.hypot(to[0], to[1], to[2]);
-  const under = Math.min(tube, SCAN_ARM_PIT - y, plane);
+  const plane = wallSide(x, y, z);
+  const under =Math.min(tube, SCAN_ARM_PIT - y, plane);
   // Below the weld the sleeve is all the arm's and nothing there is cut; the
   // only edge is across the foot of the weld, where the sleeve meets it.
   const below = Math.min(SCAN_ARM_WELD - y, plane);
@@ -2259,9 +2268,6 @@ export class Avatar {
       touches a wing.
     */
     {
-      const at = SCAN_ARM_WALL.at;
-      const to = SCAN_ARM_WALL.to;
-      const len = Math.hypot(to[0], to[1], to[2]) || 1;
       const px = new Float32Array(nodes);
       const py = new Float32Array(nodes);
       const pz = new Float32Array(nodes);
@@ -2296,9 +2302,7 @@ export class Avatar {
         // cut is an armhole: it lives in the band from the armpit up, and below
         // that the arm is one solid piece the natural weights already own.
         if (py[n] < SCAN_ARM_PIT) continue;
-        const turn = side === 'L' ? -1 : 1;
-        const d = ((px[n] - at[0] * turn) * to[0] * turn
-          + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
+        const d = wallSide(px[n], py[n], pz[n]);
         // A clean slice, so hard and everywhere in the zone, not a blend in a
         // thin band. Over the whole shoulder the plane alone decides: on the
         // hand side the node is all arm, on the body side it keeps its other
@@ -2357,9 +2361,7 @@ export class Avatar {
         const side = px[n] < 0 ? 'L' : 'R';
         const arm = ix[side];
         if (raw[n * joints + arm] <= 0) continue;
-        const turn = side === 'L' ? -1 : 1;
-        const d = ((px[n] - at[0] * turn) * to[0] * turn
-          + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
+        const d = wallSide(px[n], py[n], pz[n]);
         // Keep it only if it is outboard of the line and no further back than
         // the arm reaches short of the elytra. The feather roots that survive
         // as shards sit outboard, so the plane keeps them, but back where the
@@ -2381,9 +2383,7 @@ export class Avatar {
         if (!coat[n] || py[n] < SCAN_ARM_PIT || pz[n] < SCAN_ARM_BACK || pz[n] >= SCAN_ARM_COAT) continue;
         const side = px[n] < 0 ? 'L' : 'R';
         const arm = ix[side];
-        const turn = side === 'L' ? -1 : 1;
-        const d = ((px[n] - at[0] * turn) * to[0] * turn
-          + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
+        const d = wallSide(px[n], py[n], pz[n]);
         if (d <= 0) continue;
         let lead = 0;
         for (let j = 1; j < joints; j += 1) if (raw[n * joints + j] > raw[n * joints + lead]) lead = j;
@@ -2405,9 +2405,7 @@ export class Avatar {
         for (let n = 0; n < nodes; n += 1) {
           if (coat[n] || py[n] < SCAN_ARM_WELD || py[n] >= SCAN_ARM_PIT + SCAN_SLEEVE.over || pz[n] < SCAN_ARM_BACK) continue;
           const side = px[n] < 0 ? 'L' : 'R';
-          const turn = side === 'L' ? -1 : 1;
-          const d = ((px[n] - at[0] * turn) * to[0] * turn
-            + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
+          const d = wallSide(px[n], py[n], pz[n]);
           if (d <= 0) continue;
           let lead = 0;
           for (let j = 1; j < joints; j += 1) if (raw[n * joints + j] > raw[n * joints + lead]) lead = j;
@@ -2472,8 +2470,7 @@ export class Avatar {
         const centre = turn * (sleeve.bottom[0] + drift * (py[n] - sleeve.bottom[1]));
         const u = (px[n] - centre) / sleeve.across;
         const w = (pz[n] - sleeve.z) / sleeve.through;
-        const d = ((px[n] - at[0] * turn) * to[0] * turn
-          + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
+        const d = wallSide(px[n], py[n], pz[n]);
         // And under the armpit, only outboard of the wall: the sleeve is welded
         // to the jacket for a hand's width below it, and the knife carries on
         // down through the weld in the same line. The tube's own wall is
@@ -2900,9 +2897,9 @@ export class Avatar {
       // fan out to there stood off the side of the chest like a fin - the
       // shoulder left floating where the arm had been. Pressed back onto the
       // wall it is the flat side of the body, and nothing more.
-      const { at, to } = SCAN_ARM_WALL;
+      const { at, up } = SCAN_ARM_WALL;
       const turn = middle.x < 0 ? -1 : 1;
-      const wall = new THREE.Vector3(to[0] * turn, to[1], to[2]).normalize();
+      const wall = new THREE.Vector3(up[0] * turn, up[1], up[2]).normalize();
       const onWall = (p) => {
         if (side >= 0 || p.y < SCAN_ARM_PIT || p.z < SCAN_ARM_BACK) return p;
         const d = (p.x - at[0] * turn) * wall.x + (p.y - at[1]) * wall.y + (p.z - at[2]) * wall.z;
