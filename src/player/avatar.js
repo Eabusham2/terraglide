@@ -418,15 +418,13 @@ const SCAN_ARM_HIP = 0.17;
 /**
  * The knife that cuts the arm off the body: a point on the plane and its
  * normal, pointing down the arm toward the hand, on the figure's right.
- * `to` is the wall under the armpit, `up` the wall over it: straight up from
- * the armpit. Leaning out, it left the top of the shoulder on the chest, and a
- * raised arm tapered to a point where it should have met the collar; leaning
- * in, it cut into the chest.
+ * `to` is the wall under the armpit, `up` the wall over it - the same line,
+ * the one agreed on; kept apart so the two can be set separately.
  */
 export const SCAN_ARM_WALL = {
   at: [0.102, 0.720, 0.0],
   to: [1.0, -0.07, 0.0],
-  up: [1.0, 0.0, 0.0],
+  up: [1.0, -0.07, 0.0],
   soft: 0.004,
   band: 0.075,
   only: 0.35,
