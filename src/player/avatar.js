@@ -449,6 +449,11 @@ const SCAN_ARM_WELD = 0.62;
  *  that the sleeve took with it and that hung under the raised arm as a flap:
  *  between these heights and this close in, it stays on the body. Mirrored. */
 const SCAN_ARM_SLIVER = { from: 0.58, to: 0.635, inside: 0.12 };
+/** Below this height, under the armpit, the chest's side is erased where it
+ *  meets the cut: the chest's lid is cut off level here, and the thin slivers
+ *  of jacket beside it go. They hung off the chest in jagged teeth with the
+ *  arm out, and with it down they are inside the crease. See eraseTheTail. */
+const SCAN_ARM_TAIL = { below: 0.645, from: 0.56, back: 0.02, near: 0.001 };
 /*
   Below the armpit the arm is its sleeve, and nothing more.
 
@@ -2585,6 +2590,219 @@ export class Avatar {
     geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndex, 4));
     geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(skinWeight, 4));
     this.splitAtTheCut(geometry, picture);
+    this.eraseTheTail(geometry);
+    this.closeTheTail(geometry, picture);
+  }
+
+  /**
+   * Close the opening eraseTheTail leaves in the chest's side.
+   *
+   * The jacket is a shell, and taking the tail away leaves a hole that looks
+   * into it. Every loop of open edge on the body there gets a flat lid in the
+   * jacket's colour, facing out, the same as the lids on the cut itself.
+   */
+  closeTheTail(geometry, picture) {
+    const index = geometry.getIndex();
+    if (!index) return;
+    const tail = SCAN_ARM_TAIL;
+    const position = geometry.getAttribute('position');
+    const skinIndex = geometry.getAttribute('skinIndex');
+    const skinWeight = geometry.getAttribute('skinWeight');
+    const count = position.count;
+    const tri = index.array;
+    const onArm = (v) => /^arm/.test(SCAN_JOINTS[skinIndex.getX(v)].name) && skinWeight.getX(v) > 0.999;
+    const near = (v) => {
+      const y = position.getY(v);
+      return y >= tail.from - 0.01 && y < SCAN_ARM_PIT + 0.01 && position.getZ(v) < tail.back + 0.03
+        && Math.abs(position.getX(v)) > 0.07;
+    };
+    const grid = 1e-5;
+    const place = new Map();
+    const nodeOf = (v) => {
+      const key = `${Math.round(position.getX(v) / grid)},${Math.round(position.getY(v) / grid)},${Math.round(position.getZ(v) / grid)}`;
+      let n = place.get(key);
+      if (n === undefined) { n = place.size; place.set(key, n); }
+      return n;
+    };
+    const edges = new Map();
+    for (let t = 0; t < tri.length; t += 3) {
+      if (onArm(tri[t]) || onArm(tri[t + 1]) || onArm(tri[t + 2])) continue;
+      for (let k = 0; k < 3; k += 1) {
+        const p = tri[t + k];
+        const q = tri[t + (k + 1) % 3];
+        const a = nodeOf(p);
+        const b = nodeOf(q);
+        if (a === b) continue;
+        const key = a < b ? `${a},${b}` : `${b},${a}`;
+        const edge = edges.get(key);
+        if (edge) edge.uses += 1;
+        else edges.set(key, { uses: 1, a, b, p, q });
+      }
+    }
+    const next = new Map();
+    for (const edge of edges.values()) {
+      if (edge.uses === 1 && near(edge.p) && near(edge.q)) next.set(edge.a, edge);
+    }
+    const loops = [];
+    const seen = new Set();
+    for (const begin of next.keys()) {
+      if (seen.has(begin)) continue;
+      const loop = [];
+      let at = begin;
+      let closed = false;
+      while (next.has(at) && !seen.has(at)) {
+        seen.add(at);
+        const edge = next.get(at);
+        loop.push(edge);
+        at = edge.b;
+        if (at === begin) { closed = true; break; }
+      }
+      if (closed && loop.length >= 3) loops.push(loop);
+    }
+    if (!loops.length) return;
+    const colour = textureUnder(geometry, picture);
+    const point = (v) => new THREE.Vector3(position.getX(v), position.getY(v), position.getZ(v));
+    const added = [];
+    const lids = [];
+    for (const loop of loops) {
+      const middle = new THREE.Vector3();
+      for (const edge of loop) middle.add(point(edge.p));
+      middle.divideScalar(loop.length);
+      const normal = new THREE.Vector3();
+      const u = new THREE.Vector3();
+      const w = new THREE.Vector3();
+      for (const edge of loop) {
+        const q = point(edge.q);
+        normal.add(u.subVectors(point(edge.p), q).cross(w.subVectors(middle, q)));
+      }
+      normal.normalize();
+      // Out of the side, not into the chest.
+      if (normal.x * Math.sign(middle.x) <= 0) continue;
+      let look = loop[0].p;
+      if (colour) {
+        const green = loop.map((edge) => edge.p).filter((v) => {
+          const [r, g, b] = colour(v);
+          return g > r * 1.12 && g > b * 1.3;
+        });
+        if (green.length) look = green[Math.floor(green.length / 2)];
+      }
+      // One colour across the lid, and each point the skin of the edge it is on.
+      const centre = count + added.length;
+      added.push([loop[0].p, look, middle, normal]);
+      const rim = new Map();
+      for (const edge of loop) {
+        rim.set(edge.a, count + added.length);
+        added.push([edge.p, look, point(edge.p), normal]);
+      }
+      for (const edge of loop) lids.push(rim.get(edge.b), rim.get(edge.a), centre);
+    }
+    if (!added.length) return;
+    for (const name of Object.keys(geometry.attributes)) {
+      const attr = geometry.getAttribute(name);
+      const size = attr.itemSize;
+      const grown = new (name === 'skinIndex' ? Uint16Array : Float32Array)((count + added.length) * size);
+      grown.set(attr.array.subarray(0, count * size));
+      added.forEach(([from, look, p, n], i) => {
+        const at = (count + i) * size;
+        for (let s = 0; s < size; s += 1) {
+          if (name === 'position') grown[at + s] = [p.x, p.y, p.z][s];
+          else if (name === 'normal') grown[at + s] = [n.x, n.y, n.z][s];
+          else if (name === 'skinIndex' || name === 'skinWeight') grown[at + s] = attr.getComponent(from, s);
+          else grown[at + s] = attr.getComponent(look, s);
+        }
+      });
+      geometry.setAttribute(name, new THREE.BufferAttribute(grown, size));
+    }
+    geometry.setIndex(new THREE.BufferAttribute(Uint32Array.from([...tri, ...lids]), 1));
+  }
+
+  /**
+   * Erase the jagged tail at the foot of the cut. See SCAN_ARM_TAIL.
+   *
+   * The chest's lid is cut level at the height: a lid triangle wholly below it
+   * goes, one across it keeps the part above, cut straight. And the chest's
+   * own surface beside the cut below that height - at the wall or outboard
+   * of it, ahead of the wing - goes.
+   */
+  eraseTheTail(geometry) {
+    const index = geometry.getIndex();
+    const first = geometry.userData.firstLid;
+    if (!index || first === undefined) return;
+    const tail = SCAN_ARM_TAIL;
+    const position = geometry.getAttribute('position');
+    const skinIndex = geometry.getAttribute('skinIndex');
+    const skinWeight = geometry.getAttribute('skinWeight');
+    const count = position.count;
+    const onArm = (v) => /^arm/.test(SCAN_JOINTS[skinIndex.getX(v)].name) && skinWeight.getX(v) > 0.999;
+    const y = (v) => position.getY(v);
+    const strip = (v) => {
+      const x = position.getX(v);
+      const z = position.getZ(v);
+      return y(v) >= tail.from && y(v) < tail.below && z < tail.back && Math.abs(x) > 0.05
+        && !/^(arm|wing)/.test(SCAN_JOINTS[skinIndex.getX(v)].name)
+        && wallSide(x, y(v), z) > tail.near;
+    };
+    const extra = [];            // [from, to, t]: a new point along an edge
+    const made = new Map();
+    const cutAt = (a, b) => {
+      const key = a < b ? `${a},${b}` : `${b},${a}`;
+      let id = made.get(key);
+      if (id === undefined) {
+        id = count + extra.length;
+        extra.push([a, b, (tail.below - y(a)) / (y(b) - y(a))]);
+        made.set(key, id);
+      }
+      return id;
+    };
+    const tri = index.array;
+    const out = [];
+    for (let t = 0; t < tri.length; t += 3) {
+      const c = [tri[t], tri[t + 1], tri[t + 2]];
+      const lid = c.some((v) => v >= first);
+      if (!lid) {
+        if (!c.every(strip)) out.push(...c);
+        continue;
+      }
+      if (c.some(onArm) || c.every((v) => y(v) >= tail.below)) { out.push(...c); continue; }
+      const low = c.map((v) => y(v) < tail.below);
+      const lows = low.filter(Boolean).length;
+      if (lows === 3) continue;
+      // Keep what is above the line: rotate so the odd corner out is first.
+      const odd = lows === 1 ? low.indexOf(true) : low.indexOf(false);
+      const A = c[odd];
+      const B = c[(odd + 1) % 3];
+      const C = c[(odd + 2) % 3];
+      if (lows === 2) {
+        out.push(A, cutAt(A, B), cutAt(A, C));
+      } else {
+        const ab = cutAt(A, B);
+        const ac = cutAt(A, C);
+        out.push(ab, B, C, ab, C, ac);
+      }
+    }
+    if (extra.length) {
+      for (const name of Object.keys(geometry.attributes)) {
+        const attr = geometry.getAttribute(name);
+        const size = attr.itemSize;
+        const grown = new (name === 'skinIndex' ? Uint16Array : Float32Array)((count + extra.length) * size);
+        grown.set(attr.array.subarray(0, count * size));
+        extra.forEach(([a, b, k], i) => {
+          const at = (count + i) * size;
+          const high = y(a) >= tail.below ? a : b;
+          for (let s = 0; s < size; s += 1) {
+            grown[at + s] = name === 'skinIndex' || name === 'skinWeight'
+              ? attr.getComponent(high, s)
+              : attr.getComponent(a, s) * (1 - k) + attr.getComponent(b, s) * k;
+          }
+          if (name === 'normal') {
+            const l = Math.hypot(grown[at], grown[at + 1], grown[at + 2]) || 1;
+            for (let s = 0; s < 3; s += 1) grown[at + s] /= l;
+          }
+        });
+        geometry.setAttribute(name, new THREE.BufferAttribute(grown, size));
+      }
+    }
+    geometry.setIndex(new THREE.BufferAttribute(Uint32Array.from(out), 1));
   }
 
   /**
@@ -2954,6 +3172,7 @@ export class Avatar {
       geometry.setAttribute(name, new THREE.BufferAttribute(grown, size));
     }
     geometry.setIndex(new THREE.BufferAttribute(Uint32Array.from([...tri, ...lids]), 1));
+    geometry.userData.firstLid = count;
   }
 
   /**
