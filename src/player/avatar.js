@@ -445,6 +445,10 @@ const SCAN_ARM_COAT = 0.05;
  *  armpit down to here, and below it the two are apart - so the cut has to go
  *  through the weld, and below it the sleeve comes away whole. */
 const SCAN_ARM_WELD = 0.62;
+/** A sliver of the jacket's side at the foot of the weld, hugging the chest,
+ *  that the sleeve took with it and that hung under the raised arm as a flap:
+ *  between these heights and this close in, it stays on the body. Mirrored. */
+const SCAN_ARM_SLIVER = { from: 0.58, to: 0.635, inside: 0.12 };
 /*
   Below the armpit the arm is its sleeve, and nothing more.
 
@@ -2498,6 +2502,19 @@ export class Avatar {
           continue;
         }
         if (py[n] >= SCAN_ARM_PIT || raw[n * joints + arm] <= 0) continue;
+        raw[n * joints + arm] = 0;
+        let rest = 0;
+        for (let j = 0; j < joints; j += 1) rest += raw[n * joints + j];
+        if (rest > 0) for (let j = 0; j < joints; j += 1) raw[n * joints + j] /= rest;
+        else raw[n * joints + spine] = 1;
+      }
+      // And the sliver at the foot of the weld stays on the body. See
+      // SCAN_ARM_SLIVER.
+      const sliver = SCAN_ARM_SLIVER;
+      for (let n = 0; n < nodes; n += 1) {
+        if (py[n] < sliver.from || py[n] >= sliver.to || Math.abs(px[n]) >= sliver.inside) continue;
+        const arm = ix[px[n] < 0 ? 'L' : 'R'];
+        if (raw[n * joints + arm] <= 0) continue;
         raw[n * joints + arm] = 0;
         let rest = 0;
         for (let j = 0; j < joints; j += 1) rest += raw[n * joints + j];
