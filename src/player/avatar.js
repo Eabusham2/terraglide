@@ -421,7 +421,7 @@ const SCAN_ARM_HIP = 0.17;
  */
 export const SCAN_ARM_WALL = {
   at: [0.107, 0.720, 0.0],
-  to: [1.0, 0.10, 0.0],    // under the armpit: its foot leaning out, clear of the jacket-side strip
+  to: [1.0, -0.07, 0.0],
   up: [1.0, -0.10, 0.0],   // over the armpit: the same line, its top leaning a touch further out
   soft: 0.004,
   band: 0.075,
