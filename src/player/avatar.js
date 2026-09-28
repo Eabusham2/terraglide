@@ -418,13 +418,10 @@ const SCAN_ARM_HIP = 0.17;
 /**
  * The knife that cuts the arm off the body: a point on the plane and its
  * normal, pointing down the arm toward the hand, on the figure's right.
- * `to` is the wall under the armpit, `up` the wall over it - the same line,
- * the one agreed on; kept apart so the two can be set separately.
  */
 export const SCAN_ARM_WALL = {
   at: [0.102, 0.720, 0.0],
   to: [1.0, -0.07, 0.0],
-  up: [1.0, -0.07, 0.0],
   soft: 0.004,
   band: 0.075,
   only: 0.35,
@@ -436,31 +433,10 @@ const SCAN_ARM_PIT = 0.72;
  *  shoulder, so the arm stops short of it: only the front of the shoulder,
  *  ahead of this depth, swings with the arm; the rest stays with the body. */
 const SCAN_ARM_BACK = 0.01;
-/** Except the jacket. The back wall of the shoulder sits a finger's width
- *  behind that depth, with the wing's feather roots welded on just behind it:
- *  in place they interleave, but in colour they do not - the jacket is green
- *  and the feathers grey. So back to this depth the green goes with the arm,
- *  and left on the body it was the back of the shoulder floating in mid-air
- *  where the arm had been. */
-const SCAN_ARM_COAT = 0.05;
 /** The foot of the weld: the scan has the sleeve fused to the jacket from the
  *  armpit down to here, and below it the two are apart - so the cut has to go
  *  through the weld, and below it the sleeve comes away whole. */
 const SCAN_ARM_WELD = 0.62;
-/** And through the weld, under the armpit, the sleeve and the jacket are
- *  parted rather than cut: each side of the seam is eased this far off it, a
- *  hair either way, so they are two surfaces touching - as they are below the
- *  weld - and the only cut is the armhole, from the armpit up. */
-const SCAN_ARM_GAP = 0.0001;
-/** The arm continued past its cut, round, as a Lego arm is. Raised, the
- *  side of the arm that faced the chest is its underside, and the cut left it
- *  flat there - a long diagonal face from the shoulder halfway down the arm.
- *  This is the sleeve carried on through the cut: a rounded solid on the arm,
- *  centred on the cut, so at rest its inner half is inside the chest and its
- *  outer half inside the sleeve, and nothing shows; arm out, it is the arm's
- *  round underside all the way to the shoulder. Centre, half-extents, on the
- *  right, and `lean`: how far it moves out per unit down, along the sleeve. */
-const SCAN_ARM_PLUG = { at: [0.137, 0.685, -0.033], radii: [0.050, 0.09, 0.048], lean: -0.18 };
 /*
   Below the armpit the arm is its sleeve, and nothing more.
 
@@ -499,23 +475,16 @@ const SCAN_SLEEVE = {
  * sleeve's tube under it - put as one distance, so splitAtTheCut can part the
  * seam exactly where the knife crosses each edge. Mirrored for the left arm.
  */
-/** How far outboard of the wall a point is, on either side of the figure. */
-function wallSide(x, y, z) {
-  const turn = x < 0 ? -1 : 1;
-  const { at } = SCAN_ARM_WALL;
-  const to = y >= at[1] ? SCAN_ARM_WALL.up : SCAN_ARM_WALL.to;
-  return ((x - at[0] * turn) * to[0] * turn + (y - at[1]) * to[1] + (z - at[2]) * to[2])
-    / Math.hypot(to[0], to[1], to[2]);
-}
-
 function armCutSide(x, y, z) {
   const turn = x < 0 ? -1 : 1;
+  const { at, to } = SCAN_ARM_WALL;
   const sleeve = SCAN_SLEEVE;
   const drift = (sleeve.top[0] - sleeve.bottom[0]) / (sleeve.top[1] - sleeve.bottom[1]);
   const centre = turn * (sleeve.bottom[0] + drift * (y - sleeve.bottom[1]));
   const tube = (sleeve.keep - Math.hypot((x - centre) / sleeve.across, (z - sleeve.z) / sleeve.through))
     * sleeve.across;
-  const plane = wallSide(x, y, z);
+  const plane = ((x - at[0] * turn) * to[0] * turn + (y - at[1]) * to[1] + (z - at[2]) * to[2])
+    / Math.hypot(to[0], to[1], to[2]);
   const under = Math.min(tube, SCAN_ARM_PIT - y, plane);
   // Below the weld the sleeve is all the arm's and nothing there is cut; the
   // only edge is across the foot of the weld, where the sleeve meets it.
@@ -523,35 +492,6 @@ function armCutSide(x, y, z) {
   const over = Math.min(y - SCAN_ARM_PIT, plane,
     Math.max(SCAN_ARM_BACK - z, Math.min(tube, SCAN_ARM_PIT + sleeve.over - y)));
   return Math.max(below, under, over);
-}
-
-/**
- * The colour of the scan's texture under a vertex, as [r, g, b], or null when
- * the picture cannot be read - no texture, or no page to draw it on (a test).
- */
-function textureUnder(geometry, picture) {
-  const uv = geometry.getAttribute('uv');
-  const image = picture?.image;
-  if (!uv || !image?.width || typeof document === 'undefined') return null;
-  try {
-    const canvas = document.createElement('canvas');
-    canvas.width = image.width;
-    canvas.height = image.height;
-    const pen = canvas.getContext('2d', { willReadFrequently: true });
-    pen.drawImage(image, 0, 0);
-    const pixels = pen.getImageData(0, 0, image.width, image.height).data;
-    return (v) => {
-      const u = uv.getX(v) - Math.floor(uv.getX(v));
-      let t = uv.getY(v) - Math.floor(uv.getY(v));
-      if (picture.flipY) t = 1 - t;
-      const x = Math.min(image.width - 1, Math.floor(u * image.width));
-      const y = Math.min(image.height - 1, Math.floor(t * image.height));
-      const at = (y * image.width + x) * 4;
-      return [pixels[at], pixels[at + 1], pixels[at + 2]];
-    };
-  } catch {
-    return null;
-  }
 }
 
 const SCAN_JOINTS = [
@@ -2283,6 +2223,9 @@ export class Avatar {
       touches a wing.
     */
     {
+      const at = SCAN_ARM_WALL.at;
+      const to = SCAN_ARM_WALL.to;
+      const len = Math.hypot(to[0], to[1], to[2]) || 1;
       const px = new Float32Array(nodes);
       const py = new Float32Array(nodes);
       const pz = new Float32Array(nodes);
@@ -2296,15 +2239,6 @@ export class Avatar {
         if (joint.name === 'clavL') ic.L = j; if (joint.name === 'clavR') ic.R = j;
         if (joint.name === 'wingL') iw.L = j; if (joint.name === 'wingR') iw.R = j;
       });
-      // Which nodes are the jacket's green, where the picture can be read.
-      const coat = new Uint8Array(nodes);
-      const colour = textureUnder(geometry, picture);
-      if (colour) {
-        for (let v = 0; v < count; v += 1) {
-          const [r, g, b] = colour(v);
-          if (g > r * 1.12 && g > b * 1.3) coat[welded[v]] = 1;
-        }
-      }
       for (let n = 0; n < nodes; n += 1) {
         const side = px[n] < 0 ? 'L' : 'R';
         const arm = ix[side];
@@ -2318,7 +2252,8 @@ export class Avatar {
         // that the arm is one solid piece the natural weights already own.
         if (py[n] < SCAN_ARM_PIT) continue;
         const turn = side === 'L' ? -1 : 1;
-        const d = wallSide(px[n], py[n], pz[n]);
+        const d = ((px[n] - at[0] * turn) * to[0] * turn
+          + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
         // A clean slice, so hard and everywhere in the zone, not a blend in a
         // thin band. Over the whole shoulder the plane alone decides: on the
         // hand side the node is all arm, on the body side it keeps its other
@@ -2378,61 +2313,19 @@ export class Avatar {
         const arm = ix[side];
         if (raw[n * joints + arm] <= 0) continue;
         const turn = side === 'L' ? -1 : 1;
-        const d = wallSide(px[n], py[n], pz[n]);
+        const d = ((px[n] - at[0] * turn) * to[0] * turn
+          + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
         // Keep it only if it is outboard of the line and no further back than
         // the arm reaches short of the elytra. The feather roots that survive
         // as shards sit outboard, so the plane keeps them, but back where the
         // wing is welded on - so a depth limit is what tells the two apart and
         // keeps the cut off the elytra.
-        if (d > 0 && (pz[n] < SCAN_ARM_BACK || (coat[n] && pz[n] < SCAN_ARM_COAT))) continue;
+        if (d > 0 && pz[n] < SCAN_ARM_BACK) continue;
         raw[n * joints + arm] = 0;
         let rest = 0;
         for (let j = 0; j < joints; j += 1) rest += raw[n * joints + j];
         if (rest > 0) for (let j = 0; j < joints; j += 1) raw[n * joints + j] /= rest;
         else raw[n * joints + ic[side]] = 1;
-      }
-      /*
-        And the back wall of the shoulder, jacket back to SCAN_ARM_COAT: outboard
-        of the wall and green, it is the arm's whatever the weighting said,
-        unless it is more wing than anything.
-      */
-      for (let n = 0; n < nodes; n += 1) {
-        if (!coat[n] || py[n] < SCAN_ARM_PIT || pz[n] < SCAN_ARM_BACK || pz[n] >= SCAN_ARM_COAT) continue;
-        const side = px[n] < 0 ? 'L' : 'R';
-        const arm = ix[side];
-        const turn = side === 'L' ? -1 : 1;
-        const d = wallSide(px[n], py[n], pz[n]);
-        if (d <= 0) continue;
-        let lead = 0;
-        for (let j = 1; j < joints; j += 1) if (raw[n * joints + j] > raw[n * joints + lead]) lead = j;
-        if (lead === iw[side]) continue;
-        for (let j = 0; j < joints; j += 1) raw[n * joints + j] = (j === arm ? 1 : 0);
-      }
-      /*
-        And the feathers behind the arm are the wing's. Outboard of the wall and
-        behind the depth limit, what is not the jacket's green is the face of
-        the folded wing, pressed against the back of the sleeve - but the
-        weighting gave half of it to the chest, so when the wing folded that
-        half stayed where it was, and with the arm raised it hung in the air in
-        grey shards where the arm had been. Only under the armpit: over it the
-        feathers are the wing's root, bridged across the back of the shoulder,
-        and folding them with the wing tears the bridge. Only where the picture
-        can be read.
-      */
-      if (colour) {
-        for (let n = 0; n < nodes; n += 1) {
-          if (coat[n] || py[n] < SCAN_ARM_WELD || py[n] >= SCAN_ARM_PIT + SCAN_SLEEVE.over || pz[n] < SCAN_ARM_BACK) continue;
-          const side = px[n] < 0 ? 'L' : 'R';
-          const turn = side === 'L' ? -1 : 1;
-          const d = wallSide(px[n], py[n], pz[n]);
-          if (d <= 0) continue;
-          let lead = 0;
-          for (let j = 1; j < joints; j += 1) if (raw[n * joints + j] > raw[n * joints + lead]) lead = j;
-          // Under the armpit even where the weighting gave the arm the most:
-          // what is grey there is not the sleeve, and on the arm it hung in shards.
-          if (lead === iw[side] || (lead === ix[side] && py[n] >= SCAN_ARM_PIT)) continue;
-          for (let j = 0; j < joints; j += 1) raw[n * joints + j] = (j === iw[side] ? 1 : 0);
-        }
       }
       /*
         And under the armpit, the arm keeps only its sleeve. See SCAN_SLEEVE:
@@ -2491,7 +2384,8 @@ export class Avatar {
         const centre = turn * (sleeve.bottom[0] + drift * (py[n] - sleeve.bottom[1]));
         const u = (px[n] - centre) / sleeve.across;
         const w = (pz[n] - sleeve.z) / sleeve.through;
-        const d = wallSide(px[n], py[n], pz[n]);
+        const d = ((px[n] - at[0] * turn) * to[0] * turn
+          + (py[n] - at[1]) * to[1] + (pz[n] - at[2]) * to[2]) / len;
         // And under the armpit, only outboard of the wall: the sleeve is welded
         // to the jacket for a hand's width below it, and the knife carries on
         // down through the weld in the same line. The tube's own wall is
@@ -2499,12 +2393,7 @@ export class Avatar {
         // the sleeve standing proud of it - the jagged dark strips under a
         // raised arm. On the wall the lid lies on the cut, and nothing reaches
         // past it.
-        // Under the armpit, the back of the sleeve too: the jacket's green
-        // behind the depth limit stayed on the body behind the raised arm,
-        // where its bottom should have been. Only the green - the grey there is
-        // the face of the folded wing, and on the arm it hung off in shards.
-        const back = py[n] < SCAN_ARM_PIT && coat[n] === 1;
-        const onSleeve = d > 0 && (u * u + w * w < sleeve.keep * sleeve.keep || back);
+        const onSleeve = u * u + w * w < sleeve.keep * sleeve.keep && d > 0;
         /*
           On the sleeve, it is the arm's - all of it. Just over the armpit the
           depth limit above splits the sleeve front from back, and the back of
@@ -2518,7 +2407,7 @@ export class Avatar {
         */
         if (onSleeve) {
           const claim = raw[n * joints + arm] + raw[n * joints + ic[side]];
-          if (raw[n * joints + iw[side]] <= 0.06 && (claim >= SCAN_ARM_WALL.only || coat[n] === 1)) {
+          if (raw[n * joints + iw[side]] <= 0.06 && claim >= SCAN_ARM_WALL.only) {
             for (let j = 0; j < joints; j += 1) raw[n * joints + j] = (j === arm ? 1 : 0);
           }
           continue;
@@ -2765,54 +2654,7 @@ export class Avatar {
       geometry.setAttribute(name, new THREE.BufferAttribute(grown, size));
     }
     geometry.setIndex(new THREE.BufferAttribute(Uint32Array.from(out), 1));
-    this.partUnderThePit(geometry, count, extra.map(([, , , side]) => side), owner);
     this.capTheCut(geometry, count, picture);
-    this.plugTheArm(geometry, picture, count);
-  }
-
-  /**
-   * Under the armpit, part the sleeve from the jacket instead of cutting it.
-   *
-   * The scan has them welded into one surface for a hand's width below the
-   * armpit, so the seam has to run down through the weld - but a Lego arm is
-   * only joined at the shoulder, and below that the sleeve and the body are
-   * two things side by side. So each side of the seam under the armpit is
-   * eased off it, a hair outboard for the arm and inboard for the body, fading
-   * to nothing a centimetre away and at the armpit itself: two surfaces
-   * touching, the way they are below the weld, and the one cut left is the
-   * armhole. See SCAN_ARM_GAP.
-   */
-  partUnderThePit(geometry, first, sides, owner) {
-    const position = geometry.getAttribute('position');
-    const count = position.count;
-    const reach = 0.012;
-    const fade = 0.005;
-    // Where the seam runs under the armpit.
-    const seam = [];
-    for (let v = first; v < count; v += 1) {
-      if (position.getY(v) < SCAN_ARM_PIT) seam.push([position.getX(v), position.getY(v), position.getZ(v)]);
-    }
-    if (!seam.length) return;
-    const { to } = SCAN_ARM_WALL;
-    const len = Math.hypot(to[0], to[1], to[2]);
-    for (let v = 0; v < count; v += 1) {
-      const y = position.getY(v);
-      if (y >= SCAN_ARM_PIT) continue;
-      const x = position.getX(v);
-      const z = position.getZ(v);
-      let near = reach * reach;
-      for (const [sx, sy, sz] of seam) {
-        const d = (x - sx) ** 2 + (y - sy) ** 2 + (z - sz) ** 2;
-        if (d < near) near = d;
-      }
-      if (near >= reach * reach) continue;
-      const side = v < first ? owner[v] : sides[v - first];
-      const turn = x < 0 ? -1 : 1;
-      const ease = (1 - Math.sqrt(near) / reach) ** 2 * Math.min(1, (SCAN_ARM_PIT - y) / fade);
-      const push = (side >= 0 ? 1 : -1) * SCAN_ARM_GAP * ease / len;
-      position.setXYZ(v, x + to[0] * turn * push, y + to[1] * push, z + to[2] * push);
-    }
-    position.needsUpdate = true;
   }
 
   /**
@@ -2828,123 +2670,6 @@ export class Avatar {
    * In the rest pose the two lids lie on each other inside the figure, where
    * nothing sees them. `first` is where the points the cut added begin.
    */
-  /** See SCAN_ARM_PLUG. */
-  plugTheArm(geometry, picture, first) {
-    const position = geometry.getAttribute('position');
-    const skinIndex = geometry.getAttribute('skinIndex');
-    const skinWeight = geometry.getAttribute('skinWeight');
-    const index = geometry.getIndex();
-    if (!index) return;
-    const count = position.count;
-    const colour = textureUnder(geometry, picture);
-    const [cx, cy, cz] = SCAN_ARM_PLUG.at;
-    const [rx, ry, rz] = SCAN_ARM_PLUG.radii;
-    // A long capsule: round the whole way, rounding off only at its ends.
-    const solid = new THREE.CapsuleGeometry(1, 6, 8, 24, 12);
-    const shape = solid.getAttribute('position');
-    const bend = solid.getAttribute('normal');
-    const plugs = [];
-    for (const name of ['armL', 'armR']) {
-      const arm = SCAN_JOINTS.findIndex((joint) => joint.name === name);
-      const turn = name === 'armL' ? -1 : 1;
-      // Its look: the sleeve's own green, from the upper arm - lit, not the crease.
-      const near = [];
-      for (let v = 0; v < count; v += 1) {
-        if (skinIndex.getX(v) !== arm || skinWeight.getX(v) < 0.999) continue;
-        const y = position.getY(v);
-        if (y < 0.5 || y > 0.75 || position.getX(v) * turn < 0.15) continue;
-        if (colour) {
-          const [r, g, b] = colour(v);
-          if (!(g > r * 1.12 && g > b * 1.3)) continue;
-        }
-        near.push(v);
-      }
-      if (!near.length) continue;
-      const light = (v) => {
-        if (!colour) return 0;
-        const [r, g, b] = colour(v);
-        return r * 0.3 + g * 0.59 + b * 0.11;
-      };
-      near.sort((m, n) => light(m) - light(n));
-      // The sleeve's own skin round the fill, away from the cut: the fill is
-      // kept inside it, so at rest it never shows through, and only on the
-      // cut's side - where the sleeve has no skin - does it reach past, into
-      // the chest.
-      const skin = [];
-      for (let v = 0; v < first; v += 1) {
-        if (skinIndex.getX(v) !== arm || skinWeight.getX(v) < 0.999) continue;
-        const x = position.getX(v);
-        const y = position.getY(v);
-        const z = position.getZ(v);
-        if (Math.abs(y - cy) > ry + 0.02 || wallSide(x, y, z) < 0.01) continue;
-        skin.push([x * turn - SCAN_ARM_PLUG.lean * (y - cy) - cx, y, z - cz]);
-      }
-      plugs.push({ arm, turn, skin, look: near[Math.floor(0.75 * (near.length - 1))] });
-    }
-    if (!plugs.length) { solid.dispose(); return; }
-    const each = shape.count;
-    // How far out each point of the fill may go: all the way, unless the
-    // sleeve's skin in that direction is nearer.
-    for (const plug of plugs) {
-      plug.reach = new Float32Array(each).fill(1);
-      for (let i = 0; i < each; i += 1) {
-        const ox = shape.getX(i) * rx;
-        const oz = shape.getZ(i) * rz;
-        const out = Math.hypot(ox, oz);
-        if (out < 1e-6) continue;
-        const y = cy + (shape.getY(i) / 4) * ry;
-        const aim = Math.atan2(oz, ox);
-        let wall = Infinity;
-        for (const [sx, sy, sz] of plug.skin) {
-          if (Math.abs(sy - y) > 0.012) continue;
-          let turned = Math.atan2(sz, sx) - aim;
-          turned = Math.atan2(Math.sin(turned), Math.cos(turned));
-          if (Math.abs(turned) > 0.25) continue;
-          wall = Math.min(wall, Math.hypot(sx, sz));
-        }
-        if (wall < Infinity) plug.reach[i] = Math.min(1, (0.85 * wall) / out);
-      }
-    }
-    const total = count + each * plugs.length;
-    for (const name of Object.keys(geometry.attributes)) {
-      const attr = geometry.getAttribute(name);
-      const size = attr.itemSize;
-      const grown = new (name === 'skinIndex' ? Uint16Array : Float32Array)(total * size);
-      grown.set(attr.array.subarray(0, count * size));
-      plugs.forEach(({ arm, turn, look, reach }, k) => {
-        for (let i = 0; i < each; i += 1) {
-          const at = (count + k * each + i) * size;
-          const y = cy + (shape.getY(i) / 4) * ry;
-          const f = reach[i];
-          const p = [turn * (cx + shape.getX(i) * rx * f + SCAN_ARM_PLUG.lean * (y - cy)), y, cz + shape.getZ(i) * rz * f];
-          const n = [turn * bend.getX(i) / rx, bend.getY(i) / (ry / 4), bend.getZ(i) / rz];
-          const l = Math.hypot(n[0], n[1], n[2]) || 1;
-          for (let c = 0; c < size; c += 1) {
-            if (name === 'position') grown[at + c] = p[c];
-            else if (name === 'normal') grown[at + c] = n[c] / l;
-            else if (name === 'skinIndex') grown[at + c] = c === 0 ? arm : 0;
-            else if (name === 'skinWeight') grown[at + c] = c === 0 ? 1 : 0;
-            else grown[at + c] = attr.getComponent(look, c);
-          }
-        }
-      });
-      geometry.setAttribute(name, new THREE.BufferAttribute(grown, size));
-    }
-    const tri = Array.from(index.array);
-    const faces = solid.getIndex().array;
-    plugs.forEach(({ turn }, k) => {
-      for (let f = 0; f < faces.length; f += 3) {
-        const a = count + k * each + faces[f];
-        const b = count + k * each + faces[f + 1];
-        const c = count + k * each + faces[f + 2];
-        // Mirrored, the winding turns inside out; turn it back.
-        if (turn < 0) tri.push(a, c, b); else tri.push(a, b, c);
-      }
-    });
-    geometry.setIndex(new THREE.BufferAttribute(Uint32Array.from(tri), 1));
-    solid.dispose();
-  }
-
   capTheCut(geometry, first, picture) {
     const position = geometry.getAttribute('position');
     const skinIndex = geometry.getAttribute('skinIndex');
@@ -3009,11 +2734,30 @@ export class Avatar {
     if (!loops.length) return;
 
     // How light the texture is under a vertex, if the picture can be read.
-    const colour = textureUnder(geometry, picture);
-    const light = colour && ((v) => {
-      const [r, g, b] = colour(v);
-      return r * 0.3 + g * 0.59 + b * 0.11;
-    });
+    let light = null;
+    const uv = geometry.getAttribute('uv');
+    const image = picture?.image;
+    if (uv && image?.width && typeof document !== 'undefined') {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const pen = canvas.getContext('2d', { willReadFrequently: true });
+        pen.drawImage(image, 0, 0);
+        const pixels = pen.getImageData(0, 0, image.width, image.height).data;
+        light = (v) => {
+          const u = uv.getX(v) - Math.floor(uv.getX(v));
+          let t = uv.getY(v) - Math.floor(uv.getY(v));
+          if (picture.flipY) t = 1 - t;
+          const x = Math.min(image.width - 1, Math.floor(u * image.width));
+          const y = Math.min(image.height - 1, Math.floor(t * image.height));
+          const at = (y * image.width + x) * 4;
+          return pixels[at] * 0.3 + pixels[at + 1] * 0.59 + pixels[at + 2] * 0.11;
+        };
+      } catch {
+        light = null;
+      }
+    }
 
     const added = [];    // [vertex it copies, x, y, z, normal, the loop's look, skin]
     const lids = [];
@@ -3052,14 +2796,10 @@ export class Avatar {
       // of the armpit into its texture near black, and a lid that colour
       // reads as the hole it closes. The rim ranked by how light it is, three
       // quarters of the way up - the jacket, not the crease and not a
-      // highlight - and from the jacket's green where the rim has any, since a
-      // rim mostly crease and feather has little else to offer. Without the
-      // picture to hand, the rim point nearest the middle.
+      // highlight. Without the picture to hand, the rim point nearest the middle.
       let look = loop[0].p;
       if (light) {
-        const rim = loop.map((edge) => edge.p);
-        const green = rim.filter((v) => { const [r, g, b] = colour(v); return g > r * 1.12 && g > b * 1.3; });
-        const ranked = (green.length ? green : rim).sort((m, n) => light(m) - light(n));
+        const ranked = loop.map((edge) => edge.p).sort((m, n) => light(m) - light(n));
         look = ranked[Math.floor(0.75 * (ranked.length - 1))];
       } else {
         let best = Infinity;
@@ -3082,28 +2822,13 @@ export class Avatar {
       const total = strongest.reduce((sum, [, k]) => sum + k, 0) || 1;
       const skin = [0, 0, 0, 0, 0, 0, 0, 0];
       strongest.forEach(([j, k], i) => { skin[i] = j; skin[4 + i] = k / total; });
-      // The body's lid lies on the wall. Its rim runs out past the wall at the
-      // back of the shoulder, along the feather roots the body keeps, and a
-      // fan out to there stood off the side of the chest like a fin - the
-      // shoulder left floating where the arm had been. Pressed back onto the
-      // wall it is the flat side of the body, and nothing more.
-      const { at, up } = SCAN_ARM_WALL;
-      const turn = middle.x < 0 ? -1 : 1;
-      const wall = new THREE.Vector3(up[0] * turn, up[1], up[2]).normalize();
-      const onWall = (p) => {
-        if (side >= 0 || p.y < SCAN_ARM_PIT || p.z < SCAN_ARM_BACK) return p;
-        const d = (p.x - at[0] * turn) * wall.x + (p.y - at[1]) * wall.y + (p.z - at[2]) * wall.z;
-        return d > 0 ? p.addScaledVector(wall, -d) : p;
-      };
-      const flat = side >= 0 ? normal : wall.clone().multiplyScalar(wall.dot(normal) < 0 ? -1 : 1);
       const centre = count + added.length;
-      const c = onWall(middle.clone());
-      added.push([look, c.x, c.y, c.z, flat, look, skin]);
+      added.push([look, middle.x, middle.y, middle.z, normal, look, skin]);
       const rim = new Map();
       for (const edge of loop) {
         rim.set(edge.a, count + added.length);
-        const p = onWall(point(edge.p));
-        added.push([edge.p, p.x, p.y, p.z, flat, look, null]);
+        const p = point(edge.p);
+        added.push([edge.p, p.x, p.y, p.z, normal, look, null]);
       }
       for (const edge of loop) lids.push(rim.get(edge.b), rim.get(edge.a), centre);
     }
