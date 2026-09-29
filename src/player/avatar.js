@@ -463,7 +463,7 @@ const SCAN_ARM_TAIL = { below: 0.645, from: 0.56, back: 0.02, near: 0.001 };
  *  sleeve and the chest and nothing shows; arm out, it is the arm's round
  *  underside all the way to the shoulder. Centre, half-extents, on the right,
  *  and `lean`: how far it moves out per unit down, along the sleeve. */
-const SCAN_ARM_PLUG = { at: [0.105, 0.71, -0.025], radii: [0.030, 0.08, 0.035], lean: -0.37 };
+const SCAN_ARM_PLUG = { at: [0.1125, 0.69, -0.025], radii: [0.030, 0.13, 0.035], lean: -0.37 };
 /*
   Below the armpit the arm is its sleeve, and nothing more.
 
@@ -3020,12 +3020,21 @@ export class Avatar {
     for (const name of ['armL', 'armR']) {
       const arm = SCAN_JOINTS.findIndex((joint) => joint.name === name);
       const turn = name === 'armL' ? -1 : 1;
-      // Its look: the sleeve's own green, from the upper arm - lit, not the crease.
+      // Its look: the sleeve's own green from its inner side - the side it
+      // carries on from, and the one a raised arm shows underneath. The upper
+      // arm's outside is lit brighter in the picture, and a fill that colour
+      // stood out against the sleeve beside it.
+      const sleeve = SCAN_SLEEVE;
+      const drift = (sleeve.top[0] - sleeve.bottom[0]) / (sleeve.top[1] - sleeve.bottom[1]);
       const near = [];
-      for (let v = 0; v < count; v += 1) {
+      for (let v = 0; v < first; v += 1) {
         if (skinIndex.getX(v) !== arm || skinWeight.getX(v) < 0.999) continue;
         const y = position.getY(v);
-        if (y < 0.5 || y > 0.75 || position.getX(v) * turn < 0.15) continue;
+        if (y < 0.45 || y > 0.64) continue;
+        const centre = sleeve.bottom[0] + drift * (y - sleeve.bottom[1]);
+        const across = (position.getX(v) * turn - centre) / sleeve.across;
+        const through = (position.getZ(v) - sleeve.z) / sleeve.through;
+        if (Math.abs(Math.atan2(through, across)) < 0.75 * Math.PI) continue;
         if (colour) {
           const [r, g, b] = colour(v);
           if (!(g > r * 1.12 && g > b * 1.3)) continue;
@@ -3052,10 +3061,10 @@ export class Avatar {
         const x = position.getX(v);
         const y = position.getY(v);
         const z = position.getZ(v);
-        if (Math.abs(y - cy) > ry + 0.02 || wallSide(x, y, z) < 0.01) continue;
+        if (Math.abs(y - cy) > ry + 0.02 || (wallSide(x, y, z) < 0.01 && y < SCAN_ARM_PIT + SCAN_SLEEVE.over + 0.03)) continue;
         skin.push([x * turn - SCAN_ARM_PLUG.lean * (y - cy) - cx, y, z - cz]);
       }
-      plugs.push({ arm, turn, skin, look: near[Math.floor(0.75 * (near.length - 1))] });
+      plugs.push({ arm, turn, skin, look: near[Math.floor(0.5 * (near.length - 1))] });
     }
     if (!plugs.length) { solid.dispose(); return; }
     const each = shape.count;
