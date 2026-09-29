@@ -454,12 +454,10 @@ const SCAN_ARM_SLIVER = { from: 0.58, to: 0.635, inside: 0.12 };
  *  of jacket beside it go. They hung off the chest in jagged teeth with the
  *  arm out, and with it down they are inside the crease. See eraseTheTail. */
 const SCAN_ARM_TAIL = { below: 0.645, from: 0.56, back: 0.02, near: 0.001 };
-/** How the arm's cut is closed: not flat but domed, from the cut's own edge
- *  out of the arm, `height` at its middle, in `rings` steps - on a cut edge at
- *  least `rim` long; the small holes elsewhere keep a flat lid. Low: it is not
- *  the fill (SCAN_ARM_PLUG is), only the seam over it - it starts at the
- *  sleeve's edge, so there is no crack where the sleeve meets the fill. */
-const SCAN_ARM_DOME = { height: 0.015, rings: 7, rim: 30 };
+/** How the arm's cut is closed: by a strip from the cut's own edge onto the
+ *  fill, in `rings` steps, on a cut edge at least `rim` long; the small holes
+ *  elsewhere keep a flat lid. See capTheCut. */
+const SCAN_ARM_SEAM = { rings: 3, rim: 30 };
 /** The arm continued past its cut, round, as a Lego arm is. Raised, the
  *  side of the arm that faced the chest is its underside, and the cut left it
  *  a slanted face from the shoulder partway down the arm, with air under it.
@@ -473,6 +471,7 @@ const SCAN_ARM_PLUG = {
   at: [0.1125, 0.69, -0.025], radii: [0.030, 0.13, 0.035], lean: -0.37,
   band: 0.006,       // the height steps its depth is read off the cut edge in
   overlap: -0.004,    // and how far past that edge it reaches, front and back
+  square: 4,          // how square its cross-section is: 2 an ellipse, higher squarer
 };
 /*
   Below the armpit the arm is its sleeve, and nothing more.
@@ -520,6 +519,60 @@ function wallSide(x, y, z) {
   const to = y >= at[1] ? SCAN_ARM_WALL.up : SCAN_ARM_WALL.to;
   return ((x - at[0] * turn) * to[0] * turn + (y - at[1]) * to[1] + (z - at[2]) * to[2])
     / Math.hypot(to[0], to[1], to[2]);
+}
+
+/**
+ * The fill's cross-section (SCAN_ARM_PLUG) at any height, and the point on it
+ * nearest a given point: what the seam over the arm's cut is laid onto. Its
+ * depth front to back is the cut edge's own at that height, from `rim` - the
+ * points of the arm's cut edge - as the fill's is. `turn` is the side.
+ */
+function plugSection(rim, turn) {
+  const plug = SCAN_ARM_PLUG;
+  const [cx, cy] = plug.at;
+  const [rx, ry] = plug.radii;
+  const depth = new Map();
+  for (const p of rim) {
+    const band = Math.round(p.y / plug.band);
+    const was = depth.get(band);
+    if (was) { was[0] = Math.min(was[0], p.z); was[1] = Math.max(was[1], p.z); } else depth.set(band, [p.z, p.z]);
+  }
+  const depthAt = (y) => {
+    const band = y / plug.band;
+    const lo = depth.get(Math.floor(band)) ?? depth.get(Math.ceil(band));
+    const hi = depth.get(Math.ceil(band)) ?? lo;
+    if (!lo) return null;
+    const t = band - Math.floor(band);
+    return [lo[0] + (hi[0] - lo[0]) * t, lo[1] + (hi[1] - lo[1]) * t];
+  };
+  const e = 2 / plug.square;
+  return {
+    nearest(p) {
+      const deep = depthAt(p.y);
+      const zMid = deep ? (deep[0] + deep[1]) / 2 : plug.at[2];
+      const zHalf = deep ? (deep[1] - deep[0]) / 2 + plug.overlap : plug.radii[2];
+      // Along the capsule, the section narrows only in its rounded ends.
+      const along = Math.abs(((p.y - cy) / ry) * 4);
+      const round = along <= 3 ? 1 : Math.sqrt(Math.max(0, 1 - (along - 3) ** 2));
+      const x0 = cx + plug.lean * (p.y - cy);
+      let best = null;
+      let far = Infinity;
+      for (let k = 0; k < 96; k += 1) {
+        const aim = (k / 96) * Math.PI * 2;
+        const c = Math.cos(aim);
+        const s = Math.sin(aim);
+        const x = x0 + round * Math.sign(c) * Math.abs(c) ** e * rx;
+        const z = zMid + round * Math.sign(s) * Math.abs(s) ** e * zHalf;
+        const d = (x - p.x * turn) ** 2 + (z - p.z) ** 2;
+        if (d < far) { far = d; best = [x, z, c, s]; }
+      }
+      const [x, z, c, s] = best;
+      const normal = new THREE.Vector3(
+        turn * Math.sign(c) * Math.abs(c) ** (2 - e) / rx, 0, Math.sign(s) * Math.abs(s) ** (2 - e) / zHalf,
+      ).normalize();
+      return { at: new THREE.Vector3(turn * x, p.y, z), normal };
+    },
+  };
 }
 
 function armCutSide(x, y, z) {
@@ -3141,8 +3194,22 @@ export class Avatar {
           const deep = depthAt(plug, y);
           const zMid = deep ? (deep[0] + deep[1]) / 2 : cz;
           const zHalf = deep ? (deep[1] - deep[0]) / 2 + SCAN_ARM_PLUG.overlap : rz;
-          const p = [turn * (cx + shape.getX(i) * rx * f + SCAN_ARM_PLUG.lean * (y - cy)), y, zMid + shape.getZ(i) * zHalf * f];
-          const n = [turn * bend.getX(i) / rx, bend.getY(i) / (ry / 4), bend.getZ(i) / zHalf];
+          // Squared off round its middle (a superellipse, SCAN_ARM_PLUG.square):
+          // full depth right out to its front and back, so the dome over the
+          // seam is inside it rather than bulging past it, and square where it
+          // meets the body rather than rounding off short of it.
+          const sx = shape.getX(i);
+          const sz = shape.getZ(i);
+          const round = Math.hypot(sx, sz);
+          const aim = Math.atan2(sz, sx);
+          const e = 2 / SCAN_ARM_PLUG.square;
+          const ux = round * Math.sign(Math.cos(aim)) * Math.abs(Math.cos(aim)) ** e;
+          const uz = round * Math.sign(Math.sin(aim)) * Math.abs(Math.sin(aim)) ** e;
+          const p = [turn * (cx + ux * rx * f + SCAN_ARM_PLUG.lean * (y - cy)), y, zMid + uz * zHalf * f];
+          const bx = Math.sign(Math.cos(aim)) * Math.abs(Math.cos(aim)) ** (2 - e);
+          const bz = Math.sign(Math.sin(aim)) * Math.abs(Math.sin(aim)) ** (2 - e);
+          const side = Math.hypot(bend.getX(i), bend.getZ(i));
+          const n = [turn * side * bx / rx, bend.getY(i) / (ry / 4), side * bz / zHalf];
           const l = Math.hypot(n[0], n[1], n[2]) || 1;
           for (let c = 0; c < size; c += 1) {
             if (name === 'position') grown[at + c] = p[c];
@@ -3321,40 +3388,31 @@ export class Avatar {
         return d > 0 ? p.addScaledVector(wall, -d) : p;
       };
       const flat = side >= 0 ? normal : wall.clone().multiplyScalar(wall.dot(normal) < 0 ? -1 : 1);
-      // The arm's own cut is not closed flat but domed: from its edge - the
-      // same points, lit as the sleeve is there - it curves on round, out of
-      // the arm and into the body, like the rest of the sleeve. Arm out, that
-      // is its round underside, starting at the edge with no step; at rest it
-      // is inside the chest. See SCAN_ARM_DOME.
-      if (side >= 0 && loop.length >= SCAN_ARM_DOME.rim) {
-        const dome = SCAN_ARM_DOME;
+      // The arm's own cut is closed by a strip from its edge onto the fill
+      // (SCAN_ARM_PLUG): from each point of the cut edge to the nearest point
+      // on the fill's surface at that height. It starts on the sleeve and ends
+      // on the fill, so it is flush with both - no crack between them, and
+      // nothing standing proud of either. See SCAN_ARM_SEAM.
+      if (side >= 0 && loop.length >= SCAN_ARM_SEAM.rim) {
+        const seam = SCAN_ARM_SEAM;
         const surface = geometry.getAttribute('normal');
+        const section = plugSection(loop.map((edge) => point(edge.p)), turn);
         const rings = [];
-        for (let r = 0; r < dome.rings; r += 1) {
-          const s = 1 - r / dome.rings;          // 1 at the edge, toward 0 at the middle
-          const rise = dome.height * Math.sqrt(Math.max(0, 1 - s * s));
+        for (let r = 0; r <= seam.rings; r += 1) {
+          const t = r / seam.rings;
           const ring = new Map();
           for (const edge of loop) {
             ring.set(edge.a, count + added.length);
             const rimPoint = point(edge.p);
-            const out = rimPoint.clone().sub(middle);
-            const reach = out.length() || 1;
-            const p = middle.clone().addScaledVector(out, s).addScaledVector(normal, rise);
-            let lit;
-            if (r === 0) {
-              lit = new THREE.Vector3(surface.getX(edge.p), surface.getY(edge.p), surface.getZ(edge.p)).normalize();
-            } else {
-              lit = out.clone().multiplyScalar(s / (reach * reach))
-                .addScaledVector(normal, Math.sqrt(Math.max(0, 1 - s * s)) / dome.height).normalize();
-            }
+            const onto = section.nearest(rimPoint);
+            const p = rimPoint.clone().lerp(onto.at, t);
+            const own = new THREE.Vector3(surface.getX(edge.p), surface.getY(edge.p), surface.getZ(edge.p)).normalize();
+            const lit = own.lerp(onto.normal, t).normalize();
             added.push([edge.p, p.x, p.y, p.z, lit, look, null]);
           }
           rings.push(ring);
         }
-        const top = middle.clone().addScaledVector(normal, dome.height);
-        const centre = count + added.length;
-        added.push([look, top.x, top.y, top.z, normal.clone(), look, skin]);
-        for (let r = 0; r < dome.rings - 1; r += 1) {
+        for (let r = 0; r < seam.rings; r += 1) {
           const outer = rings[r];
           const inner = rings[r + 1];
           for (const edge of loop) {
@@ -3362,7 +3420,10 @@ export class Avatar {
             lids.push(outer.get(edge.b), inner.get(edge.a), inner.get(edge.b));
           }
         }
-        const last = rings[dome.rings - 1];
+        // What is left inside is inside the fill; a fan closes it.
+        const centre = count + added.length;
+        added.push([look, middle.x, middle.y, middle.z, normal.clone(), look, skin]);
+        const last = rings[seam.rings];
         for (const edge of loop) lids.push(last.get(edge.b), last.get(edge.a), centre);
         continue;
       }
