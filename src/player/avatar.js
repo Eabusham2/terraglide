@@ -463,7 +463,11 @@ const SCAN_ARM_TAIL = { below: 0.645, from: 0.56, back: 0.02, near: 0.001 };
  *  sleeve and the chest and nothing shows; arm out, it is the arm's round
  *  underside all the way to the shoulder. Centre, half-extents, on the right,
  *  and `lean`: how far it moves out per unit down, along the sleeve. */
-const SCAN_ARM_PLUG = { at: [0.1125, 0.69, -0.025], radii: [0.030, 0.13, 0.035], lean: -0.37 };
+const SCAN_ARM_PLUG = {
+  at: [0.1125, 0.69, -0.025], radii: [0.030, 0.13, 0.035], lean: -0.37,
+  band: 0.006,       // the height steps its depth is read off the cut edge in
+  overlap: -0.004,    // and how far past that edge it reaches, front and back
+};
 /*
   Below the armpit the arm is its sleeve, and nothing more.
 
@@ -3068,11 +3072,37 @@ export class Avatar {
     }
     if (!plugs.length) { solid.dispose(); return; }
     const each = shape.count;
+    // Front to back, the fill is as deep as the sleeve's cut edge at each
+    // height, so the sleeve runs on into it flush: no lip where the sleeve's
+    // edge stood proud of a narrower fill, and no rounded end short of the
+    // body. From the arm's own cut rim - the points the cut added, on the arm,
+    // which run from `first` to where the lids begin.
+    const cutTo = geometry.userData.firstLid ?? count;
+    for (const plug of plugs) {
+      plug.depth = new Map();
+      for (let v = first; v < cutTo; v += 1) {
+        if (skinIndex.getX(v) !== plug.arm || position.getX(v) * plug.turn <= 0) continue;
+        const band = Math.round(position.getY(v) / SCAN_ARM_PLUG.band);
+        const z = position.getZ(v);
+        const was = plug.depth.get(band);
+        if (was) { was[0] = Math.min(was[0], z); was[1] = Math.max(was[1], z); } else plug.depth.set(band, [z, z]);
+      }
+    }
+    const depthAt = (plug, y) => {
+      const band = y / SCAN_ARM_PLUG.band;
+      const lo = plug.depth.get(Math.floor(band));
+      const hi = plug.depth.get(Math.ceil(band));
+      if (!lo || !hi) return null;
+      const t = band - Math.floor(band);
+      return [lo[0] + (hi[0] - lo[0]) * t, lo[1] + (hi[1] - lo[1]) * t];
+    };
     // How far out each point of the fill may go: all the way, unless the
-    // sleeve's skin in that direction is nearer.
+    // sleeve's skin in that direction is nearer - except where the cut edge
+    // sets its depth, which is flush with the sleeve by construction.
     for (const plug of plugs) {
       plug.reach = new Float32Array(each).fill(1);
       for (let i = 0; i < each; i += 1) {
+        if (depthAt(plug, cy + (shape.getY(i) / 4) * ry)) continue;
         const ox = shape.getX(i) * rx;
         const oz = shape.getZ(i) * rz;
         const out = Math.hypot(ox, oz);
@@ -3096,13 +3126,17 @@ export class Avatar {
       const size = attr.itemSize;
       const grown = new (name === 'skinIndex' ? Uint16Array : Float32Array)(total * size);
       grown.set(attr.array.subarray(0, count * size));
-      plugs.forEach(({ arm, turn, look, reach }, k) => {
+      plugs.forEach((plug, k) => {
+        const { arm, turn, look, reach } = plug;
         for (let i = 0; i < each; i += 1) {
           const at = (count + k * each + i) * size;
           const y = cy + (shape.getY(i) / 4) * ry;
           const f = reach[i];
-          const p = [turn * (cx + shape.getX(i) * rx * f + SCAN_ARM_PLUG.lean * (y - cy)), y, cz + shape.getZ(i) * rz * f];
-          const n = [turn * bend.getX(i) / rx, bend.getY(i) / (ry / 4), bend.getZ(i) / rz];
+          const deep = depthAt(plug, y);
+          const zMid = deep ? (deep[0] + deep[1]) / 2 : cz;
+          const zHalf = deep ? (deep[1] - deep[0]) / 2 + SCAN_ARM_PLUG.overlap : rz;
+          const p = [turn * (cx + shape.getX(i) * rx * f + SCAN_ARM_PLUG.lean * (y - cy)), y, zMid + shape.getZ(i) * zHalf * f];
+          const n = [turn * bend.getX(i) / rx, bend.getY(i) / (ry / 4), bend.getZ(i) / zHalf];
           const l = Math.hypot(n[0], n[1], n[2]) || 1;
           for (let c = 0; c < size; c += 1) {
             if (name === 'position') grown[at + c] = p[c];
