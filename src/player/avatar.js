@@ -459,7 +459,7 @@ const SCAN_ARM_TAIL = { below: 0.645, from: 0.56, back: 0.02, near: 0.001 };
  *  least `rim` long; the small holes elsewhere keep a flat lid. Arm out, that
  *  is the arm's round underside running on from the sleeve with no step; at
  *  rest it is inside the chest. See capTheCut. */
-const SCAN_ARM_DOME = { height: 0.026, rings: 7, rim: 30 };
+const SCAN_ARM_DOME = { height: 0.04, rings: 7, rim: 30 };
 /*
   Below the armpit the arm is its sleeve, and nothing more.
 
