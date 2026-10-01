@@ -100,6 +100,13 @@ const SCAN_GRIP_LOCK = {
   fist: 0.0901755653321743,
   turn: 1.4403373228047305,
 };
+/**
+ * Whether the scanned firework is wanted: asked for on its own, or with the
+ * scanned body, whose hand should hold the scanned one rather than the boxes.
+ */
+function scannedRocketWanted() {
+  return !!settings.get('detailedRocketModel') || !!settings.get('detailedPlayerModel');
+}
 /** White, for lightening the slot colour before it tints a photograph. */
 const WHITE_TINT = new THREE.Color(0xffffff);
 /** Scratch, so measuring the scan's fist allocates nothing. */
@@ -253,6 +260,9 @@ const POSE_PIVOT = 0.94;
  */
 const HAND_HELD = [0.62, 0.82, 0.52, -0.35, 0, 0.34];
 const HAND_GLIDE = [0.62, 0.62, 0.85, -1.3, 0.42, 0.1];
+/** DIVE is both arms out, from inside: the forearms run outward from the
+ *  bottom of the frame toward its edges instead of converging ahead. */
+const HAND_DIVE = [0.55, 0.6, 0.8, -1.2, 0, -1.3];
 
 /**
  * Your kit — jacket, trousers, wings — can carry a generated texture in every
@@ -836,6 +846,50 @@ const SCAN_CLAVICLE = 0;
  * turn would land somewhere new.
  */
 const SCAN_ROCKET_AIM = new THREE.Vector3(0.92, -0.15, 0.25).normalize();
+/** Diving, both arms take that reach: from the first pitch (radians, nose
+ *  down) they start out, and by the second they are all the way. */
+const SCAN_DIVE = [0.5, 0.8];
+/** The left arm's version of it: the body is one figure, so its mirror. */
+const SCAN_DIVE_AIM_L = SCAN_ROCKET_AIM.clone().multiply(new THREE.Vector3(-1, 1, 1));
+/** First person on the scan: how far down the arm, shoulder to grip, its
+ *  hand is cut from - the forearm and the fist, not the upper arm. */
+const SCAN_HAND_FROM = -1;
+/** A joint's scale when its part is not to be drawn: the Lego arm and the
+ *  head fold into their joints rather than being cut out of the mesh. */
+const SCAN_FOLDED = 1e-4;
+/**
+ * The scanned body from inside it. `back` sets it behind the eye (body
+ * units), which is where a face is: the camera is at the middle of the head
+ * and this body's chest is ahead of that, so from there looking down was
+ * looking at the inside of the jacket - its lining is modelled. And it is
+ * cut by a plane through the eye itself, `tilt` below level, keeping what is
+ * ahead and below: a cut through the point you look from is only ever seen
+ * edge on, so there is never an opening to look into.
+ */
+const SCAN_FIRST_PERSON = { back: 0.1, tilt: 0.9 };
+/**
+ * The scan's first-person hands, gliding and diving, as the box poses are
+ * written: [across, down, forward, pitch, yaw, roll] for each hand, the left
+ * mirrored when it is applied. Solved in view space rather than typed in:
+ *
+ * The whole arm is drawn - it is one closed piece of the mesh - so the pose
+ * has to carry the shoulder off the frame. Gliding it goes out of the bottom
+ * corners, turned palm down so the inside of the upper arm, where the cut
+ * is, faces away; the firework hand is turned a little less, or the firework
+ * is under it. Diving the arms come in from the sides, out.
+ */
+const SCAN_HAND_GLIDE = {
+  R: [0.68, 0.68, 0.9, -1.279, -0.235, 0.135],
+  L: [0.68, 0.68, 0.9, -1.167, -0.827, 0.194],
+};
+const SCAN_HAND_DIVE = {
+  R: [0.87, 0.33, 0.9, -1.29, 0.02, 0.74],
+  L: [0.87, 0.33, 0.9, -1.29, 0.02, 0.74],
+};
+/** Scratch for placing that cut. */
+const _clipAt = new THREE.Vector3();
+const _clipDown = new THREE.Vector3();
+const _clipNone = new THREE.Vector3(0, 1, 0);
 /** Scratch for building that turn, and for the arm's own rest direction. */
 const _swing = new THREE.Quaternion();
 const _reach = new THREE.Vector3();
@@ -1415,7 +1469,97 @@ export class Avatar {
     const fist = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.085, 0.09), skin);
     fist.position.y = 0.15;
     group.add(forearm, fist);
+    group.userData.box = [forearm, fist];
     return group;
+  }
+
+  /**
+   * The same hand, cut from the scan: its own forearm and fist, turned into
+   * the view model's frame so the first-person hands are the body's rather
+   * than two boxes.
+   *
+   * The arm is one piece of the mesh (see SCAN_ARM_WALL), so what belongs to
+   * it is simply what is weighted to it. Only the far end is taken - from
+   * SCAN_HAND_FROM of the way down - because the rest of the arm would be
+   * behind the eye. The frame is the box hand's: +Y down the arm to the fist,
+   * the grip at the firework's place, +X the body's right and +Z what
+   * completes them, which is the arm's front, and faces up once the arm is
+   * reached out ahead.
+   */
+  makeScanHand(side) {
+    if (!this.scanSkins?.length) return null;
+    const arm = SCAN_JOINTS.findIndex((joint) => joint.name === `arm${side}`);
+    const turn = side === 'L' ? -1 : 1;
+    const shoulder = new THREE.Vector3().fromArray(SCAN_JOINTS[arm].at);
+    const [gx, gy, gz] = SCAN_GRIP_LOCK.grip;
+    const reach = new THREE.Vector3(gx * turn, gy, gz);
+    const grip = shoulder.clone().add(reach);
+    const down = reach.clone().normalize();
+    const across = new THREE.Vector3(1, 0, 0).addScaledVector(down, -down.x).normalize();
+    const front = new THREE.Vector3().crossVectors(across, down);
+    const from = reach.length() * SCAN_HAND_FROM;
+    const hand = new THREE.Group();
+    const p = new THREE.Vector3();
+    for (const skinned of this.scanSkins) {
+      const source = skinned.geometry;
+      const position = source.getAttribute('position');
+      const normal = source.getAttribute('normal');
+      const uv = source.getAttribute('uv');
+      const skinIndex = source.getAttribute('skinIndex');
+      const skinWeight = source.getAttribute('skinWeight');
+      const index = source.getIndex();
+      if (!index || !skinIndex) continue;
+      const keep = new Int32Array(position.count).fill(-1);
+      const out = { position: [], normal: [], uv: [] };
+      let kept = 0;
+      for (let v = 0; v < position.count; v += 1) {
+        if (skinIndex.getX(v) !== arm || skinWeight.getX(v) < 0.999) continue;
+        p.fromBufferAttribute(position, v);
+        if (p.clone().sub(shoulder).dot(down) < from) continue;
+        p.sub(grip);
+        out.position.push(p.dot(across), p.dot(down), p.dot(front));
+        if (normal) {
+          p.fromBufferAttribute(normal, v);
+          out.normal.push(p.dot(across), p.dot(down), p.dot(front));
+        }
+        if (uv) out.uv.push(uv.getX(v), uv.getY(v));
+        keep[v] = kept;
+        kept += 1;
+      }
+      const triangles = [];
+      for (let t = 0; t < index.count; t += 3) {
+        const a = keep[index.getX(t)];
+        const b = keep[index.getX(t + 1)];
+        const c = keep[index.getX(t + 2)];
+        if (a >= 0 && b >= 0 && c >= 0) triangles.push(a, b, c);
+      }
+      if (!triangles.length) continue;
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(out.position, 3));
+      if (out.normal.length) geometry.setAttribute('normal', new THREE.Float32BufferAttribute(out.normal, 3));
+      else geometry.computeVertexNormals();
+      if (out.uv.length) geometry.setAttribute('uv', new THREE.Float32BufferAttribute(out.uv, 2));
+      geometry.setIndex(triangles);
+      // Its own copy of the look, without the body's first-person cut.
+      const look = skinned.material.clone();
+      look.clippingPlanes = null;
+      const piece = new THREE.Mesh(geometry, look);
+      piece.frustumCulled = false;
+      hand.add(piece);
+    }
+    if (!hand.children.length) return null;
+    // The grip where the firework sits in the box hand.
+    hand.position.copy(this.handRocket.position);
+    // And the way a firework lies in this fist: carried, nose out the front
+    // and a little outboard (HELD_REST), which is the channel the fingers
+    // close round. Kept in the hand, so it is always held rather than aimed
+    // across the fingers; the poses point the fist where it should go.
+    const nose = new THREE.Vector3(
+      Math.sin(HELD_REST[1]) * turn, Math.sin(HELD_REST[0]), -Math.cos(HELD_REST[1]),
+    );
+    hand.userData.hold = new THREE.Quaternion().setFromUnitVectors(ROCKET_AXIS,
+      new THREE.Vector3(nose.dot(across), nose.dot(down), nose.dot(front)).normalize());
+    return hand;
   }
 
   /**
@@ -2036,6 +2180,10 @@ export class Avatar {
       this.weighScan(geometry, mesh.material?.map);
       const skinned = new THREE.SkinnedMesh(geometry, mesh.material);
       skinned.frustumCulled = false;   // it is one figure, and it deforms
+      // Always carrying the cut, which in third person is set to cut nothing,
+      // so switching view does not recompile the material.
+      this.scanClip ??= new THREE.Plane(_clipNone, 1e9);
+      skinned.material.clippingPlanes = [this.scanClip];
       group.add(skinned);
       this.scanSkins.push(skinned);
     }
@@ -3643,7 +3791,9 @@ export class Avatar {
     // reaches forward while it is burning. Applied on top of whatever the arm
     // already has rather than instead of it, and scaled by `open` so it is
     // only ever a flying pose — on the ground the built swing still rules.
-    if (this.scanReach > 0.001) {
+    // A dive puts it out too, and the other with it.
+    const outR = Math.max(this.scanReach ?? 0, this.scanDive ?? 0);
+    if (outR > 0.001) {
       /*
         From wherever this body's arm actually points to where it should.
 
@@ -3655,10 +3805,18 @@ export class Avatar {
       */
       _reach.copy(this.scanGrip ?? _swing.set(0, -1, 0, 0)).normalize();
       _swing.setFromUnitVectors(_reach, SCAN_ROCKET_AIM);
-      bone.armR.quaternion.slerp(_swing, this.scanReach * open);
+      bone.armR.quaternion.slerp(_swing, outR * open);
       // Where the arm points is settled. Which way up the hand is round it is
-      // not, and that is aimRocket's to finish - see spinTheGrip.
+      // not, and that is aimRocket's to finish - see spinTheGrip. Only while
+      // a firework burns: diving, the hand keeps its grip.
       this.spinTheGrip(player, bone, this.scanReach * open);
+    }
+    if ((this.scanDive ?? 0) > 0.001) {
+      // The left arm's rest is the right's mirror, and so is its aim.
+      _reach.copy(this.scanGrip ?? _swing.set(0, -1, 0, 0)).normalize();
+      _reach.x = -_reach.x;
+      _swing.setFromUnitVectors(_reach, SCAN_DIVE_AIM_L);
+      bone.armL.quaternion.slerp(_swing, this.scanDive * open);
     }
     bone.legL.quaternion.copy(this.legL.pivot.quaternion);
     bone.legR.quaternion.copy(this.legR.pivot.quaternion);
@@ -3670,7 +3828,8 @@ export class Avatar {
       spine at none — which is the same sweep the built pair makes, arrived at
       from the other end.
     */
-    const fold = SCAN_WING_FOLD * (1 - open) + SCAN_WING_CLEAR * clamp(this.scanReach ?? 0, 0, 1);
+    const fold = SCAN_WING_FOLD * (1 - open)
+      + SCAN_WING_CLEAR * clamp(Math.max(this.scanReach ?? 0, this.scanDive ?? 0), 0, 1);
     // Levelled always, swept back and tucked further down when they are shut.
     const down = SCAN_WING_LEVEL + SCAN_WING_TUCK * (1 - open);
     bone.wingL.rotation.set(0, fold, down);
@@ -3696,7 +3855,7 @@ export class Avatar {
    */
   async loadRocketModel(base = ASSET_BASE) {
     if (globalThis.__TERRAGLIDE_INLINE_WORKER__) return false;
-    if (!settings.get('detailedRocketModel')) return false;
+    if (!scannedRocketWanted()) return false;
     if (this.rocketModel) return true;
     try {
       const inline = globalThis.__TERRAGLIDE_REQUIRE__;
@@ -3758,7 +3917,7 @@ export class Avatar {
 
   /** Show one rocket or the other, never both. */
   applyRocketModel() {
-    const useModel = !!this.rocketModel && settings.get('detailedRocketModel');
+    const useModel = !!this.rocketModel && scannedRocketWanted();
     for (const holder of [this.rocket, this.handRocket]) {
       if (!holder) continue;
       for (const child of holder.children) {
@@ -3798,7 +3957,7 @@ export class Avatar {
     */
     if (this.builtGrip) {
       const inScanHand = !!this.model && settings.get('detailedPlayerModel')
-        && !this.firstPerson && !!this.scanGrip && !!this.scanBones?.armR;
+        && !!this.scanGrip && !!this.scanBones?.armR;
       const holder = inScanHand ? this.scanBones.armR : this.armR.pivot;
       if (this.rocket.parent !== holder) holder.add(this.rocket);
       this.rocket.position.copy(inScanHand ? this.scanGrip : this.builtGrip);
@@ -3814,13 +3973,23 @@ export class Avatar {
       const along = Math.sqrt(fits);
       if (this.rocket.scale.x !== fits) this.rocket.scale.set(fits, along, fits);
     }
-    const useModel = !!this.model && settings.get('detailedPlayerModel') && !this.firstPerson;
+    // In first person too: the scan's head folds away instead (see update),
+    // and its hands are cut for the view model (makeScanHand).
+    const useModel = !!this.model && settings.get('detailedPlayerModel');
     if (this.model) this.model.visible = useModel;
+    // From inside it, only the faces that look at you. Two-sided - which the
+    // scan needs from outside, see loadModel - a body seen from within its own
+    // outline is the inside of a jacket and two trouser tubes.
+    const facing = this.firstPerson ? THREE.FrontSide : THREE.DoubleSide;
+    for (const skinned of this.scanSkins ?? []) {
+      if (skinned.material.side === facing) continue;
+      skinned.material.side = facing;
+      skinned.material.needsUpdate = true;
+    }
     for (const part of this.skin()) part.visible = !useModel;
     // The head is not this method's to show. First person takes it off so that
     // looking down shows your legs rather than the inside of your own skull,
-    // and that decision outranks this one — which is only ever reached with the
-    // scan off, because the scan is not used in first person at all.
+    // and that decision outranks this one.
     if (this.firstPerson) {
       this.head.visible = false;
       this.hair.visible = false;
@@ -3968,6 +4137,12 @@ export class Avatar {
     this.firedCount = player.rocketsFired;
     const powered = this.sinceRocket < 3 || (player.pitch ?? 0) > 0;
     this.scanReach = damp(this.scanReach ?? 0, powered ? 1 : 0, 5, dt);
+    // And both arms out in a dive: nosed down past thirty degrees they start
+    // to come out, and by forty-six they are all the way, the firework arm's
+    // reach on both sides.
+    const diving = (gliding || flying) && player.elytraDeployed && !player.onGround
+      ? clamp((-(player.pitch ?? 0) - SCAN_DIVE[0]) / (SCAN_DIVE[1] - SCAN_DIVE[0]), 0, 1) : 0;
+    this.scanDive = damp(this.scanDive ?? 0, diving, 5, dt);
 
     const forwardSpeed =
       player.velocity.x * Math.sin(player.yaw) - player.velocity.z * Math.cos(player.yaw);
@@ -4257,6 +4432,30 @@ export class Avatar {
     // shoulder, so the scanned body arrives at the same attitude in the same
     // frame rather than a frame behind the arm holding its firework.
     this.poseScan(open, player);
+    // From inside the scan: no head to look out through, and no arms while the
+    // view model's hands stand in for them. Both are separate pieces of the
+    // mesh, so folding the joint takes the piece away cleanly.
+    if (this.scanBones) {
+      this.scanBones.head.scale.setScalar(this.firstPerson ? SCAN_FOLDED : 1);
+      const handed = this.viewModel.visible && !!this.model?.visible ? SCAN_FOLDED : 1;
+      this.scanBones.armL.scale.setScalar(handed);
+      this.scanBones.armR.scale.setScalar(handed);
+    }
+    // And from inside it, set back to the face and cut through the eye - see
+    // SCAN_FIRST_PERSON. The head is gone, but the collar and the chest were
+    // all round the camera, and looking down put it inside the jacket.
+    if (this.scanClip) {
+      const inside = this.firstPerson && !!this.model?.visible && !!camera;
+      this.model.position.z = inside ? SCAN_FIRST_PERSON.back : 0;
+      if (inside) {
+        this.root.updateMatrixWorld(true);
+        const { tilt } = SCAN_FIRST_PERSON;
+        _clipDown.set(0, -Math.sin(tilt), -Math.cos(tilt)).transformDirection(this.model.matrixWorld);
+        this.scanClip.setFromNormalAndCoplanarPoint(_clipDown, camera.getWorldPosition(_clipAt));
+      } else {
+        this.scanClip.set(_clipNone, 1e9);
+      }
+    }
     this.aimRocket(player);
     // Last, because it measures against where the camera actually is.
     this.hideWhatIsInYourEye(camera);
@@ -4457,6 +4656,12 @@ export class Avatar {
     }
 
     if (!this.viewModel.visible) return;
+    // In the scan's own fist it is held, not aimed: the hand's pose points it.
+    const held = this.scanHands?.R;
+    if (held?.visible) {
+      this.handRocket.quaternion.copy(held.userData.hold);
+      return;
+    }
     this._aimQuat.setFromUnitVectors(ROCKET_AXIS, VIEW_AIM);
     this._holdQuat.copy(this.viewModel.quaternion).multiply(this.handR.quaternion);
     this.handRocket.quaternion.copy(this._holdQuat).invert().multiply(this._aimQuat);
@@ -4479,29 +4684,57 @@ export class Avatar {
     const tan = Math.tan((camera.fov * Math.PI) / 360);
     const aspect = camera.aspect || 1;
     this.viewModel.scale.setScalar(player.scale);
+    // The scan's own hands whenever the scan is the body on show, the boxes
+    // otherwise. Cut once, the first time they are wanted.
+    const scanned = !!this.model?.visible;
+    if (scanned && !this.scanHands) {
+      this.scanHands = { R: this.makeScanHand('R'), L: this.makeScanHand('L') };
+    }
+    for (const side of ['R', 'L']) {
+      const hand = this[`hand${side}`];
+      const cut = this.scanHands?.[side];
+      if (cut && cut.parent !== hand) hand.add(cut);
+      if (cut) {
+        cut.visible = scanned;
+        // Body units to metres: the scan is one unit tall.
+        cut.scale.setScalar(player.height / (player.scale || 1));
+      }
+      for (const box of hand.userData.box ?? []) box.visible = !(scanned && cut);
+    }
+    // And the firework sized to that fist, as the world one is.
+    const fits = scanned && this.scanHands?.R && this.scanFist
+      ? clamp((this.scanFist / BUILT_FIST) * GRIP_FILL, 1, 3) : 1;
+    this.handRocket.scale.set(fits, Math.sqrt(fits), fits);
 
     const glide = this.glideBlend;
-    const lerp = (a, b) => a + (b - a) * glide;
-    const across = lerp(HAND_HELD[0], HAND_GLIDE[0]);
-    const down = lerp(HAND_HELD[1], HAND_GLIDE[1]);
-    const forward = lerp(HAND_HELD[2], HAND_GLIDE[2]);
+    // Diving, the glide pose gives way to the dive's, on the signal that puts
+    // the scanned body's arms out.
+    const dive = clamp(this.scanDive ?? 0, 0, 1);
+    const mix = (a, b, t) => a.map((v, k) => v + (b[k] - v) * t);
+    // The left arm only exists once the wings are open; carried, there is
+    // nothing in it worth a quarter of the screen. It is the right arm's
+    // mirror, so one set of numbers drives both - the box pair's, or the
+    // scan's, whose two hands are turned differently (see SCAN_HAND_GLIDE).
+    let right;
+    let left;
+    if (scanned && this.scanHands?.R) {
+      right = mix(SCAN_HAND_GLIDE.R, SCAN_HAND_DIVE.R, dive);
+      left = mix(SCAN_HAND_GLIDE.L, SCAN_HAND_DIVE.L, dive);
+    } else {
+      left = mix(HAND_GLIDE, HAND_DIVE, dive);
+      right = mix(HAND_HELD, left, glide);
+    }
     // Half-frustum at the depth this pose actually sits at, not at some fixed
     // reference depth: the glide pose is further out than the carried one, and
     // measuring both against the same plane would drag it toward the middle.
-    const half = tan * forward;
-    this.handR.position.set(half * aspect * across, -half * down, -forward);
-    this.handR.rotation.set(
-      lerp(HAND_HELD[3], HAND_GLIDE[3]),
-      lerp(HAND_HELD[4], HAND_GLIDE[4]),
-      lerp(HAND_HELD[5], HAND_GLIDE[5]),
-    );
-    // The left arm only exists once the wings are open; carried, there is
-    // nothing in it worth a quarter of the screen. It is the right arm's
-    // mirror, so one set of numbers drives both.
-    const farHalf = tan * HAND_GLIDE[2];
+    const place = (hand, pose, side) => {
+      const half = tan * pose[2];
+      hand.position.set(side * half * aspect * pose[0], -half * pose[1], -pose[2]);
+      hand.rotation.set(pose[3], side * pose[4], side * pose[5]);
+    };
+    place(this.handR, right, 1);
+    place(this.handL, left, -1);
     this.handL.visible = glide > 0.02;
-    this.handL.position.set(-farHalf * aspect * HAND_GLIDE[0], -farHalf * HAND_GLIDE[1], -HAND_GLIDE[2]);
-    this.handL.rotation.set(HAND_GLIDE[3], -HAND_GLIDE[4], -HAND_GLIDE[5]);
     this.handL.scale.setScalar(glide);
 
     const sway = this.handSway;

@@ -7241,8 +7241,13 @@ console.log('\nGenerated art stays where it belongs');
     }
   }
   const avatar2 = readFileSync(new URL('../src/player/avatar.js', import.meta.url), 'utf8');
-  ok('it is off by default and first person never uses it',
-    /detailedPlayerModel'\) && !this\.firstPerson/.test(avatar2));
+  // First person uses it too, since the arms stopped being boxes: from inside
+  // it, with the head folded away and its own hands in the view model.
+  const settingsSource = readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8');
+  ok('it is off by default, and first person uses it with the head folded away',
+    /detailedPlayerModel: false/.test(settingsSource)
+      && /const useModel = !!this\.model && settings\.get\('detailedPlayerModel'\);/.test(avatar2)
+      && /head\.scale\.setScalar\(this\.firstPerson \? SCAN_FOLDED : 1\)/.test(avatar2));
   ok('and the single-file build never asks for it',
     /__TERRAGLIDE_INLINE_WORKER__[\s\S]{0,200}detailedPlayerModel/.test(avatar2));
 

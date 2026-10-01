@@ -164,6 +164,9 @@ export class Game {
     // is no high-dynamic-range content here for a film curve to bring into
     // range, so applying one only grades a picture that was already graded.
     this.renderer.toneMapping = THREE.NoToneMapping;
+    // For the scanned body in first person, which is cut off below the collar
+    // so looking down does not put the camera inside it. See Avatar.scanClip.
+    this.renderer.localClippingEnabled = true;
 
     this.scene = new THREE.Scene();
     this.scene.fog = new THREE.FogExp2(0xaebccd, 1 / 26000);
@@ -763,6 +766,10 @@ export class Game {
     }
     if (key === 'detailedPlayerModel') {
       this.avatar.loadModel().then(() => this.avatar.applyModelMode());
+    }
+    // The scanned body brings the scanned firework with it, so either switch
+    // loads it, and either decides whether it shows.
+    if (key === 'detailedPlayerModel' || key === 'detailedRocketModel') {
       this.avatar.loadRocketModel().then(() => this.avatar.applyRocketModel());
     }
     if (key === 'resolutionScale' || key === 'graphics' || key === 'autoTier') this.resize();
