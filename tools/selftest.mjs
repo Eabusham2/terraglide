@@ -1375,6 +1375,81 @@ console.log('\na banked wing turns the flight path, not just the head');
   }
 }
 
+console.log('\na lit rocket works until its time is up, and never slows you');
+{
+  const { Player } = await import('../src/player/player.js');
+  const { PlayerController } = await import('../src/player/controller.js');
+  const { settings } = await import('../src/core/settings.js');
+  const was = settings.get('rocketSupply');
+  settings.set('rocketSupply', 'unlimited');
+  const flat = { heightAt: () => 0, meshHeightAt: () => null, hasElevationAt: () => true, bedAt: () => -100 };
+  const none = { forward: 0, right: 0, up: 0, sprint: false, crouch: false, jump: false };
+  // The real player and the real glide tick, fireworks, hold and all.
+  const glider = () => {
+    const p = new Player({ toLocal: () => ({ x: 0, z: 0 }), toGeo: () => ({ lat: 0, lon: 0 }) });
+    p.position.set(0, 3000, 0);
+    p.velocity.set(0, 0, -30);
+    p.onGround = false;
+    p.elytraDeployed = true;
+    const c = new PlayerController({ player: p, terrain: flat, buildings: null });
+    const tick = (pitch = 0) => {
+      p.pitch = pitch;
+      p.position.y = 3000;
+      p.lookVector(c.look);
+      c.tickGlide(1 / 20, none);
+      return p.velocity.length();
+    };
+    for (let i = 0; i < 400; i++) tick();
+    const fire = (slot) => { p.selectSlot(slot - 1); p.fireRocket(); };
+    return { p, tick, fire };
+  };
+  // Lit while you are already faster than it, a rocket still works until its
+  // time is up, and it can only help. Coasting off a Rocket V, lighting a
+  // Rocket I has to leave you at least as fast as lighting nothing, every tick
+  // of the way - and a Rocket III, which has the thrust for it, holds you
+  // outright for its burn and no longer.
+  const coast = (slot) => {
+    const g = glider();
+    g.fire(5);
+    for (let t = 0; t < 70; t++) g.tick();
+    const lit = g.p.velocity.length();
+    if (slot) g.fire(slot);
+    const trace = [];
+    for (let t = 0; t < 60; t++) trace.push(g.tick());
+    return { lit, trace };
+  };
+  const nothing = coast(0);
+  const small = coast(1);
+  const middle = coast(3);
+  const worst = Math.min(...small.trace.map((v, i) => v - nothing.trace[i]));
+  ok(`a Rocket I lit while coasting never leaves you slower than lighting nothing  (worst ${worst.toFixed(2)} m/s)`,
+    worst >= -1e-6);
+  ok(`and slows the coast down  (${small.trace[15].toFixed(1)} against ${nothing.trace[15].toFixed(1)} m/s after 0.8 s)`,
+    small.trace[15] > nothing.trace[15] + 2);
+  ok(`a Rocket III lit while coasting holds you for its whole burn  (${middle.lit.toFixed(1)} then ${middle.trace[34].toFixed(1)} m/s)`,
+    middle.trace[34] >= middle.lit - 0.5);
+  ok(`and lets go when its time is up  (${middle.trace[35].toFixed(1)} then ${middle.trace[55].toFixed(1)} m/s)`,
+    middle.trace[55] < middle.trace[35] - 1);
+
+  // And it cannot be pumped. Holding the speed outright, or the speed and the
+  // height together, was tried first: the glide's own pull-up hands back more
+  // height than the speed it costs, so with the air switched off a dive and
+  // a climb gained every cycle - 1,733 m/s, 4,600, 154,000. Two minutes of a
+  // weaving dive with the key held, for each size of rocket, must level off.
+  for (const slot of [1, 3, 5]) {
+    const g = glider();
+    const minute = [0, 0];
+    for (let t = 0; t < 2400; t++) {
+      if (t % 2 === 0) g.fire(slot);
+      const v = g.tick(Math.sin(t / 12) * 1.1);
+      minute[t < 1200 ? 0 : 1] = Math.max(minute[t < 1200 ? 0 : 1], v);
+    }
+    ok(`weaving with Rocket ${slot} held levels off  (${minute[0].toFixed(0)} then ${minute[1].toFixed(0)} m/s)`,
+      minute[1] < 170 && minute[1] <= minute[0] + 2);
+  }
+  settings.set('rocketSupply', was);
+}
+
 console.log('\na firework may turn you and may not brake you');
 {
   const { stepRocket, stepGlide, rocketTicks, rocketPowerFor } = await import('../src/player/elytra.js');

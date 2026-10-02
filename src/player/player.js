@@ -3,7 +3,7 @@ import { cheats } from '../core/cheats.js';
 import { Emitter } from '../core/events.js';
 import { clamp, damp } from '../core/math.js';
 import { settings } from '../core/settings.js';
-import { rocketPowerFor, rocketTicks, rocketTopSpeed } from './elytra.js';
+import { rocketHoldPush, rocketPowerFor, rocketTicks, rocketTopSpeed } from './elytra.js';
 
 /**
  * Player state: where you are, how fast, how big, what is in the hotbar.
@@ -68,6 +68,9 @@ export const HOTBAR = [1, 2, 3, 4, 5].map((duration) => ({
   burnSeconds: rocketTicks(duration) / 20,
   topSpeed: rocketTopSpeed(duration),
 }));
+
+/** The fastest any firework holds you, level: the biggest one's cruise. */
+const FASTEST_CRUISE = Math.max(...HOTBAR.map((item) => item.topSpeed));
 
 /**
  * How long speed mode runs, and how long it takes to recharge.
@@ -172,6 +175,12 @@ export class Player extends Emitter {
      * scrolled to.
      */
     this.rockets = [];
+    /**
+     * What the burning fireworks can do against the air this tick: how hard
+     * they push (m/s a tick) and up to what speed. See burnRockets.
+     */
+    this.rocketHold = 0;
+    this.rocketHoldSpeed = 0;
     /** How many of each hotbar rocket you are carrying. See ROCKET_STACK. */
     this.stock = HOTBAR.map(() => ROCKET_STACK);
     /** Fractional progress towards the next one in each slot. */
@@ -296,6 +305,8 @@ export class Player extends Emitter {
   /** Put every burning firework out. */
   stopRockets() {
     this.rockets.length = 0;
+    this.rocketHold = 0;
+    this.rocketHoldSpeed = 0;
   }
 
   /**
@@ -304,10 +315,18 @@ export class Player extends Emitter {
    * @param {(power:number, spent:number, steer:boolean) => void} push
    */
   burnRockets(push) {
+    // What the burning fireworks can do against the air this tick: the most
+    // any of them can push, up to the fastest you lit one at. Not summed - a
+    // second firework is not a second engine. See rocketHoldPush, and
+    // PlayerController.tickGlide, which applies it.
+    this.rocketHold = 0;
+    this.rocketHoldSpeed = 0;
     if (this.rockets.length === 0) return;
     const bleed = this.speedBlend * cheats.rocketPower;
     let first = true;
     for (const rocket of this.rockets) {
+      this.rocketHold = Math.max(this.rocketHold, rocket.holdPush ?? 0);
+      this.rocketHoldSpeed = Math.max(this.rocketHoldSpeed, rocket.holdSpeed ?? 0);
       // Only the first one in a tick steers; see stepRocket. Pressing the key
       // again should push harder, not turn you further.
       push(rocket.power * bleed, 1 - rocket.left / rocket.total, first);
@@ -410,7 +429,18 @@ export class Player extends Emitter {
     const total = rocketTicks(duration);
     // Its own power, taken now: a firework in flight is the one you lit, not
     // whichever slot you have scrolled to since.
-    this.rockets.push({ left: total, total, power: item ? item.power : 1 });
+    // And how fast you were when it was lit, which it can hold you to for its
+    // burn, and how hard it can push to. See rocketHoldPush. Held only up to
+    // what a firework could have got you to - the fastest cruise there is, as
+    // strong as fireworks are right now - because speed past that came from a
+    // dive, and a dive's speed is the air's to take back. Holding it as well
+    // let a dive-and-climb with the key held sustain 260 m/s.
+    const ceiling = FASTEST_CRUISE * this.speedBlend * cheats.rocketPower;
+    this.rockets.push({
+      left: total, total, power: item ? item.power : 1,
+      holdSpeed: Math.min(this.velocity.length(), ceiling),
+      holdPush: rocketHoldPush(item ? item.topSpeed : rocketTopSpeed(1)),
+    });
     // Enough that no human can reach it and small enough to bound the work.
     // Minecraft has no limit because a player cannot light them fast enough to
     // need one; a held key and a cheat can.

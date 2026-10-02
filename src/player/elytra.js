@@ -78,6 +78,35 @@ const ROCKET_TAPER = 1;
  * either; the model already matches.
  */
 const ROCKET_PUSH = 0.1;
+
+/**
+ * What a firework can do for you once you are already faster than it.
+ *
+ * Minecraft's line has nothing to give then and gives nothing, so a firework
+ * lit while you were faster than its own cruise stopped doing anything the
+ * moment it was lit, and drag went on taking your speed while it burned away -
+ * a smaller one lit while coasting off a bigger one read as having stopped
+ * firing, or as slowing you down. It still burns, though, and a burning
+ * firework is thrust: until its time is up it can at least beat the air. So for as long as it burns it pushes back against drag
+ * with as much as the air would take from you at its own cruise - drag here is
+ * a per cent of your speed each tick (stepGlide), so that is a per cent of
+ * that cruise - and never past the speed you lit it at.
+ *
+ * A Rocket V, cruising at 107 m/s, holds any level speed up to that; a Rocket
+ * I, at 33.5, holds its own cruise and slows your decay above it. A fixed push
+ * rather than all of whatever drag took, because putting back all of it was
+ * tried and is an engine: the glide's own pull-up hands back more height than
+ * the speed it costs, so with the air switched off a dive-and-climb gained
+ * every cycle - 4,600 m/s in two minutes - where a fixed push meets a drag
+ * that grows with speed and stops.
+ */
+const HOLD_DRAG = 0.01;
+
+/** How much a firework of this cruise speed can push back against the air, m/s a tick. */
+export function rocketHoldPush(cruise) {
+  return cruise * HOLD_DRAG;
+}
+
 const TO_TICK = TICK; // m/s -> blocks/tick
 const TO_SECOND = 1 / TICK; // blocks/tick -> m/s
 

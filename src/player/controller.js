@@ -239,6 +239,13 @@ export class PlayerController {
 
     // One set of wings. See src/player/elytra.js.
     stepGlide(player.velocity, this.look, player.pitch);
+    // And a firework still burning beats the air, up to the speed it was lit
+    // at. See rocketHoldPush.
+    const speed = player.velocity.length();
+    const short = (player.rocketHoldSpeed ?? 0) - speed;
+    if (short > 0 && speed > 1e-6) {
+      player.velocity.multiplyScalar((speed + Math.min(short, player.rocketHold ?? 0)) / speed);
+    }
     player.airborneSeconds += step;
 
     // A banked wing turns you, which is the whole reason to roll one.
