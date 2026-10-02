@@ -327,6 +327,9 @@ const _carryQuat = new THREE.Quaternion();
 // the firework hangs from, so the blend between them is a blend of one thing.
 const _carryLocal = new THREE.Quaternion();
 const _aimLocal = new THREE.Quaternion();
+// And the tube's own line in each, for swinging one onto the other.
+const _gripAxis = new THREE.Vector3();
+const _thrustAxis = new THREE.Vector3();
 // And the joint's rotation with the walk taken out of it. See aimRocket.
 const _restHold = new THREE.Quaternion();
 /**
@@ -1550,15 +1553,19 @@ export class Avatar {
     if (!hand.children.length) return null;
     // The grip where the firework sits in the box hand.
     hand.position.copy(this.handRocket.position);
-    // And the way a firework lies in this fist: carried, nose out the front
-    // and a little outboard (HELD_REST), which is the channel the fingers
-    // close round. Kept in the hand, so it is always held rather than aimed
-    // across the fingers; the poses point the fist where it should go.
-    const nose = new THREE.Vector3(
-      Math.sin(HELD_REST[1]) * turn, Math.sin(HELD_REST[0]), -Math.cos(HELD_REST[1]),
+    // The turn from this hand's frame back to the shoulder's, where the
+    // standing grip is measured - so the firework can be held here exactly as
+    // it is held there (see aimRocket).
+    hand.userData.frame = new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(across, down, front),
     );
-    hand.userData.hold = new THREE.Quaternion().setFromUnitVectors(ROCKET_AXIS,
-      new THREE.Vector3(nose.dot(across), nose.dot(down), nose.dot(front)).normalize());
+    // And that grip worked out, for until it has been measured: carried, nose
+    // out the front and a little outboard (HELD_REST) - the channel the
+    // fingers close round.
+    const lay = Math.cos(HELD_REST[0]);
+    hand.userData.rest = new THREE.Quaternion().setFromUnitVectors(ROCKET_AXIS, new THREE.Vector3(
+      lay * Math.sin(HELD_REST[1]) * turn, Math.sin(HELD_REST[0]), -lay * Math.cos(HELD_REST[1]),
+    ));
     return hand;
   }
 
@@ -4575,91 +4582,104 @@ export class Avatar {
     // shoulder always, or the aim is undone by a joint the rocket is not on.
     const holder = this.rocket.parent ?? this.armR.pivot;
     holder.getWorldQuaternion(this._holdQuat);
-    // Aimed: undo the joint outright, so the tube lies along the look vector
-    // however the arm is turned. That is the whole point of a thrust line.
-    _aimLocal.copy(this._holdQuat).invert().multiply(this._aimQuat);
-    if (lit > 0.999) {
-      this.rocket.quaternion.copy(_aimLocal);
-    } else {
-      // Along the fist's own long axis where that has been measured, which is
-      // the direction the fingers curl around, rather than a world angle
-      // guessed at and then argued about.
-      const turn = HELD_REST[1];
-      const rest = Math.cos(HELD_REST[0]);
-      _carry.set(
-        rest * Math.sin(yaw + turn),
-        Math.sin(HELD_REST[0]),
-        -rest * Math.cos(yaw + turn),
-      );
-      _carryQuat.setFromUnitVectors(ROCKET_AXIS, _carry);
-      /*
-        Carried: one grip, kept.
+    // Along the fist's own long axis where that has been measured, which is
+    // the direction the fingers curl around, rather than a world angle
+    // guessed at and then argued about.
+    const turn = HELD_REST[1];
+    const rest = Math.cos(HELD_REST[0]);
+    _carry.set(
+      rest * Math.sin(yaw + turn),
+      Math.sin(HELD_REST[0]),
+      -rest * Math.cos(yaw + turn),
+    );
+    _carryQuat.setFromUnitVectors(ROCKET_AXIS, _carry);
+    /*
+      Carried: one grip, kept.
 
-        Undoing the joint outright pins the firework to a fixed world angle,
-        and a fixed world angle is not a grip. Walking swings the arm about
-        0.8 radians front to back and a glide lays the whole body down through
-        seventy, and through both of those the hand turned while the firework
-        did not: measured in the hand's own frame the tube rolled 62 degrees
-        across one stride and sat 110 degrees off standing in a glide. The
-        hold that reads as gripped standing read as a hand opening and closing
-        on it walking, and as a stick lying across the fingers gliding.
+      Undoing the joint outright pins the firework to a fixed world angle,
+      and a fixed world angle is not a grip. Walking swings the arm about
+      0.8 radians front to back and a glide lays the whole body down through
+      seventy, and through both of those the hand turned while the firework
+      did not: measured in the hand's own frame the tube rolled 62 degrees
+      across one stride and sat 110 degrees off standing in a glide. The
+      hold that reads as gripped standing read as a hand opening and closing
+      on it walking, and as a stick lying across the fingers gliding.
 
-        The firework is a child of the joint it is held by, so its local turn
-        IS the grip: hold that number still and the hold is the same hold
-        wherever the arm goes. It is measured rather than written down, once,
-        the first time this runs on a figure standing upright and not
-        mid-stride — which is the pose the grip was tuned against and the only
-        one that can be read off the rig rather than guessed at.
+      The firework is a child of the joint it is held by, so its local turn
+      IS the grip: hold that number still and the hold is the same hold
+      wherever the arm goes. It is measured rather than written down, once,
+      the first time this runs on a figure standing upright and not
+      mid-stride — which is the pose the grip was tuned against and the only
+      one that can be read off the rig rather than guessed at.
 
-        Until that frame arrives it is worked out live against the joint's
-        resting rotation, which comes to the same answer standing; the cached
-        one is what carries it into a walk and a glide.
-      */
-      // Per holder, because the built shoulder and the scan's arm bone are two
-      // different frames: a grip measured against one is nonsense against the
-      // other, and the detailed model can be switched off mid-game.
-      if (this._gripRestFor !== holder) {
-        this._gripRest = null;
-        this._gripRestFor = holder;
-      }
-      if (!this._gripRest && this.glideBlend < 0.02
-        && Math.abs(this.armR.pivot.rotation.x) < 0.02) {
-        holder.getWorldQuaternion(_restHold);
-        this._gripRest = _restHold.clone().invert().multiply(_carryQuat);
-      }
-      if (this._gripRest) {
-        _carryLocal.copy(this._gripRest);
-      } else {
-        // On the scan the resting rotation is the chest's, because the
-        // collarbone and the shoulder are both set from the built arm's swing
-        // and are both identity when it is not swinging; on the built figure
-        // it is simply the shoulder's parent.
-        const still = (this.scanBones && holder === this.scanBones.armR
-          ? this.scanBones.clavR?.parent : holder.parent) ?? holder;
-        still.getWorldQuaternion(_restHold);
-        _carryLocal.copy(_restHold).invert().multiply(_carryQuat);
-      }
-      /*
-        And how much of the aim the HAND still has to do.
-
-        None of it, in the air: poseScan turns the arm until the firework it
-        is holding already points along the thrust, so the tube is aimed and
-        the grip is the standing grip at the same time — which is the whole
-        point, and turning the firework in the hand on top of that would undo
-        it. On the ground the arm does not reach at all (the reach is scaled
-        by the same signal that opens the wings), so there the firework has to
-        turn in the hand or a rocket fired standing would not point anywhere.
-      */
-      const byArm = this._gripRest && this.scanBones && holder === this.scanBones.armR
-        ? clamp(this.glideBlend, 0, 1) : 0;
-      this.rocket.quaternion.slerpQuaternions(_carryLocal, _aimLocal, lit * (1 - byArm));
+      Until that frame arrives it is worked out live against the joint's
+      resting rotation, which comes to the same answer standing; the cached
+      one is what carries it into a walk and a glide.
+    */
+    // Per holder, because the built shoulder and the scan's arm bone are two
+    // different frames: a grip measured against one is nonsense against the
+    // other, and the detailed model can be switched off mid-game.
+    if (this._gripRestFor !== holder) {
+      this._gripRest = null;
+      this._gripRestFor = holder;
     }
+    if (!this._gripRest && this.glideBlend < 0.02
+      && Math.abs(this.armR.pivot.rotation.x) < 0.02) {
+      holder.getWorldQuaternion(_restHold);
+      this._gripRest = _restHold.clone().invert().multiply(_carryQuat);
+    }
+    if (this._gripRest) {
+      _carryLocal.copy(this._gripRest);
+    } else {
+      // On the scan the resting rotation is the chest's, because the
+      // collarbone and the shoulder are both set from the built arm's swing
+      // and are both identity when it is not swinging; on the built figure
+      // it is simply the shoulder's parent.
+      const still = (this.scanBones && holder === this.scanBones.armR
+        ? this.scanBones.clavR?.parent : holder.parent) ?? holder;
+      still.getWorldQuaternion(_restHold);
+      _carryLocal.copy(_restHold).invert().multiply(_carryQuat);
+    }
+    /*
+      And how much of the aim the HAND still has to do.
+
+      None of it, in the air: poseScan turns the arm until the firework it
+      is holding already points along the thrust, so the tube is aimed and
+      the grip is the standing grip at the same time — which is the whole
+      point, and turning the firework in the hand on top of that would undo
+      it. On the ground the arm does not reach at all (the reach is scaled
+      by the same signal that opens the wings), so there the firework has to
+      turn in the hand or a rocket fired standing would not point anywhere.
+    */
+    const byArm = this._gripRest && this.scanBones && holder === this.scanBones.armR
+      ? clamp(this.glideBlend, 0, 1) : 0;
+    /*
+      Aimed: the tube along the look vector, which is the whole point of a
+      thrust line - but swung there from the grip by the least turn that
+      does it, not set to it outright.
+
+      Setting it outright undid the joint and picked a turn about the tube's
+      own length out of nowhere, so a burning firework was the agreed grip
+      spun 84 degrees in the fist, stripes and fins and all - and, since that
+      was only done at full burn, it snapped back the moment the burn eased
+      off. Swung, it keeps the grip's turn and only tilts as far as the aim
+      needs. And in the air that is nothing at all (byArm, above).
+    */
+    _aimLocal.copy(this._holdQuat).invert().multiply(this._aimQuat);
+    _gripAxis.copy(ROCKET_AXIS).applyQuaternion(_carryLocal);
+    _thrustAxis.copy(ROCKET_AXIS).applyQuaternion(_aimLocal);
+    _aimLocal.setFromUnitVectors(_gripAxis, _thrustAxis).multiply(_carryLocal);
+    this.rocket.quaternion.slerpQuaternions(_carryLocal, _aimLocal, lit * (1 - byArm));
 
     if (!this.viewModel.visible) return;
-    // In the scan's own fist it is held, not aimed: the hand's pose points it.
+    // In the scan's own fist it is held, not aimed, and held the agreed way:
+    // the standing grip, the firework's own turn in the shoulder's frame,
+    // carried into the frame this hand was cut in. The hand's pose points it.
     const held = this.scanHands?.R;
     if (held?.visible) {
-      this.handRocket.quaternion.copy(held.userData.hold);
+      const grip = this._gripRest && this._gripRestFor === this.scanBones?.armR
+        ? this._gripRest : held.userData.rest;
+      this.handRocket.quaternion.copy(held.userData.frame).invert().multiply(grip);
       return;
     }
     this._aimQuat.setFromUnitVectors(ROCKET_AXIS, VIEW_AIM);
@@ -4701,10 +4721,13 @@ export class Avatar {
       }
       for (const box of hand.userData.box ?? []) box.visible = !(scanned && cut);
     }
-    // And the firework sized to that fist, as the world one is.
-    const fits = scanned && this.scanHands?.R && this.scanFist
-      ? clamp((this.scanFist / BUILT_FIST) * GRIP_FILL, 1, 3) : 1;
-    this.handRocket.scale.set(fits, Math.sqrt(fits), fits);
+    // And the firework sized to that fist exactly as the world one is: the
+    // same fill of the fist, and the same body-units-to-metres the hand
+    // itself is drawn at - the world one gets that from the root.
+    const inFist = scanned && !!this.scanHands?.R && !!this.scanFist;
+    const fits = inFist ? clamp((this.scanFist / BUILT_FIST) * GRIP_FILL, 1, 3) : 1;
+    const tall = inFist ? player.height / (player.scale || 1) : 1;
+    this.handRocket.scale.set(fits * tall, Math.sqrt(fits) * tall, fits * tall);
 
     const glide = this.glideBlend;
     // Diving, the glide pose gives way to the dive's, on the signal that puts
