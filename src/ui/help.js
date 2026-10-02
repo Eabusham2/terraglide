@@ -1,0 +1,149 @@
+import { keybinds } from '../core/keybinds.js';
+import { settings } from '../core/settings.js';
+import { formatHeight } from '../core/units.js';
+import { readJSON, writeJSON } from '../core/storage.js';
+import { escapeHtml } from './worldmap.js';
+
+/** The controls card. Shown on a first visit, and any time you press the help key. */
+
+const SEEN_KEY = 'seen-intro';
+
+export const ROWS = [
+  ['Move', ['forward', 'left', 'back', 'right']],
+  ['Sprint / crouch', ['sprint', 'crouch']],
+  ['Jump \u2014 press again once airborne to open the wings', ['jump']],
+  ['Fire a rocket — opens the wings for you (or use the mouse)', ['rocket']],
+  ['Swim — jump to rise, crouch to dive', ['jump', 'crouch']],
+  ['Surge — 2.4x for twelve seconds, then it recharges', ['speedMode']],
+  ['Roll — hold while gliding to bank, and a bank turns you', ['left', 'right']],
+  ['Open or stow the wings \u2014 works any time you are off the ground', ['wings']],
+  ['Random teleport', ['rtp']],
+  ['World map', ['worldMap']],
+  ['Drop a waypoint', ['waypoint']],
+  ['Copy coordinates', ['copyCoords']],
+  ['Minimap zoom', ['minimapZoomOut', 'minimapZoomIn']],
+  ['Freecam \u2014 the wheel changes its speed', ['freecam']],
+  ['Change perspective', ['perspective']],
+  ['Grow / shrink', ['scaleDown', 'scaleUp']],
+  ['Swap mouse mode', ['mouseMode']],
+  ['Rockets I to V', ['hotbar1', 'hotbar5']],
+  ['Pause the world where it is', ['pause']],
+  ['Show or hide the minimap', ['minimapToggle']],
+  ['Show or hide the whole display', ['toggleHud']],
+  ['This card', ['help']],
+  ['What the engine is doing — tiles, memory, frame time', ['debug']],
+  ['Copy a full diagnostics report, to paste into a bug report', ['diagnostics']],
+  ['Settings', ['settings']],
+];
+
+/**
+ * Every key the game binds appears above.
+ *
+ * "wtf is f" is what an incomplete list of keys feels like from the other side:
+ * you press something, it does something, and there is nowhere that says what.
+ * F was in fact listed; M, F1, F2 and F3 were not, which is the same problem
+ * for four other keys and would have been the same problem for the next one
+ * added. The self-test compares this list against the bindings themselves, so
+ * the card cannot drift from the game again — a new binding with no line here
+ * fails the build rather than reaching somebody's keyboard undocumented.
+ *
+ * Only the hotbar is exempt, and only because it is written as a range: the row
+ * says "Rockets I to V" and names the two ends.
+ */
+export const DOCUMENTED_BY_RANGE = ['hotbar2', 'hotbar3', 'hotbar4'];
+
+export class HelpCard {
+  constructor(root) {
+    this.element = document.createElement('div');
+    this.element.className = 'panel help';
+    this.element.hidden = true;
+    root.appendChild(this.element);
+    this.open = false;
+
+    this.element.addEventListener('click', (event) => {
+      if (event.target.closest('[data-close]')) this.close();
+    });
+    // Rebind a key with the card open and the card should say the new key,
+    // not the one it was built with.
+    keybinds.on('change', () => {
+      if (this.open) this.render();
+    });
+  }
+
+  get firstRun() {
+    return !readJSON(SEEN_KEY, false);
+  }
+
+  markSeen() {
+    writeJSON(SEEN_KEY, true);
+  }
+
+  render() {
+    const mouse =
+      settings.get('mouseMode') === 'locked'
+        ? 'Pointer is locked: move the mouse to look, <strong>either mouse button</strong> fires a rocket.'
+        : settings.get('swapMouseButtons')
+          ? 'Click and pan: <strong>drag with right</strong> to look, <strong>left click</strong> boosts, a plain right click lands.'
+          : 'Click and pan: <strong>drag with left</strong> to look, <strong>right click</strong> boosts, a plain left click lands.';
+
+    this.element.innerHTML = `
+      <div class="panel-head">
+        <h2>TerraGlide</h2>
+        <button type="button" class="panel-close" data-close>Close</button>
+      </div>
+      <div class="help-body">
+        <p class="help-lead">
+          Fly the real world. Press <kbd>${escapeHtml(keybinds.labelFor('rtp'))}</kbd> to be dropped somewhere at random,
+          open the wings and glide — dive to build speed, flare to trade it back for height, and use a rocket when
+          you run out of either. You are ${escapeHtml(heightLabel())} tall and you can grow.
+        </p>
+        <p class="help-mouse">${mouse}</p>
+        <div class="help-grid">
+          ${ROWS.map(
+            ([label, actions]) => `
+              <div class="help-row">
+                <span class="help-keys">${actions
+                  .map((a) => `<kbd>${escapeHtml(keybinds.labelFor(a))}</kbd>`)
+                  .join('')}</span>
+                <span>${label}</span>
+              </div>`,
+          ).join('')}
+        </div>
+        <p class="help-note">
+          Satellite imagery and elevation work with no account at all. <strong>Settings » Providers</strong>
+          swaps in Google, Azure or Mapbox if you have a key. With no network there is nothing to fly
+          over: the ground stays bare rather than being made up.
+        </p>
+        <p class="help-note">
+          On a touch screen the on-screen stick and buttons appear by themselves. To play with no internet
+          at all, download <a href="./terraglide.html" download>terraglide.html</a> — one file, opens by
+          double-clicking, no server needed.
+        </p>
+      </div>`;
+  }
+
+  show() {
+    this.render();
+    this.open = true;
+    this.element.hidden = false;
+    this.markSeen();
+  }
+
+  close() {
+    this.open = false;
+    this.element.hidden = true;
+  }
+
+  toggle() {
+    if (this.open) this.close();
+    else this.show();
+  }
+}
+
+function heightLabel() {
+  // Through the formatter, and in the reader's own units. This built feet and
+  // inches by hand and never looked at the units setting at all, so the help
+  // card told a metric player they were 6 ft 0 in — while the HUD row two
+  // panels away said 1.83 m.
+  return formatHeight(settings.get('playerHeightM'), settings.get('units'));
+}
