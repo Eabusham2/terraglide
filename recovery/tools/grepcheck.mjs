@@ -43,7 +43,8 @@ for (const r of loadRows()) {
     if (!p.includes(name)) continue;
     if (/\$\(|`/.test(p)) continue;
     const first = p.split(/\s\|\s/)[0];
-    const multi = / -\w*r|\s-r\b|\*|\{|\s-H\b/.test(first) || (first.match(/\s(src|server|tools|styles)\/\S+/g) ?? []).length > 1;
+    const files = (first.match(/\s(?:\.\/)?[\w./-]+\.(?:m?js|css|md|html|json|py|yml|toml)\b/g) ?? []).length;
+    const multi = / -\w*r|\s-r\b|\*|\{|\s-H\b/.test(first) || files > 1;
     const single = cmds.length === 1 && !multi;
     if (!multi && !single) { skipped++; continue; }
     if (!/\s-\w*n/.test(first) && multi === false) { /* unnumbered: still comparable */ }
