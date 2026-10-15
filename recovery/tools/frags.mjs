@@ -47,9 +47,20 @@ function splitCmd(cmd) {
   return parts.map((p) => p.trim()).filter(Boolean);
 }
 import { snapshots } from './snapshots.mjs';
+import { execFileSync as _exec } from 'node:child_process';
+// A file's first line: from the commit, else from a Read that started at line 1, else from a Write.
+function firstLineOf(rows, rel) {
+  try { const t = _exec('git', ['-C', '/home/user/terraglide', 'show', `2c7ee70:${rel}`], { stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 1 << 26 }).toString(); return t.split('\n')[0]; } catch {}
+  for (const r of rows) {
+    if (r.name === 'Read' && r.input?.file_path === R + rel && (r.input.offset ?? 1) <= 1 && r.result) { const m = readLines(r.result); if (m.has(1)) return m.get(1); }
+    if (r.name === 'Write' && r.input?.file_path === R + rel) return r.input.content.split('\n')[0];
+  }
+  return null;
+}
 export function fragments(rows, rel, { copies = false } = {}) {
   const out = [...snapshots(rows, rel)];
   const abs = R + rel;
+  const fl = firstLineOf(rows, rel); const FIRST_LINE = new Map(fl != null && fl.trim().length >= 3 ? [[rel, fl]] : []);
   for (const r of rows) {
     if (!r.result || r.error) continue;
     if (r.name === 'Read' && r.input?.file_path === abs) {
@@ -105,6 +116,13 @@ export function fragments(rows, rel, { copies = false } = {}) {
           for (let i = 0; i < n; i++) m.set(first.a + i, lines[i]);
           out.push({ t: r.t, agent: r.agent, src: `sed ${first.a},${first.b} (first of a chain)`, lines: m });
         }
+        // The last range ends the output, whatever came up short before it (a trailing blank may be trimmed).
+        const last = seds.at(-1);
+        if (process.env.NO_CHAINLAST !== '1' && last !== first && last.f && isFile(last.f, last.inRepo)) {
+          const a = last.a, b = last.b, n = b - a + 1; const hyps = [];
+          for (const trail of [0, 1]) { const m = new Map(); const take = n - trail; for (let i = 0; i < take && i < lines.length; i++) m.set(b - trail - i, lines[lines.length - 1 - i]); if (trail) m.set(b, ''); hyps.push(m); }
+          out.push({ t: r.t, agent: r.agent, src: `sed ${a},${b} (last of a chain)`, lines: new Map(), hyps });
+        }
         continue;
       }
       for (const s of seds) {
@@ -137,6 +155,20 @@ export function fragments(rows, rel, { copies = false } = {}) {
         const a = +ml[1], b = +ml[2], n = b - a + 1; const hyps = [];
         for (const trail of [0, 1]) { const m = new Map(); const take = n - trail; for (let i = 0; i < take && i < lines.length; i++) m.set(b - trail - i, lines[lines.length - 1 - i]); if (trail) m.set(b, ''); hyps.push(m); }
         out.push({ t: r.t, agent: r.agent, src: `sed ${a},${b} (bottom of mixed)`, lines: new Map(), hyps });
+      }
+    }
+    // Case 1c: a mixed command that ends with a plain `cat FILE`: the file is the end of the output, and it starts
+    // at the last line of the output that equals the file's own first line (from the commit), if that is found
+    // exactly once in the output.
+    if (process.env.NO_CATLAST !== '1' && cmds.length > 1) {
+      const last = cmds.at(-1); const mc = /^cat\s+(\S+)$/.exec(last.p);
+      if (mc && isFile(mc[1], last.inRepo) && FIRST_LINE.has(rel)) {
+        const lines = r.result.split('\n'); if (lines.at(-1) === '') lines.pop();
+        const fl = FIRST_LINE.get(rel); const at = []; lines.forEach((l, i) => { if (l === fl) at.push(i); });
+        if (at.length === 1) {
+          const m = new Map(); for (let i = at[0]; i < lines.length; i++) m.set(i - at[0] + 1, lines[i]);
+          out.push({ t: r.t, agent: r.agent, src: 'cat (end of mixed)', lines: m, endsAt: m.size });
+        }
       }
     }
     // Case 2: grep -n / cat -n on just this file: lines carry their numbers.
