@@ -100,6 +100,8 @@ const CATCH_UP_MS = 2000;
  * about half this.
  */
 const RESERVE_FADE_S = 5;
+/** Room over a thin-air world's terminal glide, for the limit and for what a fall there can give. */
+const GLIDE_ROOM = 1.3;
 /**
  * What coming out of a surge leaves you, as speed squared over the limit. A
  * surge pushes every rocket 2.4 times as hard, and with no air nothing takes
@@ -910,7 +912,21 @@ export class Game {
     const base = this.config.maxSpeed ?? 180;
     const body = BODIES[world];
     const glide = body && body.id !== 'earth' ? terminalSpeed(body) : 0;
-    return Number.isFinite(glide) ? Math.max(base, glide * 1.3) : base;
+    return Number.isFinite(glide) ? Math.max(base, glide * GLIDE_ROOM) : base;
+  }
+
+  /**
+   * The limit in a surge worth `factor` (1 out of one). SURGE_ALLOWANCE is
+   * what a surge does to a rocket - every tick stretched and the push with
+   * it - so it multiplies the rockets' limit; a glide at a thin-air world's
+   * terminal speed is only stretched, by the page's own factor. Multiplying
+   * Mars's 490 by five and a half allowed 2,700 m/s in a surge where the
+   * fastest honest one, a long glide down and then the surge, made 1,170.
+   */
+  surgedSpeed(world, factor) {
+    const rockets = (this.config.maxSpeed ?? 180) * factor;
+    const stretch = 1 + ((factor - 1) * (SURGE_FACTOR - 1)) / (SURGE_ALLOWANCE - 1);
+    return Math.max(rockets, this.maxSpeed(world) * stretch);
   }
 
   /**
@@ -1044,8 +1060,7 @@ export class Game {
     let flown = settled;
     if (!settled && rise > 0) {
       const elapsed = Math.max(0, now - player.arrivedAt);
-      const base = this.maxSpeed(player.world);
-      const could = (this.averageLimit(player.surge, player.arrivedAt, now, (f) => base * f) * elapsed) / 1000;
+      const could = (this.averageLimit(player.surge, player.arrivedAt, now, (f) => this.surgedSpeed(player.world, f)) * elapsed) / 1000;
       flown = (player.graceRise ?? 0) + rise <= could * GRACE_CLIMB_ROOM + SPEED_SLACK_M;
       if (flown) player.graceRise = (player.graceRise ?? 0) + rise;
     }
@@ -1055,6 +1070,14 @@ export class Game {
     // Down to the world's lowest ground and no further: nobody falls below it.
     const fell = Math.min(last.alt, player.ceiling) - Math.max(s.alt, lowest);
     if (fell > 0) player.reserve += 2 * flightGravity(body) * fell;
+    // Through air a fall gathers speed only up to what the air lets a faller
+    // reach - the glide maxSpeed allows for already. Thick air takes the rest
+    // away within seconds anyway (fadeReserve); Mars's is so thin that its
+    // fade takes minutes, and a fall from Olympus Mons into Hellas was good
+    // for 1,100 m/s for minutes where the game's own air holds a faller under
+    // 400.
+    const glide = body.id !== 'earth' && aeroFactor(body) > 0 ? terminalSpeed(body) * GLIDE_ROOM : Infinity;
+    if (Number.isFinite(glide)) player.reserve = Math.min(player.reserve, glide * glide);
     return player.reserve + player.surgeKept;
   }
 
@@ -1237,11 +1260,10 @@ export class Game {
       // A surge stretches every tick 2.4 times, a fall's speed with the rest;
       // SURGE_ALLOWANCE is that and a rocket's push stretched too, which a
       // fall's speed is not. So the stretch on the reserve is the page's own.
-      const base = this.maxSpeed(player.world);
       const limitFor = (f) => {
         if (walking) return GROUND_MAX_MPS * Math.min(f, SURGE_FACTOR);
         const stretch = 1 + ((f - 1) * (SURGE_FACTOR - 1)) / (SURGE_ALLOWANCE - 1);
-        return Math.sqrt((base * f) ** 2 + stretch * stretch * RESERVE_MARGIN * reserve);
+        return Math.sqrt(this.surgedSpeed(player.world, f) ** 2 + stretch * stretch * RESERVE_MARGIN * reserve);
       };
       const limit = limitFor(factor);
       // What the gap before this state was worth: the limit over the time it
@@ -1381,12 +1403,25 @@ export class Game {
       // The allowance lets a page that stood still a moment spend it all at
       // once - which honest play never does, and which is the reach a sword
       // needs to land from across a field. Allowed as movement; not as a hit.
+      // Down too, flying: a fall is free to make, but it gathers speed as falls
+      // do. Dropping five kilometres in one state onto somebody below was a
+      // critical hit out of a clear sky. So a drop faster than the page was
+      // already dropping counts, the extra against the limit like any other
+      // move - while a dive keeping the speed it has counts nothing, however
+      // fast, or every honest dive on the Moon would be a blink.
       const back = before(player.history, now - 500);
       if (back) {
         const span = Math.max(0.5, (now - back.t) / 1000);
         const across = separation({ lat: back.lat, lon: back.lon, alt: s.alt }, s, radius);
-        const up = settled && !walking ? Math.max(0, s.alt - back.alt) : 0;
-        if (Math.hypot(across, up) > limit * span + BLINK_SLACK_M) player.blinkUntil = now + BLINK_GUARD_MS;
+        const flying = settled && !walking;
+        const up = flying ? Math.max(0, s.alt - back.alt) : 0;
+        let sooner = 0;
+        if (flying && back.alt > s.alt) {
+          const earlier = before(player.history, back.t - 500);
+          const falling = earlier ? Math.max(0, earlier.alt - back.alt) / Math.max(0.5, (back.t - earlier.t) / 1000) : 0;
+          sooner = Math.max(0, back.alt - s.alt - falling * span);
+        }
+        if (Math.hypot(across, up, sooner) > limit * span + BLINK_SLACK_M) player.blinkUntil = now + BLINK_GUARD_MS;
       }
     }
     player.lastStateAt = now;
