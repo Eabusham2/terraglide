@@ -1,5 +1,35 @@
 # Recovery notepad (read this first after any compaction)
 
+## OUTLINE (keep current: newest at the top of each list)
+### Where I was when the work was lost
+- Round 6 of the anti-cheat was done and verified: Mars surge limit (surgedSpeed), thin-air fall cap (GLIDE_ROOM), drop-strike blink rule. Suites: servertest 210/210, selftest 1753/1753, flightcheck 15/15, onlinecheck 43/43, voice 50/50.
+- I was relaunching the round-6b review and attack when the weekly limit stopped them. Then I found the Oct 12 reset had wiped everything uncommitted.
+
+### What the user gave me
+- upload3 `4b5a9b67-old.zip` (Oct 15 01:38): 18 files. NEW: 3.txt = server/social.mjs (whole, 28 KB). The rest are re-copies of upload1 files, which may differ slightly; diff them before choosing one.
+- upload2 `c4a1d70c-readf.zip`: cells.mjs, hud, an avatar diff part, a social log, a voice part, a planetary part, a HOSTING part, a design doc (mmmm.txt), a ledger part, shell logs. In git as recovery/pastes2 (9bc9bbd).
+- upload1 `cd6cd832-dd.zip`: 33 files, an early snapshot. Committed in their real paths (4b6379b). These are EARLY versions (game.mjs 1127 lines without friends, parties or round-3+ anti-cheat; servertest 363 lines).
+
+### What the user told me to do
+- Rebuild everything to the exact pre-loss state ("sha same as before").
+- Archive the agent logs somewhere safe, without rewriting them.
+- Check background-task and tool-call logs for more material.
+- Push work in progress to `claude/world-exploration-game-962wpo` after each step; never main; never force.
+- Keep this outline current: add to it and correct it as I go.
+- The user is searching the app chat log (Ctrl+F list given: "File created successfully", "has been updated successfully", "cat > ", "python3 - <<'EOF'", plus the missing file names).
+
+### To check (open)
+- [ ] Archive the raw agent logs (calls/subagents/main .jsonl.gz) somewhere private and durable. NOT the public repo.
+- [ ] Background-task outputs and tool-call logs on disk (/tmp/claude-0/.../tasks, ~/.claude/projects/.../tool-results).
+- [ ] Per file: rebuild to the final state from the logs plus the pastes; verify with the md5 and wc -l records. Start with ws.mjs (full read 10-12T03:25 = final).
+- [ ] Missing whole files: voice.js (only part), planetary.js (only part), HOSTING.md (only part), publicServer.js, config.example.json, Dockerfile, .dockerignore, fly.toml, render.yaml, glb-unplate.py, gazetteerData.js, starCatalogue.js, sword.glb.
+- [ ] Changed tracked files: need the final diffs, src/game.js first.
+
+### Checked (done)
+- [x] Session events API works: all 149 agents' logs (Oct 2–12) and the main chat since Oct 10 are downloaded to /home/user/recovery.
+- [x] No copies survive on disk, in git objects or in backups; raw disk access is denied.
+- [x] upload1 and upload2 are committed and pushed to the branch.
+
 ## What happened
 - The container was reset at Oct 12 ~20:03 UTC (a "fast resume" re-clone). All uncommitted work since 2c7ee70 (Oct 2) was deleted: server/, online client, friends, parties, voice, worlds, sword, HOSTING.md, tests and six anti-cheat rounds.
 - Target: the working tree as it was on Oct 12 ~10:00 UTC (the last state before the reset). The user wants it byte-identical ("same sha").
