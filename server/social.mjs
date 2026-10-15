@@ -462,7 +462,7 @@ export class Social {
 
   invite(player, name) {
     const to = this.game.findPlayer(name);
-    if (!to) return this.game.tell(player, `Nobody called ${String(name ?? '').slice(0, 32)} is online`, 'error');
+    if (!to) return this.game.tell(player, this.game.nobodyCalled(name), 'error');
     if (to === player) return this.game.tell(player, 'You are always in your own party', 'error');
     let party = this.partyFor(player.key);
     if (party && party.leader !== player.key) return this.game.tell(player, 'Only the party leader can invite', 'error');
@@ -471,11 +471,19 @@ export class Social {
       return this.game.tell(player, `A party is ${MAX_PARTY} at most`, 'error');
     }
     if (!party) party = this.create(player);
-    party.invites.set(to.key, { by: player.key, expires: this.game.now() + PARTY_INVITE_S * 1000 });
+    // Once a minute per person: an invitation sent as fast as the button could
+    // be pressed was a box on somebody's screen they could not get rid of.
+    const now = this.game.now();
+    const last = party.invitedAt?.get(to.key) ?? -Infinity;
+    if (now - last < PARTY_INVITE_S * 1000) {
+      return this.game.tell(player, `${to.name} was asked a moment ago — wait for their answer`, 'error');
+    }
+    (party.invitedAt ??= new Map()).set(to.key, now);
+    party.invites.set(to.key, { by: player.key, expires: now + PARTY_INVITE_S * 1000 });
     this.game.send(to.client, {
       t: 'partyInvite',
       party: party.id,
-      from: { id: player.id, key: player.key, name: player.name, colour: player.colour },
+      from: { id: player.id, key: player.key, name: player.name, colour: player.colour, world: player.world },
       expiresIn: PARTY_INVITE_S,
     });
     this.sendParty(party);
@@ -509,7 +517,8 @@ export class Social {
     const old = this.partyFor(player.key);
     if (old && old !== party) this.leave(player, { quiet: true });
     party.members.push(player.key);
-    party.together.add(player.key);
+    // Not ticked to come along when the leader teleports: joining a party is
+    // not agreeing to be pulled across the world. The tick is theirs to set.
     party.joined = true;
     party.idleSince = null;
     this.partyOf.set(player.key, party.id);
@@ -637,6 +646,7 @@ export class Social {
       ? 'You will teleport with the party leader'
       : 'You will stay put when the party leader teleports', 'party');
     this.sendParty(party);
+    this.game.saveServer();
   }
 
   /** Party chat. */
