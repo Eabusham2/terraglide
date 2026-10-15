@@ -23,8 +23,9 @@ function splitCmd(cmd) {
   parts.push(cur);
   return parts.map((p) => p.trim()).filter(Boolean);
 }
+import { snapshots } from './snapshots.mjs';
 export function fragments(rows, rel, { copies = false } = {}) {
-  const out = [];
+  const out = [...snapshots(rows, rel)];
   const abs = R + rel;
   for (const r of rows) {
     if (!r.result || r.error) continue;

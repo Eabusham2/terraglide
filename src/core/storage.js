@@ -36,15 +36,27 @@ function resolveKey(key) {
 function backing() {
   try {
     const s = window.localStorage;
+    const probe = PREFIX + '__probe';
+    s.setItem(probe, '1');
+    s.removeItem(probe);
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+const store = backing();
 const memory = new Map();
 
 export function readJSON(key, fallback) {
-  const raw = store ? store.getItem(PREFIX + key) : memory.get(PREFIX + key);
   const { name, memory: inMemory } = resolveKey(key);
   const raw = store && !inMemory ? store.getItem(name) : memory.get(name);
   if (raw == null) return fallback;
   try {
     return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
 }
 
 export function writeJSON(key, value) {
@@ -55,17 +67,14 @@ export function writeJSON(key, value) {
   } catch {
     return;
   }
-  if (store) {
   if (store && !inMemory) {
     try {
-      store.setItem(PREFIX + key, raw);
       store.setItem(name, raw);
       return;
     } catch {
       /* quota exceeded — fall through to memory */
     }
   }
-  memory.set(PREFIX + key, raw);
   memory.set(name, raw);
 }
 
@@ -73,13 +82,11 @@ export function removeKey(key) {
   const { name } = resolveKey(key);
   if (store) {
     try {
-      store.removeItem(PREFIX + key);
       store.removeItem(name);
     } catch {
       /* ignore */
     }
   }
-  memory.delete(PREFIX + key);
   memory.delete(name);
 }
 

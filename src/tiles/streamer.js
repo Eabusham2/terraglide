@@ -801,7 +801,13 @@ export class ImageryStreamer extends Emitter {
     this.jobs.set(id, entry);
     this.active++;
     this.stats.pending = this.active;
-    this.worker.postMessage({ kind: 'imagery', channel: 'imagery', id, tile, url, size: 128 });
+    // Whatever else the job needs that a URL cannot carry. For a planetary
+    // picture that is the whole plan — which tiles of NASA's equirectangular
+    // maps to fetch and how to move their rows into mercator — and "do not go
+    // looking for woodland". Null for every Earth provider, so their message is
+    // what it always was. See TileSource.jobFor and tiles/planetary.js.
+    const extra = source.jobFor?.(tile) ?? null;
+    this.worker.postMessage({ kind: 'imagery', channel: 'imagery', id, tile, url, size: 128, ...extra });
   }
 
   /**

@@ -3,6 +3,31 @@
 // Write contents, and python triple-quoted old/new blocks. Each is {t, agent, src, lines: string[]}.
 // Also numbered sightings from grep -n lines in mixed outputs: {t, agent, src, lines: Map}.
 const R = '/home/user/terraglide/';
+// Split a command at unquoted ; && || and newlines (not inside $( )), and each part into its pipeline stages
+// and their words, honouring quotes. Returns [[stage words...]...] per part.
+export function shellParts(cmd) {
+  const parts = []; let words = [], word = '', stages = [], q = null, depth = 0;
+  const endWord = () => { if (word !== '') { words.push(word); word = ''; } };
+  const endStage = () => { endWord(); if (words.length) stages.push(words); words = []; };
+  const endPart = () => { endStage(); if (stages.length) parts.push(stages); stages = []; };
+  for (let i = 0; i < cmd.length; i++) {
+    const c = cmd[i];
+    if (q) { if (c === q) q = null; else if (c === '\\' && q === '"' && i + 1 < cmd.length) word += cmd[++i]; else word += c; continue; }
+    if (c === "'" || c === '"') { q = c; continue; }
+    if (c === '$' && cmd[i + 1] === '(') { depth++; word += '$('; i++; continue; }
+    if (depth) { if (c === '(') depth++; if (c === ')') depth--; word += c; continue; }
+    if (c === '\\' && i + 1 < cmd.length) { word += cmd[++i]; continue; }
+    if (c === ' ' || c === '\t') { endWord(); continue; }
+    if (c === '\n' || c === ';') { endPart(); continue; }
+    if (c === '&' && cmd[i + 1] === '&') { endPart(); i++; continue; }
+    if (c === '|' && cmd[i + 1] === '|') { endPart(); i++; continue; }
+    if (c === '|') { endStage(); continue; }
+    if (c === '&') { endPart(); continue; }
+    word += c;
+  }
+  endPart();
+  return parts;
+}
 // Replace each $( ... ) with X, matching parentheses outside quotes only.
 export function stripSubshells(cmd) {
   let out = ''; let i = 0;
@@ -70,7 +95,9 @@ export function grepNumbered(rows, rel) {
     const cmd = r.input?.command ?? '';
     if (!cmd.includes(base) || !/\bgrep\b|\brg\b/.test(cmd)) continue;
     // Anything that reshapes grep's lines (a second grep, sed, cut...) or prints only the match: skip.
-    if (/\|\s*(grep|rg|cut|awk|tr|sed|sort|uniq|column|nl|cat|xargs|paste|rev|fold)\b/.test(cmd)) continue;
+    // (pipes that only pick lines - head, tail, sed -n 'A,Bp' - are fine)
+    const reshaped = stripSubshells(cmd).replace(/\|\s*sed -n ['"]?\d+,\d+p['"]?/g, '').replace(/\|\s*(head|tail)(\s+-n)?(\s+-?\d+)?/g, '');
+    if (/\|\s*(grep|rg|cut|awk|tr|sed|sort|uniq|column|nl|cat|xargs|paste|rev|fold)\b/.test(reshaped)) continue;
     if (/(?:^|[;&|\n]\s*)(grep|rg)\s[^|;&\n]*\s-(?:[a-zA-Z]*o|-only-matching)\b/.test(cmd)) continue;
     // cwd: in repo unless a cd elsewhere comes first
     const cds = [...cmd.matchAll(/(?:^|[;&|\n]\s*)cd\s+(\S+)/g)].map((m) => m[1]);
@@ -81,9 +108,25 @@ export function grepNumbered(rows, rel) {
     // single-file greps: every grep/rg segment names exactly this one file and nothing else prints numbers
     const segs = cmd.split(/&&|\|\||;|\n/).map((s) => s.trim()).filter(Boolean);
     const greps = segs.filter((s) => /^(grep|rg)\b/.test(s));
-    const allThis = greps.length && greps.every((s) => { const files = s.replace(/\|.*$/, '').split(/\s+/).filter((w) => /\.(mjs|js|md|json|py|css|html|yml)$/.test(w) || w.includes('*')); return files.length === 1 && (files[0] === R + rel || (inRepo && (files[0] === rel || files[0] === './' + rel))); }) && /-n/.test(greps.join(' '));
-    const otherNumbered = segs.some((s) => /^cat -n|^nl\b|^wc\b/.test(s));
-    if (allThis && !otherNumbered && inRepo) for (const line of r.result.split('\n')) { const x = /^(\d+)([:-])(.*)$/s.exec(line); if (x && !m.has(+x[1])) m.set(+x[1], x[3]); }
+    // Bare "N:text" lines come only from greps on a single file (a grep on several prints the path first).
+    // Accept them when every single-file grep in the command is on this file, and none uses -h.
+    const parts = shellParts(cmd);
+    const grepStages = parts.map((st) => st[0]).filter((w) => w[0] === 'grep' || w[0] === 'rg');
+    const isFileWord = (w) => !w.startsWith('-') && /\.(mjs|js|md|json|py|css|html|yml|yaml|toml|txt|sh)$|\*/.test(w);
+    // grep [flags] PATTERN FILE... - the first word that is not a flag is the pattern (unless -e gives it).
+    const info = grepStages.map((w) => {
+      const flags = w.filter((x) => /^-[a-zA-Z]+$/.test(x)).join('');
+      const args = []; let skipNext = false;
+      for (const x of w.slice(1)) { if (skipNext) { skipNext = false; continue; } if (/^-[a-zA-Z]*[eABCmf]$/.test(x) && x !== '-n') { if (/[eABCmf]$/.test(x)) skipNext = true; continue; } if (x.startsWith('-')) continue; args.push(x); }
+      const files = (/e/.test(flags) ? args : args.slice(1)).filter((x) => !x.startsWith('-'));
+      return { flags, files };
+    });
+    const singles = info.filter((g) => g.files.length === 1 && !g.files[0].includes('*') && !/r/.test(g.flags) && !/\/$/.test(g.files[0]));
+    if (info.some((g) => g.files.length === 0)) continue; // reading stdin or unclear: skip
+    const allThis = singles.length > 0 && singles.every((g) => g.files[0] === R + rel || (inRepo && (g.files[0] === rel || g.files[0] === './' + rel)))
+      && !info.some((g) => /h/.test(g.flags)) && singles.some((g) => /n/.test(g.flags));
+    const otherNumbered = parts.some((st) => (st[0][0] === 'cat' && st[0][1] === '-n') || st[0][0] === 'nl');
+    if (allThis && !otherNumbered && inRepo) for (const line of r.result.split('\n')) { if (/^[\w./-]+[:-]\d+[:-]/.test(line)) continue; const x = /^(\d+)([:-])(.*)$/s.exec(line); if (x && !m.has(+x[1])) m.set(+x[1], x[3]); }
     if (m.size) out.push({ t: r.t, agent: r.agent, src: 'grep -n (any)', lines: m });
   }
   return out;

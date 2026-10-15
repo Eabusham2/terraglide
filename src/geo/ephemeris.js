@@ -124,7 +124,6 @@ export function heliocentric(name, date) {
   return null;
 }
 
-
 /** Unit vector from the body to the sun, in J2000 equatorial axes. */
 export function sunVectorFrom(body, date) {
   const p = heliocentric(body.orbit ?? 'earth', date) ?? { x: 1, y: 0, z: 0 };
@@ -225,6 +224,8 @@ export function skyFrame(body, date, lat, lon, hour = null) {
     parent: body.parent ? apply(local, { x: 1, y: 0, z: 0 }) : null,
     pole: apply(local, { x: 0, y: 0, z: 1 }),
     hour: solarHour,
+    // The sun's height above the body's equator: its season.
+    declination: Math.asin(Math.max(-1, Math.min(1, sunPole.z))),
     au: sun.au,
   };
 }

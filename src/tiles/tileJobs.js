@@ -2,6 +2,13 @@ import { isNoDataCard, makeCanvas } from './noData.js';
 import { measureCanopy } from './canopy.js';
 import { measureSharpness } from './sharpness.js';
 import { decodeBingElevation, decodeGoogleElevation } from './elevationGrid.js';
+import {
+  canvasToBitmap,
+  composeEqImage,
+  fetchArcgisHeights,
+  fetchPlanetaryImage,
+  fetchTiffRowsHeights,
+} from './planetary.js';
 
 /**
  * The actual tile work: fetching, decoding, unpacking elevation and stitching
@@ -128,10 +135,29 @@ async function fetchJson(jobKey, url) {
   return res.json();
 }
 
+/**
+ * One controller for everything a job fetches.
+ *
+ * `fetchBitmap` keeps one controller per job key and a second call replaces
+ * the first, so cancelling a job that fetched twice in parallel aborted only
+ * the last request. A planetary tile is up to four pictures, or sixty-five row
+ * reads, in flight together; they all hang off this one, and cancelling the
+ * job stops every one of them.
+ */
+function jobSignal(jobKey) {
+  const controller = new AbortController();
+  inflight.set(jobKey, controller);
+  return controller.signal;
+}
+
 async function handleImagery(msg, jobKey, post) {
   // No URL used to mean "make one up". Nothing here makes anything up any
   // more, so a job without a URL is a caller bug and is reported as one.
   if (!msg.url) throw new Error('no imagery URL for this tile');
+  if (msg.eq) {
+    await handlePlanetaryImagery(msg, jobKey, post);
+    return;
+  }
   const { bitmap, bytes } = await fetchBitmap(jobKey, msg.url);
   if (msg.checkBlank !== false && isNoDataCard(bytes)) {
     bitmap.close();
@@ -152,9 +178,35 @@ async function handleImagery(msg, jobKey, post) {
   // asking for levels that are only the latter. See sharpness.js.
   const sharpness = measureSharpness(bitmap, makeCanvas);
   // Whether the green in it is a canopy or a field, so woodland relief works
-  // where nobody has drawn a wood. See canopy.js.
-  const canopy = measureCanopy(bitmap, makeCanvas, msg.tile?.z ?? msg.z ?? 0, msg.tile?.y ?? msg.y ?? 0);
+  // where nobody has drawn a wood. See canopy.js. Not asked where the caller
+  // knows there is no woodland to find.
+  const canopy = msg.canopy === false
+    ? undefined
+    : measureCanopy(bitmap, makeCanvas, msg.tile?.z ?? msg.z ?? 0, msg.tile?.y ?? msg.y ?? 0);
   post({ ok: true, channel: msg.channel, id: msg.id, bitmap, sharpness, canopy }, [bitmap]);
+}
+
+/**
+ * A planetary picture: one to four equirectangular tiles, or one map-server
+ * box, put together and with their rows moved into mercator spacing. The plan
+ * was worked out on the page (see TileSource.eqPlan) and arrives as plain
+ * numbers; the drawing is tiles/planetary.js, shared with the flat maps.
+ *
+ * No canopy measure — it reads green as woodland and there is none on these
+ * worlds — and no "map data not yet available" check, which is Esri's card;
+ * these servers answer a missing square with a 404, and Kaguya's pole rows
+ * with a blank that `fetchPlanetaryImage` recognises.
+ */
+async function handlePlanetaryImagery(msg, jobKey, post) {
+  const signal = jobSignal(jobKey);
+  const canvas = await composeEqImage(
+    msg.eq,
+    (url) => fetchPlanetaryImage(url, signal),
+    makeCanvas,
+  );
+  const bitmap = await canvasToBitmap(canvas);
+  const sharpness = measureSharpness(bitmap, makeCanvas);
+  post({ ok: true, channel: msg.channel, id: msg.id, bitmap, sharpness }, [bitmap]);
 }
 
 async function handleElevation(msg, jobKey, post) {
@@ -163,6 +215,24 @@ async function handleElevation(msg, jobKey, post) {
 
   if (!msg.url) {
     throw new Error('no elevation URL for this tile');
+  } else if (msg.decode === 'arcgis-f32' || msg.decode === 'tiff-rows') {
+    /*
+      Planetary relief. Everything about the body — the datum offset, its
+      height range, how holes are filled — is in `msg.grid`, worked out on the
+      page: this realm must not decide for itself which world it is on.
+
+      Neither of Earth's filters runs. `fillImpossible` would throw away
+      Olympus Mons at +21 km and Hellas at -8; `despike` was measured on
+      Terrarium at fourteen metres a cell, and a crater rim at two hundred
+      metres a cell is a real step of more than its five hundred. The body's
+      own range does that job instead (see applyHeightTransform).
+    */
+    if (!msg.grid) throw new Error('no elevation plan for this tile');
+    const signal = jobSignal(jobKey);
+    heights = msg.decode === 'arcgis-f32'
+      ? await fetchArcgisHeights(msg.grid, size, signal)
+      : await fetchTiffRowsHeights(msg.grid, size, signal);
+    if (heights.length !== size * size) throw new Error('elevation grid is the wrong size');
   } else if (msg.decode === 'bing-elevation') {
     heights = decodeBingElevation(await fetchJson(jobKey, msg.url), size);
   } else if (msg.decode === 'google-elevation') {
