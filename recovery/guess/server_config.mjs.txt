@@ -1,0 +1,55 @@
+@@ 84-122
+   * for none. Only behind that proxy: anyone can send the header otherwise.
+   */
+  proxyHeader: '',
+  /** Seconds between saves to disk. */
+  saveEveryS: 30,
+};
+
+export function loadConfig({ file = join(HERE, 'config.json'), env = process.env } = {}) {
+  let fromFile = {};
+  if (existsSync(file)) {
+    try {
+      fromFile = JSON.parse(readFileSync(file, 'utf8'));
+    } catch (error) {
+      throw new Error(`server/config.json is not valid JSON: ${error.message}`);
+    }
+  }
+  // The same, from one variable, for hosts that build from the repository and
+  // so never have a config.json: laid over the file, under the variables below.
+  let fromEnv = {};
+  if (env.TERRAGLIDE_CONFIG) {
+    try {
+      fromEnv = JSON.parse(env.TERRAGLIDE_CONFIG);
+    } catch (error) {
+      throw new Error(`TERRAGLIDE_CONFIG is not valid JSON: ${error.message}`);
+    }
+  }
+  const config = { ...DEFAULTS, ...fromFile, ...fromEnv };
+  const number = (name, key) => {
+    if (!env[name]) return;
+    const n = Number(env[name]);
+    if (Number.isFinite(n) && n >= 0) config[key] = n;
+    else console.warn(`[terraglide] ${name}=${env[name]} is not a number; ${key} stays ${config[key]}`);
+  };
+  const flag = (name, key) => {
+    if (!env[name]) return;
+    if (/^(1|true|yes|on|0|false|no|off)$/i.test(env[name])) config[key] = /^(1|true|yes|on)$/i.test(env[name]);
+    else console.warn(`[terraglide] ${name}=${env[name]} is not 1 or 0; ${key} stays ${config[key]}`);
+  };
+  if (env.TERRAGLIDE_MOTD) config.motd = env.TERRAGLIDE_MOTD;
+@@end
+@@ 124-135
+  number('TERRAGLIDE_MAX_ACCOUNTS', 'maxAccounts');
+  number('TERRAGLIDE_SIGNUPS_PER_HOUR', 'signupsPerHour');
+  flag('TERRAGLIDE_OPEN_SIGNUPS', 'openSignups');
+  flag('TERRAGLIDE_FIRST_ACCOUNT_ADMIN', 'firstAccountIsAdmin');
+  flag('TERRAGLIDE_PVP', 'pvp');
+  if (env.TERRAGLIDE_ALLOWED_ORIGINS) config.allowedOrigins = env.TERRAGLIDE_ALLOWED_ORIGINS;
+  if (env.PORT) config.port = Number(env.PORT);
+  if (env.HOST) config.host = env.HOST;
+  if (env.DATA_DIR) config.dataDir = env.DATA_DIR;
+  if (env.TERRAGLIDE_NAME) config.name = env.TERRAGLIDE_NAME;
+  if (env.TERRAGLIDE_JOIN_CODE) config.joinCode = env.TERRAGLIDE_JOIN_CODE;
+  if (env.TERRAGLIDE_ADMINS) config.admins = env.TERRAGLIDE_ADMINS.split(',').map((s) => s.trim()).filter(Boolean);
+@@end
