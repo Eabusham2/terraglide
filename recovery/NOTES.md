@@ -11,7 +11,7 @@
 - The Oct 9 16:16 diff stat (recovery/diffstats.txt) is the line-change count of every tracked file at that moment. Use it.
 - frags.mjs gained two cases (last range of a mismatched sed chain; `cat FILE` ending a mixed command). Re-pooling gave no new lines for the final versions; the new views sit in cut-out windows. Look at them by hand when rebuilding a file.
 - NEXT: the client UI (hud 412 missing, onlinePanel 226, playersPanel 146, teleportMenu 145, travelPanel short 65, minimap, worldmap, settingsPanel), then game.js (562 missing after aligning V4), player.js, avatar.js, main.css, README, then the tests, then sword.glb and the verify pass.
-  - game.js: V4 (Oct 6 21:57, 2813 lines, 19 missing) aligned onto the final gives out/t/game.a1.js (562 left). Line 144 is in PANEL_KEYS (the F6/F6b key guard, seen once at Oct 9 15:15).
+  - game.js done (see Guessed). Next: styles/main.css, README.md, then the tests, then sword.glb and the verify pass.
 
 ### Where I was when the work was lost (Oct 12)
 - Round 6 of the anti-cheat was done and verified: Mars surge limit (surgedSpeed), thin-air fall cap (GLIDE_ROOM), drop-strike blink rule. Suites: servertest 210/210, selftest 1753/1753, flightcheck 15/15, onlinecheck 43/43, voice 50/50.
@@ -99,7 +99,7 @@ New files:
 Changed tracked files (base = 2c7ee70):
 - [x] .github/workflows/deploy-gh-pages.yml · [x] .gitignore
 - [ ] README.md (696) · [x] assets/manifest.json (swordNote and sword, from the Oct 9 15:04 print; +2 as the Oct 9 stat says) · [ ] styles/main.css
-- [ ] src/game.js (2957)
+- [~] src/game.js (2957 = final; every logged line in place; 914 changed against the Oct 9 stat's 918; the Oct 9 gaps rebuilt from the ledger, see Guessed)
 - [x] src/core/cheats.js (218: the commit + the ONLINE import and the unlock() refusal, seen Oct 11) · [x] src/core/keybinds.js (229, whole-file git diff, Oct 7–9) · [~] src/core/settings.js (600: 5 unseen lines left out) · [x] src/core/storage.js (96)
 - [x] src/geo/frame.js (104) · [x] src/geo/mercator.js (155)
 - [x] src/player/avatar.js (5137 = final; +353 −5 from the commit, consistent with the Oct 9 stat 318 plus the later sword swing; every known line in place; see Guessed) · [x] src/player/controller.js (813) · [x] src/player/elytra.js (488) · [x] src/player/player.js (755; +239 −42 from the commit = the Oct 9 stat exactly; filled from the commit and the import list, see Guessed)
@@ -211,7 +211,33 @@ Changed tracked files (base = 2c7ee70):
   - 5096–5105: a 4-line comment and the swing's effect on the right arm (lift and cut).
   - Checked: freevars clean; swingPose(0.35) = lift 1, cut 1; swingPose(0.75) = 0.57/−0.88; the hand sword shows and swingTime runs to 1.
 
+- src/game.js (2957 lines; final count): built by recovery/guess/game_v4fill.py (the Oct 6 21:57 version, V4, completed) and recovery/guess/game_build.py over the pooled draft (recovery/guess/game/game.a2.js.txt). Only 298 lines of the final were seen after Oct 10 03:48; the rest are carried from older views, so a same-count edit there would not show.
+  - Exact: the providers import (an Oct 5 `grep -B6`), lines 438–458 (the Oct 9 15:15 view, +18 lines later).
+  - The Oct 9 version of 15:12–15:21 already had every insertion below; its line numbers fix where each one goes. The final is that version plus the Oct 10 friend-choices block (329–346, +18).
+  - WRITTEN BY ME, to fit the gaps' sizes and the ledger:
+    - V4 2736–2746: the end of googleViewport (the commit's), and the doc and signature of offworldAddress(player).
+    - 132–154: OXYGEN_WARNINGS (W2) and PANEL_KEYS (F6/F6b; its first line, 144, is known), and `this.oxygenWarned` in the constructor.
+    - 375–437: PA5's partySites/partyBeacons (399 known), and the opening of bindEvents' guarded action handler.
+    - 531–534: the map's teleport is off on a server (533 known).
+    - 1326–1338: takingKeys as before, and panelHasKeys (players list, teleport menu, death screen).
+    - update(): PA5's party beams (`this.partySites.waypoints = (this.session?.partyWaypoints() ?? []).map(...)`, as the Oct 11 selftest has it), one setBeacons call, and W2's `this.warnOxygen(player)`.
+    - warnOxygen(player): a toast at 60/30/10 s and empty, a short WebAudio tone, and the red edge while empty.
+    - nearAir: W3's `if (!player.onGround) return false;` (the selftest's regex).
+    - releaseSettle: W1 (a ground arrival is handed over on the real ground; 1973 known).
+    - savePosition: W5 (dead, it saves the respawn point with full hearts and tank; 2314 known; imports OXYGEN_SECONDS from player.js).
+    - Esc: it also closes the players list, the travel panel and the online panel.
+    - The map's party mark is named with askMarkName() (the selftest's text), imported from playersPanel.js.
+  - Checked:
+    - node --check and freevars are clean; tools/check.mjs passes (96 modules).
+    - All 18 game regexes in recovery/selftest_regexes.txt pass.
+    - The 13 checkable greps logged after Oct 10 03:48, re-run on it (recovery/tools/grepcheck.mjs), match.
+    - Without the Oct 10 block it is 2939 lines, the Oct 9 15:02 count, and +844 −70 against the commit, where the Oct 9 16:16 stat says 918 = +846 −72. So 2 commit lines the real file changed are still the commit's text, somewhere unseen.
+
 ## Facts found while rebuilding (Oct 15)
+- Grep output is a source in three more shapes. Context lines `NN-text` (from -A/-B/-C). Multi-file `path:NN:text`, which frags already reads. And complete greps: a grep not cut by `head` lists every line with its pattern, so the rest of the file has none. recovery/tools/grepcheck.mjs re-runs every logged grep on a rebuilt file, in a mirror of the repo, and compares the output. Run it on every rebuilt file.
+- Views made between two counted versions belong to no version window (game.js: Oct 9 02:14–15:02, 15:02–20:50, Oct 10 03:04–03:48). Place them by hand, with the offset taken from known lines on both sides. recovery/tools/rowout.mjs REGEX SINCE UNTIL prints such rows.
+- recovery/tools/viewed.mjs REL SINCE UNTIL DRAFT lists which lines were really seen in a window, as against carried, and checks them against a draft.
+- recovery/tools/rxcheck.mjs FILE 'var|var' runs the collected selftest regexes for that source variable.
 - frags.mjs now also reads a lone `cat -n FILE` inside a mixed command (the tab-numbered run from line 1). That found whole copies of gazetteer.js, stars.js, boot.js, storage.js, edgeWall.js, main.js, bundle.mjs, online.mjs and index.html; the last seven equal the repo. Look for more by hand: any `cat -n` in a chain of commands.
 - `sed -i` edits are not in chain.mjs's exact steps (only Edit/Write/python). Same-count ones are invisible to the counts; views after them carry them.
 - upload/18.txt (not in the paste map) is a 289-line piece of src/player/avatar.js (HAND_HELD, HAND_GLIDE, SCAN_ROCKET_AIM...): use it for avatar.js.
