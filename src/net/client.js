@@ -25,6 +25,23 @@ const TOKEN_KEY = 'terraglide.session.';
 const MAX_BACKOFF_MS = 15000;
 const PING_EVERY_MS = 2000;
 
+/** A server's description of itself, in exactly the shape the page uses. */
+function cleanInfo(info) {
+  if (!info || typeof info !== 'object') return null;
+  const text = (v, n) => (typeof v === 'string' ? v.slice(0, n) : '');
+  return {
+    name: text(info.name, 80),
+    motd: text(info.motd, 300),
+    online: Math.max(0, Math.floor(Number(info.online) || 0)),
+    max: Math.max(0, Math.floor(Number(info.max) || 0)),
+    signups: info.signups !== false,
+    joinCode: !!info.joinCode,
+    pvp: !!info.pvp,
+    worlds: Array.isArray(info.worlds) ? info.worlds.filter((w) => typeof w === 'string').slice(0, 32) : [],
+    lan: Array.isArray(info.lan) ? info.lan.filter((a) => typeof a === 'string' && /^\d{1,3}(\.\d{1,3}){3}$/.test(a)).slice(0, 8) : [],
+  };
+}
+
 export class NetClient extends Emitter {
   constructor(server = BOOT.server) {
     super();
@@ -74,6 +91,9 @@ export class NetClient extends Emitter {
 
   connect() {
     this.wanted = true;
+    // Whatever ended the last connection, choosing to connect again starts
+    // afresh — or a kick from yesterday would end tomorrow's session too.
+    this.kicked = null;
     if (this.ws && (this.ws.readyState === 0 || this.ws.readyState === 1)) return;
     this.setStatus('connecting');
     let ws;
@@ -157,10 +177,16 @@ export class NetClient extends Emitter {
   handle(m) {
     switch (m.t) {
       case 'welcome':
-        this.info = m.server;
+        // What the server says about itself, kept only in the shape it should
+        // have: a hostile server's "online" count was going straight into the
+        // page as markup.
+        this.info = cleanInfo(m.server);
         this.emit('welcome', m);
-        // Straight back in if this browser has signed in here before.
-        if (this.token && !this.signedIn) this.send({ t: 'resume', token: this.token });
+        if (this.queued) {
+          // A sign-in typed while the connection was down goes now.
+          this.send(this.queued);
+          this.queued = null;
+        } else if (this.token && !this.signedIn) this.send({ t: 'resume', token: this.token });
         else this.emit('needsAuth', m);
         break;
       case 'pong': {
@@ -189,7 +215,8 @@ export class NetClient extends Emitter {
         }
         break;
       case 'kick':
-        this.kicked = m.reason || 'Disconnected by the server';
+        // A restart is not the end: come back when the server does.
+        if (!m.restart) this.kicked = String(m.reason || 'Disconnected by the server').slice(0, 200);
         break;
       case 'loggedOut':
         this.token = null;
@@ -201,11 +228,22 @@ export class NetClient extends Emitter {
   }
 
   signup(name, password, code) {
-    this.send({ t: 'signup', name, password, code });
+    this.sendOrQueue({ t: 'signup', name, password, code });
   }
 
   login(name, password) {
-    this.send({ t: 'login', name, password });
+    this.sendOrQueue({ t: 'login', name, password });
+  }
+
+  /**
+   * Send a sign-in now, or — with the connection down — connect and send it
+   * the moment the server says hello. Dropping it was a button stuck on
+   * "One moment…" for ever.
+   */
+  sendOrQueue(message) {
+    if (this.send(message)) return;
+    this.queued = message;
+    this.connect();
   }
 
   logout() {
@@ -228,7 +266,7 @@ export function explain(server, error = null) {
     const url = new URL(server);
     const page = globalThis.location?.protocol;
     if (page === 'https:' && url.protocol === 'ws:') {
-      return 'This page is https, so it can only reach wss:// servers. Use the server’s https address, or open the server’s own page instead.';
+      return "This page is https, so it can only reach wss:// servers. Use the server's https address, or open the server's own page instead.";
     }
     if (error) return `Could not open ${url.host}: ${error.message ?? error}`;
     return `Could not reach ${url.host} — is the server running, and is the address right?`;

@@ -7,8 +7,9 @@ import * as THREE from '../../vendor/three/three.module.js';
  * The lander is drawn after the Apollo lunar module, because that is what a
  * lander looks like to almost everybody: a gold-foil descent stage on four
  * splayed legs, and a grey crew cabin on top. It is a model built from
- * boxes and cylinders, at the real thing's size — nine metres across the
- * footpads, seven high — and does not pretend to be anything more.
+ * boxes and cylinders, at about the real thing's size — nine metres across
+ * the footpads, near enough seven high — and does not pretend to be anything
+ * more.
  *
  * The base is different on the Moon, because there it is real. Tranquility
  * Base is where Eagle's descent stage still stands, the cabin having flown
@@ -19,6 +20,8 @@ import * as THREE from '../../vendor/three/three.module.js';
  */
 
 const DRAW_M = 6000;
+/** How far beside its spot a model stands — see Landers.place. */
+const ASIDE_M = 12;
 
 function standard(colour, metal = 0.1, rough = 0.7) {
   return new THREE.MeshStandardMaterial({ color: colour, metalness: metal, roughness: rough });
@@ -112,7 +115,8 @@ export class Landers {
   /**
    * @param {{scene: THREE.Scene, terrain: object, frame: object, worldRadius: number, bodyId: string}} options
    */
-  constructor({ scene, terrain, frame, worldRadius, bodyId }) {
+  constructor({ scene, terrain, frame, worldRadius, bodyId, landmark = null }) {
+    this.landmark = landmark;
     this.terrain = terrain;
     this.frame = frame;
     this.radius = worldRadius;
@@ -124,10 +128,12 @@ export class Landers {
     this.lander.add(descentStage(), ascentStage());
     this.base = new THREE.Group();
     this.base.add(bodyId === 'moon' ? descentStage() : shelter());
-    // A light on the shelter, so it can be found at night.
+    // A lamp on the shelter, so it can be found at night. Glowing rather
+    // than a light: one more light in the scene recompiles every lit
+    // material, which is a stall for a lamp nobody needs lighting the ground.
     if (bodyId !== 'moon') {
-      const lamp = new THREE.PointLight(0xffe3b0, 4, 40, 2);
-      lamp.position.set(0, 6.5, 0);
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffe3b0 }));
+      lamp.position.set(0, 5.95, 0);
       this.base.add(lamp);
     }
     this.group.add(this.lander, this.base);
@@ -136,16 +142,24 @@ export class Landers {
     this._world = { x: 0, z: 0 };
   }
 
-  place(model, site, camera, yaw = 0) {
+  /**
+   * Stand `model` beside `site` — `aside` metres east of it, so that arriving
+   * at the site, or setting the lander down where you stand, puts you next to
+   * it rather than inside it. The refill reaches forty metres either way.
+   */
+  place(model, site, camera, yaw = 0, aside = 0) {
     if (!site) {
       model.visible = false;
       return;
     }
     this.frame.toWorld(site.lat, site.lon, this._world);
-    const x = this._world.x;
+    const x = this._world.x + aside;
     const z = this._world.z;
     const flat = Math.hypot(x - camera.position.x, z - camera.position.z);
-    if (flat > DRAW_M || !this.terrain.hasElevationAt?.(x, z)) {
+    // Placed every frame, so it settles onto the relief the moment the
+    // relief arrives — and on the moons with no relief measured, nought is
+    // the honest height anyway.
+    if (flat > DRAW_M) {
       model.visible = false;
       return;
     }
@@ -162,8 +176,9 @@ export class Landers {
    * @param {{lat:number, lon:number}|null} base the landing site
    */
   update(camera, lander, base) {
-    this.place(this.lander, lander, camera, 0.6);
-    // Eagle's descent stage faces west, as it landed.
-    this.place(this.base, base, camera, Math.PI / 2);
+    this.place(this.lander, lander, camera, 0.6, ASIDE_M);
+    // Where something real stands, it stands exactly there.
+    if (this.landmark) this.place(this.base, this.landmark, camera, Math.PI / 2);
+    else this.place(this.base, base, camera, Math.PI / 2, ASIDE_M * 1.6);
   }
 }
