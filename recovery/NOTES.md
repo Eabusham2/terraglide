@@ -91,7 +91,7 @@ New files:
 - [x] src/net/client.js (276) · [~] src/net/protocol.js (517) · [x] src/net/remotePlayers.js (610) · [x] src/net/session.js (949) · [~] src/net/voice.js (1553, every known line in place; 8 doc lines + onOffer's 2 new lines written, see Guessed)
 - [~] src/player/combat.js (96)
 - [~] src/tiles/planetary.js (1947, every known line in place; the Oct 5 review's fixes rebuilt, see Guessed)
-- [~] src/ui/chat.js (237, every known line in place; Oct 6 text + ledger F2/F9/P4/P8, see Guessed) · [~] src/ui/deathScreen.js (87) · [~] src/ui/onlinePanel.js (387 = final, every known line in place; F9 Change password form, see Guessed) · [~] src/ui/playersPanel.js (463 = final, every known line in place; see Guessed) · [~] src/ui/teleportMenu.js (377 = final, every known line in place; F7, see Guessed) · [~] src/ui/travelPanel.js (173 = final; lines 69-173 rebuilt for P3, see Guessed) · [x] src/ui/trail.js (140)
+- [~] src/ui/chat.js (237, every known line in place; Oct 6 text + ledger F2/F9/P4/P8, see Guessed) · [~] src/ui/deathScreen.js (87 = the Oct 11 count; written to P2 and session.js's update(how) call, see Guessed) · [~] src/ui/onlinePanel.js (387 = final, every known line in place; F9 Change password form, see Guessed) · [~] src/ui/playersPanel.js (463 = final, every known line in place; see Guessed) · [~] src/ui/teleportMenu.js (377 = final, every known line in place; F7, see Guessed) · [~] src/ui/travelPanel.js (173 = final; lines 69-173 rebuilt for P3, see Guessed) · [x] src/ui/trail.js (140)
 - [x] src/world/lander.js (184) · [x] src/world/stars.js (173, the whole file from an Oct 5 13:49 `cat -n` inside a mixed command; one version to the end) · [x] src/world/starCatalogue.js (regenerated: 2887 stars, 25302 bytes, the same size the Oct 5 wc -c gave)
 - [~] tools/flightcheck.mjs (387) · [~] tools/onlinecheck.mjs (596) · [~] tools/servertest.mjs (1719) · [~] tools/stars.mjs (96) · [~] tools/gazetteer.py (the paste, plus 3 lines of mine that turn U+2019/U+2018 into ' so today's USGS names pass the Latin-1 selftest) · [ ] tools/glb-unplate.py
 - [ ] assets/sword.glb (binary: regenerate) · [ ] shots/online/*.png (regenerate with the shots tools) · [ ] terraglide-online.html (build: node tools/online.mjs)
@@ -193,6 +193,9 @@ Changed tracked files (base = 2c7ee70):
   - waiting state (+3, mine); a 26-line block with the requestSent/chat-error/auth listeners around the known line 94;
   - send() records what was sent and tells only an admin's TP at once; the empty-list text on 2 lines (net −4).
   - The donecheck's 29–30 and 255–266 land.
+
+- src/ui/deathScreen.js (87 lines, the Oct 11 count): no log ever showed it. The paste (69 lines, before Oct 7) plus my P2: update(how) (session.js calls deathScreen.update with {cause, by, message, stats}), a kills/deaths score line, the server's 'kill' and 'fled' causes, and 2 lines of class doc. recovery/guess/deathScreen_edits.py.
+- Re-downloaded the workflow-agent events (subagents=true) on Oct 15: the same 25,971 events, none on Oct 4 or Oct 8. No agent ran those days; what was done then was the main chat's, whose log before Oct 10 is gone.
 
 ## Facts found while rebuilding (Oct 15)
 - frags.mjs now also reads a lone `cat -n FILE` inside a mixed command (the tab-numbered run from line 1). That found whole copies of gazetteer.js, stars.js, boot.js, storage.js, edgeWall.js, main.js, bundle.mjs, online.mjs and index.html; the last seven equal the repo. Look for more by hand: any `cat -n` in a chain of commands.
