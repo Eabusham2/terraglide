@@ -35,8 +35,11 @@ for (const r of loadRows()) {
   const parts = split(cmd); if (!parts) continue;
   let cwdRepo = true; const cmds = [];
   for (const p of parts) { const cd = /^cd\s+(\S+)$/.exec(p); if (cd) { cwdRepo = /^\/home\/user\/terraglide\/?$/.test(cd[1]); continue; } cmds.push({ p, cwdRepo }); }
+  const naming = cmds.filter(({ p }) => p.includes(name)).length;
   for (const { p, cwdRepo: inRepo } of cmds) {
     if (!/^grep\s/.test(p) || !inRepo) continue;
+    // Two commands that both print this file's lines: their output cannot be told apart.
+    if (naming > 1 || /\|\s*wc\b/.test(p)) { skipped++; continue; }
     if (!p.includes(name)) continue;
     if (/\$\(|`/.test(p)) continue;
     const first = p.split(/\s\|\s/)[0];
