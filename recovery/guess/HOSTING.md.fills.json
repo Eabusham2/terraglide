@@ -1,0 +1,47 @@
+[
+ {
+  "at": 113,
+  "gapLines": 1,
+  "filledLines": 0,
+  "from": null
+ },
+ {
+  "at": 115,
+  "gapLines": 12,
+  "filledLines": 0,
+  "from": null
+ },
+ {
+  "at": 503,
+  "gapLines": 46,
+  "filledLines": 39,
+  "from": "sed 470,532 (chain)",
+  "t": "2026-10-07T22:02:16.645727Z"
+ },
+ {
+  "at": 821,
+  "gapLines": 8,
+  "filledLines": 0,
+  "from": null
+ },
+ {
+  "at": 830,
+  "gapLines": 4,
+  "filledLines": 0,
+  "from": null
+ },
+ {
+  "at": 1003,
+  "gapLines": 34,
+  "filledLines": 31,
+  "from": "Bash output",
+  "t": "2026-10-07T16:53:06.901807Z"
+ },
+ {
+  "at": 1481,
+  "gapLines": 31,
+  "filledLines": 30,
+  "from": "Bash output",
+  "t": "2026-10-07T16:53:07.707807Z"
+ }
+]
