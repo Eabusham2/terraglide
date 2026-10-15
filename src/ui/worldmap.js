@@ -207,7 +207,8 @@ export class WorldMap {
       { passive: false },
     );
     canvas.addEventListener('dblclick', (event) => {
-      if (!cheats.unlocked) return;
+      // Never on a server, cheats or no cheats: the server decides where you are.
+      if (ONLINE || !cheats.unlocked) return;
       const point = this.pointAt(event);
       if (point && this.onTeleport) this.onTeleport(point.lat, point.lon);
     });
@@ -238,7 +239,7 @@ export class WorldMap {
         this.search();
         break;
       case 'teleport':
-        if (this.onTeleport) this.onTeleport(this.centre.lat, this.centre.lon);
+        if (this.onTeleport && !ONLINE) this.onTeleport(this.centre.lat, this.centre.lon);
         break;
       case 'rtp':
         if (this.onRandomTeleport) this.onRandomTeleport();
@@ -248,6 +249,9 @@ export class WorldMap {
         this.notify(`Waypoint "${waypoint.name}" saved`);
         break;
       }
+      case 'party-waypoint':
+        this.onPartyMark?.(this.centre.lat, this.centre.lon);
+        break;
       case 'copy':
         this.copy(formatLatLon(this.centre.lat, this.centre.lon, 6));
         break;
@@ -353,10 +357,10 @@ export class WorldMap {
   /** Directed teleports are not part of the game; they only exist with cheats. */
   applyPermissions() {
     this.element.querySelectorAll('[data-directed]').forEach((node) => {
-      node.hidden = !cheats.unlocked;
+      node.hidden = ONLINE || !cheats.unlocked;
     });
     this.element.querySelectorAll('[data-action="travel"]').forEach((node) => {
-      node.hidden = !cheats.unlocked;
+      node.hidden = ONLINE || !cheats.unlocked;
     });
   }
 
@@ -505,7 +509,7 @@ export class WorldMap {
         others: this.others,
         player,
         options: {
-          fog: settings.get('minimapFog'),
+          fog: ONLINE || settings.get('minimapFog'),
           drawnOnly: settings.get('mapDrawnOnly'),
           trail: settings.get('showTrail'),
           waypoints: true,
