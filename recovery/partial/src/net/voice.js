@@ -1,107 +1,107 @@
-@@MISSING 1@@
-@@MISSING 2@@
-@@MISSING 3@@
-@@MISSING 4@@
-@@MISSING 5@@
-@@MISSING 6@@
-@@MISSING 7@@
-@@MISSING 8@@
-@@MISSING 9@@
-@@MISSING 10@@
-@@MISSING 11@@
-@@MISSING 12@@
-@@MISSING 13@@
-@@MISSING 14@@
-@@MISSING 15@@
-@@MISSING 16@@
-@@MISSING 17@@
-@@MISSING 18@@
-@@MISSING 19@@
-@@MISSING 20@@
-@@MISSING 21@@
-@@MISSING 22@@
-@@MISSING 23@@
-@@MISSING 24@@
-@@MISSING 25@@
-@@MISSING 26@@
-@@MISSING 27@@
-@@MISSING 28@@
-@@MISSING 29@@
-@@MISSING 30@@
-@@MISSING 31@@
-@@MISSING 32@@
-@@MISSING 33@@
-@@MISSING 34@@
-@@MISSING 35@@
-@@MISSING 36@@
-@@MISSING 37@@
-@@MISSING 38@@
-@@MISSING 39@@
-@@MISSING 40@@
-@@MISSING 41@@
-@@MISSING 42@@
-@@MISSING 43@@
-@@MISSING 44@@
-@@MISSING 45@@
-@@MISSING 46@@
-@@MISSING 47@@
-@@MISSING 48@@
-@@MISSING 49@@
-@@MISSING 50@@
-@@MISSING 51@@
-@@MISSING 52@@
-@@MISSING 53@@
-@@MISSING 54@@
-@@MISSING 55@@
-@@MISSING 56@@
-@@MISSING 57@@
-@@MISSING 58@@
-@@MISSING 59@@
-@@MISSING 60@@
-@@MISSING 61@@
-@@MISSING 62@@
-@@MISSING 63@@
-@@MISSING 64@@
-@@MISSING 65@@
-@@MISSING 66@@
-@@MISSING 67@@
-@@MISSING 68@@
-@@MISSING 69@@
-@@MISSING 70@@
-@@MISSING 71@@
-@@MISSING 72@@
-@@MISSING 73@@
-@@MISSING 74@@
-@@MISSING 75@@
-@@MISSING 76@@
-@@MISSING 77@@
-@@MISSING 78@@
-@@MISSING 79@@
-@@MISSING 80@@
-@@MISSING 81@@
-@@MISSING 82@@
-@@MISSING 83@@
-@@MISSING 84@@
-@@MISSING 85@@
-@@MISSING 86@@
-@@MISSING 87@@
-@@MISSING 88@@
-@@MISSING 89@@
-@@MISSING 90@@
-@@MISSING 91@@
-@@MISSING 92@@
-@@MISSING 93@@
-@@MISSING 94@@
-@@MISSING 95@@
-@@MISSING 96@@
-@@MISSING 97@@
-@@MISSING 98@@
-@@MISSING 99@@
-@@MISSING 100@@
-@@MISSING 101@@
-@@MISSING 102@@
-@@MISSING 103@@
-@@MISSING 104@@
+import { BOOT } from '../core/boot.js';
+import { Emitter } from '../core/events.js';
+import { settings as sharedSettings } from '../core/settings.js';
+import { VOICE_CONNECT_M, VOICE_FULL_M, VOICE_RANGE_M } from './protocol.js';
+
+/**
+ * Proximity voice: the people flying near you, heard from where they are.
+ *
+ * The audio goes browser to browser over WebRTC. The server never touches it;
+ * all it carries is the handshake — offers, answers and network candidates —
+ * relayed between two players on the same world who are close enough to hear
+ * each other (see onVoice in server/game.mjs). That keeps a hobby server's
+ * bandwidth bill at the size of a chat room however much talking goes on.
+ *
+ * Who calls whom. Two pages that both decide "we are in range" at the same
+ * moment and both send an offer is the classic WebRTC collision, and range is
+ * symmetric, so here it would be the normal case rather than the rare one. So
+ * only the lower player id ever opens a connection. The higher one, if it has
+ * waited a moment and nothing has arrived — because the lower one has voice
+ * off, or was mid-respawn, or turned it on later — sends an offer with no
+ * description in it, just `{ask: true}`, which the lower one answers by
+ * calling. Every connection carries a random `cid` so a message about a
+ * connection that has since been closed and reopened is recognised as stale
+ * and dropped instead of being applied to its successor. Renegotiating an
+ * existing connection — the microphone arriving after it was set up listen-
+ * only — can start from either side, so that uses the "perfect negotiation"
+ * pattern from the WebRTC specification, with the higher id as the polite
+ * peer that gives way when both offer at once.
+ *
+ * What you hear. Each voice runs through its own chain:
+ *
+ *   remote stream -> source -> gain (mute) -> panner (HRTF) -> master (volume) -> speakers
+ *                          \-> analyser (are they talking?)
+ *
+ * The panner uses the linear distance model between VOICE_FULL_M and
+ * VOICE_RANGE_M, so somebody is at full volume close in and fades evenly to
+ * nothing at the edge of range — the curve a player can actually learn, which
+ * the inverse-square default is not: it is still loud at ten times the
+ * reference distance and never reaches silence at all.
+ *
+ * Positions are given to Web Audio relative to the camera, with the listener
+ * left at the origin and only turned. The local frame is rebased as you fly
+ * (see game.js rebase()), and handing the audio graph absolute coordinates
+ * would mean every rebase dragged every voice across the sky while the
+ * smoothing caught up; relative ones do not change when the origin moves.
+ *
+ * Nothing here draws anything. The HUD indicator and the settings rows are
+ * the interface's; this module only says, through status() and its events,
+ * what there is to show.
+ *
+ * Events: 'status' (the status() string, when it changes), 'talking' (you
+ * started or stopped talking), 'speakers' (the ids of whoever is talking now),
+ * 'drop' ({id, why} when a connection closes), 'mute' ({id, muted}).
+ */
+
+/** A connection opened inside VOICE_CONNECT_M is kept until this, so a voice at the edge does not flap. */
+const KEEP_M = VOICE_CONNECT_M * 1.25;
+
+/**
+ * Used when the server hands out none. Public STUN finds the address a
+ * router presents to the outside, which is enough for most home networks; a
+ * TURN relay for the rest is the server operator's to add (server/config.mjs).
+ */
+const FALLBACK_ICE_SERVERS = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+
+/**
+ * The browser's own voice processing, all of it. Echo cancellation matters
+ * most: without it everyone near you hears themselves come back out of your
+ * speakers a quarter of a second late.
+ */
+const MIC_CONSTRAINTS = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+
+/** How often connections are opened and closed. Distance changes slowly next to a frame. */
+const MANAGE_MS = 250;
+/** How often the talking meters are read. */
+const LEVEL_MS = 50;
+/** How long the higher id waits for the lower one to call before asking it to. */
+const ASK_AFTER_MS = 1500;
+/** And how often it asks again while nothing comes of it. */
+const ASK_EVERY_MS = 8000;
+/** After a connection closes or fails, how long before trying that player again. */
+const RETRY_MS = 4000;
+/** After a player says their voice is off, how long before asking again. They call when they turn it on. */
+const REFUSED_MS = 30000;
+/** A connection that has not connected in this long is given up and retried. */
+const CONNECT_TIMEOUT_MS = 20000;
+/** A connection that dropped and has not come back in this long is closed. */
+const LOST_MS = 8000;
+/** A connection to somebody who is not on the roster is closed after this. */
+const GONE_MS = 10000;
+/** Network candidates are sent in bunches, so one connection is a handful of messages, not dozens. */
+const ICE_BATCH_MS = 40;
+/**
+ * Signalling messages sent in any one second, at most. The server relays
+ * sixty a second from one player and drops the rest; this leaves room for
+ * the network bunching them up on the way. See signal().
+ */
+const SIGNAL_PER_S = 40;
+/**
+ * The most people heard at once. Each one is a connection with its own
+ * encoder on your machine; past this the nearest win. A crowd at spawn would
+ * otherwise be forty encoders on a phone.
+ */
+const MAX_PEERS = 16;
 @@MISSING 105@@
 @@MISSING 106@@
 @@MISSING 107@@
@@ -112,471 +112,471 @@
 @@MISSING 112@@
 const RADIO_GAIN = 0.35;
 const RADIO_FROM_M = VOICE_FULL_M + (1 - RADIO_GAIN) * (VOICE_RANGE_M - VOICE_FULL_M);
-@@MISSING 115@@
-@@MISSING 116@@
-@@MISSING 117@@
-@@MISSING 118@@
-@@MISSING 119@@
-@@MISSING 120@@
-@@MISSING 121@@
-@@MISSING 122@@
-@@MISSING 123@@
-@@MISSING 124@@
-@@MISSING 125@@
-@@MISSING 126@@
-@@MISSING 127@@
-@@MISSING 128@@
-@@MISSING 129@@
-@@MISSING 130@@
-@@MISSING 131@@
-@@MISSING 132@@
-@@MISSING 133@@
-@@MISSING 134@@
-@@MISSING 135@@
-@@MISSING 136@@
-@@MISSING 137@@
-@@MISSING 138@@
-@@MISSING 139@@
-@@MISSING 140@@
-@@MISSING 141@@
-@@MISSING 142@@
-@@MISSING 143@@
-@@MISSING 144@@
-@@MISSING 145@@
-@@MISSING 146@@
-@@MISSING 147@@
-@@MISSING 148@@
-@@MISSING 149@@
-@@MISSING 150@@
-@@MISSING 151@@
-@@MISSING 152@@
-@@MISSING 153@@
-@@MISSING 154@@
-@@MISSING 155@@
-@@MISSING 156@@
-@@MISSING 157@@
-@@MISSING 158@@
-@@MISSING 159@@
-@@MISSING 160@@
-@@MISSING 161@@
-@@MISSING 162@@
-@@MISSING 163@@
-@@MISSING 164@@
-@@MISSING 165@@
-@@MISSING 166@@
-@@MISSING 167@@
-@@MISSING 168@@
-@@MISSING 169@@
-@@MISSING 170@@
-@@MISSING 171@@
-@@MISSING 172@@
-@@MISSING 173@@
-@@MISSING 174@@
-@@MISSING 175@@
-@@MISSING 176@@
-@@MISSING 177@@
-@@MISSING 178@@
-@@MISSING 179@@
-@@MISSING 180@@
-@@MISSING 181@@
-@@MISSING 182@@
-@@MISSING 183@@
-@@MISSING 184@@
-@@MISSING 185@@
-@@MISSING 186@@
-@@MISSING 187@@
-@@MISSING 188@@
-@@MISSING 189@@
-@@MISSING 190@@
-@@MISSING 191@@
-@@MISSING 192@@
-@@MISSING 193@@
-@@MISSING 194@@
-@@MISSING 195@@
-@@MISSING 196@@
-@@MISSING 197@@
-@@MISSING 198@@
-@@MISSING 199@@
-@@MISSING 200@@
-@@MISSING 201@@
-@@MISSING 202@@
-@@MISSING 203@@
-@@MISSING 204@@
-@@MISSING 205@@
-@@MISSING 206@@
-@@MISSING 207@@
-@@MISSING 208@@
-@@MISSING 209@@
-@@MISSING 210@@
-@@MISSING 211@@
-@@MISSING 212@@
-@@MISSING 213@@
-@@MISSING 214@@
-@@MISSING 215@@
-@@MISSING 216@@
-@@MISSING 217@@
-@@MISSING 218@@
-@@MISSING 219@@
-@@MISSING 220@@
-@@MISSING 221@@
-@@MISSING 222@@
-@@MISSING 223@@
-@@MISSING 224@@
-@@MISSING 225@@
-@@MISSING 226@@
-@@MISSING 227@@
-@@MISSING 228@@
-@@MISSING 229@@
-@@MISSING 230@@
-@@MISSING 231@@
-@@MISSING 232@@
-@@MISSING 233@@
-@@MISSING 234@@
-@@MISSING 235@@
-@@MISSING 236@@
-@@MISSING 237@@
-@@MISSING 238@@
-@@MISSING 239@@
-@@MISSING 240@@
-@@MISSING 241@@
-@@MISSING 242@@
-@@MISSING 243@@
-@@MISSING 244@@
-@@MISSING 245@@
-@@MISSING 246@@
-@@MISSING 247@@
-@@MISSING 248@@
-@@MISSING 249@@
-@@MISSING 250@@
-@@MISSING 251@@
-@@MISSING 252@@
-@@MISSING 253@@
-@@MISSING 254@@
-@@MISSING 255@@
-@@MISSING 256@@
-@@MISSING 257@@
-@@MISSING 258@@
-@@MISSING 259@@
-@@MISSING 260@@
-@@MISSING 261@@
-@@MISSING 262@@
-@@MISSING 263@@
-@@MISSING 264@@
-@@MISSING 265@@
-@@MISSING 266@@
-@@MISSING 267@@
-@@MISSING 268@@
-@@MISSING 269@@
-@@MISSING 270@@
-@@MISSING 271@@
-@@MISSING 272@@
-@@MISSING 273@@
-@@MISSING 274@@
-@@MISSING 275@@
-@@MISSING 276@@
-@@MISSING 277@@
-@@MISSING 278@@
-@@MISSING 279@@
-@@MISSING 280@@
-@@MISSING 281@@
-@@MISSING 282@@
-@@MISSING 283@@
-@@MISSING 284@@
-@@MISSING 285@@
-@@MISSING 286@@
-@@MISSING 287@@
-@@MISSING 288@@
-@@MISSING 289@@
-@@MISSING 290@@
-@@MISSING 291@@
-@@MISSING 292@@
-@@MISSING 293@@
-@@MISSING 294@@
-@@MISSING 295@@
-@@MISSING 296@@
-@@MISSING 297@@
-@@MISSING 298@@
-@@MISSING 299@@
-@@MISSING 300@@
-@@MISSING 301@@
-@@MISSING 302@@
-@@MISSING 303@@
-@@MISSING 304@@
-@@MISSING 305@@
-@@MISSING 306@@
-@@MISSING 307@@
-@@MISSING 308@@
-@@MISSING 309@@
-@@MISSING 310@@
-@@MISSING 311@@
-@@MISSING 312@@
-@@MISSING 313@@
-@@MISSING 314@@
-@@MISSING 315@@
-@@MISSING 316@@
-@@MISSING 317@@
-@@MISSING 318@@
-@@MISSING 319@@
-@@MISSING 320@@
-@@MISSING 321@@
-@@MISSING 322@@
-@@MISSING 323@@
-@@MISSING 324@@
-@@MISSING 325@@
-@@MISSING 326@@
-@@MISSING 327@@
-@@MISSING 328@@
-@@MISSING 329@@
-@@MISSING 330@@
-@@MISSING 331@@
-@@MISSING 332@@
-@@MISSING 333@@
-@@MISSING 334@@
-@@MISSING 335@@
-@@MISSING 336@@
-@@MISSING 337@@
-@@MISSING 338@@
-@@MISSING 339@@
-@@MISSING 340@@
-@@MISSING 341@@
-@@MISSING 342@@
-@@MISSING 343@@
-@@MISSING 344@@
-@@MISSING 345@@
-@@MISSING 346@@
-@@MISSING 347@@
-@@MISSING 348@@
-@@MISSING 349@@
-@@MISSING 350@@
-@@MISSING 351@@
-@@MISSING 352@@
-@@MISSING 353@@
-@@MISSING 354@@
-@@MISSING 355@@
-@@MISSING 356@@
-@@MISSING 357@@
-@@MISSING 358@@
-@@MISSING 359@@
-@@MISSING 360@@
-@@MISSING 361@@
-@@MISSING 362@@
-@@MISSING 363@@
-@@MISSING 364@@
-@@MISSING 365@@
-@@MISSING 366@@
-@@MISSING 367@@
-@@MISSING 368@@
-@@MISSING 369@@
-@@MISSING 370@@
-@@MISSING 371@@
-@@MISSING 372@@
-@@MISSING 373@@
-@@MISSING 374@@
-@@MISSING 375@@
-@@MISSING 376@@
-@@MISSING 377@@
-@@MISSING 378@@
-@@MISSING 379@@
-@@MISSING 380@@
-@@MISSING 381@@
-@@MISSING 382@@
-@@MISSING 383@@
-@@MISSING 384@@
-@@MISSING 385@@
-@@MISSING 386@@
-@@MISSING 387@@
-@@MISSING 388@@
-@@MISSING 389@@
-@@MISSING 390@@
-@@MISSING 391@@
-@@MISSING 392@@
-@@MISSING 393@@
-@@MISSING 394@@
-@@MISSING 395@@
-@@MISSING 396@@
-@@MISSING 397@@
-@@MISSING 398@@
-@@MISSING 399@@
-@@MISSING 400@@
-@@MISSING 401@@
-@@MISSING 402@@
-@@MISSING 403@@
-@@MISSING 404@@
-@@MISSING 405@@
-@@MISSING 406@@
-@@MISSING 407@@
-@@MISSING 408@@
-@@MISSING 409@@
-@@MISSING 410@@
-@@MISSING 411@@
-@@MISSING 412@@
-@@MISSING 413@@
-@@MISSING 414@@
-@@MISSING 415@@
-@@MISSING 416@@
-@@MISSING 417@@
-@@MISSING 418@@
-@@MISSING 419@@
-@@MISSING 420@@
-@@MISSING 421@@
-@@MISSING 422@@
-@@MISSING 423@@
-@@MISSING 424@@
-@@MISSING 425@@
-@@MISSING 426@@
-@@MISSING 427@@
-@@MISSING 428@@
-@@MISSING 429@@
-@@MISSING 430@@
-@@MISSING 431@@
-@@MISSING 432@@
-@@MISSING 433@@
-@@MISSING 434@@
-@@MISSING 435@@
-@@MISSING 436@@
-@@MISSING 437@@
-@@MISSING 438@@
-@@MISSING 439@@
-@@MISSING 440@@
-@@MISSING 441@@
-@@MISSING 442@@
-@@MISSING 443@@
-@@MISSING 444@@
-@@MISSING 445@@
-@@MISSING 446@@
-@@MISSING 447@@
-@@MISSING 448@@
-@@MISSING 449@@
-@@MISSING 450@@
-@@MISSING 451@@
-@@MISSING 452@@
-@@MISSING 453@@
-@@MISSING 454@@
-@@MISSING 455@@
-@@MISSING 456@@
-@@MISSING 457@@
-@@MISSING 458@@
-@@MISSING 459@@
-@@MISSING 460@@
-@@MISSING 461@@
-@@MISSING 462@@
-@@MISSING 463@@
-@@MISSING 464@@
-@@MISSING 465@@
-@@MISSING 466@@
-@@MISSING 467@@
-@@MISSING 468@@
-@@MISSING 469@@
-@@MISSING 470@@
-@@MISSING 471@@
-@@MISSING 472@@
-@@MISSING 473@@
-@@MISSING 474@@
-@@MISSING 475@@
-@@MISSING 476@@
-@@MISSING 477@@
-@@MISSING 478@@
-@@MISSING 479@@
-@@MISSING 480@@
-@@MISSING 481@@
-@@MISSING 482@@
-@@MISSING 483@@
-@@MISSING 484@@
-@@MISSING 485@@
-@@MISSING 486@@
-@@MISSING 487@@
-@@MISSING 488@@
-@@MISSING 489@@
-@@MISSING 490@@
-@@MISSING 491@@
-@@MISSING 492@@
-@@MISSING 493@@
-@@MISSING 494@@
-@@MISSING 495@@
-@@MISSING 496@@
-@@MISSING 497@@
-@@MISSING 498@@
-@@MISSING 499@@
-@@MISSING 500@@
-@@MISSING 501@@
-@@MISSING 502@@
-@@MISSING 503@@
-@@MISSING 504@@
-@@MISSING 505@@
-@@MISSING 506@@
-@@MISSING 507@@
-@@MISSING 508@@
-@@MISSING 509@@
-@@MISSING 510@@
-@@MISSING 511@@
-@@MISSING 512@@
-@@MISSING 513@@
-@@MISSING 514@@
-@@MISSING 515@@
-@@MISSING 516@@
-@@MISSING 517@@
-@@MISSING 518@@
-@@MISSING 519@@
-@@MISSING 520@@
-@@MISSING 521@@
-@@MISSING 522@@
-@@MISSING 523@@
-@@MISSING 524@@
-@@MISSING 525@@
-@@MISSING 526@@
-@@MISSING 527@@
-@@MISSING 528@@
-@@MISSING 529@@
-@@MISSING 530@@
-@@MISSING 531@@
-@@MISSING 532@@
-@@MISSING 533@@
-@@MISSING 534@@
-@@MISSING 535@@
-@@MISSING 536@@
-@@MISSING 537@@
-@@MISSING 538@@
-@@MISSING 539@@
-@@MISSING 540@@
-@@MISSING 541@@
-@@MISSING 542@@
-@@MISSING 543@@
-@@MISSING 544@@
-@@MISSING 545@@
-@@MISSING 546@@
-@@MISSING 547@@
-@@MISSING 548@@
-@@MISSING 549@@
-@@MISSING 550@@
-@@MISSING 551@@
-@@MISSING 552@@
-@@MISSING 553@@
-@@MISSING 554@@
-@@MISSING 555@@
-@@MISSING 556@@
-@@MISSING 557@@
-@@MISSING 558@@
-@@MISSING 559@@
-@@MISSING 560@@
-@@MISSING 561@@
-@@MISSING 562@@
-@@MISSING 563@@
-@@MISSING 564@@
-@@MISSING 565@@
-@@MISSING 566@@
-@@MISSING 567@@
-@@MISSING 568@@
-@@MISSING 569@@
-@@MISSING 570@@
-@@MISSING 571@@
-@@MISSING 572@@
+/** A full list swaps its farthest call for somebody this much nearer. */
+const SWAP_MARGIN_M = 15;
+/** Opus at this rate is clear speech; the browser default is several times it, for music. */
+const MAX_BITRATE = 32000;
+/**
+ * The talking gate: on above the first level (RMS of the waveform, about -34
+ * dBFS), off once below the second (-42 dBFS) for the hold time. Two levels
+ * and a hold so the indicator does not flicker between words.
+ */
+const TALK_ON = 0.02;
+const TALK_OFF = 0.008;
+const TALK_HOLD_MS = 350;
+const FFT_SIZE = 1024;
+/** Time constant for position and volume changes, seconds: smooth at sixty updates a second, no lag you can hear. */
+const GLIDE_S = 0.03;
+/** Where a voice comes from when the figure does not say how tall it is, metres above its feet. */
+const EYE_M = 1.7;
+
+/** Microphone states in which this page can still hear but cannot be heard. */
+const LISTEN_ONLY = new Set(['blocked', 'missing', 'insecure']);
+
+/**
+ * @typedef {object} Peer
+ * @property {number} id          the other player's id
+ * @property {string} cid         this connection's id, shared with them
+ * @property {RTCPeerConnection} pc
+ * @property {boolean} polite     gives way when both sides offer at once
+ * @property {boolean} makingOffer
+ * @property {boolean} ignoreOffer
+ * @property {Promise<void>} chain incoming signalling, one message at a time
+ * @property {RTCIceCandidateInit[]} pendingIce candidates that arrived before the description
+ * @property {RTCIceCandidateInit[]} outIce     candidates waiting to be sent
+ * @property {number} createdAt
+ * @property {number} connectedAt  0 until connected
+ * @property {number} lostAt       when it dropped, 0 while up
+ * @property {boolean} talking
+ * @property {number} level        RMS of what they are sending, 0..1
+ * @property {number} distance     metres from the camera
+ */
+
+export class ProximityVoice extends Emitter {
+  /**
+   * Starts at once if voice is switched on in settings, and follows the
+   * setting from then on.
+   *
+   * @param {object} deps
+   * @param {import('./session.js').OnlineSession} deps.session
+   * @param {import('../core/settings.js').SettingsStore} [deps.settings]
+   * @param {string} [deps.world] the world this page is on
+   */
+  constructor({ session, settings = sharedSettings, world = BOOT.world } = {}) {
+    super();
+    this.session = session;
+    this.net = session.net;
+    this.settings = settings;
+    this.world = world;
+    /** @type {Map<number, Peer>} */
+    this.peers = new Map();
+    /** Players there is no connection to yet: when to try them next, when they were asked. */
+    this.contacts = new Map();
+    this.mutedIds = new Set();
+    /** Mutes by name as well, so somebody reconnecting under a new id stays muted. */
+    this.mutedNames = new Set();
+    this.mode = 'off';
+    this.running = false;
+    this.unsupported = false;
+    this.pushed = false;
+    /** You are talking: transmitting, and loud enough to be speech. What FLAG.talking carries. */
+    this.talking = false;
+    /** Your microphone's level, 0..1, whether or not you are transmitting — for a mic check. */
+    this.level = 0;
+    /** 'off' | 'asking' | 'live' | 'blocked' | 'missing' | 'insecure' */
+    this.micState = 'off';
+    this.micError = '';
+    this.mic = null;
+    this.micTrack = null;
+    this.micNodes = null;
+    this.micToken = 0;
+    /** The microphone's PermissionStatus, watched once it has been refused. */
+    this.permission = null;
+    this.permissionAsked = false;
+    this.disposed = false;
+    this.ctx = null;
+    this.master = null;
+    this.sink = null;
+    this.cam = null;
+    this.gate = { open: false, loudAt: 0 };
+    this.buffer = new Float32Array(FFT_SIZE);
+    this.lastManage = 0;
+    this.lastLevels = 0;
+    this.lastStatus = '';
+    this.speakerKey = '';
+    /** Signalling waiting its turn under the server's rate limit, and when the last second's went. */
+    this.outbox = [];
+    this.sentTimes = [];
+    this.outboxTimer = 0;
+
+    const net = this.net;
+    this.unsubscribe = [
+      net.on('voice', (m) => this.onSignal(m)),
+      // Somebody left, changed world or died: their connection goes now
+      // rather than at the next distance check.
+      net.on('leave', (m) => {
+        this.drop(Number(m.id), 'left', false);
+        this.contacts.delete(Number(m.id));
+      }),
+      net.on('moved', (m) => this.drop(Number(m.id), 'world', true)),
+      net.on('dead', (m) => this.drop(Number(m.id), 'dead', true)),
+      net.on('died', () => {
+        this.closeAll('dead', true);
+        this.applyTransmit();
+      }),
+      // Signed in again — a reconnect is a new id, and everyone has already
+      // been told the old one left.
+      net.on('auth', (m) => {
+        if (!m.ok) return;
+        this.clearSignals();
+        this.closeAll('reconnect', false);
+        this.contacts.clear();
+      }),
+      net.on('status', ({ status }) => {
+        if (status === 'closed' || status === 'failed') {
+          this.clearSignals();
+          this.closeAll('offline', false);
+        }
+        this.refreshStatus();
+      }),
+      settings.on('change', ({ key }) => {
+        if (key === 'voiceMode') this.sync();
+        else if (key === 'voiceVolume') this.applyVolume();
+      }),
+      settings.on('bulk', () => this.sync()),
+    ];
+
+    // A browser only lets sound start from something the player did, and
+    // the first thing they do may well be pressing the push-to-talk key, so
+    // any press or click resumes the audio. Losing focus lets go of the key:
+    // the keyup for it goes to whichever window has focus by then.
+    this.onGesture = () => {
+      if (this.running && this.ctx && this.ctx.state !== 'running') this.resume();
+    };
+    this.onBlur = () => this.setPushed(false);
+    const win = globalThis.window;
+    if (win?.addEventListener) {
+      for (const type of ['pointerdown', 'keydown', 'touchend']) win.addEventListener(type, this.onGesture, true);
+      win.addEventListener('blur', this.onBlur);
+    }
+    // The game loop drives this through update(), but a menu or a hidden tab
+    // can stop the loop; connections should still open and close meanwhile.
+    this.timer = setInterval(() => this.tick(), 1000);
+
+    this.sync();
+  }
+
+  /* -------------------------------------------------------------- control */
+
+  /** Follow the voiceMode setting: start, stop, or change between push and open. */
+  sync() {
+    this.mode = readMode(this.settings);
+    if (this.mode === 'off') this.stop();
+    else this.start();
+    this.applyTransmit();
+    this.applyVolume();
+    this.refreshStatus();
+  }
+
+  /**
+   * Switch voice on, if the setting allows it: the audio output, the
+   * microphone, and connections to whoever is in range. Idempotent.
+   */
+  start() {
+    this.mode = readMode(this.settings);
+    if (this.disposed) return;
+    if (this.mode === 'off') {
+      this.stop();
+      return;
+    }
+    if (this.running) return;
+    if (typeof globalThis.RTCPeerConnection !== 'function') {
+      this.unsupported = true;
+      this.refreshStatus();
+      return;
+    }
+    this.running = true;
+    const ctx = this.ensureAudio();
+    if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
+    this.lastManage = 0;
+    this.acquireMic();
+    this.refreshStatus();
+  }
+
+  /** Switch voice off: every connection closed (with a goodbye), the microphone released. */
+  stop() {
+    // Also cancels a microphone request that has not been answered yet.
+    this.micToken += 1;
+    if (!this.running) return;
+    this.running = false;
+    this.closeAll('off', true);
+    this.releaseMic();
+    this.micState = 'off';
+    this.setTalking(false);
+    this.contacts.clear();
+    if (this.ctx && this.ctx.state === 'running') this.ctx.suspend().catch(() => {});
+    this.refreshStatus();
+  }
+
+  /**
+   * Push to talk: the key went down (true) or came up (false). In open mode
+   * the microphone is live regardless; in push mode only while this is held.
+   */
+  setPushed(on) {
+    const pushed = !!on;
+    if (pushed) this.onGesture();
+    if (pushed === this.pushed) return;
+    this.pushed = pushed;
+    this.applyTransmit();
+    this.refreshStatus();
+  }
+
+  /**
+   * Resume the audio output. Browsers start it suspended until the player
+   * has clicked or pressed something; call this from such a handler (any
+   * press or click on the page already does).
+   *
+   * @returns {Promise<string>} the context's state afterwards
+   */
+  resume() {
+    const ctx = this.running ? this.ensureAudio() : this.ctx;
+    if (!ctx) return Promise.resolve('none');
+    if (ctx.state === 'running' || ctx.state === 'closed') return Promise.resolve(ctx.state);
+    return ctx.resume().then(
+      () => {
+        this.refreshStatus();
+        return ctx.state;
+      },
+      () => ctx.state,
+    );
+  }
+
+  /** Ask for the microphone again — after the player has unblocked it in the browser, say. */
+  retryMic() {
+    if (!this.running || this.micState === 'live' || this.micState === 'asking') return;
+    this.acquireMic();
+  }
+
+  /** Mute one player for yourself (or unmute them). Nobody else is affected. */
+  mute(id, on = true) {
+    const key = this.nameKey(id);
+    if (on) {
+      this.mutedIds.add(id);
+      if (key) this.mutedNames.add(key);
+    } else {
+      this.mutedIds.delete(id);
+      if (key) this.mutedNames.delete(key);
+    }
+    const peer = this.peers.get(id);
+    if (peer && this.ctx) this.placePeer(peer, this.remoteById(id), this.ctx.currentTime);
+    this.emit('mute', { id, muted: !!on });
+  }
+
+  isMuted(id) {
+    if (this.mutedIds.has(id)) return true;
+    const key = this.nameKey(id);
+    return !!key && this.mutedNames.has(key);
+  }
+
+  /** Everyone currently muted, by id. */
+  get muted() {
+    const out = new Set(this.mutedIds);
+    for (const p of this.remotes()) if (this.isMuted(p.id)) out.add(p.id);
+    return out;
+  }
+
+  /** Is this player talking right now, as heard here? */
+  isTalking(id) {
+    return !!this.peers.get(id)?.talking;
+  }
+
+  /** The ids of everyone talking right now. */
+  speaking() {
+    const out = [];
+    for (const peer of this.peers.values()) if (peer.talking) out.push(peer.id);
+    return out;
+  }
+
+  /** How many voices are connected. */
+  get connected() {
+    let n = 0;
+    for (const peer of this.peers.values()) if (peer.connectedAt && !peer.lostAt) n += 1;
+    return n;
+  }
+
+  /** Your microphone is live and sending: open mode, or push mode with the key held. */
+  get transmitting() {
+    return this.running
+      && this.micState === 'live'
+      && !this.localDead()
+      && (this.mode === 'open' || (this.mode === 'push' && this.pushed));
+  }
+
+  /** One line for the HUD. */
+  status() {
+    if (!this.running) return this.unsupported ? 'voice not supported in this browser' : 'voice off';
+    if (this.myId() == null || !this.net.open) return 'voice waiting for the server';
+    if (this.localDead()) return 'voice back when you respawn';
+    const connected = this.connected;
+    const connecting = this.peers.size - connected;
+    if (connected && this.ctx && this.ctx.state !== 'running') return 'voice paused \u2014 click to hear';
+    if (this.micState === 'asking') return 'asking for the microphone\u2026';
+    if (LISTEN_ONLY.has(this.micState)) {
+      const why = this.micState === 'blocked' ? 'mic blocked'
+        : this.micState === 'insecure' ? 'mic needs https' : 'no microphone';
+      return connected ? `${why} \u2014 listening to ${connected}` : `${why} \u2014 listening only`;
+    }
+    if (!connected) return connecting ? 'connecting voice\u2026' : 'nobody in voice range';
+    return this.transmitting ? `talking to ${connected}` : `listening to ${connected}`;
+  }
+
+  /** Everything the interface might want to show, at once. */
+  info() {
+    return {
+      mode: this.mode,
+      running: this.running,
+      mic: this.micState,
+      micError: this.micError,
+      pushed: this.pushed,
+      transmitting: this.transmitting,
+      talking: this.talking,
+      level: this.level,
+      connected: this.connected,
+      audio: this.ctx?.state ?? 'none',
+      status: this.status(),
+      peers: this.list(),
+    };
+  }
+
+  /** The connections, for a players panel: who, how far, talking, muted. */
+  list() {
+    return [...this.peers.values()].map((peer) => ({
+      id: peer.id,
+      name: this.remoteById(peer.id)?.name ?? '',
+      state: peer.connectedAt && !peer.lostAt ? 'connected' : 'connecting',
+      talking: peer.talking,
+      level: peer.level,
+      muted: this.isMuted(peer.id),
+      distance: peer.distance,
+    }));
+  }
+
+  /** Close everything and stop listening to anything. The object is finished with. */
+  dispose() {
+    this.disposed = true;
+    // The goodbyes go now, up to the rate limit; anything over it is left to
+    // the server, which tells everyone when the socket closes.
+    this.stop();
+    this.clearSignals();
+    if (this.permission) this.permission.onchange = null;
+    this.permission = null;
+    for (const off of this.unsubscribe) off();
+    this.unsubscribe = [];
+    clearInterval(this.timer);
+    const win = globalThis.window;
+    if (win?.removeEventListener) {
+      for (const type of ['pointerdown', 'keydown', 'touchend']) win.removeEventListener(type, this.onGesture, true);
+      win.removeEventListener('blur', this.onBlur);
+    }
+    this.ctx?.close().catch(() => {});
+    this.ctx = null;
+    this.clear();
+  }
+
+  /* ------------------------------------------------------------ per frame */
+
+  /**
+   * Per frame, after the session has placed everyone (so their positions and
+   * the camera are in the same frame — see the note on rebasing above).
+   *
+   * @param {import('../../vendor/three/three.module.js').Camera} camera
+   */
+  update(camera) {
+    const now = performance.now();
+    if (camera) this.placeListener(camera);
+    if (now - this.lastManage >= MANAGE_MS) this.manage(now);
+    if (this.ctx && this.peers.size) {
+      const t = this.ctx.currentTime;
+      for (const peer of this.peers.values()) this.placePeer(peer, this.remoteById(peer.id), t);
+    }
+    if (now - this.lastLevels >= LEVEL_MS) this.levels(now);
+    this.refreshStatus();
+  }
+
+  /** The once-a-second fallback for when nothing is calling update(). */
+  tick() {
+    const now = performance.now();
+    if (now - this.lastManage < 900) return;
+    this.manage(now);
+    this.levels(now);
+    this.refreshStatus();
+  }
+
+  /**
+   * Turn the listener to face where the camera faces. Its position stays at
+   * the origin and every voice is placed relative to the camera instead.
+   *
+   * The camera hangs straight off the scene in this game, so its position and
+   * quaternion are already world values and are current this frame, where
+   * matrixWorld is only brought up to date by the next render. A camera
+   * parented to something else falls back to matrixWorld.
+   */
+  placeListener(camera) {
+    let x;
+    let y;
+    let z;
+    let forward;
+    let up;
+    if (camera.parent && !camera.parent.isScene && camera.matrixWorld) {
+      const e = camera.matrixWorld.elements;
+      x = e[12];
+      y = e[13];
+      z = e[14];
+      forward = normalise(-e[8], -e[9], -e[10]);
+      up = normalise(e[4], e[5], e[6]);
+    } else {
+      ({ x, y, z } = camera.position);
+      const q = camera.quaternion;
+      forward = q ? rotate(q, 0, 0, -1) : [0, 0, -1];
+      up = q ? rotate(q, 0, 1, 0) : [0, 1, 0];
+    }
+    this.cam = { x, y, z };
+    if (!this.ctx) return;
+    const listener = this.ctx.listener;
+    const t = this.ctx.currentTime;
+    if (listener.forwardX) {
+      glide(listener.forwardX, forward[0], t);
+      glide(listener.forwardY, forward[1], t);
+      glide(listener.forwardZ, forward[2], t);
+      glide(listener.upX, up[0], t);
+      glide(listener.upY, up[1], t);
+      glide(listener.upZ, up[2], t);
+    } else if (listener.setOrientation) {
+      listener.setOrientation(forward[0], forward[1], forward[2], up[0], up[1], up[2]);
+    }
+  }
+
+  /**
+   * Put one voice where its figure is, relative to the camera, at head
+   * height. Somebody whose position is not known yet is held silent rather
+   * than played from inside your own head.
+   */
+  placePeer(peer, p, t) {
+    const pos = p?.pose?.position;
+    const known = !!(pos && p.now && this.cam && p.world === this.world && !p.dead);
+    // Your party, out of earshot or on another world: a radio, steady and
+    // from nowhere in particular, rather than nothing at all.
+    if (this.partyMember(p) && !p.dead) {
+      const x = known ? pos.x - this.cam.x : 0;
+      const y = known ? pos.y + (p.pose.eyeHeight ?? EYE_M) - this.cam.y : 0;
+      const z = known ? pos.z - this.cam.z : 0;
       const near = known && Math.hypot(x, y, z) < RADIO_FROM_M;
-@@MISSING 574@@
-@@MISSING 575@@
-@@MISSING 576@@
-@@MISSING 577@@
-@@MISSING 578@@
-@@MISSING 579@@
+      peer.distance = near ? Math.hypot(x, y, z) : 0;
+      if (peer.panner) {
+        if (near) setPosition(peer.panner, x, y, z, peer.placed ? t : -1);
+        else setPosition(peer.panner, 0, 0.3, 0, -1);
+        peer.placed = near;
+      }
       const gain = this.isMuted(peer.id) ? 0 : near ? 1 : RADIO_GAIN;
       if (peer.gain && peer.gainValue !== gain) {
         glide(peer.gain.gain, gain, t);
@@ -1016,6 +1016,14 @@ const RADIO_FROM_M = VOICE_FULL_M + (1 - RADIO_GAIN) * (VOICE_RANGE_M - VOICE_FU
     }
     let peer = this.peers.get(from);
     if (peer && peer.cid !== data.cid) {
+@@MISSING 1011@@
+@@MISSING 1012@@
+@@MISSING 1013@@
+@@MISSING 1014@@
+@@MISSING 1015@@
+@@MISSING 1016@@
+@@MISSING 1017@@
+@@MISSING 1018@@
 @@MISSING 1019@@
 @@MISSING 1020@@
 @@MISSING 1021@@
@@ -1046,14 +1054,6 @@ const RADIO_FROM_M = VOICE_FULL_M + (1 - RADIO_GAIN) * (VOICE_RANGE_M - VOICE_FU
 @@MISSING 1046@@
 @@MISSING 1047@@
 @@MISSING 1048@@
-@@MISSING 1049@@
-@@MISSING 1050@@
-@@MISSING 1051@@
-@@MISSING 1052@@
-@@MISSING 1053@@
-@@MISSING 1054@@
-@@MISSING 1055@@
-@@MISSING 1056@@
   onAnswer(from, data) {
     const peer = this.peers.get(from);
     if (!peer || peer.cid !== data.cid || typeof data.sdp !== 'string') return;
@@ -1250,95 +1250,95 @@ const RADIO_FROM_M = VOICE_FULL_M + (1 - RADIO_GAIN) * (VOICE_RANGE_M - VOICE_FU
    * A meter on the microphone, fed from a copy of the track so it reads
    * whether or not push to talk is held — a mic check in settings needs
    * that. Whether you are *talking* also needs the transmit side; see levels().
-@@MISSING 1253@@
+   */
   listenToMic() {
-@@MISSING 1255@@
-@@MISSING 1256@@
-@@MISSING 1257@@
-@@MISSING 1258@@
-@@MISSING 1259@@
-@@MISSING 1260@@
-@@MISSING 1261@@
-@@MISSING 1262@@
-@@MISSING 1263@@
-@@MISSING 1264@@
-@@MISSING 1265@@
-@@MISSING 1266@@
+    const ctx = this.ensureAudio();
+    if (!ctx || !this.micTrack) return;
+    const track = this.micTrack.clone();
+    track.enabled = true;
+    const source = ctx.createMediaStreamSource(new MediaStream([track]));
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = FFT_SIZE;
+    source.connect(analyser);
+    analyser.connect(this.sink);
+    this.micNodes = { track, source, analyser };
+  }
+
   releaseMic() {
-@@MISSING 1268@@
-@@MISSING 1269@@
-@@MISSING 1270@@
-@@MISSING 1271@@
-@@MISSING 1272@@
-@@MISSING 1273@@
-@@MISSING 1274@@
-@@MISSING 1275@@
-@@MISSING 1276@@
-@@MISSING 1277@@
-@@MISSING 1278@@
-@@MISSING 1279@@
-@@MISSING 1280@@
-@@MISSING 1281@@
-@@MISSING 1282@@
-@@MISSING 1283@@
-@@MISSING 1284@@
+    if (this.micNodes) {
+      this.micNodes.source.disconnect();
+      this.micNodes.analyser.disconnect();
+      this.micNodes.track.stop();
+      this.micNodes = null;
+    }
+    if (this.mic) for (const track of this.mic.getTracks()) track.stop();
+    for (const peer of this.peers.values()) {
+      const sender = audioTransceiver(peer.pc)?.sender;
+      if (sender?.track) sender.replaceTrack(null).catch(() => {});
+    }
+    this.mic = null;
+    this.micTrack = null;
+    this.level = 0;
+  }
+
+  /** The outgoing track is enabled exactly while you should be heard. */
   applyTransmit() {
-@@MISSING 1286@@
-@@MISSING 1287@@
-@@MISSING 1288@@
-@@MISSING 1289@@
-@@MISSING 1290@@
-@@MISSING 1291@@
-@@MISSING 1292@@
+    const on = this.transmitting;
+    if (this.micTrack && this.micTrack.enabled !== on) this.micTrack.enabled = on;
+    if (!on) this.setTalking(false);
+    // The HUD's live dot follows this, and the status line alone does not
+    // always change with it: "nobody in voice range" reads the same either way.
+    if (on !== this.wasTransmitting) {
+      this.wasTransmitting = on;
       this.emit('transmit', on);
-@@MISSING 1294@@
-@@MISSING 1295@@
-@@MISSING 1296@@
-@@MISSING 1297@@
-@@MISSING 1298@@
+    }
+  }
+
+  /* ---------------------------------------------------------------- audio */
+
   ensureAudio() {
-@@MISSING 1300@@
-@@MISSING 1301@@
-@@MISSING 1302@@
-@@MISSING 1303@@
-@@MISSING 1304@@
-@@MISSING 1305@@
-@@MISSING 1306@@
-@@MISSING 1307@@
-@@MISSING 1308@@
-@@MISSING 1309@@
-@@MISSING 1310@@
-@@MISSING 1311@@
-@@MISSING 1312@@
-@@MISSING 1313@@
-@@MISSING 1314@@
-@@MISSING 1315@@
-@@MISSING 1316@@
-@@MISSING 1317@@
-@@MISSING 1318@@
-@@MISSING 1319@@
-@@MISSING 1320@@
-@@MISSING 1321@@
-@@MISSING 1322@@
-@@MISSING 1323@@
-@@MISSING 1324@@
-@@MISSING 1325@@
-@@MISSING 1326@@
-@@MISSING 1327@@
-@@MISSING 1328@@
-@@MISSING 1329@@
+    if (this.ctx) return this.ctx;
+    const Context = globalThis.AudioContext ?? globalThis.webkitAudioContext;
+    if (!Context) return null;
+    let ctx;
+    try {
+      ctx = new Context({ latencyHint: 'interactive' });
+    } catch {
+      return null;
+    }
+    this.ctx = ctx;
+    this.master = ctx.createGain();
+    this.master.gain.value = readVolume(this.settings);
+    this.master.connect(ctx.destination);
+    // Analysers only run when something downstream pulls on them; a silent
+    // sink into the speakers is that something, in every browser.
+    this.sink = ctx.createGain();
+    this.sink.gain.value = 0;
+    this.sink.connect(ctx.destination);
+    const listener = ctx.listener;
+    if (listener.positionX) {
+      listener.positionX.value = 0;
+      listener.positionY.value = 0;
+      listener.positionZ.value = 0;
+    } else if (listener.setPosition) {
+      listener.setPosition(0, 0, 0);
+    }
+    ctx.onstatechange = () => this.refreshStatus();
+    return ctx;
+  }
+
   applyVolume() {
-@@MISSING 1331@@
-@@MISSING 1332@@
-@@MISSING 1333@@
-@@MISSING 1334@@
-@@MISSING 1335@@
-@@MISSING 1336@@
-@@MISSING 1337@@
-@@MISSING 1338@@
-@@MISSING 1339@@
-@@MISSING 1340@@
-@@MISSING 1341@@
+    if (this.master && this.ctx) glide(this.master.gain, readVolume(this.settings), this.ctx.currentTime);
+  }
+
+  /**
+   * A voice arrived: wire it into the graph.
+   *
+   * Chrome will not deliver a remote WebRTC stream into Web Audio unless the
+   * same stream is also playing through a media element — a long-standing
+   * bug, and the reason for the muted <audio> below, which is never added to
+   * the page and never makes a sound of its own.
+   */
   attachRemote(peer, event) {
     const track = event.track;
     if (!track || track.kind !== 'audio' || peer.track === track) return;

@@ -189,9 +189,9 @@
 @@MISSING 189@@
 @@MISSING 190@@
       case 'near':
-@@MISSING 192@@
-@@MISSING 193@@
-@@MISSING 194@@
+        line.innerHTML = `<em>nearby</em> ${name(m.from)} ${text}`;
+        break;
+      case 'whisper':
         line.innerHTML = `<em>${escapeHtml(m.from.name)} whispers</em> ${text}`;
         break;
       case 'whisperSent':

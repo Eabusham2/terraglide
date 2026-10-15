@@ -477,8 +477,8 @@ export { SPEED_MODE_COOLDOWN_S, SPEED_MODE_SECONDS, SURGE_FACTOR };
     if (this.selectedSlot < HOTBAR.length) this.lastRocketSlot = this.selectedSlot;
     this.selectedSlot = next;
     this.emit('hotbar', next);
-@@MISSING 480@@
-@@MISSING 481@@
+  }
+
   cycleSlot(delta) {
     const count = SLOTS.length;
     this.selectSlot((((this.selectedSlot + delta) % count) + count) % count);

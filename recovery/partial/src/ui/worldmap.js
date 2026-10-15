@@ -157,8 +157,8 @@ export class WorldMap {
 @@MISSING 157@@
 @@MISSING 158@@
 @@MISSING 159@@
-@@MISSING 160@@
-@@MISSING 161@@
+          this.dirty = true;
+          this.dirty = true;
 @@MISSING 162@@
 @@MISSING 163@@
 @@MISSING 164@@
@@ -170,114 +170,114 @@ export class WorldMap {
 @@MISSING 170@@
 @@MISSING 171@@
 @@MISSING 172@@
-@@MISSING 173@@
-@@MISSING 174@@
-@@MISSING 175@@
-@@MISSING 176@@
-@@MISSING 177@@
-@@MISSING 178@@
-@@MISSING 179@@
-@@MISSING 180@@
-@@MISSING 181@@
-@@MISSING 182@@
-@@MISSING 183@@
-@@MISSING 184@@
-@@MISSING 185@@
-@@MISSING 186@@
-@@MISSING 187@@
-@@MISSING 188@@
-@@MISSING 189@@
-@@MISSING 190@@
-@@MISSING 191@@
-@@MISSING 192@@
-@@MISSING 193@@
-@@MISSING 194@@
-@@MISSING 195@@
-@@MISSING 196@@
-@@MISSING 197@@
-@@MISSING 198@@
-@@MISSING 199@@
-@@MISSING 200@@
-@@MISSING 201@@
-@@MISSING 202@@
-@@MISSING 203@@
-@@MISSING 204@@
-@@MISSING 205@@
-@@MISSING 206@@
-@@MISSING 207@@
-@@MISSING 208@@
-@@MISSING 209@@
-@@MISSING 210@@
-@@MISSING 211@@
-@@MISSING 212@@
-@@MISSING 213@@
-@@MISSING 214@@
-@@MISSING 215@@
-@@MISSING 216@@
-@@MISSING 217@@
-@@MISSING 218@@
-@@MISSING 219@@
-@@MISSING 220@@
-@@MISSING 221@@
-@@MISSING 222@@
-@@MISSING 223@@
-@@MISSING 224@@
-@@MISSING 225@@
-@@MISSING 226@@
-@@MISSING 227@@
-@@MISSING 228@@
-@@MISSING 229@@
-@@MISSING 230@@
-@@MISSING 231@@
-@@MISSING 232@@
-@@MISSING 233@@
-@@MISSING 234@@
-@@MISSING 235@@
-@@MISSING 236@@
-@@MISSING 237@@
-@@MISSING 238@@
-@@MISSING 239@@
-@@MISSING 240@@
-@@MISSING 241@@
-@@MISSING 242@@
-@@MISSING 243@@
-@@MISSING 244@@
-@@MISSING 245@@
-@@MISSING 246@@
-@@MISSING 247@@
-@@MISSING 248@@
-@@MISSING 249@@
-@@MISSING 250@@
-@@MISSING 251@@
-@@MISSING 252@@
-@@MISSING 253@@
-@@MISSING 254@@
-@@MISSING 255@@
-@@MISSING 256@@
-@@MISSING 257@@
-@@MISSING 258@@
-@@MISSING 259@@
-@@MISSING 260@@
-@@MISSING 261@@
-@@MISSING 262@@
-@@MISSING 263@@
-@@MISSING 264@@
-@@MISSING 265@@
-@@MISSING 266@@
-@@MISSING 267@@
-@@MISSING 268@@
-@@MISSING 269@@
-@@MISSING 270@@
-@@MISSING 271@@
-@@MISSING 272@@
-@@MISSING 273@@
-@@MISSING 274@@
-@@MISSING 275@@
-@@MISSING 276@@
-@@MISSING 277@@
-@@MISSING 278@@
-@@MISSING 279@@
-@@MISSING 280@@
+      this.centre = moved;
+      this.dirty = true;
+    });
+    window.addEventListener('mouseup', () => {
+      this.dragging = false;
+      this.draggingWaypoint = null;
+      canvas.classList.remove('dragging');
+      canvas.classList.remove('dragging-waypoint');
+    });
+    // Which one the pointer is over, so the cursor says it can be picked up
+    // before you try.
+    canvas.addEventListener('mousemove', (event) => {
+      if (this.dragging || this.draggingWaypoint) return;
+      canvas.classList.toggle('over-waypoint', !!this.waypointAt(event));
+    });
+    // Two notches of wheel per half level. The step used to be a quarter of a
+    // level while setZoom rounded to halves, so zooming *out* from any settled
+    // value rounded straight back to where it started and did nothing at all —
+    // which is why the map zoomed about half the time, and moved twice as far
+    // as intended when it did.
+    this.wheel = new WheelSteps(2);
+    canvas.addEventListener(
+      'wheel',
+      (event) => {
+        event.preventDefault();
+        const steps = this.wheel.read(event);
+        if (!steps) return;
+        // Zoom about the pointer, the way every map does. Zooming about the
+        // centre instead means the thing you are pointing at slides away from
+        // you as you go in, and the further off-centre it is the further it
+        // slides — which is the map "zooming out too much to the left".
+        const anchor = this.pointAt(event);
+        this.setZoom(this.zoom + steps * 0.5, anchor);
+      },
+      { passive: false },
+    );
+    canvas.addEventListener('dblclick', (event) => {
+      if (!cheats.unlocked) return;
+      const point = this.pointAt(event);
+      if (point && this.onTeleport) this.onTeleport(point.lat, point.lon);
+    });
+
+    const trailTick = this.element.querySelector('[data-trail]');
+    trailTick.addEventListener('change', () => settings.set('showTrail', trailTick.checked));
+
+    const drawnTick = this.element.querySelector('[data-drawn]');
+    drawnTick.addEventListener('change', () => settings.set('mapDrawnOnly', drawnTick.checked));
+
+    cheats.on('unlock', () => this.applyPermissions());
+  }
+
+  pointAt(event) {
+    const rect = this.canvas.getBoundingClientRect();
+    const origin = project(this.centre.lat, this.centre.lon, this.zoom);
+    const px = origin.x + (event.clientX - rect.left - rect.width / 2);
+    const py = origin.y + (event.clientY - rect.top - rect.height / 2);
+    return unproject(px, py, this.zoom);
+  }
+
+  handleAction(action, target) {
+    switch (action) {
+      case 'close':
+        this.close();
+        break;
+      case 'search':
+        this.search();
+        break;
+      case 'teleport':
+        if (this.onTeleport) this.onTeleport(this.centre.lat, this.centre.lon);
+        break;
+      case 'rtp':
+        if (this.onRandomTeleport) this.onRandomTeleport();
+        break;
+      case 'waypoint': {
+        const waypoint = this.waypointStore.add(this.centre.lat, this.centre.lon, '');
+        this.notify(`Waypoint "${waypoint.name}" saved`);
+        break;
+      }
+      case 'party-waypoint':
+        this.onPartyMark?.(this.centre.lat, this.centre.lon);
+        break;
+      case 'copy':
+        this.copy(formatLatLon(this.centre.lat, this.centre.lon, 6));
+        break;
+      case 'clear-explored':
+        this.exploration.clear();
+        this.dirty = true;
+        this.notify('Explored areas cleared');
+        break;
+      case 'goto': {
+        this.centre = { lat: Number(target.dataset.lat), lon: Number(target.dataset.lon) };
+        this.dirty = true;
+        break;
+      }
+      case 'travel':
+        if (this.onTeleport) {
+          this.onTeleport(Number(target.dataset.lat), Number(target.dataset.lon));
+        }
+        break;
+      case 'delete-waypoint':
+        this.waypointStore.remove(Number(target.dataset.id));
+        break;
+      default:
+        break;
+    }
+  }
+
+  async copy(text) {
 @@MISSING 281@@
 @@MISSING 282@@
 @@MISSING 283@@
@@ -350,7 +350,7 @@ export class WorldMap {
 @@MISSING 350@@
 @@MISSING 351@@
 @@MISSING 352@@
-@@MISSING 353@@
+    this.dirty = true;
 @@MISSING 354@@
 @@MISSING 355@@
 @@MISSING 356@@
@@ -395,7 +395,7 @@ export class WorldMap {
 @@MISSING 395@@
 @@MISSING 396@@
 @@MISSING 397@@
-@@MISSING 398@@
+    this.dirty = true;
 @@MISSING 399@@
 @@MISSING 400@@
 @@MISSING 401@@
@@ -450,46 +450,46 @@ export class WorldMap {
 @@MISSING 450@@
 @@MISSING 451@@
 @@MISSING 452@@
-@@MISSING 453@@
-@@MISSING 454@@
-@@MISSING 455@@
-@@MISSING 456@@
-@@MISSING 457@@
-@@MISSING 458@@
-@@MISSING 459@@
-@@MISSING 460@@
-@@MISSING 461@@
-@@MISSING 462@@
-@@MISSING 463@@
-@@MISSING 464@@
-@@MISSING 465@@
-@@MISSING 466@@
-@@MISSING 467@@
-@@MISSING 468@@
-@@MISSING 469@@
-@@MISSING 470@@
-@@MISSING 471@@
-@@MISSING 472@@
-@@MISSING 473@@
-@@MISSING 474@@
-@@MISSING 475@@
-@@MISSING 476@@
-@@MISSING 477@@
-@@MISSING 478@@
-@@MISSING 479@@
-@@MISSING 480@@
-@@MISSING 481@@
-@@MISSING 482@@
-@@MISSING 483@@
-@@MISSING 484@@
-@@MISSING 485@@
-@@MISSING 486@@
-@@MISSING 487@@
-@@MISSING 488@@
-@@MISSING 489@@
+    for (const waypoint of this.waypointStore.waypoints) {
+      const p = project(waypoint.lat, waypoint.lon, this.zoom);
+      let ox = p.x - origin.x;
+      // The short way round the antimeridian, exactly as the renderer takes it.
+      if (ox > size / 2) ox -= size;
+      if (ox < -size / 2) ox += size;
+      const d = Math.hypot(ox - px, p.y - origin.y - py);
+      if (d < bestDistance) {
+        bestDistance = d;
+        best = waypoint;
+      }
+    }
+    return best;
+  }
+
+  resize() {
+    const wrap = this.canvas.parentElement;
+    const dpr = clamp(window.devicePixelRatio || 1, 1, 2);
+    const width = wrap.clientWidth;
+    const height = wrap.clientHeight;
+    this.canvas.width = Math.round(width * dpr);
+    this.canvas.height = Math.round(height * dpr);
+    this.canvas.style.width = `${width}px`;
+    this.canvas.style.height = `${height}px`;
+    this.dpr = dpr;
+    this.width = width;
+    this.height = height;
+    this.dirty = true;
+  }
+
+  update(player) {
+    if (!this.open) return;
+    this.player = player;
+    const wrap = this.canvas.parentElement;
+    if (wrap.clientWidth !== this.width || wrap.clientHeight !== this.height) this.resize();
+    if (!this.dirty) return;
+    this.dirty = false;
 @@MISSING 490@@
 @@MISSING 491@@
-@@MISSING 492@@
+    drawMap(
 @@MISSING 493@@
 @@MISSING 494@@
 @@MISSING 495@@
@@ -508,56 +508,56 @@ export class WorldMap {
 @@MISSING 508@@
         others: this.others,
 @@MISSING 510@@
-@@MISSING 511@@
-@@MISSING 512@@
-@@MISSING 513@@
-@@MISSING 514@@
-@@MISSING 515@@
-@@MISSING 516@@
-@@MISSING 517@@
-@@MISSING 518@@
-@@MISSING 519@@
-@@MISSING 520@@
-@@MISSING 521@@
-@@MISSING 522@@
-@@MISSING 523@@
-@@MISSING 524@@
-@@MISSING 525@@
-@@MISSING 526@@
-@@MISSING 527@@
-@@MISSING 528@@
-@@MISSING 529@@
-@@MISSING 530@@
-@@MISSING 531@@
-@@MISSING 532@@
-@@MISSING 533@@
-@@MISSING 534@@
-@@MISSING 535@@
-@@MISSING 536@@
-@@MISSING 537@@
-@@MISSING 538@@
-@@MISSING 539@@
-@@MISSING 540@@
-@@MISSING 541@@
-@@MISSING 542@@
-@@MISSING 543@@
-@@MISSING 544@@
-@@MISSING 545@@
-@@MISSING 546@@
-@@MISSING 547@@
-@@MISSING 548@@
-@@MISSING 549@@
-@@MISSING 550@@
-@@MISSING 551@@
-@@MISSING 552@@
-@@MISSING 553@@
-@@MISSING 554@@
-@@MISSING 555@@
-@@MISSING 556@@
-@@MISSING 557@@
-@@MISSING 558@@
-@@MISSING 559@@
-@@MISSING 560@@
+          fog: settings.get('minimapFog'),
+          drawnOnly: settings.get('mapDrawnOnly'),
+          trail: settings.get('showTrail'),
+          waypoints: true,
+          labels: true,
+          playerSize: 9,
+          pathWidth: 1.6,
+          compass: true,
+          compassSize: 30,
+        },
+      },
+    );
+
+    const units = settings.get('units');
+    const mpp = metresPerPixel(this.centre.lat, this.zoom);
+    this.scaleBar.style.width = '90px';
+    this.scaleLabel.textContent = formatDistance(mpp * 90, units, 0);
+    const distance = haversine(this.centre, { lat: player.lat, lon: player.lon });
+    this.centreLabel.textContent = `${formatLatLon(this.centre.lat, this.centre.lon, 5)} · z${this.zoom} · ${formatDistance(distance, units)} from you`;
+
+    const area = this.exploration.areaKm2(player.lat);
+    this.statsBox.innerHTML = `
+      <div><span>Explored</span><strong>${formatArea(area, units)}</strong></div>
+      <div><span>Waypoints</span><strong>${this.waypointStore.waypoints.length}</strong></div>
+      <div><span>Trail</span><strong>${formatDistance(this.trail.length, units)}</strong></div>
+    `;
+  }
+
+  renderLists() {
+    const units = settings.get('units');
+    const waypointList = this.element.querySelector('[data-list="waypoints"]');
+    waypointList.innerHTML =
+      this.waypointStore.waypoints
+        .map(
+          (w) => `
+        <li>
+          <button type="button" class="link" data-action="goto" data-lat="${w.lat}" data-lon="${w.lon}">
+            <i style="background:${w.colour}"></i>${escapeHtml(w.name)}
+          </button>
+          <span class="muted">${formatLatLon(w.lat, w.lon, 3)}</span>
+          <button type="button" class="mini" data-action="travel" data-lat="${w.lat}" data-lon="${w.lon}">Go</button>
+          <button type="button" class="mini" data-action="delete-waypoint" data-id="${w.id}">×</button>
+        </li>`,
+        )
+        .join('') || '<li class="muted">None yet — press the waypoint key to drop one.</li>';
+    this.applyPermissions();
+  }
+}
+
+function escapeHtml(value) {
 @@MISSING 561@@
 @@MISSING 562@@
 @@MISSING 563@@

@@ -143,225 +143,225 @@ class Bot {
     return this.closed;
   }
 }
-@@MISSING 146@@
-@@MISSING 147@@
-@@MISSING 148@@
-@@MISSING 149@@
-@@MISSING 150@@
-@@MISSING 151@@
-@@MISSING 152@@
-@@MISSING 153@@
-@@MISSING 154@@
-@@MISSING 155@@
-@@MISSING 156@@
-@@MISSING 157@@
-@@MISSING 158@@
-@@MISSING 159@@
-@@MISSING 160@@
-@@MISSING 161@@
-@@MISSING 162@@
-@@MISSING 163@@
-@@MISSING 164@@
-@@MISSING 165@@
-@@MISSING 166@@
-@@MISSING 167@@
-@@MISSING 168@@
-@@MISSING 169@@
-@@MISSING 170@@
-@@MISSING 171@@
-@@MISSING 172@@
-@@MISSING 173@@
-@@MISSING 174@@
-@@MISSING 175@@
-@@MISSING 176@@
-@@MISSING 177@@
-@@MISSING 178@@
-@@MISSING 179@@
-@@MISSING 180@@
-@@MISSING 181@@
-@@MISSING 182@@
-@@MISSING 183@@
-@@MISSING 184@@
-@@MISSING 185@@
-@@MISSING 186@@
-@@MISSING 187@@
-@@MISSING 188@@
-@@MISSING 189@@
-@@MISSING 190@@
-@@MISSING 191@@
-@@MISSING 192@@
-@@MISSING 193@@
-@@MISSING 194@@
-@@MISSING 195@@
-@@MISSING 196@@
-@@MISSING 197@@
-@@MISSING 198@@
-@@MISSING 199@@
-@@MISSING 200@@
-@@MISSING 201@@
-@@MISSING 202@@
-@@MISSING 203@@
-@@MISSING 204@@
-@@MISSING 205@@
-@@MISSING 206@@
-@@MISSING 207@@
-@@MISSING 208@@
-@@MISSING 209@@
-@@MISSING 210@@
-@@MISSING 211@@
-@@MISSING 212@@
-@@MISSING 213@@
-@@MISSING 214@@
-@@MISSING 215@@
-@@MISSING 216@@
-@@MISSING 217@@
-@@MISSING 218@@
-@@MISSING 219@@
-@@MISSING 220@@
-@@MISSING 221@@
-@@MISSING 222@@
-@@MISSING 223@@
-@@MISSING 224@@
-@@MISSING 225@@
-@@MISSING 226@@
-@@MISSING 227@@
-@@MISSING 228@@
-@@MISSING 229@@
-@@MISSING 230@@
-@@MISSING 231@@
-@@MISSING 232@@
-@@MISSING 233@@
-@@MISSING 234@@
-@@MISSING 235@@
-@@MISSING 236@@
-@@MISSING 237@@
-@@MISSING 238@@
-@@MISSING 239@@
-@@MISSING 240@@
-@@MISSING 241@@
-@@MISSING 242@@
-@@MISSING 243@@
-@@MISSING 244@@
-@@MISSING 245@@
-@@MISSING 246@@
-@@MISSING 247@@
-@@MISSING 248@@
-@@MISSING 249@@
-@@MISSING 250@@
-@@MISSING 251@@
-@@MISSING 252@@
-@@MISSING 253@@
-@@MISSING 254@@
-@@MISSING 255@@
-@@MISSING 256@@
-@@MISSING 257@@
-@@MISSING 258@@
-@@MISSING 259@@
-@@MISSING 260@@
-@@MISSING 261@@
-@@MISSING 262@@
-@@MISSING 263@@
-@@MISSING 264@@
-@@MISSING 265@@
-@@MISSING 266@@
-@@MISSING 267@@
-@@MISSING 268@@
-@@MISSING 269@@
-@@MISSING 270@@
-@@MISSING 271@@
-@@MISSING 272@@
-@@MISSING 273@@
-@@MISSING 274@@
-@@MISSING 275@@
-@@MISSING 276@@
-@@MISSING 277@@
-@@MISSING 278@@
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// A spot away from spawn, where fighting is allowed.
+const FIELD = { lat: 46.6, lon: 7.95 };
+const metresNorth = (m) => m / 111320;
+
+try {
+  console.log('\nthe web half serves the game, and only the game');
+  {
+    const index = await fetch(`${BASE}/`);
+    const html = await index.text();
+    ok('the page is served', index.status === 200 && /TerraGlide/.test(html));
+    ok('and tells the game it is on a server', /window\.__TERRAGLIDE_SERVER__ = true;/.test(html));
+    const status = await (await fetch(`${BASE}/api/status`)).json();
+    ok('the status answers with the server name', status.terraglide === true && typeof status.name === 'string');
+    const secret = await fetch(`${BASE}/server/data/accounts.json`);
+    ok('the data folder is never served', secret.status === 404);
+    const code = await fetch(`${BASE}/server/game.mjs`);
+    ok('nor the server code', code.status === 404);
+    const sneaky = await fetch(`${BASE}/src/../server/accounts.mjs`);
+    ok('nor anything reached by climbing out of a public folder', sneaky.status === 404);
+    const module = await fetch(`${BASE}/src/main.js`, { headers: { 'Accept-Encoding': 'gzip' } });
+    ok('the game modules are served', module.status === 200);
+  }
+
+  console.log('\nsigning up');
+  const alex = await new Bot('Alex').open();
+  const blake = await new Bot('Blake').open();
+  {
+    const bad = new Bot('x');
+    await bad.open();
+    const auth = await bad.signup();
+    ok('a two-letter name is refused', !auth.ok && /at least 3/.test(auth.error));
+    bad.close();
+    const a = await alex.signup();
+    ok('Alex gets an account', a.ok && a.you.name === 'Alex' && /^#[0-9a-f]{6}$/.test(a.you.colour));
+    ok('and a session token to come back with', typeof a.token === 'string' && a.token.length > 30);
+    ok('the first account on a fresh server is its admin', a.you.admin === true);
+    ok('arriving at the spawn', Math.abs(a.pos.lat - 46.5606) < 1e-6);
+    const b = await blake.signup();
+    ok('Blake gets one too, not an admin', b.ok && !b.you.admin);
+    ok('in a different colour', b.you.colour !== a.you.colour);
+    const dupe = await new Bot('alex').open();
+    const again = await dupe.signup();
+    ok('the same name in another case is taken', !again.ok && /taken/.test(again.error));
+    dupe.close();
+  }
+
+  console.log('\nseeing each other');
+  {
+    const spawn = alex.auth.pos;
+    await alex.land(spawn.lat, spawn.lon, 900);
+    await blake.land(spawn.lat + metresNorth(2), spawn.lon, 900);
+    const snap = await blake.next('snap', (m) => m.p.some((row) => row[0] === alex.id));
+    const row = snap.p.find((r) => r[0] === alex.id);
+    ok('Blake receives Alex\'s position', Math.abs(row[1] - spawn.lat) < 1e-6 && Math.abs(row[3] - 900) < 0.01);
+    ok('with Alex\'s health', row[12] === MAX_HEALTH);
+    ok('the roster knows both', alex.has('join', (m) => m.p.name === 'Blake') || blake.has('roster', (m) => m.players.length === 2));
+  }
+
+  console.log('\nchat');
+  {
+    alex.send({ t: 'chat', text: 'hello <b>world</b>' });
+    const line = await blake.next('chat', (m) => m.kind === 'chat');
+    ok('a line reaches everyone, as text', line.text === 'hello <b>world</b>' && line.from.name === 'Alex');
+    alex.send({ t: 'chat', text: '/msg Blake psst' });
+    const w = await blake.next('chat', (m) => m.kind === 'whisper');
+    ok('a whisper reaches its target', w.text === 'psst');
+    blake.send({ t: 'chat', text: '/r hi back' });
+    const r = await alex.next('chat', (m) => m.kind === 'whisper');
+    ok('and /r answers it', r.text === 'hi back' && r.from.name === 'Blake');
+    alex.send({ t: 'chat', text: '/nonsense' });
+    const err = await alex.next('chat', (m) => m.kind === 'error');
+    ok('an unknown command says so', /Unknown command/.test(err.text));
+  }
+
+  console.log('\nteleport requests');
+  {
+    alex.send({ t: 'chat', text: '/tpa blake' });
+    const req = await blake.next('tpreq');
+    ok('Blake is asked', req.kind === 'tpa' && req.from.name === 'Alex' && req.expiresIn === TPA_TIMEOUT_S);
+    blake.send({ t: 'chat', text: '/tpaccept' });
+    const tp = await alex.next('teleport');
+    ok('accepting sends Alex to Blake', Math.abs(tp.lat - (alex.auth.pos.lat + metresNorth(2))) < 0.001 && tp.reason === 'tpa');
+    ok('at Blake\'s height', Math.abs(tp.alt - 900) < 0.01);
+    alex.lastTid = tp.tid;
+    // A state before arriving is ignored; after arriving it is accepted.
+    alex.send({ t: 'arrived', tid: tp.tid });
+    alex.state({ lat: tp.lat, lon: tp.lon, alt: tp.alt });
+
+    blake.send({ t: 'chat', text: '/tpahere Alex' });
+    const here = await alex.next('tpreq');
+    ok('/tpahere asks the other way', here.kind === 'tpahere');
+    alex.send({ t: 'chat', text: '/tpdeny Blake' });
+    const end = await blake.next('tpreq-end', (m) => m.reason === 'denied');
+    ok('and /tpdeny ends it for both', end.reason === 'denied');
+
+    // The forty-second timeout. The clock is not moved for this — a clock
+    // moved forward forty seconds also makes every socket look silent — the
+    // request's own deadline is read and then stood on either side of.
+    blake.send({ t: 'chat', text: '/tpa Alex' });
+    const cooling = await blake.next('chat', (m) => m.kind === 'error');
+    ok('asking the same person again at once has to wait', /before asking Alex again/.test(cooling.text));
+    server.game.players.get(blake.id).lastRequestAt.clear();
+    blake.send({ t: 'chat', text: '/tpa Alex' });
+    await alex.next('tpreq');
+    const request = [...server.game.requests.values()].find((r) => r.from.key === 'blake');
+    const lifetime = (request.expires - Date.now()) / 1000;
+    ok(`the request is given forty seconds  (${lifetime.toFixed(1)} s)`, Math.abs(lifetime - TPA_TIMEOUT_S) < 1);
+    request.expires = Date.now() + 1000;
+    server.game.tick();
+    ok('it is still open just before its deadline', !blake.has('tpreq-end', (m) => m.reason === 'expired'));
+    request.expires = Date.now() - 1;
+    server.game.tick();
+    const expired = await blake.next('tpreq-end', (m) => m.reason === 'expired');
+    ok('and runs out after it, for both of them', expired.reason === 'expired'
+      && (await alex.next('tpreq-end', (m) => m.reason === 'expired').then(() => true, () => alex.has('tpreq-end'))));
+
+    // Asking again replaces the old request — and says so, or a prompt for
+    // the old one could still be answered and do the opposite.
+    const blakeP = server.game.players.get(blake.id);
+    // Past the chat limit by now, which commands count against too.
+    blakeP.client.chatTimes.length = 0;
+    blakeP.lastRequestAt.clear();
+    blake.send({ t: 'chat', text: '/tpa Alex' });
+    const first = await alex.next('tpreq');
+    blakeP.lastRequestAt.clear();
+    blake.send({ t: 'chat', text: '/tpahere Alex' });
+    const replaced = await alex.next('tpreq-end', (m) => m.id === first.id);
+    const second = await alex.next('tpreq', (m) => m.id !== first.id);
+    ok('a second request replaces the first, and the first is closed', replaced.reason === 'replaced' && second.kind === 'tpahere');
+    // Names can be shortened, as with /tpa.
+    alex.send({ t: 'chat', text: '/tpdeny bla' });
 @@MISSING 279@@
 @@MISSING 280@@
 @@MISSING 281@@
 @@MISSING 282@@
-@@MISSING 283@@
+    const alexP = server.game.players.get(alex.id);
 @@MISSING 284@@
 @@MISSING 285@@
 @@MISSING 286@@
-@@MISSING 287@@
+    const tphere = await alex.next('tpreq', (m) => m.kind === 'tpahere');
 @@MISSING 288@@
 @@MISSING 289@@
-@@MISSING 290@@
+    alex.send({ t: 'chat', text: '/tpdeny' });
 @@MISSING 291@@
 @@MISSING 292@@
 @@MISSING 293@@
 @@MISSING 294@@
 @@MISSING 295@@
 @@MISSING 296@@
-@@MISSING 297@@
-@@MISSING 298@@
+    alex.send({ t: 'chat', text: '/tpa bla' });
+    const which = await alex.next('chat', (m) => m.kind === 'error');
 @@MISSING 299@@
 @@MISSING 300@@
 @@MISSING 301@@
 @@MISSING 302@@
 @@MISSING 303@@
 @@MISSING 304@@
-@@MISSING 305@@
-@@MISSING 306@@
+    alex.send({ t: 'chat', text: '/tpa blakely' });
+    const deadNo = await alex.next('chat', (m) => m.kind === 'error');
 @@MISSING 307@@
 @@MISSING 308@@
 @@MISSING 309@@
 @@MISSING 310@@
-@@MISSING 311@@
+    alex.send({ t: 'chat', text: '/tpa blakely' });
 @@MISSING 312@@
 @@MISSING 313@@
-@@MISSING 314@@
+    const told = await alex.next('chat', (m) => /Blakely died — the teleport request is off/.test(m.text)).catch(() => null);
 @@MISSING 315@@
 @@MISSING 316@@
 @@MISSING 317@@
 @@MISSING 318@@
 @@MISSING 319@@
-@@MISSING 320@@
-@@MISSING 321@@
-@@MISSING 322@@
-@@MISSING 323@@
-@@MISSING 324@@
-@@MISSING 325@@
-@@MISSING 326@@
-@@MISSING 327@@
-@@MISSING 328@@
-@@MISSING 329@@
-@@MISSING 330@@
-@@MISSING 331@@
-@@MISSING 332@@
-@@MISSING 333@@
-@@MISSING 334@@
-@@MISSING 335@@
-@@MISSING 336@@
-@@MISSING 337@@
-@@MISSING 338@@
-@@MISSING 339@@
-@@MISSING 340@@
-@@MISSING 341@@
-@@MISSING 342@@
-@@MISSING 343@@
-@@MISSING 344@@
-@@MISSING 345@@
-@@MISSING 346@@
-@@MISSING 347@@
-@@MISSING 348@@
-@@MISSING 349@@
-@@MISSING 350@@
-@@MISSING 351@@
-@@MISSING 352@@
-@@MISSING 353@@
-@@MISSING 354@@
-@@MISSING 355@@
-@@MISSING 356@@
+  console.log('\nvoice signalling');
+  {
+    alex.clear();
+    blake.clear();
+    alex.send({ t: 'voice', to: blake.id, kind: 'offer', data: { cid: 'c1', sdp: 'v=0 test', extra: '<b>hi</b>' } });
+    const got = await blake.next('voice');
+    ok('an offer to somebody near is passed on', got.kind === 'offer' && got.data.sdp === 'v=0 test' && got.from === alex.id);
+    ok('with only the fields an offer has', Object.keys(got.data).sort().join() === 'cid,sdp');
+    alex.send({ t: 'voice', to: blake.id, kind: 'offer', data: { cid: 'c1', sdp: 'x'.repeat(30000) } });
+    alex.send({ t: 'voice', to: blake.id, kind: 'ice', data: { cid: 'c1', c: Array.from({ length: 30 }, () => ({ candidate: 'a' })) } });
+    alex.send({ t: 'voice', to: blake.id, kind: 'bye', data: { cid: 'c1', why: 'x'.repeat(100) } });
+    const bye = await blake.next('voice', (m) => m.kind === 'bye');
+    ok('an oversized offer and a flood of candidates are not',
+      !blake.inbox.some((m) => m.t === 'voice' && (m.kind === 'ice' || m.data?.sdp?.length > 20000)));
+    ok('and a hang-up is cut to size', bye.data.why.length <= 16);
+  }
+
+  console.log('\nmoves the server will not accept');
+  {
+    alex.clear();
+    // Three hundred kilometres in a tenth of a second is not a rocket.
+    alex.state({ lat: alex.pos.lat + 3, lon: alex.pos.lon, alt: 900 });
+    const fix = await alex.next('correct');
+    ok('a teleport nobody granted is put back', Math.abs(fix.lat - alex.pos.lat + 3) < 0.01);
+    alex.pos = { lat: fix.lat, lon: fix.lon, alt: 900 };
+    await sleep(120);
+    alex.clear();
+    alex.state({ lat: alex.pos.lat + metresNorth(20), lon: alex.pos.lon, alt: 900 });
+    await sleep(150);
+    ok('an ordinary step is not', !alex.has('correct'));
+
+    // A surge covers ground 2.4 times as fast, and honestly — but only for as
+    // long as a surge lasts, not for as long as a page says it is surging.
+    const p = server.game.players.get(alex.id);
+    const dash = async (flags) => {
+      alex.clear();
+      const before = alex.pos;
 @@MISSING 357@@
 @@MISSING 358@@
 @@MISSING 359@@
 @@MISSING 360@@
-@@MISSING 361@@
-@@MISSING 362@@
-@@MISSING 363@@
-@@MISSING 364@@
+      alex.state({ lat: alex.pos.lat + metresNorth(800), lon: alex.pos.lon, alt: 900, flags });
+      await sleep(150);
+      if (alex.has('correct')) {
+        alex.pos = before;
 @@MISSING 365@@
 @@MISSING 366@@
 @@MISSING 367@@
@@ -385,19 +385,19 @@ class Bot {
 @@MISSING 385@@
 @@MISSING 386@@
 @@MISSING 387@@
-@@MISSING 388@@
-@@MISSING 389@@
-@@MISSING 390@@
-@@MISSING 391@@
-@@MISSING 392@@
-@@MISSING 393@@
-@@MISSING 394@@
-@@MISSING 395@@
-@@MISSING 396@@
-@@MISSING 397@@
-@@MISSING 398@@
-@@MISSING 399@@
-@@MISSING 400@@
+  console.log('\na sword fight');
+  {
+    // Face to face, two metres apart, away from spawn.
+    const where = { lat: FIELD.lat + 0.01, lon: FIELD.lon + 0.01 };
+    // Put both in the field through an admin teleport so the server agrees.
+    const game = server.game;
+    for (const [bot, dLat] of [[alex, 0], [blake, metresNorth(2)]]) {
+      const p = game.players.get(bot.id);
+      p.lastSpawnAt = -Infinity;
+      game.teleport(p, { lat: where.lat + dLat, lon: where.lon, alt: 500, flying: false }, 'test');
+      const tp = await bot.next('teleport', (m) => m.reason === 'test');
+      bot.send({ t: 'arrived', tid: tp.tid });
+      bot.state({ lat: tp.lat, lon: tp.lon, alt: 500, item: bot === alex ? SWORD_SLOT : 0 });
 @@MISSING 401@@
 @@MISSING 402@@
 @@MISSING 403@@
@@ -436,57 +436,57 @@ class Bot {
 @@MISSING 436@@
 @@MISSING 437@@
 @@MISSING 438@@
-@@MISSING 439@@
-@@MISSING 440@@
-@@MISSING 441@@
-@@MISSING 442@@
-@@MISSING 443@@
-@@MISSING 444@@
-@@MISSING 445@@
-@@MISSING 446@@
-@@MISSING 447@@
-@@MISSING 448@@
-@@MISSING 449@@
-@@MISSING 450@@
-@@MISSING 451@@
-@@MISSING 452@@
-@@MISSING 453@@
-@@MISSING 454@@
-@@MISSING 455@@
-@@MISSING 456@@
-@@MISSING 457@@
-@@MISSING 458@@
-@@MISSING 459@@
-@@MISSING 460@@
-@@MISSING 461@@
-@@MISSING 462@@
-@@MISSING 463@@
-@@MISSING 464@@
-@@MISSING 465@@
-@@MISSING 466@@
-@@MISSING 467@@
-@@MISSING 468@@
-@@MISSING 469@@
-@@MISSING 470@@
-@@MISSING 471@@
-@@MISSING 472@@
-@@MISSING 473@@
-@@MISSING 474@@
-@@MISSING 475@@
-@@MISSING 476@@
-@@MISSING 477@@
-@@MISSING 478@@
-@@MISSING 479@@
-@@MISSING 480@@
-@@MISSING 481@@
-@@MISSING 482@@
-@@MISSING 483@@
-@@MISSING 484@@
-@@MISSING 485@@
-@@MISSING 486@@
-@@MISSING 487@@
-@@MISSING 488@@
-@@MISSING 489@@
+  console.log('\nwhat other people have discovered');
+  {
+    alex.send({ t: 'watch', name: 'blake', explored: true, trail: true });
+    const explored = await alex.next('explored');
+    ok('switching on Blake\'s discoveries sends them', explored.name === 'blake' && explored.cells?.v === 2);
+    const trail = await alex.next('trail');
+    ok('and the trail', Array.isArray(trail.legs) && trail.legs.length >= 1);
+    alex.send({ t: 'atlas' });
+    const atlas = await alex.next('atlas');
+    ok('the atlas lists who has been here', atlas.players.some((p) => p.key === 'blake' && p.explored > 0));
+
+    // Everyone's discoveries are one shared map: sent whole when asked for,
+    // and new ground from anybody — a newcomer too — as it is found.
+    const g = server.game;
+    const viewer = g.players.get(alex.id);
+    alex.send({ t: 'watch', name: '*', explored: true, trail: false });
+    const whole = await alex.next('shared');
+    ok('asking for everyone\'s discoveries sends the shared map of this world',
+      viewer.watchAll.explored === true && whole.world === 'earth' && whole.cells?.v === 2);
+    server.accounts.signups.hits.clear();
+    const cara = await new Bot('Cara').open();
+    await cara.signup();
+    await cara.land();
+    // Somewhere nobody has been: sent there the way the server sends anyone.
+    g.teleport(g.byKey.get('cara'), { lat: 12.5, lon: 15.5, alt: 900, flying: true }, 'test');
+    const sent = await cara.next('teleport', (m) => m.reason === 'test');
+    cara.send({ t: 'arrived', tid: sent.tid });
+    cara.state({ lat: sent.lat, lon: sent.lon, alt: 900 });
+    const added = await alex.next('shared+', (m) => m.keys?.length > 0, 4000).catch(() => null);
+    ok('and a newcomer\'s new ground arrives on it without asking for anybody by name', !!added);
+    ok('the shared map holds everybody\'s ground', g.sharedMap('earth').map.cells.size >= g.record('cara').on('earth').explored.cells.size);
+    cara.close();
+    // A busy server's map is big: it goes in parts, paced, and nobody is cut off.
+    const big = g.sharedMap('earth').map;
+    for (let i = 0; i < 150000; i++) big.cells.add(`16/${30000 + (i % 400)}/${20000 + Math.floor(i / 400)}`);
+    alex.send({ t: 'watch', name: '*', explored: true, off: true });
+    await sleep(100);
+    alex.clear();
+    alex.send({ t: 'watch', name: '*', explored: true });
+    await sleep(400);
+    ok('switching everyone\'s discoveries off and on again does not send the whole map again', !alex.has('shared'));
+    // A busy server's map is big: it goes in parts, paced, and nobody is cut off.
+    const keys = [];
+    // Every other column, so it does not fold into a few long runs.
+    for (let i = 0; i < 150000; i++) keys.push(`16/${30000 + 2 * (i % 400)}/${20000 + Math.floor(i / 400)}`);
+    g.addShared('earth', keys);
+    server.accounts.signups.hits.clear();
+    const dora = await new Bot('Dora').open();
+    await dora.signup();
+    await dora.land();
+    dora.send({ t: 'watch', name: '*', explored: true });
     let parts = 0;
     let of = 0;
     for (;;) {
@@ -737,45 +737,45 @@ class Bot {
       if (/Too many tries/.test(reply.error ?? '')) refusedAt = i + 1;
     }
     ok(`wrong join codes run out after a few tries, like wrong passwords  (refused on try ${refusedAt})`, refusedAt > 0 && refusedAt <= 9);
-@@MISSING 740@@
-@@MISSING 741@@
+    const right = await gated.accounts.signup('Honest', 'hunter22', '198.51.100.8', 'river-otter-42');
+    ok('with a scrypt hash and never the password', /^scrypt\$/.test(alexAccount.hash) && !JSON.stringify(accounts).includes('hunter22'));
 @@MISSING 742@@
 @@MISSING 743@@
 @@MISSING 744@@
 @@MISSING 745@@
-@@MISSING 746@@
+  console.log('\nbans');
 @@MISSING 747@@
 @@MISSING 748@@
-@@MISSING 749@@
-@@MISSING 750@@
-@@MISSING 751@@
+    const admin = await new Bot('Alex').open();
+    admin.send({ t: 'login', name: 'Alex', password: 'hunter22' });
+    await admin.next('auth');
 @@MISSING 752@@
-@@MISSING 753@@
+    await dana.signup();
 @@MISSING 754@@
 @@MISSING 755@@
-@@MISSING 756@@
-@@MISSING 757@@
-@@MISSING 758@@
+    admin.send({ t: 'chat', text: '/ban Dana spam' });
+    const said = await admin.next('chat', (m) => /banned/.test(m.text ?? ''));
+    // Everybody here is 127.0.0.1: the address is shared, so it is left out.
 @@MISSING 759@@
 @@MISSING 760@@
 @@MISSING 761@@
 @@MISSING 762@@
 @@MISSING 763@@
-@@MISSING 764@@
+    ok('somebody else from the same address can still sign up', (await erin.signup()).ok);
 @@MISSING 765@@
 @@MISSING 766@@
 @@MISSING 767@@
-@@MISSING 768@@
+    ok('an address ban refuses a new account from it', !(await fresh.signup()).ok);
 @@MISSING 769@@
-@@MISSING 770@@
-@@MISSING 771@@
-@@MISSING 772@@
-@@MISSING 773@@
-@@MISSING 774@@
-@@MISSING 775@@
-@@MISSING 776@@
-@@MISSING 777@@
-@@MISSING 778@@
+    admin.close();
+    const again = await new Bot('Alex').open();
+    again.send({ t: 'login', name: 'Alex', password: 'hunter22' });
+    ok('but never an admin', (await again.next('auth')).ok);
+    again.close();
+    delete server.game.bans.mallory;
+  }
+
+  console.log('\nfriends');
 @@MISSING 779@@
 @@MISSING 780@@
 @@MISSING 781@@
@@ -852,7 +852,7 @@ class Bot {
 @@MISSING 852@@
 @@MISSING 853@@
 @@MISSING 854@@
-@@MISSING 855@@
+    console.log('\nparties');
 @@MISSING 856@@
 @@MISSING 857@@
 @@MISSING 858@@
@@ -919,7 +919,7 @@ class Bot {
 @@MISSING 919@@
 @@MISSING 920@@
 @@MISSING 921@@
-@@MISSING 922@@
+  console.log('\npasswords');
 @@MISSING 923@@
 @@MISSING 924@@
 @@MISSING 925@@
@@ -1074,8 +1074,8 @@ class Bot {
     await sleep(100);
     ivo.send({ t: 'ping', c: Date.now(), rtt: 5000 });
     // An answer to a ping the server never sent is not one: it was how a page
-@@MISSING 1077@@
-@@MISSING 1078@@
+    // made its round trip ten seconds.
+    ip.client.ws.emit('pong', Buffer.from(String(Date.now() - 9900)));
 @@MISSING 1079@@
 @@MISSING 1080@@
 @@MISSING 1081@@
@@ -1582,166 +1582,166 @@ class Bot {
     ok(`thirty small climbs in an instant on arriving earn no more height than a flight could have  (${Math.round(climber.ceiling)} m)`,
       climber.ceiling < 1000);
 
-@@MISSING 1585@@
-@@MISSING 1586@@
-@@MISSING 1587@@
-@@MISSING 1588@@
-@@MISSING 1589@@
-@@MISSING 1590@@
-@@MISSING 1591@@
-@@MISSING 1592@@
-@@MISSING 1593@@
-@@MISSING 1594@@
-@@MISSING 1595@@
-@@MISSING 1596@@
-@@MISSING 1597@@
-@@MISSING 1598@@
-@@MISSING 1599@@
-@@MISSING 1600@@
-@@MISSING 1601@@
-@@MISSING 1602@@
-@@MISSING 1603@@
-@@MISSING 1604@@
-@@MISSING 1605@@
-@@MISSING 1606@@
-@@MISSING 1607@@
-@@MISSING 1608@@
-@@MISSING 1609@@
-@@MISSING 1610@@
-@@MISSING 1611@@
-@@MISSING 1612@@
-@@MISSING 1613@@
-@@MISSING 1614@@
-@@MISSING 1615@@
-@@MISSING 1616@@
-@@MISSING 1617@@
-@@MISSING 1618@@
-@@MISSING 1619@@
+    // Standing up on your feet - the ground loading in finer - stands, but it
+    // is no height to fall from either.
+    const stander = await place(ivo, FIELD.lat + 0.7, FIELD.lon, 0, FLAG.ground);
+    stander.arrivedAt = long;
+    stander.airborneAt = long;
+    stander.correctedAt = -Infinity;
+    const ceilingBefore = stander.ceiling;
+    ivo.clear();
+    stander.budget = 0;
+    stander.lastStateAt = Date.now() - 1000;
+    ivo.pos.alt = 50000;
+    ivo.state({ flags: FLAG.ground });
+    await sleep(150);
+    ok('standing up on the ground loading in stands, and raises no ceiling',
+      !ivo.has('correct') && stander.state.alt === 50000 && stander.ceiling === ceilingBefore);
+    stander.violations = 0;
+
+    // A pause, then one state beside somebody and a swing: the travel the
+    // pause lent back is movement, not a hit.
+    server.accounts.signups.hits.clear();
+    const pax = await new Bot('Pax').open();
+    await pax.signup();
+    await place(pax, FIELD.lat + 0.8, FIELD.lon, 500);
+    const pauser = await place(ivo, FIELD.lat + 0.8 - metresNorth(600), FIELD.lon, 500, FLAG.elytra);
+    pauser.arrivedAt = long;
+    pauser.combatUntil = 0;
+    await sleep(4000);
+    pax.clear();
+    ivo.clear();
+    ivo.pos = { lat: FIELD.lat + 0.8 - metresNorth(2), lon: FIELD.lon, alt: 500 };
+    ivo.swings = (ivo.swings ?? 0) + 1;
+    ivo.state({ item: SWORD_SLOT, flags: FLAG.elytra | (ivo.swings % 2 ? FLAG.swing : 0) });
+    ivo.send({ t: 'attack', target: pax.id });
+    await sleep(200);
+    ok('a pause, then one move beside somebody and a swing: let through, but no hit',
       !ivo.has('correct') && !pax.has('hit') && pauser.blinkUntil > Date.now() - 600);
-@@MISSING 1621@@
-@@MISSING 1622@@
-@@MISSING 1623@@
-@@MISSING 1624@@
-@@MISSING 1625@@
-@@MISSING 1626@@
-@@MISSING 1627@@
-@@MISSING 1628@@
-@@MISSING 1629@@
-@@MISSING 1630@@
-@@MISSING 1631@@
-@@MISSING 1632@@
-@@MISSING 1633@@
-@@MISSING 1634@@
-@@MISSING 1635@@
-@@MISSING 1636@@
-@@MISSING 1637@@
-@@MISSING 1638@@
-@@MISSING 1639@@
-@@MISSING 1640@@
-@@MISSING 1641@@
-@@MISSING 1642@@
-@@MISSING 1643@@
-@@MISSING 1644@@
-@@MISSING 1645@@
-@@MISSING 1646@@
-@@MISSING 1647@@
-@@MISSING 1648@@
-@@MISSING 1649@@
-@@MISSING 1650@@
-@@MISSING 1651@@
-@@MISSING 1652@@
-@@MISSING 1653@@
-@@MISSING 1654@@
-@@MISSING 1655@@
-@@MISSING 1656@@
-@@MISSING 1657@@
-@@MISSING 1658@@
-@@MISSING 1659@@
-@@MISSING 1660@@
-@@MISSING 1661@@
-@@MISSING 1662@@
-@@MISSING 1663@@
-@@MISSING 1664@@
-@@MISSING 1665@@
-@@MISSING 1666@@
-@@MISSING 1667@@
-@@MISSING 1668@@
-@@MISSING 1669@@
-@@MISSING 1670@@
-@@MISSING 1671@@
-@@MISSING 1672@@
-@@MISSING 1673@@
-@@MISSING 1674@@
-@@MISSING 1675@@
-@@MISSING 1676@@
-@@MISSING 1677@@
-@@MISSING 1678@@
-@@MISSING 1679@@
-@@MISSING 1680@@
-@@MISSING 1681@@
-@@MISSING 1682@@
-@@MISSING 1683@@
-@@MISSING 1684@@
-@@MISSING 1685@@
-@@MISSING 1686@@
-@@MISSING 1687@@
-@@MISSING 1688@@
-@@MISSING 1689@@
-@@MISSING 1690@@
-@@MISSING 1691@@
-@@MISSING 1692@@
-@@MISSING 1693@@
-@@MISSING 1694@@
-@@MISSING 1695@@
-@@MISSING 1696@@
-@@MISSING 1697@@
-@@MISSING 1698@@
-@@MISSING 1699@@
-@@MISSING 1700@@
-@@MISSING 1701@@
-@@MISSING 1702@@
-@@MISSING 1703@@
-@@MISSING 1704@@
-@@MISSING 1705@@
-@@MISSING 1706@@
-@@MISSING 1707@@
-@@MISSING 1708@@
-@@MISSING 1709@@
-@@MISSING 1710@@
-@@MISSING 1711@@
-@@MISSING 1712@@
-@@MISSING 1713@@
-@@MISSING 1714@@
-@@MISSING 1715@@
-@@MISSING 1716@@
-@@MISSING 1717@@
-@@MISSING 1718@@
-@@MISSING 1719@@
-@@MISSING 1720@@
-@@MISSING 1721@@
-@@MISSING 1722@@
-@@MISSING 1723@@
-@@MISSING 1724@@
-@@MISSING 1725@@
-@@MISSING 1726@@
-@@MISSING 1727@@
-@@MISSING 1728@@
-@@MISSING 1729@@
-@@MISSING 1730@@
-@@MISSING 1731@@
-@@MISSING 1732@@
-@@MISSING 1733@@
-@@MISSING 1734@@
-@@MISSING 1735@@
-@@MISSING 1736@@
-@@MISSING 1737@@
-@@MISSING 1738@@
-@@MISSING 1739@@
-@@MISSING 1740@@
-@@MISSING 1741@@
-@@MISSING 1742@@
-@@MISSING 1743@@
-@@MISSING 1744@@
+    pax.close();
+
+    // What a page sent before it could have heard it was put back is refused
+    // with it, not counted again.
+    const lagger = await place(ivo, FIELD.lat + 0.9, FIELD.lon, 2000, FLAG.elytra);
+    lagger.arrivedAt = long;
+    lagger.violations = 0;
+    lagger.correctedAt = -Infinity;
+    ivo.clear();
+    for (let i = 0; i < 6; i++) ivo.state({ lat: ivo.pos.lat + metresNorth(3000), flags: FLAG.elytra });
+    await sleep(200);
+    ok(`moves sent before the page could hear it was put back count once  (${lagger.violations} counted, ${ivo.inbox.filter((m) => m.t === 'correct').length} put back)`,
+      lagger.violations === 1 && ivo.inbox.filter((m) => m.t === 'correct').length === 1);
+    lagger.violations = 0;
+
+    // Accepting friend requests automatically, the rest of it.
+    server.accounts.signups.hits.clear();
+    const ria = await new Bot('Ria').open();
+    await ria.signup();
+    const sol = await new Bot('Sol').open();
+    await sol.signup();
+    sol.send({ t: 'social', cmd: 'friend', op: 'add', name: 'Ria' });
+    await ria.next('chat', (m) => /Sol wants to be friends/.test(m.text ?? ''));
+    ria.send({ t: 'socialPrefs', autoTpa: false, autoParty: false, autoFriends: true, notify: true });
+    const echoed = await ria.next('friends', (m) => m.prefs?.autoFriends === true, 2000).catch(() => null);
+    ok('switching it on answers whoever was already waiting, and the page is told what was kept',
+      g.social.areFriends('ria', 'sol') && !!echoed);
+    ria.close();
+    await sleep(150);
+    g.socialTimes.delete('ivo');
+    ivo.send({ t: 'social', cmd: 'friend', op: 'add', name: 'Ria' });
+    await ivo.next('chat', (m) => /You and Ria are friends/.test(m.text ?? ''), 2000).catch(() => null);
+    const ria2 = await new Bot('Ria').open();
+    ria2.send({ t: 'resume', token: ria.auth.token });
+    await ria2.next('auth');
+    const awayNotice = await ria2.next('chat', (m) => /Ivo became your friend while you were away/.test(m.text ?? ''), 2000).catch(() => null);
+    ok('made a friend while away, they are told as a friend\'s notice, not a party\'s', awayNotice?.kind === 'friend');
+    const solRecord = g.social.social('sol');
+    const solFriends = solRecord.friends;
+    solRecord.friends = [...solFriends, ...Array.from({ length: 100 }, (_, i) => `filler${i}`)].slice(0, 100);
+    g.socialTimes.delete('ivo');
+    ivo.send({ t: 'social', cmd: 'friend', op: 'add', name: 'Sol' });
+    const full = await ivo.next('chat', (m) => m.kind === 'error' && /as many friends as there is room for/.test(m.text), 2000).catch(() => null);
+    ok('asking somebody whose list is full says so, rather than sending a request they could not accept',
+      !!full && !g.social.social('sol').incoming.includes('ivo'));
+    solRecord.friends = solFriends;
+    // Only the choices a page sends change: the rest stay as the account has them.
+    ria2.send({ t: 'socialPrefs', notify: false });
+    const merged = await ria2.next('friends', (m) => m.prefs?.notify === false, 2000).catch(() => null);
+    ok('a page that changed one friend choice changes only that one',
+      !!merged && merged.prefs.autoFriends === true && merged.prefs.autoTpa === false);
+    ria2.send({ t: 'socialPrefs', notify: true, autoFriends: false });
+    await ria2.next('friends', (m) => m.prefs?.autoFriends === false, 2000).catch(() => null);
+    // Switching auto-accept on with a request waiting from somebody who has
+    // no room: told so, and it stays waiting.
+    const fullOne = g.social.social('sol');
+    const solOwn = fullOne.friends;
+    fullOne.friends = Array.from({ length: 100 }, (_, i) => `filler${i}`);
+    g.social.social('ria').incoming.push('sol');
+    ria2.clear();
+    ria2.send({ t: 'socialPrefs', autoFriends: true });
+    const noRoom = await ria2.next('chat', (m) => /Sol has as many friends as there is room for/.test(m.text ?? ''), 2000).catch(() => null);
+    ok('switching it on says so for a request from somebody with no room left, which stays waiting',
+      !!noRoom && g.social.social('ria').incoming.includes('sol'));
+    // And when it is your own list that is full, says that.
+    g.social.social('ria').prefs.autoFriends = false;
+    const riaOwn = g.social.social('ria').friends;
+    g.social.social('ria').friends = Array.from({ length: 100 }, (_, i) => `mine${i}`);
+    fullOne.friends = solOwn;
+    ria2.clear();
+    ria2.send({ t: 'socialPrefs', autoFriends: true });
+    const ownFull = await ria2.next('chat', (m) => /Your friends list is full — Sol's request is still waiting/.test(m.text ?? ''), 2000).catch(() => null);
+    ok('and when it is your own list that is full, says so', !!ownFull);
+    g.social.social('ria').friends = riaOwn;
+    fullOne.friends = solOwn;
+    // An older record's plain notices: a friend's reads as a friend's.
+    const ria3 = g.record('ria');
+    ria3.social.notices = ['Zed accepted your friend request — you are friends', 'Bob removed you from the party while you were away'];
+    const kinds = g.social.social('ria').notices.map((n) => n.kind).join(',');
+    ok('an older record\'s friend notice is told as a friend\'s, its party notice as a party\'s', kinds === 'friend,party', kinds);
+    ria2.close();
+    sol.close();
+    ivo.close();
+  }
+
+  console.log('\nsaved to disk');
+  {
+    server.game.saveAll();
+    const { readFileSync } = await import('node:fs');
+    const accounts = JSON.parse(readFileSync(join(dir, 'accounts.json'), 'utf8'));
+    const alexAccount = accounts.accounts.alex;
+    ok('accounts are saved', !!alexAccount && alexAccount.name === 'Alex');
+    ok('with a scrypt hash and never the password', /^scrypt\$/.test(alexAccount.hash) && !JSON.stringify(accounts).includes('hunter22'));
+    const record = JSON.parse(readFileSync(join(dir, 'players/blake.json'), 'utf8'));
+    ok('Blake\'s record knows the Moon and the Earth', record.world === 'moon' && record.worlds.earth && record.worlds.moon);
+    ok('with explored ground on Earth', record.worlds.earth.explored?.v === 2);
+
+    // Memory follows who is on, not everybody who ever played: a record is
+    // let go once it is saved and its player has gone, and the list of who
+    // explored a world comes from a small index rather than their files.
+    const game = server.game;
+    game.store.flush();
+    game.evictRecords();
+    const offline = [...game.records.keys()].filter((key) => !game.byKey.has(key));
+    ok('records of players who have left are let go once saved', offline.length === 0, offline.join(','));
+    const index = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8'));
+    ok('and an index of who has been where is saved beside them',
+      index.version === 1 && !!index.players.blake?.worlds?.moon && Array.isArray(index.players.blake.worlds.earth));
+    server.accounts.signups.hits.clear();
+    const quinn = await new Bot('Quinn').open();
+    await quinn.signup();
+    const before = game.records.size;
+    quinn.send({ t: 'atlas' });
+    const atlas = await quinn.next('atlas', (m) => m.players.some((p) => p.key === 'blake'));
+    ok('listing everybody who explored a world reads none of their files',
+      game.records.size === before && atlas.players.every((p) => Number.isFinite(p.explored)),
+      `${before} -> ${game.records.size} records; ${atlas.players.length} listed`);
+    quinn.close();
+  }
+} catch (error) {
+  failures++;
+  console.log(`  FAIL ${error.message}`, process.env.STACK ? error.stack : "");
+} finally {
+  await server.stop();
   rmSync(dir, { recursive: true, force: true });
 }
 

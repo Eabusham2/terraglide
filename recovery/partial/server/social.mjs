@@ -18,8 +18,8 @@
  */
 
 import { BODIES } from '../src/geo/bodies.js';
-import { FLAG, TPA_COOLDOWN_S, nameKey } from '../src/net/protocol.js';
-import { MAX_WAYPOINTS, radiusOf } from './records.mjs';
+import { FLAG, nameKey } from '../src/net/protocol.js';
+import { radiusOf } from './records.mjs';
 
 export const MAX_FRIENDS = 100;
 const MAX_PENDING = 50;

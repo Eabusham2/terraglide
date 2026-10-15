@@ -371,62 +371,62 @@ export class HUD {
     this.updateHotbar(player);
     this.updateVitals(player, state);
     this.updateLocator(state.others ?? [], player);
-@@MISSING 374@@
-@@MISSING 375@@
-@@MISSING 376@@
-@@MISSING 377@@
-@@MISSING 378@@
-@@MISSING 379@@
-@@MISSING 380@@
-@@MISSING 381@@
-@@MISSING 382@@
-@@MISSING 383@@
-@@MISSING 384@@
-@@MISSING 385@@
-@@MISSING 386@@
-@@MISSING 387@@
-@@MISSING 388@@
-@@MISSING 389@@
-@@MISSING 390@@
-@@MISSING 391@@
-@@MISSING 392@@
-@@MISSING 393@@
-@@MISSING 394@@
-@@MISSING 395@@
-@@MISSING 396@@
-@@MISSING 397@@
-@@MISSING 398@@
-@@MISSING 399@@
-@@MISSING 400@@
-@@MISSING 401@@
-@@MISSING 402@@
-@@MISSING 403@@
-@@MISSING 404@@
-@@MISSING 405@@
-@@MISSING 406@@
-@@MISSING 407@@
-@@MISSING 408@@
-@@MISSING 409@@
-@@MISSING 410@@
-@@MISSING 411@@
-@@MISSING 412@@
-@@MISSING 413@@
-@@MISSING 414@@
-@@MISSING 415@@
-@@MISSING 416@@
-@@MISSING 417@@
-@@MISSING 418@@
-@@MISSING 419@@
-@@MISSING 420@@
-@@MISSING 421@@
-@@MISSING 422@@
-@@MISSING 423@@
-@@MISSING 424@@
-@@MISSING 425@@
-@@MISSING 426@@
-@@MISSING 427@@
-@@MISSING 428@@
-@@MISSING 429@@
+    this.updateAttack(player, state);
+
+    this.setText('status', state.status || '');
+    this.setText('attribution', state.attribution || '');
+
+    if (state.debug) {
+      this.refs.debug.hidden = false;
+      this.refs.debug.textContent = state.debug;
+    } else {
+      this.refs.debug.hidden = true;
+    }
+  }
+
+  /**
+   * Name and distance beside every beacon on screen.
+   *
+   * The elements are reused between frames and only their text and position
+   * change: rebuilding the markup every frame at sixty hertz is how a handful
+   * of waypoints turns into a stutter, and the label would flicker as the
+   * browser reparsed it.
+   *
+   * @param {Array<{id:number,name:string,colour:string,metres:number,x:number,y:number}>} list
+   * @param {string} units
+   */
+  setBeacons(list, units) {
+    const host = this.refs.beacons;
+    if (!host) return;
+    this._beaconNodes ??= new Map();
+    const live = new Set();
+    for (const beacon of list) {
+      live.add(beacon.id);
+      let node = this._beaconNodes.get(beacon.id);
+      if (!node) {
+        node = document.createElement('div');
+        node.className = 'beacon-label';
+        node.innerHTML = '<b></b><span></span>';
+        host.appendChild(node);
+        this._beaconNodes.set(beacon.id, node);
+      }
+      node.style.left = `${(beacon.x * 100).toFixed(2)}%`;
+      node.style.top = `${(beacon.y * 100).toFixed(2)}%`;
+      node.style.setProperty('--beacon', beacon.colour);
+      const name = node.firstChild;
+      if (name.textContent !== beacon.name) name.textContent = beacon.name;
+      const away = formatDistance(beacon.metres, units);
+      const distance = node.lastChild;
+      if (distance.textContent !== away) distance.textContent = away;
+      node.hidden = false;
+    }
+    for (const [id, node] of this._beaconNodes) {
+      if (live.has(id)) continue;
+      node.remove();
+      this._beaconNodes.delete(id);
+    }
+  }
+
   updateCompass(yaw) {
 @@MISSING 431@@
 @@MISSING 432@@
