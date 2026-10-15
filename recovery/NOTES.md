@@ -91,7 +91,7 @@ New files:
 - [x] src/net/client.js (276) · [~] src/net/protocol.js (517) · [x] src/net/remotePlayers.js (610) · [x] src/net/session.js (949) · [~] src/net/voice.js (1553, every known line in place; 8 doc lines + onOffer's 2 new lines written, see Guessed)
 - [~] src/player/combat.js (96)
 - [~] src/tiles/planetary.js (1947, every known line in place; the Oct 5 review's fixes rebuilt, see Guessed)
-- [~] src/ui/chat.js (237, every known line in place; Oct 6 text + ledger F2/F9/P4/P8, see Guessed) · [~] src/ui/deathScreen.js (87) · [~] src/ui/onlinePanel.js (387) · [~] src/ui/playersPanel.js (463) · [~] src/ui/teleportMenu.js (377) · [~] src/ui/travelPanel.js (173) · [x] src/ui/trail.js (140)
+- [~] src/ui/chat.js (237, every known line in place; Oct 6 text + ledger F2/F9/P4/P8, see Guessed) · [~] src/ui/deathScreen.js (87) · [~] src/ui/onlinePanel.js (387 = final, every known line in place; F9 Change password form, see Guessed) · [~] src/ui/playersPanel.js (463) · [~] src/ui/teleportMenu.js (377) · [~] src/ui/travelPanel.js (173 = final; lines 69-173 rebuilt for P3, see Guessed) · [x] src/ui/trail.js (140)
 - [x] src/world/lander.js (184) · [~] src/world/stars.js (173) · [x] src/world/starCatalogue.js (regenerated: 2887 stars, 25302 bytes, the same size the Oct 5 wc -c gave)
 - [~] tools/flightcheck.mjs (387) · [~] tools/onlinecheck.mjs (596) · [~] tools/servertest.mjs (1719) · [~] tools/stars.mjs (96) · [~] tools/gazetteer.py · [ ] tools/glb-unplate.py
 - [ ] assets/sword.glb (binary: regenerate) · [ ] shots/online/*.png (regenerate with the shots tools) · [ ] terraglide-online.html (build: node tools/online.mjs)
@@ -175,6 +175,13 @@ Changed tracked files (base = 2c7ee70):
 - src/ui/worldmap.js (567 lines; final count): the Oct 7 version (exact) plus the red team's fixes, WRITTEN BY ME to fit the donecheck (fog at 512) and the stat (30 = mine, +21 −9): no double-click or travel-to-centre teleport online (1 comment line), applyPermissions hides directed teleports online, fog forced online. The best store's line 512 (old fog text) was an equal-spacing carry-over, not a view: a carried-over "known" line can be stale where an edit kept the line count.
 - src/ui/settingsPanel.js (925 lines; final count): the top 30 lines (never seen after Oct 5) are the Oct 5 top plus `import { ONLINE } from '../core/boot.js';` (the body uses ONLINE; found with recovery/tools/freevars.mjs). The repo's previous copy had no such import (a ReferenceError). Everything else is the best store (views to Oct 11). It is +51 −6 = 57 changed against the Oct 9 stat's 59, so one commit line changed in a stretch nobody viewed after Oct 7 is still the old text.
 - recovery/tools/freevars.mjs FILE... lists names a module uses but never declares or imports (acorn from /opt/node-tools). Run it on every rebuilt file.
+
+- src/ui/travelPanel.js (173 lines; final count): lines 1–68 known, then go()'s end and render() rebuilt for ledger P3 (players per world, party/friend names, a party line). Oct 5 = Oct 6 = Oct 7 on lines 1–50, so the pooled Oct 7 version (124) is sound. WRITTEN BY ME: whoIsWhere() and partyLine() (the leader brings whoever ticked "together" — server social.follow on travel), a "N online here — names" line on each card. New CSS classes for main.css: travel-people, travel-party, tie-party, tie-friend.
+- src/ui/onlinePanel.js (387 lines; final count): the Oct 6 version (exact) plus F9, WRITTEN BY ME to put the known lines where they were seen:
+  - a 'password' listener in the constructor (+5, before authFailed so 90–91 land);
+  - a Change password `<details>` form in renderSignedIn (+14; its username/old/new inputs are the known 236/238/241);
+  - a password branch at the top of submit() (+11; 294–295 known);
+  - PASSWORD_MAX added to the protocol import.
 
 ## Facts found while rebuilding (Oct 15)
 - The Oct 9 16:16 `git diff --stat` (agent a14e835a) gives every tracked file's lines changed from 2c7ee70 at that moment: recovery/diffstats.txt. 21 'exact' files match it to the line. Later totals only: Oct 9 20:50 5637/279, Oct 10 03:04 5644/279, 03:48 5654/279, Oct 11 05:15 5658/279 (insertions/deletions over all 38 tracked files).
