@@ -201,7 +201,7 @@ async function handlePlanetaryImagery(msg, jobKey, post) {
   const signal = jobSignal(jobKey);
   const canvas = await composeEqImage(
     msg.eq,
-    (url) => fetchPlanetaryImage(url, signal),
+    (url, layer) => fetchPlanetaryImage(url, signal, layer),
     makeCanvas,
   );
   const bitmap = await canvasToBitmap(canvas);

@@ -486,7 +486,7 @@ export class MapTileCache {
     const plan = source.eqPlan?.(tile);
     if (!plan) throw noCoverage(`${source.descriptor?.id ?? 'provider'} has no plan for this tile`);
     try {
-      const canvas = await composeEqImage(plan, (u) => fetchPlanetaryImage(u), makeCanvas);
+      const canvas = await composeEqImage(plan, (u, layer) => fetchPlanetaryImage(u, undefined, layer), makeCanvas);
       return await canvasToBitmap(canvas);
     } catch (err) {
       if (err?.noImageryHere) throw noCoverage(String(err.message ?? 'no imagery here'));
