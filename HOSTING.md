@@ -517,10 +517,12 @@ not need the repository on GitHub.
    fly volumes create terraglide_data --size 1 --region lhr -y
    ```
 
-5. Optional secrets:
+5. Optional secrets — a join code, admin names, and the TURN settings for
+   voice (see [Voice chat](#voice-chat)):
 
    ```sh
    fly secrets set TERRAGLIDE_JOIN_CODE=letmein TERRAGLIDE_ADMINS=YourName
+   fly secrets set TURN_URL=turn:turn.example.com:3478 TURN_USERNAME=terraglide TURN_CREDENTIAL=…
    ```
 
 6. Deploy as a single machine (`--ha=false` stops Fly adding a spare), and
@@ -532,9 +534,14 @@ not need the repository on GitHub.
    fly scale count 1     # only if status shows more than one
    ```
 
+   The first deploy builds the image on Fly's own builders, which takes a
+   minute or two; later ones reuse most of it.
+
 Your server is `https://your-name-terraglide.fly.dev`. For your own domain:
 `fly certs add play.example.com` and follow what it says about DNS. Logs:
-`fly logs`.
+`fly logs`. To update, get the new version (`git pull`, or copy the files in)
+and run `fly deploy --ha=false` again: the data is on the volume, so nothing
+is lost.
 
 What `fly.toml` sets: the volume mounted at `/data` and `DATA_DIR=/data`, so
 data survives deploys and restarts (a fresh volume can arrive owned by root;
@@ -1010,6 +1017,9 @@ server/data/
                         and waypoints
   shared-<world>.json   everything anybody has explored on that world: the
                         shared map. Rebuilt from players/ if deleted
+  index.json            a line per player: which worlds they have been on and
+                        how much they explored there, read instead of their
+                        files. Rebuilt from players/ if deleted
   players/<name>.json   one player: which world they are on, their health,
                         oxygen, rocket stock, kills, deaths and time played,
                         their friends and friend requests, and for every
@@ -1504,7 +1514,8 @@ website. Publishing is allowed, on the licence's conditions, in short:
   terms still apply to a published game (licence section 4), and the
   attribution lines the game shows for them must stay visible.
 
-`LICENSE` is the authoritative text; read section 2(e) before publishing.
+`LICENSE` is the authoritative text; read section 2(e) before publishing, and
+ask (an issue on the repository will do) about anything it does not cover.
 
 ---
 
