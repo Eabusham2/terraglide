@@ -1,6 +1,7 @@
-import { BOOT, normaliseServer, relaunch, serverId } from '../core/boot.js';
+import { BOOT, hostedServer, normaliseServer, relaunch, serverId } from '../core/boot.js';
+import { PUBLIC_SERVER } from '../net/publicServer.js';
 import { BODY } from '../geo/bodies.js';
-import { NAME_PATTERN, PASSWORD_MIN, nameProblem, passwordProblem } from '../net/protocol.js';
+import { NAME_PATTERN, PASSWORD_MAX, PASSWORD_MIN, nameProblem, passwordProblem } from '../net/protocol.js';
 import { escapeHtml } from './worldmap.js';
 
 /**
@@ -77,6 +78,11 @@ export class OnlinePanel {
         this.show();
         this.render();
       });
+      // The answer to Change password, said in the panel where it was asked.
+      session.on('password', (m) => {
+        this.passwordNote = m.ok ? { ok: true, text: 'Password changed' } : { ok: false, text: m.error };
+        this.render();
+      });
       session.on('authFailed', (m) => {
         this.error = m.error;
         this.busy = false;
@@ -90,7 +96,7 @@ export class OnlinePanel {
         this.close();
       });
       session.on('kicked', (m) => {
-        this.error = m.reason;
+        this.error = m.restart ? `${m.reason} — reconnecting when it is back` : m.reason;
         this.show();
         this.render();
       });
@@ -142,10 +148,16 @@ export class OnlinePanel {
 
   renderLocal() {
     const recent = recentServers();
+    const publicServer = normaliseServer(PUBLIC_SERVER);
     return `
       <p class="online-intro">You are playing locally: everything you explore is kept in this browser.
         Join a server to fly with other people — your local save stays exactly as it is,
         and nothing you do online is written into it.</p>
+      ${publicServer ? `<div class="online-public">
+        <button type="button" class="primary" data-action="public">Play on the public server</button>
+        <span>Everybody's discoveries on one map, parties and friends, voice. ${escapeHtml(serverId(publicServer))}</span>
+      </div>
+      <p class="online-or">or join another server</p>` : ''}
       <form data-form="join" class="online-form">
         <label>Server address
           <input name="server" type="text" placeholder="wss://my-server.example.com or 192.168.1.20:8080"
@@ -165,19 +177,18 @@ export class OnlinePanel {
     const status = s.net.status;
     const info = s.net.info;
     const where = escapeHtml(info?.name ?? serverId(s.server));
-    const connecting = status === 'connecting' || status === 'idle' || (status === 'closed' && !info);
+    const connecting = status === 'connecting' || status === 'idle' || ((status === 'closed' || status === 'failed') && !info);
     const signup = this.mode === 'signup';
     const head = `
       <div class="online-server">
         <strong>${where}</strong>
-
         <span>${escapeHtml(info?.motd ?? serverId(s.server))}</span>
         ${info ? `<em>${info.online} online · ${info.pvp ? 'PvP on' : 'PvP off'}</em>` : ''}
       </div>`;
     if (connecting && !info) {
       const detail = s.net.statusDetail ? `<p class="online-error">${escapeHtml(s.net.statusDetail)}</p>` : '';
       return `${head}
-        <p class="online-status">${status === 'closed' ? 'Not connected — trying again…' : 'Connecting…'}</p>
+        <p class="online-status">${status === 'closed' || status === 'failed' ? 'Not connected — trying again…' : 'Connecting…'}</p>
         ${detail}
         <div class="online-actions"><button type="button" data-action="local">Play locally instead</button></div>`;
     }
@@ -215,8 +226,24 @@ export class OnlinePanel {
       </div>
       <p class="online-you"><i style="--player:${escapeHtml(you.colour)}"></i>
         Signed in as <strong>${escapeHtml(you.name)}</strong>${you.admin ? ' (admin)' : ''}</p>
-      <p class="online-hint">Invite someone: <code>${escapeHtml(inviteLink())}</code>
+      <p class="online-hint">Invite someone: <code>${escapeHtml(inviteLink(s.net.info))}</code>
         <button type="button" class="mini" data-action="copy-invite">copy</button></p>
+      ${onlyHere(inviteLink(s.net.info)) ? `<p class="online-note">That address only works on this computer. Friends on your
+        network need this machine's own address, and friends elsewhere a tunnel or a host — HOSTING.md shows both.</p>` : ''}
+      <details class="online-password"${this.passwordNote ? ' open' : ''}>
+        <summary>Change password</summary>
+        <form data-form="password" class="online-form">
+          <input name="username" type="text" autocomplete="username" value="${escapeHtml(you.name)}" hidden />
+          <label>Current password
+            <input name="old" type="password" autocomplete="current-password" maxlength="${PASSWORD_MAX}" />
+          </label>
+          <label>New password
+            <input name="new" type="password" autocomplete="new-password" maxlength="${PASSWORD_MAX}" />
+          </label>
+          <button type="submit">Change password</button>
+        </form>
+        ${this.passwordNote ? `<p class="${this.passwordNote.ok ? 'online-note' : 'online-error'}">${escapeHtml(this.passwordNote.text)}</p>` : ''}
+      </details>
       <div class="online-actions">
         <button type="button" data-action="signout">Sign out</button>
         <button type="button" data-action="local">Back to playing locally</button>
@@ -231,6 +258,13 @@ export class OnlinePanel {
       case 'pick':
         this.element.querySelector('input[name=server]').value = button.dataset.server;
         break;
+      case 'public': {
+        const server = normaliseServer(PUBLIC_SERVER);
+        if (!server) break;
+        rememberServer(server);
+        relaunch({ mode: 'online', server, reason: 'Joining the public server' });
+        break;
+      }
       case 'tab-login':
         this.mode = 'login';
         this.error = '';
@@ -248,7 +282,7 @@ export class OnlinePanel {
         this.session?.leaveServer({ forget: true });
         break;
       case 'copy-invite':
-        navigator.clipboard?.writeText(inviteLink()).then(() => { button.textContent = 'copied'; }, () => {});
+        navigator.clipboard?.writeText(inviteLink(this.session?.net.info)).then(() => { button.textContent = 'copied'; }, () => {});
         break;
       default:
     }
@@ -257,11 +291,28 @@ export class OnlinePanel {
   submit(form) {
     const kind = form.dataset.form;
     const data = new FormData(form);
-
+    if (kind === 'password') {
+      // Sent whole - spaces and all - not as /password, which splits on them.
+      const problem = passwordProblem(String(data.get('new') ?? ''));
+      if (problem) {
+        this.passwordNote = { ok: false, text: problem };
+        this.render();
+        return;
+      }
+      this.session.changePassword(data.get('old'), data.get('new'));
+      return;
+    }
     if (kind === 'join') {
       const server = normaliseServer(data.get('server'));
       if (!server) {
         this.error = 'That does not look like a server address';
+        this.render();
+        return;
+      }
+      // A secure page cannot open a plain ws:// connection — the browser
+      // refuses it before it leaves — so say so now, and where to go instead.
+      if (globalThis.location?.protocol === 'https:' && server.startsWith('ws:')) {
+        this.error = `This page is https, and that server is not, so the browser will not let them talk. Open the server's own page instead: ${ownPage(server)}`;
         this.render();
         return;
       }
@@ -288,12 +339,49 @@ export class OnlinePanel {
 
 /**
  * A link that opens the game on this server. The published game, with the
- * server in the address — or the server's own page when that is where you are.
+ * server in the address — or the server's own page when that is where you
+ * are and it is that server you are playing on.
  */
-export function inviteLink() {
+export function inviteLink(info = null) {
   const here = globalThis.location;
-  const server = BOOT.server ?? '';
-  if (globalThis.__TERRAGLIDE_SERVER__ && here?.protocol?.startsWith('http')) return `${here.origin}/`;
+  let server = BOOT.server ?? '';
+  // "localhost" is the host's own machine to everybody who opens it: put the
+  // machine's network address in instead, when the server said what it is.
+  try {
+    const url = new URL(server);
+    if (/^(localhost|127\.|\[::1\])/i.test(url.hostname) && info?.lan?.[0]) {
+      url.hostname = info.lan[0];
+      server = url.href;
+    }
+  } catch {
+    /* not an address; handled below */
+  }
+  // A plain ws:// server can only be reached from a plain http page, and every
+  // TerraGlide server is one: its own.
+  if (server.startsWith('ws:')) return ownPage(server);
+  if (server && server === hostedServer() && here?.protocol?.startsWith('http')) return `${here.origin}/`;
   const page = here?.protocol?.startsWith('http') ? `${here.origin}${here.pathname}` : 'https://eabusham2.github.io/terraglide/';
   return `${page}?server=${encodeURIComponent(server)}`;
+}
+
+/** The game as a server serves it: its socket address, as a web page. */
+export function ownPage(server) {
+  try {
+    const url = new URL(server);
+    url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+    url.pathname = '/';
+    url.search = '';
+    return url.href;
+  } catch {
+    return '';
+  }
+}
+
+/** True for an address only the machine itself can open. */
+function onlyHere(link) {
+  try {
+    return /^(localhost|127\.|\[::1\])/i.test(new URL(link).hostname);
+  } catch {
+    return false;
+  }
 }
