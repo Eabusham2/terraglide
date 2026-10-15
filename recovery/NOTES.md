@@ -1,12 +1,17 @@
 # Recovery notepad (read this first after any compaction)
 
 ## OUTLINE (keep current: newest at the top of each list)
-### Where I am right now (Oct 15 ~01:50 UTC)
-- Rebuilding **server/game.mjs** (the biggest lost file, 2685 lines before round 6). Method: assemble each version from the line-numbered sightings in the agent logs, then patch forward with the exact diffs.
-  - V5 (after X11, before round 6, 2685 lines) has 2258 lines from its own window and 150 filled by matching; 277 are still missing (1960–2084 and 2285–2436). The partial is in /tmp/gm_v5.mjs, which is lost on a reset. Re-run `assemble.mjs` to get it back.
-  - Next: assemble V2 (2560 lines), patch it with diffs/swing.game.diff, x7.game.diff and fix.game.diff to fill V5's gaps, apply round 6, check the md5, commit.
-  - **Found Oct 15:** Bash tool results lose a LEADING blank line. A `sed -n 1270,1300p` whose first line is blank prints from line 1271, so everything after it looks shifted up by one, and the chain comes up one line short (261 instead of 262). It is not a different file version. frags.mjs must handle "one short": assume a dropped leading blank when the first range starts on a blank line.
-- After game.mjs: session.js (949, final), servertest (1719), HOSTING (1539), social (876), commands, accounts, config, records, server.mjs, then the client files and `git diff`s of tracked files.
+### Where I am right now (Oct 15, afternoon)
+- Done since the last compaction, each committed: social.mjs (866), HOSTING.md (1533), voice.js (1553, exact count), planetary.js (1947, exact count), chat.js (237), touch.js (351), beacons.js (exact), manifest.json (exact), the workflow (exact), gazetteerData.js + starCatalogue.js (regenerated).
+- METHOD that works (use it for every remaining file):
+  1. `./newestfull.sh REL` (scratchpad/recover) pools each version newest first and stops at the first complete one, written to out/t/<base>.<V>.js.
+  2. `python3 -I align2.py OLD out/best/<base> [OUT]` maps each gap of the final onto the older version (difflib on the known lines). `showgap.py OLD FINAL A B` shows one gap beside the old text.
+  3. Find what changed in each gap: the Oct 9 ledger (recovery/ledger-oct9.md), reviews in calls.jsonl (search the text), selftest regexes on source text, the exact files' APIs (session.js, game.mjs, protocol.js...).
+  4. Write the change as a python edits script in recovery/guess/<name>_edits.py over the old version; check every known final line lands in place and the count matches; check `git diff --numstat 2c7ee70` against recovery/diffstats.txt (Oct 9 16:16) for tracked files.
+- The Oct 9 16:16 diff stat (recovery/diffstats.txt) is the line-change count of every tracked file at that moment. Use it.
+- frags.mjs gained two cases (last range of a mismatched sed chain; `cat FILE` ending a mixed command). Re-pooling gave no new lines for the final versions; the new views sit in cut-out windows. Look at them by hand when rebuilding a file.
+- NEXT: the client UI (hud 412 missing, onlinePanel 226, playersPanel 146, teleportMenu 145, travelPanel short 65, minimap, worldmap, settingsPanel), then game.js (562 missing after aligning V4), player.js, avatar.js, main.css, README, then the tests, then sword.glb and the verify pass.
+  - game.js: V4 (Oct 6 21:57, 2813 lines, 19 missing) aligned onto the final gives out/t/game.a1.js (562 left). Line 144 is in PANEL_KEYS (the F6/F6b key guard, seen once at Oct 9 15:15).
 
 ### Where I was when the work was lost (Oct 12)
 - Round 6 of the anti-cheat was done and verified: Mars surge limit (surgedSpeed), thin-air fall cap (GLIDE_ROOM), drop-strike blink rule. Suites: servertest 210/210, selftest 1753/1753, flightcheck 15/15, onlinecheck 43/43, voice 50/50.
