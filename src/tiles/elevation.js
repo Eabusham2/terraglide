@@ -37,6 +37,8 @@ export class ElevationField {
   constructor(worker) {
     this.worker = worker;
     this.source = null;
+    /** A world with no measured relief at all: flat, and known to be. See setSource. */
+    this.flat = false;
     this.tiles = new Map();
     this.jobs = new Map();
     this.nextId = 1;
@@ -53,8 +55,20 @@ export class ElevationField {
     this.worker.addEventListener('message', (event) => this.onMessage(event.data));
   }
 
-  setSource(source) {
+  /**
+   * @param {object | null} source where the heights come from
+   * @param {{ flat?: boolean }} [options]
+   *   `flat`, with no source: a world whose relief nobody has measured —
+   *   Europa, Ganymede, Callisto. Its ground is flat at the datum, and that is
+   *   not a gap waiting to be filled but the whole of the answer, so every
+   *   point reports as measured. Without it, "no source" kept meaning what it
+   *   means on Earth, "nothing has arrived", and everything that waits for the
+   *   ground waited on an answer that was never coming: the arrival hold ran
+   *   to its cap and then said the ground never came. See tiles/planetary.js.
+   */
+  setSource(source, { flat = false } = {}) {
     this.source = source;
+    this.flat = !source && flat === true;
     this.tiles.clear();
     this.queue.length = 0;
   }
@@ -71,6 +85,7 @@ export class ElevationField {
    * do its job over ground that simply has not streamed in yet.
    */
   hasDataAt(nx, ny, topZoom = this.maxZoom) {
+    if (this.flat) return true;
     const x = nx - Math.floor(nx);
     const y = clamp(ny, 0, 0.999999);
     for (let z = Math.min(topZoom, this.maxZoom); z >= 3; z--) {
@@ -92,6 +107,8 @@ export class ElevationField {
    * every time any tile anywhere lands.
    */
   zoomAt(nx, ny) {
+    // A flat world is as fine as anything will ever ask for, everywhere.
+    if (this.flat) return this.maxZoom;
     const x = nx - Math.floor(nx);
     const y = clamp(ny, 0, 0.999999);
     for (let z = this.maxZoom; z >= 3; z--) {
@@ -202,6 +219,7 @@ export class ElevationField {
 
   /** True when a real (non-generated) sample exists for this point. */
   hasData(nx, ny) {
+    if (this.flat) return true;
     const x = nx - Math.floor(nx);
     const y = clamp(ny, 0, 0.999999);
     for (let z = this.maxZoom; z >= 3; z--) {
@@ -278,6 +296,11 @@ export class ElevationField {
   }
 
   request(tile, priority) {
+    // Nothing to ask. Queued anyway, every square the camera passed over would
+    // wait for ever behind a pump that returns at once without a source, and
+    // the queue — searched end to end on every request — would grow for as
+    // long as you flew. Off Earth that is a whole session on a flat moon.
+    if (!this.source) return;
     const key = tileKey(tile.z, tile.x, tile.y);
     let entry = this.tiles.get(key);
     if (!entry) {
@@ -312,6 +335,13 @@ export class ElevationField {
       if (!entry || entry.state === STATE_PENDING || entry.state === STATE_READY) continue;
       const url = this.source.urlFor(entry.tile);
       if (url === null) continue;
+      // A planetary source needs more than a URL: the box or the rows it
+      // asks for, how many rows came back, the datum to take off and the
+      // body's own height range. Worked out here, on the page, and posted
+      // with the job, because the worker is a separate realm in the hosted
+      // builds and would read Earth if it asked for itself. Null for every
+      // Earth provider. See TileSource.jobFor and tiles/planetary.js.
+      const extra = this.source.jobFor?.(entry.tile, GRID) ?? null;
       const id = this.nextId++;
       entry.state = STATE_PENDING;
       this.jobs.set(id, entry);
@@ -324,6 +354,7 @@ export class ElevationField {
         url,
         decode: this.source.decode,
         size: GRID,
+        ...extra,
       });
     }
   }
@@ -358,7 +389,13 @@ export class ElevationField {
 
     if (!msg.ok || !msg.heights) {
       entry.state = STATE_FAILED;
-      entry.retryAt = performance.now() + 20000;
+      // A fault — a 502, a dropped connection, an export that came back as an
+      // error page — is the moment, not the ground, and is asked again soon,
+      // on the same four seconds the imagery queue gives one. A refusal waits
+      // the full twenty. Trek's elevation servers are the ones that do this:
+      // measured, one export in a few hundred answered with an HTML error that
+      // was gone on the next request.
+      entry.retryAt = performance.now() + (msg.transient ? 4000 : 20000);
       const hadHope = !this.givenUp;
       this.failed++;
       // Crossing into "given up" changes what every sample returns, so the
