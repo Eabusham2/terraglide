@@ -85,7 +85,7 @@ New files:
 - [x] server/ws.mjs (405) · [x] server/cells.mjs (146) · [x] server/store.mjs (90; the paste had a stray leading blank line, removed; all 62 logged lines then match)
 - [x] server/game.mjs FINAL (2720 lines, 126238 bytes) = V5 + round 6 (recovery/diffs/atk6.game.diff, then r6_copy2_edit1.py and r6_copy2_edit2.py, replayed exactly). Its line numbers match my Oct 12 07:56 grep of the copy (GLIDE_ROOM at 104, 915, 1079). Caveat: 25 guessed lines (see Guessed), about 52 bytes short; everything else is from the logs.
 - [x] server/accounts.mjs (319) · [x] server/commands.mjs (244) · [~] server/config.mjs (146; lines 100-135 rebuilt, see Guessed) · [x] server/records.mjs (148) · [~] server/server.mjs (321) · [~] server/social.mjs (876 = final; every view and grep since Oct 10 03:48 agrees; the party fixes in the three Oct 9 fills are mine, see Guessed)
-- [~] HOSTING.md (1533 of 1544; 11 lines short in the older-text fills, see Guessed)
+- [~] HOSTING.md (1544 = final; every line the final's greps place lands there; the 11 lines the Oct 7 fills lacked are mine, see Guessed)
 - [x] src/core/boot.js (256, whole cat of Oct 7 16:54; count matches Oct 11)
 - [x] src/geo/bodies.js (395) · [x] src/geo/ephemeris.js (231) · [x] src/geo/gazetteer.js (151, the whole file from an Oct 5 13:56 `cat -n` inside a mixed command; one version to the end) · [x] src/geo/gazetteerData.js (regenerated Oct 15 after the apostrophe fix: 8147 features, 254409 bytes; no older size was logged)
 - [x] src/net/client.js (276) · [~] src/net/protocol.js (517) · [x] src/net/remotePlayers.js (610) · [x] src/net/session.js (949) · [~] src/net/voice.js (1553, every known line in place; 8 doc lines + onOffer's 2 new lines written, see Guessed)
@@ -257,6 +257,12 @@ Changed tracked files (base = 2c7ee70):
 
 - README.md (696): the pooled Oct 11 version plus 49 lines from the commit's own text (recovery/guess/readme_fill.py). The stretches are exactly as long as the commit's, between known lines; the one new line, the second tools line, is from an Oct 5 diff of the README. +134 −10 against the commit, as the 16:16 stat (144) and git's bar (−1) require. All 13 checkable greps since Oct 9 16:16 match. Very likely exact.
 - HOSTING.md (for later): two greps of the final (Oct 10 04:10 and Oct 12 03:36) put "The first account" at 949, the reset message at 976, and /password and /friend add at 1113 and 1114. My copy has them 7 and 10 lines earlier.
+
+- HOSTING.md (1544, final count): the 11 lines the three Oct 7 fills lacked, WRITTEN BY ME (recovery/guess/hosting_fill.py). Nothing logged shows them; the main chat's log before Oct 10 is gone.
+  - Fly.io (+7): step 5 names the TURN secrets, step 6 says the first deploy builds on Fly, and a sentence on updating.
+  - Data layout (+3): `index.json`, the small index H4 added beside the records.
+  - Publishing (+1): where to ask about what the licence does not cover.
+  - The final's greps (949, 976, 1113, 1114) now land. The Oct 11 05:07 and Oct 12 08:12 edits are in.
 
 ## Facts found while rebuilding (Oct 15)
 - Grep output is a source in three more shapes. Context lines `NN-text` (from -A/-B/-C). Multi-file `path:NN:text`, which frags already reads. And complete greps: a grep not cut by `head` lists every line with its pattern, so the rest of the file has none. recovery/tools/grepcheck.mjs re-runs every logged grep on a rebuilt file, in a mirror of the repo, and compares the output. Run it on every rebuilt file.
