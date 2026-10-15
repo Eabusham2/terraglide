@@ -1,0 +1,231 @@
+import { keybinds } from '../core/keybinds.js';
+import { settings } from '../core/settings.js';
+import { formatDistance } from '../core/units.js';
+import { BOOT } from '../core/boot.js';
+import { BODIES } from '../geo/bodies.js';
+import { bearing, haversine } from '../geo/mercator.js';
+import { MAX_HEALTH, TPA_TIMEOUT_S } from '../net/protocol.js';
+import { escapeHtml } from './worldmap.js';
+
+/**
+ * Who else is here, and what you can do about them.
+ *
+ * Every player online, in their colour, with where they are from you — how
+ * far and which way, or which world if not this one — and their hearts. Next
+ * to each: ask to go to them, ask them to come to you, whisper, and show their
+ * trail or what they have discovered on your map. Below them, everyone who has
+ * ever been on this world, online or not, so their discoveries can be switched
+ * on too.
+ *
+ * The buttons send the same commands you could type, so the panel and the
+ * chat never disagree about what a request is.
+ */
+export class PlayersPanel {
+  /**
+   * @param {HTMLElement} root
+   * @param {import('../net/session.js').OnlineSession} session
+   * @param {() => {lat:number, lon:number}} where
+   */
+  constructor(root, session, where) {
+    this.session = session;
+    this.where = where;
+    this.open = false;
+    this.element = document.createElement('div');
+    this.element.className = 'panel players-panel';
+    this.element.hidden = true;
+    root.appendChild(this.element);
+    this.element.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-action]');
+      if (!button) return;
+      button.blur();
+      this.act(button.dataset.action, button.dataset.id, button);
+    });
+    this.element.addEventListener('change', (event) => {
+      const box = event.target.closest('input[data-watch]');
+      if (!box) return;
+      const key = box.dataset.key;
+      if (key === '*') this.session.watchEveryone(box.checked);
+      else this.session.watch(key, { [box.dataset.watch]: box.checked });
+      this.render();
+    });
+    this.element.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        this.close();
+      }
+    });
+    for (const event of ['roster', 'atlas', 'auth']) session.on(event, () => this.open && this.render());
+    this.timer = setInterval(() => this.open && this.render(), 1000);
+  }
+
+  show() {
+    this.open = true;
+    this.element.hidden = false;
+    this.session.requestAtlas();
+    this.render();
+  }
+
+  close() {
+    this.open = false;
+    this.element.hidden = true;
+  }
+
+  toggle() {
+    if (this.open) this.close();
+    else this.show();
+  }
+
+  act(action, id, button) {
+    const p = this.session.remote.get(Number(id));
+    switch (action) {
+      case 'close':
+        return this.close();
+      case 'tpa':
+        if (p) this.session.chat(`/tpa ${p.name}`);
+        return;
+      case 'tpahere':
+        if (p) this.session.chat(`/tpahere ${p.name}`);
+        return;
+      case 'msg':
+        if (p) this.onWhisper?.(p.name);
+        return;
+      case 'accept':
+      case 'deny':
+        return this.session.answer(Number(id), action === 'accept');
+      default:
+    }
+  }
+
+  render() {
+    const session = this.session;
+    const me = this.where();
+    const units = settings.get('units');
+    const list = session.players().slice().sort((a, b) => {
+      const sameA = a.world === BOOT.world ? 0 : 1;
+      const sameB = b.world === BOOT.world ? 0 : 1;
+      return sameA - sameB || (a.distance ?? Infinity) - (b.distance ?? Infinity) || a.name.localeCompare(b.name);
+    });
+    const rows = list.map((p) => {
+      const here = p.world === BOOT.world;
+      let where;
+      if (!here) where = `on ${escapeHtml(BODIES[p.world]?.name ?? p.world)}`;
+      else if (p.now) {
+        const d = haversine(me, p.now);
+        const deg = ((bearing(me, p.now) * 180) / Math.PI + 360) % 360;
+        where = `${formatDistance(d, units)} <span class="players-arrow" style="transform:rotate(${deg.toFixed(0)}deg)">↑</span>`;
+      } else where = 'landing…';
+      const hearts = p.dead ? 'dead' : `${Math.ceil((p.health ?? MAX_HEALTH) / 2)}♥`;
+      const overlay = session.overlays.get(p.name.toLowerCase());
+      return `
+        <li style="--player:${escapeHtml(p.colour)}">
+          <i class="players-dot"></i>
+          <span class="players-name">${escapeHtml(p.name)}${p.admin ? ' <em>admin</em>' : ''}</span>
+          <span class="players-where">${where}</span>
+          <span class="players-hearts">${hearts}</span>
+          <span class="players-buttons">
+            <button type="button" class="mini" data-action="tpa" data-id="${p.id}" title="Ask to teleport to ${escapeHtml(p.name)}">TPA</button>
+            <button type="button" class="mini" data-action="tpahere" data-id="${p.id}" title="Ask ${escapeHtml(p.name)} to teleport to you">Bring</button>
+            <button type="button" class="mini" data-action="msg" data-id="${p.id}" title="Whisper">Msg</button>
+          </span>
+          ${here ? `<label class="players-tick"><input type="checkbox" data-watch="trail" data-key="${escapeHtml(p.name.toLowerCase())}" ${overlay?.showTrail ? 'checked' : ''}/> trail</label>
+          <label class="players-tick"><input type="checkbox" data-watch="explored" data-key="${escapeHtml(p.name.toLowerCase())}" ${overlay?.showExplored ? 'checked' : ''}/> discovered</label>` : ''}
+        </li>`;
+    }).join('');
+    const online = new Set(list.map((p) => p.name.toLowerCase()));
+    const offline = session.atlas.filter((a) => !online.has(a.key));
+    const everyone = session.atlas.length > 0 && session.atlas.every((a) => {
+      const o = session.overlays.get(a.key);
+      return o?.showExplored && o?.showTrail;
+    });
+    const requests = [...session.requests.values()].map((r) => {
+      const left = Math.max(0, Math.ceil((r.expiresIn ?? TPA_TIMEOUT_S) - (performance.now() - r.at) / 1000));
+      return `<li class="players-request">
+        <b style="--player:${escapeHtml(r.from.colour)}">${escapeHtml(r.from.name)}</b>
+        ${r.kind === 'tpa' ? 'wants to come to you' : 'wants you to come to them'} · ${left}s
+        <button type="button" class="mini primary" data-action="accept" data-id="${r.id}">Accept</button>
+        <button type="button" class="mini" data-action="deny" data-id="${r.id}">Deny</button>
+      </li>`;
+    }).join('');
+    this.element.innerHTML = `
+      <div class="panel-head">
+        <h2>Players</h2>
+        <span class="players-count">${list.length + 1} online</span>
+        <button type="button" class="panel-close" data-action="close">Close <kbd>${escapeHtml(keybinds.labelFor('players'))}</kbd></button>
+      </div>
+      <div class="players-body">
+        ${requests ? `<ul class="players-list">${requests}</ul>` : ''}
+        <p class="players-you" style="--player:${escapeHtml(session.you?.colour ?? '#ccc')}">
+          <i class="players-dot"></i> ${escapeHtml(session.you?.name ?? '')} (you) · ${escapeHtml(BODIES[BOOT.world].name)}</p>
+        ${rows ? `<ul class="players-list">${rows}</ul>` : '<p class="players-empty">Nobody else is online yet. Send them an invite from the Online panel.</p>'}
+        <h3>Discoveries on ${escapeHtml(BODIES[BOOT.world].name)}</h3>
+        <label class="players-tick everyone"><input type="checkbox" data-watch="all" data-key="*" ${everyone ? 'checked' : ''}/>
+          Show everyone's discoveries and trails on the map</label>
+        ${offline.length ? `<ul class="players-list offline">${offline.map((a) => {
+          const overlay = session.overlays.get(a.key);
+          return `<li style="--player:${escapeHtml(a.colour)}"><i class="players-dot"></i>
+            <span class="players-name">${escapeHtml(a.name)}</span><span class="players-where">offline</span>
+            <label class="players-tick"><input type="checkbox" data-watch="trail" data-key="${escapeHtml(a.key)}" ${overlay?.showTrail ? 'checked' : ''}/> trail</label>
+            <label class="players-tick"><input type="checkbox" data-watch="explored" data-key="${escapeHtml(a.key)}" ${overlay?.showExplored ? 'checked' : ''}/> discovered</label></li>`;
+        }).join('')}</ul>` : ''}
+        <p class="players-help">Type <code>/tpa name</code>, <code>/tpahere name</code>, <code>/tpaccept</code>, <code>/tpdeny</code> in chat
+          (<kbd>${escapeHtml(keybinds.labelFor('chat'))}</kbd>) — or use the buttons. Requests last ${TPA_TIMEOUT_S} seconds.</p>
+      </div>`;
+  }
+}
+
+/**
+ * The prompt for a teleport request: who, which way, a countdown, and the two
+ * answers, with their keys — because with the pointer captured you cannot
+ * click anything without letting go of the flight first.
+ */
+export class RequestPrompts {
+  constructor(root, session) {
+    this.session = session;
+    this.element = document.createElement('div');
+    this.element.className = 'tp-prompts';
+    root.appendChild(this.element);
+    this.element.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-answer]');
+      if (!button) return;
+      button.blur();
+      this.session.answer(Number(button.dataset.id), button.dataset.answer === 'yes');
+    });
+    session.on('request', () => this.render());
+    session.on('requestEnd', () => this.render());
+    setInterval(() => this.render(), 250);
+  }
+
+  /** Answer the newest request from the keyboard. */
+  answerNewest(accept) {
+    const newest = [...this.session.requests.values()].sort((a, b) => b.at - a.at)[0];
+    if (!newest) return false;
+    this.session.answer(newest.id, accept);
+    return true;
+  }
+
+  render() {
+    const requests = [...this.session.requests.values()].sort((a, b) => b.at - a.at).slice(0, 3);
+    if (!requests.length) {
+      if (this.element.childElementCount) this.element.innerHTML = '';
+      return;
+    }
+    const yes = escapeHtml(keybinds.labelFor('acceptRequest'));
+    const no = escapeHtml(keybinds.labelFor('denyRequest'));
+    this.element.innerHTML = requests.map((r, i) => {
+      const total = (r.expiresIn ?? TPA_TIMEOUT_S) * 1000;
+      const left = Math.max(0, total - (performance.now() - r.at));
+      return `
+        <div class="tp-prompt" style="--player:${escapeHtml(r.from.colour)}">
+          <div class="tp-text"><b>${escapeHtml(r.from.name)}</b>
+            ${r.kind === 'tpa' ? 'wants to teleport to you' : 'wants you to teleport to them'}
+            ${r.from.world && r.from.world !== BOOT.world ? `<em>from ${escapeHtml(BODIES[r.from.world]?.name ?? r.from.world)}</em>` : ''}</div>
+          <div class="tp-bar"><i style="width:${((left / total) * 100).toFixed(1)}%"></i></div>
+          <div class="tp-buttons">
+            <button type="button" class="primary" data-answer="yes" data-id="${r.id}">Accept${i === 0 ? ` <kbd>${yes}</kbd>` : ''}</button>
+            <button type="button" data-answer="no" data-id="${r.id}">Deny${i === 0 ? ` <kbd>${no}</kbd>` : ''}</button>
+            <span>${Math.ceil(left / 1000)}s</span>
+          </div>
+        </div>`;
+    }).join('');
+  }
+}

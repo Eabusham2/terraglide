@@ -1,0 +1,1128 @@
+/**
+ * The shared world: who is online, where everyone is, and the rules.
+ *
+ * The page does the flying — the elytra model, collisions, streaming the
+ * ground — because only the page has the ground to collide with. What the
+ * server owns is everything that would be a cheat if the page owned it:
+ *
+ *   - whether a move was possible at all (speed, teleports nobody granted)
+ *   - health: damage is applied here, from hits measured here
+ *   - where you may teleport to, and when
+ *   - what you have explored and the line you have flown, worked out from the
+ *     moves it accepted rather than from anything the page claims
+ *
+ * Positions go out to everyone on the same world ten times a second to those
+ * near you and once a second to everyone else — enough for the map, the
+ * compass and the locator bar to follow somebody across a continent.
+ */
+
+import { BODIES, findBody } from '../src/geo/bodies.js';
+import { randomPopulatedPlace } from '../src/world/places.js';
+import {
+  ATTACK_COOLDOWN_S,
+  CHAT_MAX,
+  COMBAT_TAG_S,
+  CRIT_MULTIPLIER,
+  FLAG,
+  HURT_IMMUNE_S,
+  KNOCKBACK_MPS,
+  KNOCKBACK_SPRINT_MPS,
+  MAX_HEALTH,
+  PROTOCOL_VERSION,
+  REACH_M,
+  REACH_SLACK_M,
+  REGEN_DELAY_S,
+  REGEN_EVERY_S,
+  SWORD_DAMAGE,
+  SWORD_SLOT,
+  TPA_COOLDOWN_S,
+  TPA_TIMEOUT_S,
+  VOICE_CONNECT_M,
+  decodeState,
+  nameKey,
+  parseCommand,
+  separation,
+  snapshotRow,
+} from '../src/net/protocol.js';
+import { encodeCells } from '../src/ui/exploration.js';
+import { MAX_WAYPOINTS, PlayerRecord, radiusOf } from './records.mjs';
+import { runCommand } from './commands.mjs';
+
+const TICK_MS = 100;
+/** Everyone within this sees you at the full rate; further out, once a second. */
+const NEAR_M = 6000;
+/** A client that has said nothing for this long is gone. */
+const SILENT_MS = 45000;
+/** How long a world change may take before "left" is announced instead of "arrived". */
+const TRAVEL_GRACE_MS = 30000;
+/** Seconds of position history kept per player, for judging hits after the fact. */
+const HISTORY_S = 1.5;
+/** Repeated impossible moves before a player is disconnected. */
+const KICK_AFTER_VIOLATIONS = 40;
+/** Chat: this many lines in this many seconds. */
+const CHAT_BURST = 6;
+const CHAT_WINDOW_S = 6;
+
+export class Game {
+  /**
+   * @param {object} deps
+   * @param {object} deps.config
+   * @param {import('./store.mjs').Store} deps.store
+   * @param {import('./accounts.mjs').Accounts} deps.accounts
+   * @param {() => number} [deps.now] milliseconds; replaceable for the tests
+   */
+  constructor({ config, store, accounts, now = () => Date.now() }) {
+    this.config = config;
+    this.store = store;
+    this.accounts = accounts;
+    this.now = now;
+    /** Every open socket, signed in or not. */
+    this.clients = new Set();
+    /** Signed-in players by session id. */
+    this.players = new Map();
+    this.byKey = new Map();
+    this.nextId = 1;
+    this.records = new Map();
+    this.requests = new Map();
+    this.nextRequest = 1;
+    this.travelling = new Map();
+    this.tickCount = 0;
+    this.lastSave = now();
+    const saved = store.read('server.json', {});
+    this.bans = saved.bans ?? {};
+    this.spawns = { ...(saved.spawns ?? {}) };
+  }
+
+  saveServer() {
+    this.store.mark('server.json', () => ({ bans: this.bans, spawns: this.spawns }));
+  }
+
+  /* ------------------------------------------------------------ records */
+
+  record(key) {
+    let record = this.records.get(key);
+    if (record) return record;
+    record = new PlayerRecord(key, this.store.read(`players/${key}.json`, {}));
+    this.records.set(key, record);
+    return record;
+  }
+
+  saveRecord(record) {
+    this.store.mark(`players/${record.key}.json`, () => record.toJSON());
+  }
+
+  spawnOf(world) {
+    const body = BODIES[world] ?? BODIES.earth;
+    return this.spawns[world] ?? { lat: body.spawn.lat, lon: body.spawn.lon, label: body.spawn.label };
+  }
+
+  /* ------------------------------------------------------------- sockets */
+
+  /** A socket opened. `address` is who it came from, for rate limits and bans. */
+  connect(ws, address) {
+    const client = {
+      ws,
+      address,
+      player: null,
+      hello: false,
+      chatTimes: [],
+      voiceTimes: [],
+      lastHeard: this.now(),
+    };
+    this.clients.add(client);
+    ws.on('message', (data, binary) => {
+      client.lastHeard = this.now();
+      if (binary) return;
+      let message;
+      try {
+        message = JSON.parse(data);
+      } catch {
+        return;
+      }
+      if (!message || typeof message.t !== 'string') return;
+      try {
+        this.receive(client, message);
+      } catch (error) {
+        console.error('[game] handling', message.t, 'failed:', error);
+      }
+    });
+    ws.on('close', () => this.disconnect(client));
+    return client;
+  }
+
+  send(client, message) {
+    if (!client?.ws?.open) return;
+    client.ws.send(JSON.stringify(message));
+  }
+
+  /** To everyone signed in, optionally only on one world. */
+  broadcast(message, { world = null, except = null } = {}) {
+    const text = JSON.stringify(message);
+    for (const player of this.players.values()) {
+      if (player === except) continue;
+      if (world && player.world !== world) continue;
+      if (player.client.ws.open) player.client.ws.send(text);
+    }
+  }
+
+  /** A line in everybody's chat from the server itself. */
+  announce(text, { world = null, except = null, kind = 'system' } = {}) {
+    this.broadcast({ t: 'chat', kind, text }, { world, except });
+  }
+
+  tell(player, text, kind = 'system') {
+    this.send(player.client, { t: 'chat', kind, text });
+  }
+
+  receive(client, m) {
+    if (m.t === 'hello') {
+      client.hello = true;
+      this.send(client, {
+        t: 'welcome',
+        v: PROTOCOL_VERSION,
+        server: this.publicInfo(),
+      });
+      if (Number(m.v) !== PROTOCOL_VERSION) {
+        this.send(client, { t: 'error', code: 'version', text: 'This server runs a different version of the game — reload the page' });
+      }
+      return;
+    }
+    if (m.t === 'ping') {
+      this.send(client, { t: 'pong', c: m.c, s: this.now() });
+      if (client.player && Number.isFinite(m.rtt)) client.player.rtt = Math.max(0, Math.min(1000, Number(m.rtt)));
+      return;
+    }
+    if (!client.player) {
+      if (m.t === 'signup' || m.t === 'login' || m.t === 'resume') this.authenticate(client, m);
+      return;
+    }
+    const player = client.player;
+    switch (m.t) {
+      case 's': return this.onState(player, m);
+      case 'chat': return this.onChat(player, m.text);
+      case 'attack': return this.onAttack(player, m);
+      case 'swing': return this.onSwing(player);
+      case 'damage': return this.onSelfDamage(player, m);
+      case 'respawn': return this.respawn(player);
+      case 'travel': return this.travel(player, m.world);
+      case 'arrived': return this.onArrived(player, m);
+      case 'watch': return this.onWatch(player, m);
+      case 'atlas': return this.sendAtlas(player);
+      case 'waypoints': return this.onWaypoints(player, m.list);
+      case 'lander': return this.onLander(player, m);
+      case 'rtp': return this.randomTeleport(player);
+      case 'voice': return this.onVoice(player, m);
+      case 'logout':
+        if (client.token) this.accounts.closeSession(client.token);
+        this.send(client, { t: 'loggedOut' });
+        client.ws.close(1000, 'signed out');
+        return;
+      default:
+    }
+  }
+
+  publicInfo() {
+    return {
+      name: this.config.name,
+      motd: this.config.motd,
+      online: this.players.size,
+      max: this.config.maxPlayers,
+      signups: this.config.openSignups,
+      joinCode: !!this.config.joinCode,
+      pvp: this.config.pvp,
+      worlds: Object.keys(BODIES),
+    };
+  }
+
+  /* ---------------------------------------------------------- signing in */
+
+  async authenticate(client, m) {
+    if (client.busy) return;
+    client.busy = true;
+    try {
+      if (this.isBanned(client.address)) {
+        this.send(client, { t: 'auth', ok: false, error: 'This address is banned from the server' });
+        return;
+      }
+      let result;
+      let token = null;
+      if (m.t === 'resume') {
+        const account = this.accounts.resume(String(m.token ?? ''));
+        result = account ? { account } : { error: 'Signed out — sign in again', expired: true };
+        if (account) token = String(m.token);
+      } else if (m.t === 'signup') {
+        result = await this.accounts.signup(String(m.name ?? ''), String(m.password ?? ''), client.address, m.code);
+      } else {
+        result = await this.accounts.login(String(m.name ?? ''), String(m.password ?? ''), client.address);
+      }
+      if (result.error) {
+        this.send(client, { t: 'auth', ok: false, error: result.error, expired: !!result.expired });
+        return;
+      }
+      const account = result.account;
+      if (this.bans[account.key]) {
+        this.send(client, { t: 'auth', ok: false, error: `Banned: ${this.bans[account.key].reason || 'no reason given'}` });
+        return;
+      }
+      if (!client.ws.open) return;
+      const existing = this.byKey.get(account.key);
+      if (!existing && this.players.size >= this.config.maxPlayers) {
+        this.send(client, { t: 'auth', ok: false, error: 'The server is full — try again in a bit' });
+        return;
+      }
+      if (existing) {
+        // The same account somewhere else — another tab, or this tab
+        // reconnecting before the old socket noticed it was dead. The newest
+        // one wins, and the old one is told why it was dropped.
+        this.send(existing.client, { t: 'kick', reason: 'Signed in from somewhere else' });
+        this.disconnect(existing.client, { quiet: true });
+        existing.client.ws.close(4001, 'signed in elsewhere');
+      }
+      if (m.remember !== false && !token) token = this.accounts.openSession(account);
+      client.token = token;
+      this.accounts.touch(account);
+      this.join(client, account, token);
+    } finally {
+      client.busy = false;
+    }
+  }
+
+  join(client, account, token) {
+    const record = this.record(account.key);
+    const world = record.world;
+    const live = record.on(world);
+    const spawn = this.spawnOf(world);
+    const pos = live.pos ?? { lat: spawn.lat, lon: spawn.lon, alt: null, yaw: 0, flying: false };
+    const player = {
+      id: this.nextId++,
+      key: account.key,
+      name: account.name,
+      colour: account.colour,
+      admin: !!account.admin || this.accounts.isConfiguredAdmin(account.name),
+      account,
+      client,
+      record,
+      world,
+      state: null,
+      history: [],
+      lastStateAt: 0,
+      budget: 0,
+      violations: 0,
+      health: Number.isFinite(record.health) && record.health > 0 ? record.health : MAX_HEALTH,
+      dead: false,
+      lastHurtAt: -Infinity,
+      immuneUntil: 0,
+      combatUntil: 0,
+      lastAttackAt: -Infinity,
+      regenAt: 0,
+      selfDamage: [],
+      rtt: 100,
+      pending: null,
+      nextTid: 1,
+      lastRtpAt: -Infinity,
+      lastSpawnAt: -Infinity,
+      lastTravelAt: -Infinity,
+      lastRequestAt: new Map(),
+      watching: new Map(),
+      flags: 0,
+      item: 0,
+      joinedAt: this.now(),
+      replyTo: null,
+    };
+    client.player = player;
+    this.players.set(player.id, player);
+    this.byKey.set(player.key, player);
+    // Where you are until the page says otherwise: the saved spot, which the
+    // first state has to be near or it is a teleport nobody granted.
+    player.state = pos.alt != null
+      ? { lat: pos.lat, lon: pos.lon, alt: pos.alt, agl: 0, vel: [0, 0, 0], yaw: pos.yaw ?? 0, pitch: 0, roll: 0, flags: 0, item: 0 }
+      : null;
+    player.pending = { tid: 0, lat: pos.lat, lon: pos.lon, world, since: this.now() };
+
+    this.send(client, {
+      t: 'auth',
+      ok: true,
+      token,
+      you: { id: player.id, name: player.name, colour: player.colour, admin: player.admin },
+      world,
+      pos,
+      health: player.health,
+      spawn,
+      explored: encodeCells([...live.explored.cells]),
+      trail: live.trail.legs,
+      waypoints: live.waypoints,
+      lander: live.lander,
+      stats: record.stats,
+      rules: {
+        pvp: !!this.config.pvp,
+        spawnProtectionM: this.config.spawnProtectionM,
+        tpaTimeoutS: TPA_TIMEOUT_S,
+        rtpCooldownS: this.config.rtpCooldownS,
+      },
+      iceServers: this.config.iceServers,
+      server: this.publicInfo(),
+    });
+    this.send(client, { t: 'roster', players: [...this.players.values()].map((p) => this.rosterEntry(p)) });
+    this.broadcast({ t: 'join', p: this.rosterEntry(player) }, { except: player });
+
+    const travelled = this.travelling.get(player.key);
+    this.travelling.delete(player.key);
+    if (travelled && this.now() - travelled.at < TRAVEL_GRACE_MS) {
+      if (travelled.world !== world) this.announce(`${player.name} arrived on ${BODIES[world].name}`, { kind: 'travel' });
+    } else {
+      this.announce(`${player.name} joined${world !== 'earth' ? ` on ${BODIES[world].name}` : ''}`, { kind: 'join', except: player });
+      this.tell(player, `Welcome to ${this.config.name}. ${this.config.motd}`);
+    }
+  }
+
+  rosterEntry(p) {
+    return { id: p.id, name: p.name, colour: p.colour, world: p.world, admin: p.admin, dead: p.dead };
+  }
+
+  disconnect(client, { quiet = false } = {}) {
+    if (!this.clients.has(client)) return;
+    this.clients.delete(client);
+    const player = client.player;
+    if (!player) return;
+    client.player = null;
+    if (this.players.get(player.id) !== player) return;
+    this.players.delete(player.id);
+    if (this.byKey.get(player.key) === player) this.byKey.delete(player.key);
+    this.remember(player);
+    player.record.stats.playSeconds += Math.round((this.now() - player.joinedAt) / 1000);
+    this.saveRecord(player.record);
+    for (const [id, request] of this.requests) {
+      if (request.from === player || request.to === player) this.endRequest(id, 'left');
+    }
+    this.broadcast({ t: 'leave', id: player.id });
+    const travelling = this.travelling.get(player.key);
+    if (!quiet && !(travelling && this.now() - travelling.at < TRAVEL_GRACE_MS)) {
+      this.announce(`${player.name} left`, { kind: 'leave' });
+    }
+  }
+
+  /** Copy what is live about a player into their lasting record. */
+  remember(player) {
+    const live = player.record.on(player.world);
+    if (player.state && !player.pending) {
+      live.pos = {
+        lat: player.state.lat,
+        lon: player.state.lon,
+        alt: player.state.alt,
+        yaw: player.state.yaw,
+        flying: !(player.state.flags & FLAG.ground),
+      };
+    }
+    player.record.world = player.world;
+    player.record.health = player.dead ? MAX_HEALTH : player.health;
+    this.saveRecord(player.record);
+  }
+
+  isBanned(address) {
+    return Object.values(this.bans).some((ban) => ban.address && ban.address === address);
+  }
+
+  /* ---------------------------------------------------------- movement */
+
+  maxSpeed(world) {
+    return this.config.maxSpeed ?? 420;
+  }
+
+  onState(player, m) {
+    const s = decodeState(m);
+    if (!s) return;
+    const now = this.now();
+    if (player.pending) {
+      // Waiting for the page to arrive somewhere the server sent it. Anything
+      // it says before then is about where it was, which no longer matters.
+      if (!player.pending.arrived) return;
+      const from = { lat: player.pending.lat, lon: player.pending.lon, alt: s.alt };
+      if (separation(from, s, radiusOf(player.world)) > 3000) {
+        // It says it arrived and it is somewhere else: put it where it was sent.
+        this.correct(player, player.pending);
+        return;
+      }
+      player.pending = null;
+      player.lastStateAt = now;
+      player.budget = 0;
+      this.accept(player, s, now, { leg: true });
+      return;
+    }
+    if (player.dead) {
+      // A dead player stays where they fell until they respawn.
+      return;
+    }
+    const last = player.state;
+    if (last) {
+      const dt = Math.min(2, Math.max(0.001, (now - player.lastStateAt) / 1000));
+      const moved = separation(last, s, radiusOf(player.world));
+      // A leaky allowance rather than a per-message limit: networks deliver in
+      // bunches, so two updates can arrive a millisecond apart carrying a
+      // tenth of a second of travel each. The allowance fills at the speed
+      // limit and a burst can spend what has built up; a cheat has to hold
+      // the speed, and nothing legitimate does.
+      const limit = this.maxSpeed(player.world);
+      player.budget = Math.min(limit * 1.5, player.budget + limit * dt);
+      if (moved > player.budget + 25) {
+        player.violations += 1;
+        if (player.violations >= KICK_AFTER_VIOLATIONS) {
+          this.kick(player, 'Moving impossibly fast');
+          return;
+        }
+        this.correct(player, last);
+        return;
+      }
+      player.budget = Math.max(0, player.budget - moved);
+      player.violations = Math.max(0, player.violations - 0.05);
+    }
+    player.lastStateAt = now;
+    this.accept(player, s, now);
+  }
+
+  accept(player, s, now, { leg = false } = {}) {
+    const swungBefore = player.flags & FLAG.swing;
+    player.state = s;
+    player.flags = s.flags & ~FLAG.dead & ~FLAG.hurt;
+    if (swungBefore !== (s.flags & FLAG.swing)) player.lastSwingAt = now;
+    player.item = s.item;
+    player.history.push({ t: now, lat: s.lat, lon: s.lon, alt: s.alt });
+    while (player.history.length && now - player.history[0].t > HISTORY_S * 1000) player.history.shift();
+
+    const live = player.record.on(player.world);
+    // Explored ground and the trail, worked out here from the move just
+    // accepted — the same rule the game uses, on the same numbers.
+    const agl = Math.max(0, Math.min(s.agl, s.alt + 12000));
+    const seen = Math.max(240, Math.sqrt(2 * radiusOf(player.world) * Math.max(2, agl)));
+    const fresh = live.explored.visit(s.lat, s.lon, agl, seen);
+    if (fresh.length) {
+      this.saveRecord(player.record);
+      this.toWatchers(player, 'explored', { t: 'explored+', name: player.key, world: player.world, keys: fresh });
+    }
+    if (leg) live.trail.break();
+    const point = live.trail.record(s.lat, s.lon);
+    if (point) {
+      this.saveRecord(player.record);
+      this.toWatchers(player, 'trail', { t: 'trail+', name: player.key, world: player.world, p: point.point, leg: point.leg });
+    }
+  }
+
+
+  /** Put a page back where the server last believed it was. */
+  correct(player, where) {
+    this.send(player.client, {
+      t: 'correct',
+      lat: where.lat,
+      lon: where.lon,
+      alt: where.alt ?? null,
+    });
+  }
+
+  onArrived(player, m) {
+    if (player.pending && Number(m.tid) === player.pending.tid) player.pending.arrived = true;
+  }
+
+  /**
+   * Send a player somewhere. The page is told, holds still until it has
+   * landed, and the server ignores everything it says about where it was
+   * until it reports where it got to.
+   *
+   * @param {object} to {lat, lon, alt?, world?, yaw?, flying?}
+   */
+  teleport(player, to, reason) {
+    const world = to.world ?? player.world;
+    if (world !== player.world) return this.moveWorld(player, world, to, reason);
+    const tid = player.nextTid++;
+    player.pending = { tid, lat: to.lat, lon: to.lon, alt: to.alt ?? null, since: this.now() };
+    player.record.on(player.world).trail.break();
+    this.send(player.client, {
+      t: 'teleport',
+      tid,
+      world,
+      lat: to.lat,
+      lon: to.lon,
+      alt: to.alt ?? null,
+      yaw: to.yaw ?? null,
+      flying: !!to.flying,
+      reason,
+    });
+    return true;
+  }
+
+  /**
+   * Change worlds. The page reloads into the new one and signs back in, so
+   * the server records where it will be and lets the connection go.
+   */
+  moveWorld(player, world, to = null, reason = 'travel') {
+    if (!BODIES[world]) return false;
+    this.remember(player);
+    const from = player.world;
+    const next = player.record.on(world);
+    const spawn = this.spawnOf(world);
+    next.pos = to
+      ? { lat: to.lat, lon: to.lon, alt: to.alt ?? null, yaw: to.yaw ?? 0, flying: !!to.flying }
+      : next.pos ?? { lat: spawn.lat, lon: spawn.lon, alt: null, yaw: 0, flying: false };
+    player.record.world = world;
+    player.world = world;
+    player.state = null;
+    player.pending = { tid: 0, lat: next.pos.lat, lon: next.pos.lon, since: this.now() };
+    this.saveRecord(player.record);
+    this.travelling.set(player.key, { at: this.now(), world: from });
+    this.broadcast({ t: 'moved', id: player.id, world });
+    this.send(player.client, { t: 'travelled', world, reason });
+    if (reason !== 'tpa') this.announce(`${player.name} left for ${BODIES[world].name}`, { kind: 'travel' });
+    return true;
+  }
+
+  travel(player, worldName) {
+    const body = findBody(worldName);
+    if (!body) return this.tell(player, `No world called "${worldName}". Try /travel moon or /travel mars`, 'error');
+    if (body.id === player.world) return this.tell(player, `You are already on ${body.name}`, 'error');
+    if (this.inCombat(player)) return this.tell(player, 'You cannot leave in the middle of a fight', 'error');
+    if (player.dead) return this.tell(player, 'Respawn first', 'error');
+    const wait = 10 - (this.now() - player.lastTravelAt) / 1000;
+    if (wait > 0) return this.tell(player, `The launch pad is cooling — ${Math.ceil(wait)} s`, 'error');
+    player.lastTravelAt = this.now();
+    this.moveWorld(player, body.id, null, 'travel');
+  }
+
+  randomTeleport(player) {
+    if (player.dead) return;
+    if (this.inCombat(player)) return this.tell(player, 'You cannot teleport away in the middle of a fight', 'error');
+    const wait = this.config.rtpCooldownS - (this.now() - player.lastRtpAt) / 1000;
+    if (wait > 0) return this.tell(player, `Random teleport is recharging — ${Math.ceil(wait)} s`, 'error');
+    player.lastRtpAt = this.now();
+    let to;
+    if (player.world === 'earth') {
+      // Somewhere with people in it, chosen here — a page that picked its own
+      // "random" destination could pick anywhere it liked.
+      const place = randomPopulatedPlace();
+      to = { lat: place.lat, lon: place.lon, flying: true, label: place.name };
+    } else {
+      const lat = (Math.asin(Math.random() * 2 - 1) * 180) / Math.PI * 0.75;
+      to = { lat, lon: Math.random() * 360 - 180, flying: true };
+    }
+    this.teleport(player, to, 'rtp');
+    this.tell(player, to.label ? `Dropped near ${to.label}` : 'Dropped somewhere new');
+  }
+
+  /* ------------------------------------------------------------ fighting */
+
+  inCombat(player) {
+    return this.now() < player.combatUntil;
+  }
+
+  nearSpawn(player) {
+    if (!player.state) return false;
+    const spawn = this.spawnOf(player.world);
+    return separation(spawn, { lat: player.state.lat, lon: player.state.lon, alt: 0 }, radiusOf(player.world))
+      < (this.config.spawnProtectionM ?? 0);
+  }
+
+  onSwing(player) {
+    player.lastSwingAt = this.now();
+  }
+
+  /**
+   * A swing landed, according to the page. Checked here before it counts:
+   * the sword is in hand, both of you are alive and on the same world, the
+   * blade has had time to come back round, and — the one that matters — the
+   * target was actually within reach when the attacker saw them.
+   */
+  onAttack(attacker, m) {
+    const now = this.now();
+    const target = this.players.get(Number(m.target));
+    if (!target || target === attacker || target.world !== attacker.world) return;
+    if (attacker.dead || target.dead || attacker.pending || target.pending) return;
+    if (!attacker.state || !target.state) return;
+    if (attacker.item !== SWORD_SLOT) return;
+    if (!this.config.pvp) return this.tell(attacker, 'PvP is off on this server', 'error');
+    if (this.nearSpawn(attacker) || this.nearSpawn(target)) {
+      return this.tell(attacker, 'No fighting at spawn', 'error');
+    }
+    // How charged the swing was, from the server's own clock: hitting again
+    // before the blade has come round hits for less, down to a fifth.
+    const since = (now - attacker.lastAttackAt) / 1000;
+    if (since < 0.1) return; // faster than any hand
+    const charge = Math.max(0, Math.min(1, since / ATTACK_COOLDOWN_S));
+    // Where the target was when the attacker saw them: half a round trip ago,
+    // plus the tenth of a second remote players are drawn behind.
+    const seenAt = now - Math.min(600, attacker.rtt / 2 + 100);
+    const then = positionAt(target, seenAt) ?? target.state;
+    const radius = radiusOf(attacker.world);
+    const reach = Math.min(
+      separation(attacker.state, then, radius),
+      separation(attacker.state, target.state, radius),
+    );
+    // Fast-moving pairs get a little more: at two hundred metres a second
+    // between you, twenty milliseconds of disagreement is four metres.
+    const relative = Math.hypot(
+      attacker.state.vel[0] - target.state.vel[0],
+      attacker.state.vel[1] - target.state.vel[1],
+      attacker.state.vel[2] - target.state.vel[2],
+    );
+    const allowed = REACH_M + REACH_SLACK_M + Math.min(8, relative * 0.04);
+    if (reach > allowed) return;
+    attacker.lastAttackAt = now;
+    if (now < target.immuneUntil) return;
+
+    const falling = !(attacker.state.flags & FLAG.ground) && attacker.state.vel[1] < -1;
+    const crit = falling && charge > 0.9;
+    let amount = SWORD_DAMAGE * (0.2 + charge * charge * 0.8);
+    if (crit) amount *= CRIT_MULTIPLIER;
+    amount = Math.round(amount * 2) / 2;
+
+    // Knocked away from the attacker, and up. A sprinting or fast-flying hit
+    // knocks harder, which is Minecraft's sprint-hit.
+    const DEG = Math.PI / 180;
+    const east = (target.state.lon - attacker.state.lon) * DEG * Math.cos(attacker.state.lat * DEG) * radius;
+    const north = (target.state.lat - attacker.state.lat) * DEG * radius;
+    const flat = Math.hypot(east, north) || 1;
+    const fast = (attacker.state.flags & FLAG.sprint) || Math.hypot(...attacker.state.vel) > 12;
+    const push = KNOCKBACK_MPS + (fast ? KNOCKBACK_SPRINT_MPS : 0);
+    const kb = [(east / flat) * push, (target.state.flags & FLAG.ground) ? KNOCKBACK_MPS : KNOCKBACK_MPS * 0.5, (north / flat) * push];
+
+    target.immuneUntil = now + HURT_IMMUNE_S * 1000;
+    attacker.combatUntil = now + COMBAT_TAG_S * 1000;
+    target.combatUntil = now + COMBAT_TAG_S * 1000;
+    this.send(attacker.client, { t: 'hitConfirm', target: target.id, amount, crit });
+    this.hurt(target, amount, { cause: 'slain', by: attacker, kb, crit });
+  }
+  /** Take health off somebody, from any cause, and see whether that was it. */
+  hurt(player, amount, { cause, by = null, kb = null, crit = false }) {
+    if (player.dead || !(amount > 0)) return;
+    const now = this.now();
+    player.health = Math.max(0, player.health - amount);
+    player.lastHurtAt = now;
+    player.regenAt = 0;
+    this.send(player.client, {
+      t: 'hit',
+      amount,
+      health: player.health,
+      cause,
+      by: by ? { id: by.id, name: by.name } : null,
+      kb,
+      crit,
+    });
+    this.broadcast({ t: 'hurt', id: player.id, health: player.health, crit }, { world: player.world, except: player });
+    if (player.health <= 0) this.kill(player, cause, by);
+  }
+
+  kill(player, cause, by = null) {
+    player.dead = true;
+    player.health = 0;
+    player.record.stats.deaths += 1;
+    if (by) by.record.stats.kills += 1;
+    this.saveRecord(player.record);
+    if (by) this.saveRecord(by.record);
+    const message = deathMessage(player.name, cause, by?.name);
+    this.send(player.client, { t: 'died', cause, by: by ? { id: by.id, name: by.name } : null, message });
+    this.broadcast({ t: 'dead', id: player.id }, { except: player });
+    this.announce(message, { kind: 'death' });
+    for (const [id, request] of this.requests) {
+      if (request.from === player || request.to === player) this.endRequest(id, 'died');
+    }
+  }
+
+  respawn(player) {
+    if (!player.dead) return;
+    player.dead = false;
+    player.health = MAX_HEALTH;
+    player.immuneUntil = this.now() + 3000;
+    player.combatUntil = 0;
+    const live = player.record.on(player.world);
+    // Back at your lander off Earth — that is where the air is — and at the
+    // world's spawn otherwise.
+    const at = player.world !== 'earth' && live.lander ? live.lander : this.spawnOf(player.world);
+    this.send(player.client, { t: 'health', health: player.health });
+    this.broadcast({ t: 'alive', id: player.id }, { except: player });
+    this.teleport(player, { lat: at.lat, lon: at.lon, flying: false }, 'respawn');
+  }
+
+  /**
+   * Damage only the page can see: the water you are under, the tank that ran
+   * dry. Taken at its word, because it only ever hurts the one reporting it,
+   * but no faster than the real thing could happen.
+   */
+  onSelfDamage(player, m) {
+    const now = this.now();
+    const amount = Number(m.amount);
+    const cause = ['drowned', 'suffocated', 'kill'].includes(m.cause) ? m.cause : 'suffocated';
+    if (!(amount > 0) || amount > 4) return;
+    player.selfDamage = player.selfDamage.filter((t) => now - t < 1000);
+    if (player.selfDamage.length >= 3) return;
+    player.selfDamage.push(now);
+    this.hurt(player, amount, { cause });
+  }
+
+  /* ------------------------------------------------------------ requests */
+
+  /**
+   * /tpa and /tpahere: ask, and wait up to forty seconds for an answer.
+   *
+   * @param {'tpa'|'tpahere'} kind tpa brings you to them; tpahere brings them to you
+   */
+  request(from, to, kind) {
+    const now = this.now();
+    if (to === from) return this.tell(from, 'That is you', 'error');
+    if (from.dead) return this.tell(from, 'Respawn first', 'error');
+    if (this.inCombat(from)) return this.tell(from, 'Not in the middle of a fight', 'error');
+    const last = from.lastRequestAt.get(to.key) ?? -Infinity;
+    if (now - last < TPA_COOLDOWN_S * 1000) {
+      return this.tell(from, `Wait ${Math.ceil(TPA_COOLDOWN_S - (now - last) / 1000)} s before asking ${to.name} again`, 'error');
+    }
+    from.lastRequestAt.set(to.key, now);
+    // One request between any two people at a time: asking again replaces it.
+    for (const [id, existing] of this.requests) {
+      if (existing.from === from && existing.to === to) this.requests.delete(id);
+    }
+    const id = this.nextRequest++;
+    const expires = now + TPA_TIMEOUT_S * 1000;
+    this.requests.set(id, { id, from, to, kind, expires });
+    this.send(to.client, {
+      t: 'tpreq',
+      id,
+      kind,
+      from: { id: from.id, name: from.name, colour: from.colour, world: from.world },
+      expiresIn: TPA_TIMEOUT_S,
+    });
+    this.tell(to, kind === 'tpa'
+      ? `${from.name} wants to teleport to you. /tpaccept or /tpdeny — ${TPA_TIMEOUT_S} s`
+      : `${from.name} wants you to teleport to them. /tpaccept or /tpdeny — ${TPA_TIMEOUT_S} s`, 'request');
+    this.send(from.client, { t: 'tpsent', id, kind, to: { id: to.id, name: to.name }, expiresIn: TPA_TIMEOUT_S });
+    this.tell(from, `Asked ${to.name}. They have ${TPA_TIMEOUT_S} s to answer — /tpacancel to take it back`);
+  }
+
+  /** The newest request to `player`, from `name` if given. */
+  findRequest(player, name, { sent = false } = {}) {
+    let found = null;
+    for (const request of this.requests.values()) {
+      const mine = sent ? request.from === player : request.to === player;
+      if (!mine) continue;
+      const other = sent ? request.to : request.from;
+      if (name && other.key !== nameKey(name)) continue;
+      if (!found || request.id > found.id) found = request;
+    }
+    return found;
+  }
+
+  accept(player, name) {
+    const request = this.findRequest(player, name);
+    if (!request) return this.tell(player, name ? `No request from ${name}` : 'Nobody has asked', 'error');
+    const { from, to, kind } = request;
+    const mover = kind === 'tpa' ? from : to;
+    const host = kind === 'tpa' ? to : from;
+    if (mover.dead || host.dead) {
+      this.endRequest(request.id, 'died');
+      return this.tell(player, 'Too late — somebody died', 'error');
+    }
+    if (this.inCombat(mover)) {
+      return this.tell(player, `${mover === player ? 'You are' : `${mover.name} is`} in a fight — try again in a few seconds`, 'error');
+    }
+    if (!host.state) return this.tell(player, `${host.name} has not landed yet — try again in a moment`, 'error');
+    this.requests.delete(request.id);
+    this.send(from.client, { t: 'tpreq-end', id: request.id, reason: 'accepted' });
+    this.send(to.client, { t: 'tpreq-end', id: request.id, reason: 'accepted' });
+    // Next to them, not inside them, and at their height: somebody flying at
+    // two thousand metres gets their visitor beside them in the air.
+    const s = host.state;
+    const DEG = Math.PI / 180;
+    const back = 4;
+    const radius = radiusOf(host.world);
+    const to3 = {
+      world: host.world,
+      lat: s.lat - (Math.cos(s.yaw) * back) / radius / DEG,
+      lon: s.lon - (Math.sin(s.yaw) * back) / (radius * Math.cos(s.lat * DEG)) / DEG,
+      alt: s.alt,
+      yaw: s.yaw,
+      flying: !(s.flags & FLAG.ground),
+    };
+    this.tell(mover, `Teleporting to ${host.name}`);
+    this.tell(host, `${mover.name} is on the way`);
+    this.teleport(mover, to3, 'tpa');
+  }
+
+  deny(player, name) {
+    const request = this.findRequest(player, name);
+    if (!request) return this.tell(player, name ? `No request from ${name}` : 'Nobody has asked', 'error');
+    this.endRequest(request.id, 'denied');
+  }
+
+  cancel(player, name) {
+    const request = this.findRequest(player, name, { sent: true });
+    if (!request) return this.tell(player, 'You have not asked anyone', 'error');
+    this.endRequest(request.id, 'cancelled');
+  }
+
+  endRequest(id, reason) {
+    const request = this.requests.get(id);
+    if (!request) return;
+    this.requests.delete(id);
+    const { from, to } = request;
+    for (const p of [from, to]) {
+      if (this.players.get(p.id) === p) this.send(p.client, { t: 'tpreq-end', id, reason });
+    }
+    if (reason === 'denied') this.tell(from, `${to.name} said no`);
+    if (reason === 'expired') {
+      this.tell(from, `${to.name} did not answer in time`);
+      this.tell(to, `The request from ${from.name} ran out`);
+    }
+    if (reason === 'cancelled') this.tell(to, `${from.name} took the request back`);
+  }
+
+  /* --------------------------------------------------------------- chat */
+
+  onChat(player, text) {
+    text = String(text ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, CHAT_MAX);
+    if (!text) return;
+    const now = this.now();
+    player.client.chatTimes = player.client.chatTimes.filter((t) => now - t < CHAT_WINDOW_S * 1000);
+    if (player.client.chatTimes.length >= CHAT_BURST) {
+      return this.tell(player, 'Slow down a little', 'error');
+    }
+    player.client.chatTimes.push(now);
+    const command = parseCommand(text);
+    if (command) return runCommand(this, player, command);
+    this.broadcast({ t: 'chat', kind: 'chat', from: this.speaker(player), text });
+  }
+
+  speaker(player) {
+    return { id: player.id, name: player.name, colour: player.colour, world: player.world };
+  }
+
+  /** Find an online player by name, forgiving case and an unambiguous prefix. */
+  findPlayer(name) {
+    const wanted = nameKey(name ?? '');
+    if (!wanted) return null;
+    const exact = this.byKey.get(wanted);
+    if (exact) return exact;
+    const matches = [...this.players.values()].filter((p) => p.key.startsWith(wanted));
+    return matches.length === 1 ? matches[0] : null;
+  }
+
+  kick(player, reason) {
+    this.send(player.client, { t: 'kick', reason });
+    player.client.ws.close(4000, reason.slice(0, 100));
+    this.disconnect(player.client, { quiet: true });
+    this.announce(`${player.name} was disconnected: ${reason}`, { kind: 'leave' });
+  }
+
+  /* ------------------------------------------------------- map overlays */
+
+  /**
+   * Somebody switched on another player's discoveries or trail on their map.
+   * Everything they have on this world is sent once, and every new square or
+   * point after that, for as long as it stays switched on.
+   */
+  onWatch(viewer, m) {
+    const explored = !!m.explored;
+    const trail = !!m.trail;
+    const targets = m.name === '*'
+      ? this.knownOn(viewer.world)
+      : [nameKey(String(m.name ?? ''))].filter((key) => this.knownOn(viewer.world).includes(key));
+    for (const key of targets) {
+      if (key === viewer.key) continue;
+      const before = viewer.watching.get(key) ?? { explored: false, trail: false };
+      const now = {
+        explored: m.name === '*' ? explored || before.explored : explored,
+        trail: m.name === '*' ? trail || before.trail : trail,
+      };
+      if (m.name === '*' && m.off) {
+        now.explored = explored ? false : before.explored;
+        now.trail = trail ? false : before.trail;
+      }
+      viewer.watching.set(key, now);
+      const record = this.record(key);
+      const live = record.on(viewer.world);
+      if (now.explored && !before.explored) {
+        this.send(viewer.client, { t: 'explored', name: key, world: viewer.world, cells: encodeCells([...live.explored.cells]) });
+      }
+      if (now.trail && !before.trail) {
+        this.send(viewer.client, { t: 'trail', name: key, world: viewer.world, legs: live.trail.legs });
+      }
+    }
+  }
+
+  toWatchers(player, what, message) {
+    const text = JSON.stringify(message);
+    for (const viewer of this.players.values()) {
+      if (viewer === player || viewer.world !== player.world) continue;
+      if (viewer.watching.get(player.key)?.[what] && viewer.client.ws.open) viewer.client.ws.send(text);
+    }
+  }
+
+  /** Everybody with any record on a world, online or not. */
+  knownOn(world) {
+    const keys = new Set();
+    for (const file of this.store.playerFiles()) keys.add(file.slice(0, -5));
+    for (const key of this.records.keys()) keys.add(key);
+    return [...keys].filter((key) => {
+      const record = this.record(key);
+      return record.worlds().includes(world) || record.world === world;
+    });
+  }
+
+  /** Who has been on this world, for the map's list of discoveries. */
+  sendAtlas(viewer) {
+    const players = this.knownOn(viewer.world).map((key) => {
+      const account = this.accounts.get(key);
+      const live = this.record(key).on(viewer.world);
+      return {
+        name: account?.name ?? key,
+        key,
+        colour: account?.colour ?? '#999999',
+        online: this.byKey.has(key),
+        explored: live.explored.detailCount,
+        trailPoints: live.trail.legs.reduce((n, leg) => n + leg.length, 0),
+      };
+    }).filter((entry) => entry.key !== viewer.key);
+    this.send(viewer.client, { t: 'atlas', world: viewer.world, players });
+  }
+
+  onWaypoints(player, list) {
+    if (!Array.isArray(list)) return;
+    const clean = list.slice(0, MAX_WAYPOINTS).map((w) => ({
+      id: Number(w?.id) || 0,
+      name: String(w?.name ?? '').slice(0, 60),
+      lat: Number(w?.lat),
+      lon: Number(w?.lon),
+      height: Number.isFinite(Number(w?.height)) ? Number(w.height) : null,
+      colour: /^#[0-9a-f]{6}$/i.test(String(w?.colour)) ? w.colour : undefined,
+    })).filter((w) => Number.isFinite(w.lat) && Number.isFinite(w.lon));
+    player.record.on(player.world).waypoints = clean;
+    this.saveRecord(player.record);
+  }
+
+  /** Put your lander down where you are standing. Off Earth only. */
+  onLander(player, m) {
+    if (player.world === 'earth' || !player.state || player.dead) return;
+    const live = player.record.on(player.world);
+    live.lander = { lat: player.state.lat, lon: player.state.lon, alt: player.state.alt };
+    this.saveRecord(player.record);
+    this.send(player.client, { t: 'lander', lander: live.lander });
+  }
+
+  /* --------------------------------------------------------------- voice */
+
+  /**
+   * Relay one WebRTC signalling message between two players who are close
+   * enough to hear each other. The audio itself goes browser to browser; all
+   * the server ever sees is the handshake.
+   */
+  onVoice(player, m) {
+    const now = this.now();
+    player.client.voiceTimes = player.client.voiceTimes.filter((t) => now - t < 1000);
+    if (player.client.voiceTimes.length > 60) return;
+    player.client.voiceTimes.push(now);
+    const to = this.players.get(Number(m.to));
+    if (!to || to === player) return;
+    const kind = String(m.kind ?? '');
+    if (!['offer', 'answer', 'ice', 'bye'].includes(kind)) return;
+    if (kind !== 'bye') {
+      if (to.world !== player.world || !to.state || !player.state) return;
+      if (separation(to.state, player.state, radiusOf(player.world)) > VOICE_CONNECT_M * 1.5) return;
+    }
+    this.send(to.client, { t: 'voice', from: player.id, kind, data: m.data });
+  }
+
+  /* ---------------------------------------------------------------- tick */
+
+  tick() {
+    const now = this.now();
+    this.tickCount += 1;
+
+    // Requests that ran out.
+    for (const [id, request] of this.requests) {
+      if (now >= request.expires) this.endRequest(id, 'expired');
+    }
+
+    // Hearts back, half at a time, once you have been left alone a while.
+    for (const player of this.players.values()) {
+      if (player.dead || player.health >= MAX_HEALTH) continue;
+      if (now - player.lastHurtAt < REGEN_DELAY_S * 1000) continue;
+      if (now - player.regenAt < REGEN_EVERY_S * 1000) continue;
+      player.regenAt = now;
+      player.health = Math.min(MAX_HEALTH, player.health + 1);
+      this.send(player.client, { t: 'health', health: player.health });
+    }
+
+    this.sendSnapshots(now);
+
+    // Sockets that went quiet.
+    for (const client of this.clients) {
+      if (now - client.lastHeard > SILENT_MS) {
+        client.ws.terminate();
+        this.disconnect(client);
+      } else if (this.tickCount % 150 === 0) {
+        client.ws.ping();
+      }
+    }
+
+    if (now - this.lastSave > (this.config.saveEveryS ?? 30) * 1000) {
+      this.lastSave = now;
+      for (const player of this.players.values()) this.remember(player);
+      this.accounts.save();
+      this.store.flush();
+    }
+  }
+
+  sendSnapshots(now) {
+    const everySecond = this.tickCount % 10 === 0;
+    const byWorld = new Map();
+    for (const player of this.players.values()) {
+      if (!player.state || player.pending) continue;
+      if (!byWorld.has(player.world)) byWorld.set(player.world, []);
+      byWorld.get(player.world).push(player);
+    }
+    for (const [world, list] of byWorld) {
+      const radius = radiusOf(world);
+      const rows = new Map(list.map((p) => {
+        const flags = p.flags | (p.dead ? FLAG.dead : 0) | (now - p.lastHurtAt < 400 ? FLAG.hurt : 0);
+        return [p, snapshotRow(p.id, { ...p.state, flags, item: p.item }, p.health)];
+      }));
+      for (const viewer of this.players.values()) {
+        if (viewer.world !== world) continue;
+        const out = [];
+        for (const other of list) {
+          if (other === viewer) continue;
+          const near = viewer.state ? separation(viewer.state, other.state, radius) < NEAR_M : false;
+          if (near || everySecond) out.push(rows.get(other));
+        }
+        if (out.length) this.send(viewer.client, { t: 'snap', T: now, p: out });
+      }
+    }
+  }
+
+  /** Everything to disk, now. For shutdown. */
+  saveAll() {
+    for (const player of this.players.values()) this.remember(player);
+    this.accounts.save();
+    this.saveServer();
+    return this.store.flush();
+  }
+}
+
+/** Where a player was at time `t`, from their recent history. */
+function positionAt(player, t) {
+  const h = player.history;
+  if (!h.length) return null;
+  if (t <= h[0].t) return h[0];
+  for (let i = 1; i < h.length; i++) {
+    if (h[i].t >= t) {
+      const a = h[i - 1];
+      const b = h[i];
+      const f = (t - a.t) / Math.max(1, b.t - a.t);
+      return { lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f, alt: a.alt + (b.alt - a.alt) * f };
+    }
+  }
+  return h[h.length - 1];
+}
+
+export function deathMessage(name, cause, by) {
+  switch (cause) {
+    case 'slain': return by ? `${name} was slain by ${by}` : `${name} was slain`;
+    case 'drowned': return `${name} drowned`;
+    case 'suffocated': return `${name} ran out of oxygen`;
+    case 'kill': return `${name} gave up`;
+    default: return `${name} died`;
+  }
+}
