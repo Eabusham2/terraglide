@@ -14,7 +14,7 @@
  */
 
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
-import { nameKey, nameProblem, passwordProblem, pickColour } from '../src/net/protocol.js';
+import { distinctColour, nameKey, nameProblem, passwordProblem } from '../src/net/protocol.js';
 
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 const KEY_BYTES = 64;
@@ -44,6 +44,7 @@ async function checkPassword(password, stored) {
   });
   return key.length === expected.length && timingSafeEqual(key, expected);
 }
+
 function tokenHash(token) {
   return createHash('sha256').update(String(token)).digest('base64url');
 }
@@ -77,6 +78,11 @@ class Limiter {
     return Math.ceil((list[0] + this.windowMs - now) / 1000);
   }
 
+  /** Tries in the window so far. */
+  count(key, now = Date.now()) {
+    return (this.hits.get(key) ?? []).filter((t) => now - t < this.windowMs).length;
+  }
+
   clear(key) {
     this.hits.delete(key);
   }
@@ -93,9 +99,19 @@ export class Accounts {
     const saved = store.read('accounts.json', { version: 1, accounts: {}, sessions: {} });
     this.accounts = saved.accounts ?? {};
     this.sessions = saved.sessions ?? {};
-    this.signups = new Limiter(config.signupsPerHour ?? 5, 3600 * 1000);
+    // Nought means no limit, the way maxAccounts does — not "nobody".
+    const perHour = Number(config.signupsPerHour ?? 5);
+    this.signups = new Limiter(perHour > 0 ? perHour : Infinity, 3600 * 1000);
     this.failures = new Limiter(8, 5 * 60 * 1000);
-    this.accountFailures = new Limiter(6, 5 * 60 * 1000);
+    // Wrong passwords for one account from one address, and for one account
+    // from anywhere. The second used to be the only one, at six: anybody
+    // could lock anybody out of their own account by guessing wrong six
+    // times. Now it only stops addresses that have been guessing.
+    this.pairFailures = new Limiter(5, 15 * 60 * 1000);
+    this.accountFailures = new Limiter(30, 60 * 60 * 1000);
+    // Wrong current passwords when changing it, per account: a session left
+    // signed in is not a way to guess the password at a try every two seconds.
+    this.changeFailures = new Limiter(5, 15 * 60 * 1000);
     this.pruneSessions();
   }
 
@@ -124,8 +140,17 @@ export class Accounts {
     if (nameError) return { error: nameError };
     const passwordError = passwordProblem(password);
     if (passwordError) return { error: passwordError };
-    if (this.config.joinCode && String(code ?? '') !== String(this.config.joinCode)) {
-      return { error: 'This server needs a join code to make an account — ask whoever runs it' };
+    if (this.config.joinCode) {
+      // A wrong code costs a try, the way a wrong password does — or the code
+      // could be guessed at line speed, and on a fresh server the first
+      // account through is the admin.
+      if (this.failures.wait(address) > 0) {
+        return { error: `Too many tries — wait ${this.failures.wait(address)} s` };
+      }
+      if (String(code ?? '') !== String(this.config.joinCode)) {
+        this.failures.allow(address);
+        return { error: 'This server needs a join code to make an account — ask whoever runs it' };
+      }
     }
     if (!this.config.openSignups) return { error: 'This server is not taking new accounts' };
     const key = nameKey(name);
@@ -143,7 +168,9 @@ export class Accounts {
     const account = {
       name,
       key,
-      colour: pickColour(this.all().map((a) => a.colour)),
+      // Kept apart from the people who actually play, not from every account
+      // ever made: on a public server those crowd out every hue.
+      colour: distinctColour(this.all().filter((a) => Date.now() - (a.lastSeen ?? 0) < 30 * 86400 * 1000).map((a) => a.colour)),
       hash,
       created: Date.now(),
       lastSeen: Date.now(),
@@ -165,8 +192,16 @@ export class Accounts {
     }
     const account = this.get(name);
     const key = nameKey(name);
-    if (account && this.accountFailures.wait(key) > 0) {
-      return { error: `Too many tries for that account — wait ${this.accountFailures.wait(key)} s` };
+    const pair = `${key}\n${address}`;
+    if (account) {
+      if (this.pairFailures.wait(pair) > 0) {
+        return { error: `Too many tries for that account — wait ${this.pairFailures.wait(pair)} s` };
+      }
+      // Guessed at from all over: only an address that has not got it wrong
+      // lately may still try, which is its owner signing in from home.
+      if (this.accountFailures.wait(key) > 0 && this.pairFailures.count(pair) > 0) {
+        return { error: `Too many tries for that account — wait ${this.accountFailures.wait(key)} s` };
+      }
     }
     // A missing account costs a hash too, so how long the answer takes says
     // nothing about whether the name exists.
@@ -174,11 +209,14 @@ export class Accounts {
       ? await checkPassword(String(password ?? ''), account.hash)
       : (await hashPassword(String(password ?? '')), false);
     if (!ok) {
-      if (account) this.accountFailures.allow(key);
+      if (account) {
+        this.pairFailures.allow(pair);
+        this.accountFailures.allow(key);
+      }
       return { error: 'Wrong name or password' };
     }
     this.failures.clear(address);
-    this.accountFailures.clear(key);
+    this.pairFailures.clear(pair);
     return { account };
   }
 
@@ -197,7 +235,6 @@ export class Accounts {
   }
 
   /** The account a token belongs to, or null. Refreshes the session. */
-  resume(token) {
   resume(token) {
     const id = tokenHash(token);
     const session = this.sessions[id];
@@ -236,9 +273,13 @@ export class Accounts {
   async changePassword(account, oldPassword, newPassword, keepToken) {
     const problem = passwordProblem(newPassword);
     if (problem) return { error: problem };
+    const wait = this.changeFailures.wait(account.key);
+    if (wait > 0) return { error: `Too many wrong passwords — wait ${wait} s` };
     if (!(await checkPassword(String(oldPassword ?? ''), account.hash))) {
+      this.changeFailures.allow(account.key);
       return { error: 'That is not your current password' };
     }
+    this.changeFailures.clear(account.key);
     account.hash = await hashPassword(newPassword);
     this.closeAllSessions(account, keepToken);
     this.save();

@@ -5,7 +5,7 @@
  */
 
 import { BODIES, findBody } from '../src/geo/bodies.js';
-import { COMMANDS, findCommand, separation } from '../src/net/protocol.js';
+import { COMMANDS, NEAR_CHAT_M, findCommand, separation } from '../src/net/protocol.js';
 import { radiusOf } from './records.mjs';
 
 /**
@@ -24,7 +24,7 @@ export function runCommand(game, player, command) {
       return null;
     }
     const found = game.findPlayer(first);
-    if (!found) game.tell(player, `Nobody called ${first} is online`, 'error');
+    if (!found) game.tell(player, game.nobodyCalled(first), 'error');
     return found;
   };
 
@@ -46,10 +46,22 @@ export function runCommand(game, player, command) {
       if (!player.admin) return game.request(player, to, 'tpa');
       // Admins go straight there, or send one player to another.
       const second = command.args[1] ? game.findPlayer(command.args[1]) : null;
+      // A second name that matches nobody is a mistake, not "just me then".
+      if (command.args[1] && !second) return game.tell(player, game.nobodyCalled(command.args[1]), 'error');
       const mover = second ? to : player;
       const host = second ?? to;
-      if (!host.state) return game.tell(player, `${host.name} has not landed yet`, 'error');
-      game.teleport(mover, { world: host.world, lat: host.state.lat, lon: host.state.lon, alt: host.state.alt, flying: true }, 'tp');
+      // Nor to somebody still arriving, as with /tpa: their height is the one
+      // they were sent to, not yet one the server has seen them at, and a dive
+      // from beside them could count from nowhere near it. See whyNot.
+      if (!host.state || host.pending) {
+        return game.tell(player, `${host === player ? 'You have' : `${host.name} has`} not landed yet — try again in a moment`, 'error');
+      }
+      // With what a fall may count from beside them, as a /tpa sends it: an
+      // honest dive from beside somebody flying high was put back without it.
+      game.teleport(mover, {
+        world: host.world, lat: host.state.lat, lon: host.state.lon, alt: host.state.alt, flying: true,
+        ceiling: game.spendableCeiling(host),
+      }, 'tp');
       return game.tell(player, `Sent ${mover === player ? 'you' : mover.name} to ${host.name}`);
     }
     case 'tpaccept':
@@ -77,7 +89,7 @@ export function runCommand(game, player, command) {
       let heard = 0;
       for (const other of game.players.values()) {
         if (other.world !== player.world || !other.state || !player.state) continue;
-        if (other !== player && separation(other.state, player.state, radius) > 3000) continue;
+        if (other !== player && separation(other.state, player.state, radius) > NEAR_CHAT_M) continue;
         if (other !== player) heard += 1;
         game.send(other.client, { t: 'chat', kind: 'near', from: game.speaker(player), text: command.rest });
       }
@@ -116,15 +128,57 @@ export function runCommand(game, player, command) {
     }
     case 'kill':
       if (player.dead) return;
-      return game.hurt(player, player.health, { cause: 'kill' });
+      // Giving up a fight is losing it: the kill goes to whoever you were fighting.
+      return game.hurt(player, player.health, { cause: 'kill', by: game.lastAttacker(player) });
     case 'password': {
+      // Two words exactly. A password with a space in it - which sign-up
+      // takes - cannot be told apart from the next one here, and a guess
+      // would set a password nobody typed. The Online panel's form sends
+      // them whole.
+      if (command.args.length !== 2 || command.cut) {
+        return game.tell(player, command.args.length > 2 || command.cut
+          ? 'A password with spaces in it, or a long one, is changed in the Online panel (K) — Change password'
+          : 'Usage: /password <old> <new> — or Change password in the Online panel (K)', 'error');
+      }
       const [oldPassword, newPassword] = command.args;
-      if (!oldPassword || !newPassword) return game.tell(player, 'Usage: /password <old> <new>', 'error');
-      game.accounts.changePassword(player.account, oldPassword, newPassword, player.client.token).then((result) => {
-        game.tell(player, result.error ?? 'Password changed — other devices have been signed out', result.error ? 'error' : 'system');
-      });
+      game.onPassword(player, { old: oldPassword, new: newPassword });
       return;
     }
+    case 'friend': {
+      const social = game.social;
+      const [sub = 'list', name] = command.args;
+      switch (sub.toLowerCase()) {
+        case 'add': return name ? social.addFriend(player, name) : game.tell(player, 'Usage: /friend add <player>', 'error');
+        case 'accept': return social.acceptFriend(player, name);
+        case 'deny': return social.denyFriend(player, name);
+        case 'remove': return name ? social.removeFriend(player, name) : game.tell(player, 'Usage: /friend remove <player>', 'error');
+        case 'list': return social.listFriends(player);
+        // "/friend Alex" is the commonest thing to type.
+        default: return social.addFriend(player, sub);
+      }
+    }
+    case 'party': {
+      const social = game.social;
+      const [sub = 'list', name] = command.args;
+      switch (sub.toLowerCase()) {
+        case 'invite': return name ? social.invite(player, name) : game.tell(player, 'Usage: /party invite <player>', 'error');
+        case 'accept': return social.accept(player, name);
+        case 'deny': return social.deny(player, name);
+        case 'leave': return social.leave(player);
+        case 'kick': return name ? social.kick(player, name) : game.tell(player, 'Usage: /party kick <player>', 'error');
+        case 'leader': return name ? social.promote(player, name) : game.tell(player, 'Usage: /party leader <player>', 'error');
+        case 'list': return social.listParty(player);
+        case 'gather': return social.gather(player);
+        case 'together': return social.setTogether(player, !/^(off|no|0|false)$/i.test(name ?? ''));
+        case 'mark': return social.mark(player, { name: command.rest.slice(sub.length).trim() });
+        case 'unmark': return social.unmark(player, { name: command.rest.slice(sub.length).trim() });
+        // "/party Alex" invites, as it does everywhere else.
+        default: return social.invite(player, sub);
+      }
+    }
+    case 'pc':
+      if (!command.rest) return game.tell(player, 'Usage: /pc <message>', 'error');
+      return game.social.say(player, command.rest);
     case 'kick': {
       const to = target();
       if (!to) return;
@@ -136,11 +190,18 @@ export function runCommand(game, player, command) {
       if (!account) return game.tell(player, `No account called ${first}`, 'error');
       const online = game.byKey.get(account.key);
       const reason = command.rest.slice(first.length).trim();
-      game.bans[account.key] = { name: account.name, reason, by: player.name, at: game.now(), address: online?.client.address ?? null };
+      // Their address too, so a new account from the same place is refused —
+      // unless somebody else online is on it: then it is a shared network, or
+      // a proxy the server cannot see past, and banning it would ban them all.
+      const address = online?.client.address ?? null;
+      const shared = address && [...game.players.values()].some((p) => p !== online && p.client.address === address);
+      game.bans[account.key] = { name: account.name, reason, by: player.name, at: game.now(), address: shared ? null : address };
       game.accounts.closeAllSessions(account);
       game.saveServer();
       if (online) game.kick(online, `Banned${reason ? `: ${reason}` : ''}`);
-      return game.tell(player, `${account.name} is banned`);
+      return game.tell(player, shared
+        ? `${account.name} is banned — their address is shared with other players, so only the account`
+        : `${account.name} is banned`);
     }
     case 'unban': {
       if (!first) return game.tell(player, `Usage: /unban ${spec.args}`, 'error');
@@ -164,7 +225,6 @@ export function runCommand(game, player, command) {
       game.saveServer();
       return game.tell(player, `Spawn on ${BODIES[player.world].name} moved here`);
     }
-
     case 'say':
       if (!command.rest) return;
       return game.announce(`[${player.name}] ${command.rest}`, { kind: 'announce' });
