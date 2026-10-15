@@ -91,7 +91,7 @@ New files:
 - [x] src/net/client.js (276) · [~] src/net/protocol.js (517) · [x] src/net/remotePlayers.js (610) · [x] src/net/session.js (949) · [~] src/net/voice.js (1553, every known line in place; 8 doc lines + onOffer's 2 new lines written, see Guessed)
 - [~] src/player/combat.js (96)
 - [~] src/tiles/planetary.js (1947, every known line in place; the Oct 5 review's fixes rebuilt, see Guessed)
-- [~] src/ui/chat.js (237, every known line in place; Oct 6 text + ledger F2/F9/P4/P8, see Guessed) · [~] src/ui/deathScreen.js (87) · [~] src/ui/onlinePanel.js (387 = final, every known line in place; F9 Change password form, see Guessed) · [~] src/ui/playersPanel.js (463) · [~] src/ui/teleportMenu.js (377) · [~] src/ui/travelPanel.js (173 = final; lines 69-173 rebuilt for P3, see Guessed) · [x] src/ui/trail.js (140)
+- [~] src/ui/chat.js (237, every known line in place; Oct 6 text + ledger F2/F9/P4/P8, see Guessed) · [~] src/ui/deathScreen.js (87) · [~] src/ui/onlinePanel.js (387 = final, every known line in place; F9 Change password form, see Guessed) · [~] src/ui/playersPanel.js (463 = final, every known line in place; see Guessed) · [~] src/ui/teleportMenu.js (377 = final, every known line in place; F7, see Guessed) · [~] src/ui/travelPanel.js (173 = final; lines 69-173 rebuilt for P3, see Guessed) · [x] src/ui/trail.js (140)
 - [x] src/world/lander.js (184) · [~] src/world/stars.js (173) · [x] src/world/starCatalogue.js (regenerated: 2887 stars, 25302 bytes, the same size the Oct 5 wc -c gave)
 - [~] tools/flightcheck.mjs (387) · [~] tools/onlinecheck.mjs (596) · [~] tools/servertest.mjs (1719) · [~] tools/stars.mjs (96) · [~] tools/gazetteer.py · [ ] tools/glb-unplate.py
 - [ ] assets/sword.glb (binary: regenerate) · [ ] shots/online/*.png (regenerate with the shots tools) · [ ] terraglide-online.html (build: node tools/online.mjs)
@@ -182,6 +182,17 @@ Changed tracked files (base = 2c7ee70):
   - a Change password `<details>` form in renderSignedIn (+14; its username/old/new inputs are the known 236/238/241);
   - a password branch at the top of submit() (+11; 294–295 known);
   - PASSWORD_MAX added to the protocol import.
+
+- src/ui/playersPanel.js (463; final count): the Oct 6 version (exact) plus 30 lines, placed by the known lines:
+  - askMarkName (known, appended; "Mark here for the party" now asks for a name);
+  - the leader's own row has no together tick (known 302; +1 comment, mine);
+  - a party-voice note (known 325; 5 lines) and its 'party-voice' button case (known 172–173; 6 lines);
+  - F6b, mine: the panel is focusable (+2) and takes focus after a click (+3).
+  - The Oct 9 donecheck's references (218, 253–259, 373–445) land.
+- src/ui/teleportMenu.js (377; final count): the Oct 7 version (exact; your paste upload/26.txt is older) plus F7: the toast is the server's answer.
+  - waiting state (+3, mine); a 26-line block with the requestSent/chat-error/auth listeners around the known line 94;
+  - send() records what was sent and tells only an admin's TP at once; the empty-list text on 2 lines (net −4).
+  - The donecheck's 29–30 and 255–266 land.
 
 ## Facts found while rebuilding (Oct 15)
 - The Oct 9 16:16 `git diff --stat` (agent a14e835a) gives every tracked file's lines changed from 2c7ee70 at that moment: recovery/diffstats.txt. 21 'exact' files match it to the line. Later totals only: Oct 9 20:50 5637/279, Oct 10 03:04 5644/279, 03:48 5654/279, Oct 11 05:15 5658/279 (insertions/deletions over all 38 tracked files).
