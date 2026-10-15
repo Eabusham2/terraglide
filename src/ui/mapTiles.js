@@ -1,5 +1,6 @@
 import { tileKey, wrapTileX } from '../geo/mercator.js';
-import { isNoDataCard } from '../tiles/noData.js';
+import { isNoDataCard, makeCanvas } from '../tiles/noData.js';
+import { canvasToBitmap, composeEqImage, fetchPlanetaryImage } from '../tiles/planetary.js';
 import { renderVectorTile } from './vectorMap.js';
 
 /**
@@ -218,6 +219,11 @@ export class MapTileCache {
       return entry.bitmap;
     }
     if (!urgent && this.queue.length >= BACKLOG_LIMIT) return null;
+    // Nothing to ask. A layer with no source at all — the street map on a
+    // world nobody has drawn streets on — would otherwise queue every square
+    // on screen only to fail each one without a request, and fill the cache
+    // with entries that can never hold a picture.
+    if (!this.source && this.fallbacks.length === 0) return null;
     this.tiles.set(key, { key, bitmap: null, used: performance.now(), state: 'queued' });
     this.queue.push({ key, tile: { z, x: wrapped, y }, urgent });
     this.pump();
@@ -427,6 +433,16 @@ export class MapTileCache {
         continue;
       }
       try {
+        // A planetary picture is not one image at one address: it is put
+        // together from NASA's equirectangular tiles with their rows moved
+        // into mercator — the same drawing the tile worker does for the
+        // ground, from the same module, so the map and the world beneath it
+        // can never disagree about where a crater is.
+        if (source.decode === 'eq') {
+          const bitmap = await this.fetchPlanetary(source, tile);
+          if (i === 0) this.rest(0);
+          return bitmap;
+        }
         const res = await fetch(url, { mode: 'cors', credentials: 'omit' });
         if (!res.ok) throw new Error(String(res.status));
         // Vector tiles arrive as geometry rather than as a picture, so the
@@ -457,6 +473,25 @@ export class MapTileCache {
       }
     }
     throw error ?? new Error('no provider could serve this tile');
+  }
+
+  /**
+   * One planetary map tile, drawn here on the page.
+   *
+   * "Nothing here" — a 404, Kaguya's blank pole rows, a plan that cannot be
+   * made — is told apart from a server refusing, exactly as for any other
+   * provider, so a pole with no picture never rests the first choice.
+   */
+  async fetchPlanetary(source, tile) {
+    const plan = source.eqPlan?.(tile);
+    if (!plan) throw noCoverage(`${source.descriptor?.id ?? 'provider'} has no plan for this tile`);
+    try {
+      const canvas = await composeEqImage(plan, (u) => fetchPlanetaryImage(u), makeCanvas);
+      return await canvasToBitmap(canvas);
+    } catch (err) {
+      if (err?.noImageryHere) throw noCoverage(String(err.message ?? 'no imagery here'));
+      throw err;
+    }
   }
 
   evict() {

@@ -124,28 +124,35 @@ function resolve() {
   } catch {
     params = null;
   }
-  let fromAddress = false;
+  // Two different things an address can say: which way to play (a server, or
+  // ?local), and which world. Only the first is a choice about the server —
+  // ?world=moon on a server's own page must not stop it joining that server.
+  let pickedMode = false;
+  let pickedWorld = false;
   if (params) {
     const asked = params.get('server');
     if (asked && normaliseServer(asked)) {
       server = normaliseServer(asked);
       mode = 'online';
-      fromAddress = true;
+      pickedMode = true;
     }
     if (params.has('local')) {
       mode = 'local';
-      fromAddress = true;
+      pickedMode = true;
     }
     const wanted = params.get('world');
     if (wanted && WORLD_IDS.includes(wanted.toLowerCase())) {
       world = wanted.toLowerCase();
-      fromAddress = true;
+      pickedWorld = true;
     }
   }
-  if (!fromAddress && hosted && !saved.chosen) {
+  const fromAddress = pickedMode || pickedWorld;
+  if (!pickedMode && hosted && !saved.chosen) {
     // First visit to a server's own page: that server, unless this browser
-    // has already chosen something else on this same address.
-    const here = normaliseServer(hosted === true ? globalThis.location?.href : hosted);
+    // has already chosen something else on this same address. The page's
+    // own address, less any query and the "index.html" a link may carry: the
+    // server answers sockets at its root, and ws://host/index.html is a 404.
+    const here = hostedServer();
     if (here) {
       server = here;
       mode = 'online';
@@ -158,7 +165,9 @@ function resolve() {
 
   if (fromAddress) {
     worlds[mode] = world;
-    writeSaved({ ...saved, mode, world, server, worlds, chosen: true });
+    // Only choosing a way to play counts as having chosen: a link that just
+    // names a world leaves a server's own page free to join it next time too.
+    writeSaved({ ...saved, mode, world, server, worlds, chosen: Boolean(saved.chosen) || pickedMode });
     // Taken off the address so a reload does not apply the link again over
     // whatever has been chosen since — travelling to Mars and pressing F5
     // should leave you on Mars, not send you back to wherever the link said.
@@ -171,6 +180,19 @@ function resolve() {
     }
   }
   return Object.freeze({ mode, world, server, worlds: Object.freeze({ ...worlds }) });
+}
+
+/**
+ * The server whose own page this is, as a socket address, or null when the
+ * page was not served by a TerraGlide server. The page's own address, less any
+ * query and the "index.html" a link may carry: the server answers sockets at
+ * its root, and ws://host/index.html is a 404.
+ */
+export function hostedServer() {
+  const hosted = globalThis.__TERRAGLIDE_SERVER__;
+  if (!hosted) return null;
+  const page = String(globalThis.location?.href ?? '').replace(/[?#].*$/, '').replace(/\/index\.html$/i, '/');
+  return normaliseServer(hosted === true ? page : hosted) || null;
 }
 
 export const BOOT = resolve();
@@ -193,13 +215,31 @@ export function relaunch(next = {}) {
   // the caller has somewhere particular in mind.
   const world = next.world ?? (mode !== BOOT.mode ? worlds[mode] ?? 'earth' : BOOT.world);
   worlds[mode] = world;
-  writeSaved({ mode: server || mode === 'local' ? mode : 'local', world, server, worlds, chosen: true });
+  const going = server || mode === 'local' ? mode : 'local';
+  const stored = writeSaved({ mode: going, world, server, worlds, chosen: true });
   try {
     // Said on the boot screen of the page that comes back, so a reload that
     // is really a launch to the Moon reads as one.
     globalThis.sessionStorage?.setItem('terraglide.relaunch', String(next.reason ?? ''));
   } catch {
     /* not important */
+  }
+  if (!stored) {
+    // Storage blocked (a private window, site data turned off): a plain
+    // reload would come back on the defaults — and a server that has you on
+    // the Moon would send you round that loop for ever. The address carries
+    // the choice instead, the way a link does.
+    try {
+      const url = new URL(globalThis.location.href);
+      for (const name of ['server', 'world', 'local']) url.searchParams.delete(name);
+      if (going === 'online') url.searchParams.set('server', server);
+      else url.searchParams.set('local', '');
+      url.searchParams.set('world', world);
+      globalThis.location.replace(url.href);
+      return;
+    } catch {
+      /* fall through to a plain reload */
+    }
   }
   globalThis.location?.reload();
 }
