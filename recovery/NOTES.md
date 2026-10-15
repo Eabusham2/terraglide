@@ -78,7 +78,7 @@ Final line counts are in recovery/STATUS.md.
 New files:
 - [x] Dockerfile · [x] .dockerignore · [x] fly.toml · [x] render.yaml · [x] server/config.example.json · [x] src/net/publicServer.js
 - [x] server/ws.mjs (405) · [x] server/cells.mjs (146) · [~] server/store.mjs (90; count matches, content from the Oct 2–3 paste, unverified)
-- [~] server/game.mjs (target 2685 before round 6; V5 pooled: 2514 known, 171 missing; then round 6)
+- [~] server/game.mjs: V5 (pre-round-6, 2685 lines) rebuilt and committed. 2648 lines from the logs; 37 placed by hand (scratchpad/recover/gm.manual.txt), of which 25 are guessed (see Guessed). Sizes are exactly 52 bytes short in V0, V2 and V4 alike, so the error sits in the guessed lines and the rest very likely matches. NEXT: apply round 6 → final.
 - [~] server/accounts.mjs (319) · [~] server/commands.mjs (244) · [~] server/config.mjs (146) · [~] server/records.mjs (148) · [~] server/server.mjs (321) · [~] server/social.mjs (876)
 - [ ] HOSTING.md (1539)
 - [~] src/core/boot.js (256)
@@ -114,7 +114,8 @@ Changed tracked files (base = 2c7ee70):
 8. Anything guessed rather than recovered is listed under "Guessed" below, so it can be reviewed.
 
 ## Guessed (not recovered exactly)
-- (none yet)
+- server/game.mjs, V5 lines 2049–2073 (V2 1924–1948): the end of findPlayer, then playersStarting(wanted) and nobodyCalled(name). No log shows their bodies, only their signatures and line numbers (Oct 12 03:24 grep: 2054, 2063) and the message "bla could be Blake, Blakely — type more of the name" (servertest, Oct 11). The real lines are 52 bytes longer than mine.
+  - Known: md5 V4 = be15e13a474136e264f00af190a6b7f3 (122374 bytes); V5 = 12921b34a06c8d0e8a08997cbfe1924c; V2 = 116623 bytes (md5 probably d3a93f0caac4d19a23ef94e4aaf8dba, the oldws copy); V0 = 116179 bytes.
 
 ## What happened
 - The container was reset at Oct 12 ~20:03 UTC (a "fast resume" re-clone). All uncommitted work since 2c7ee70 (Oct 2) was deleted: server/, the online client, friends, parties, voice, worlds, sword, HOSTING.md, tests and six anti-cheat rounds.
@@ -132,6 +133,7 @@ Changed tracked files (base = 2c7ee70):
   - `calls.jsonl.gz`: every tool call and its result, from all 149 workflow agents (Oct 2–12) plus the main chat since Oct 10, time-ordered: {t, agent, name, input, result}. 5601 calls.
   - `subagents.jsonl.gz` and `main.jsonl.gz`: the raw stored events.
   - `upload/`, `upload2/`, `upload3/more/`: the user's zips, unpacked.
+- The tools are also committed in `recovery/tools/` (no logs, no tokens: dump.mjs reads the token file at run time). The exact diffs are in `recovery/diffs/`. To run the tools, copy them back to scratchpad/recover next to calls.jsonl.
 - Working copies and tools: `/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/recover/`. It holds calls.jsonl unzipped, main.jsonl, subagents.jsonl, and these tools:
   - `dump.mjs out.jsonl "subagents=true"`: re-download the logs.
   - `extract.mjs`: builds calls.jsonl.
