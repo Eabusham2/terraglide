@@ -18,7 +18,7 @@
  */
 
 import { BODIES } from '../src/geo/bodies.js';
-import { nameKey } from '../src/net/protocol.js';
+import { FLAG, nameKey } from '../src/net/protocol.js';
 import { radiusOf } from './records.mjs';
 
 export const MAX_FRIENDS = 100;
@@ -30,8 +30,18 @@ export const MAX_PARTY_WAYPOINTS = 50;
 const PARTY_IDLE_MS = 30 * 60 * 1000;
 /** How far apart members land when they arrive together, metres. */
 const RING_M = 4;
+/** A leader offline this long hands the party to a member who is on. */
+const LEADER_AWAY_MS = 90 * 1000;
+/** Notes kept for somebody who was away when they were removed from a party. */
+const MAX_NOTICES = 10;
+/** The kinds of line a notice may be told as. */
+const NOTICE_KINDS = ['friend', 'party', 'system'];
+/** Seconds between one gather and the next. */
+const GATHER_COOLDOWN_S = 10;
+/** After a no, how long before the same person may ask to be friends again. */
+const DENIED_MS = 10 * 60 * 1000;
 
-const DEFAULT_PREFS = Object.freeze({ autoTpa: false, autoParty: false, notify: true });
+const DEFAULT_PREFS = Object.freeze({ autoTpa: false, autoParty: false, autoFriends: false, notify: true });
 
 export class Social {
   /** @param {import('./game.mjs').Game} game */
@@ -57,6 +67,18 @@ export class Social {
       incoming: list(s.incoming).slice(-MAX_PENDING),
       outgoing: list(s.outgoing).slice(-MAX_PENDING),
       prefs: { ...DEFAULT_PREFS, ...(s.prefs && typeof s.prefs === 'object' ? s.prefs : {}) },
+      // Said when they next sign in: what happened to them while they were away.
+      // Each with the kind of line it is told as, so a friend's is a friend's
+      // notice and follows Friend notifications. A plain string is an older
+      // record's: a friend's when it reads like one, otherwise a party's.
+      notices: (Array.isArray(s.notices) ? s.notices : [])
+        .map((n) => (typeof n === 'string' ? { text: n, kind: /friend request|became your friend/.test(n) ? 'friend' : 'party' }
+          : n && typeof n.text === 'string' ? { text: n.text.slice(0, 300), kind: NOTICE_KINDS.includes(n.kind) ? n.kind : 'party' } : null))
+        .filter(Boolean).slice(-MAX_NOTICES),
+      // Who this player said no to, and when: they wait a while to ask again.
+      denied: Object.fromEntries(Object.entries(s.denied && typeof s.denied === 'object' ? s.denied : {})
+        .filter(([k, at]) => typeof k === 'string' && Number.isFinite(at) && Date.now() - at < DENIED_MS)
+        .slice(-MAX_PENDING)),
     };
     return record.social;
   }
@@ -78,7 +100,7 @@ export class Social {
       name: online?.name ?? account?.name ?? key,
       colour: online?.colour ?? account?.colour ?? '#9aa4b2',
       online: !!online,
-      world: online?.world ?? this.game.record(key).world,
+      world: online?.world ?? this.game.worldOf(key),
       id: online?.id ?? null,
     };
   }
@@ -87,9 +109,20 @@ export class Social {
   account(name) {
     const key = nameKey(String(name ?? ''));
     if (!key) return null;
-    const online = this.game.findPlayer(name);
-    if (online) return online.key;
-    return this.game.accounts.get(key) ? key : null;
+    // The account of exactly that name first. Asking who is online first
+    // took "Ben" to mean Benji whenever Benji was on and Ben was not - so
+    // removing Ben removed Benji.
+    if (this.game.accounts.get(key)) return key;
+    return this.game.findPlayer(name)?.key ?? null;
+  }
+
+  /** Somebody in one of your lists by name: the exact one, else the only one it begins. */
+  inList(list, name) {
+    const key = nameKey(String(name ?? ''));
+    if (!key) return null;
+    if (list.includes(key)) return key;
+    const starts = list.filter((k) => k.startsWith(key));
+    return starts.length === 1 ? starts[0] : null;
   }
 
   /* ------------------------------------------------------------- friends */
@@ -118,7 +151,25 @@ export class Social {
     if (mine.friends.includes(key)) return this.game.tell(player, `${them.name} is already your friend`, 'error');
     // They asked first: this is the answer.
     if (mine.incoming.includes(key)) return this.acceptFriend(player, them.name);
+    if (Date.now() - (theirs.denied[player.key] ?? -Infinity) < DENIED_MS) {
+      return this.game.tell(player, `${them.name} said no not long ago — ask again later`, 'error');
+    }
     if (mine.friends.length >= MAX_FRIENDS) return this.game.tell(player, `That is ${MAX_FRIENDS} friends — remove one first`, 'error');
+    // Said here rather than as a request they could never accept.
+    if (theirs.friends.length >= MAX_FRIENDS) {
+      return this.game.tell(player, `${them.name} has as many friends as there is room for`, 'error');
+    }
+    // They take every request without being asked (Settings → Online): friends
+    // at once, and both told - them when they are next on, if they are not.
+    // Before "already asked", so asking again after they switched it on works.
+    if (theirs.prefs.autoFriends) {
+      this.befriend(player.key, key);
+      return;
+    }
+    // Asked already: once is a request, the twelfth is spam.
+    if (mine.outgoing.includes(key) && theirs.incoming.includes(player.key)) {
+      return this.game.tell(player, `Already asked — waiting for ${them.name} to answer`, 'error');
+    }
     if (!mine.outgoing.includes(key)) mine.outgoing.push(key);
     if (!theirs.incoming.includes(key) && !theirs.incoming.includes(player.key)) theirs.incoming.push(player.key);
     mine.outgoing = mine.outgoing.slice(-MAX_PENDING);
@@ -134,7 +185,7 @@ export class Social {
 
   acceptFriend(player, name) {
     const mine = this.social(player.key);
-    const key = name ? this.account(name) : mine.incoming[mine.incoming.length - 1];
+    const key = name ? this.inList(mine.incoming, name) : mine.incoming[mine.incoming.length - 1];
     if (!key || !mine.incoming.includes(key)) {
       return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');
     }
@@ -155,17 +206,23 @@ export class Social {
     this.game.tell(player, `You and ${them.name} are friends`, 'friend');
     const online = this.game.byKey.get(key);
     if (online) this.game.tell(online, `${player.name} accepted — you are friends`, 'friend');
+    else {
+      // Away: told when they are back, not never.
+      theirs.notices.push({ text: `${player.name} accepted your friend request — you are friends`, kind: 'friend' });
+      this.save(key);
+    }
     this.sendFriends(player.key);
     this.sendFriends(key);
   }
 
   denyFriend(player, name) {
     const mine = this.social(player.key);
-    const key = name ? this.account(name) : mine.incoming[mine.incoming.length - 1];
+    const key = name ? this.inList(mine.incoming, name) : mine.incoming[mine.incoming.length - 1];
     if (!key || !mine.incoming.includes(key)) {
       return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');
     }
     mine.incoming = mine.incoming.filter((k) => k !== key);
+    mine.denied[key] = Date.now();
     const theirs = this.social(key);
     theirs.outgoing = theirs.outgoing.filter((k) => k !== player.key);
     this.save(player.key);
@@ -176,8 +233,8 @@ export class Social {
   }
 
   removeFriend(player, name) {
-    const key = this.account(name);
     const mine = this.social(player.key);
+    const key = this.inList([...mine.friends, ...mine.outgoing], name);
     if (!key || !(mine.friends.includes(key) || mine.outgoing.includes(key))) {
       return this.game.tell(player, `${String(name ?? '').slice(0, 32)} is not on your friends list`, 'error');
     }
@@ -206,12 +263,63 @@ export class Social {
 
   setPrefs(player, m) {
     const s = this.social(player.key);
+    const was = s.prefs.autoFriends;
+    // Only the choices the page sends: it sends the ones changed on it, and
+    // the rest stay as the account has them.
+    const pick = (name) => (typeof m[name] === 'boolean' ? m[name] : s.prefs[name]);
     s.prefs = {
-      autoTpa: !!m.autoTpa,
-      autoParty: !!m.autoParty,
-      notify: m.notify !== false,
+      autoTpa: !!pick('autoTpa'),
+      autoParty: !!pick('autoParty'),
+      autoFriends: !!pick('autoFriends'),
+      notify: pick('notify') !== false,
     };
     this.save(player.key);
+    // Switching it on answers whoever is already waiting, as it would have
+    // had it been on when they asked - and says so for one it cannot.
+    if (s.prefs.autoFriends && !was) {
+      for (const key of [...s.incoming]) {
+        if (this.befriend(key, player.key)) continue;
+        // Whichever of the two is full, said as it is.
+        const name = this.who(key).name;
+        this.game.tell(player, s.friends.length >= MAX_FRIENDS
+          ? `Your friends list is full — ${name}'s request is still waiting`
+          : `${name} has as many friends as there is room for — their request is still waiting`, 'friend');
+      }
+    }
+    // And the page is told what was kept. The lists it was sent on signing in
+    // carry the old choices and can arrive after it sent its new ones, and it
+    // took those as the account's word - switching itself back.
+    this.sendFriends(player.key);
+  }
+
+  /**
+   * Friends at once, because `toKey` takes requests without being asked
+   * (Settings → Online). Both are told - whoever is away, when they are next
+   * on. False if either has no room.
+   */
+  befriend(fromKey, toKey) {
+    const mine = this.social(fromKey);
+    const theirs = this.social(toKey);
+    if (mine.friends.length >= MAX_FRIENDS || theirs.friends.length >= MAX_FRIENDS) return false;
+    mine.outgoing = mine.outgoing.filter((k) => k !== toKey);
+    mine.incoming = mine.incoming.filter((k) => k !== toKey);
+    theirs.incoming = theirs.incoming.filter((k) => k !== fromKey);
+    theirs.outgoing = theirs.outgoing.filter((k) => k !== fromKey);
+    if (!mine.friends.includes(toKey)) mine.friends.push(toKey);
+    if (!theirs.friends.includes(fromKey)) theirs.friends.push(fromKey);
+    const asker = this.who(fromKey);
+    const taker = this.who(toKey);
+    const takerOnline = this.game.byKey.get(toKey);
+    if (takerOnline) this.game.tell(takerOnline, `${asker.name} is your friend now — you accept friend requests automatically`, 'friend');
+    else theirs.notices.push({ text: `${asker.name} became your friend while you were away — you accept friend requests automatically`, kind: 'friend' });
+    const askerOnline = this.game.byKey.get(fromKey);
+    if (askerOnline) this.game.tell(askerOnline, `You and ${taker.name} are friends — they accept requests automatically`, 'friend');
+    else mine.notices.push({ text: `${taker.name} accepted your friend request — you are friends`, kind: 'friend' });
+    this.save(fromKey);
+    this.save(toKey);
+    this.sendFriends(fromKey);
+    this.sendFriends(toKey);
+    return true;
   }
 
   /** Whether `to` takes a teleport request from `from` without being asked. */
@@ -228,16 +336,41 @@ export class Social {
     if (s.incoming.length && !quiet) {
       this.game.tell(player, `${s.incoming.length} friend request${s.incoming.length === 1 ? '' : 's'} waiting — Players (Tab) or /friend list`, 'friend');
     }
+    if (s.notices.length) {
+      for (const notice of s.notices) this.game.tell(player, notice.text, notice.kind);
+      s.notices = [];
+      this.save(player.key);
+    }
     const party = this.partyFor(player.key);
     if (party) {
       party.idleSince = null;
+      if (party.leader === player.key) party.leaderAwaySince = null;
       this.sendParty(party);
+    } else {
+      // Always said, so a page that kept a party through a dropped connection
+      // - one that ended while it was away - lets go of it.
+      this.game.send(player.client, { t: 'party', party: null });
     }
-    if (quiet) return;
+    // Invitations still waiting, again: they outlive a reload or a trip to
+    // another world, which they used to end.
+    const now = this.game.now();
+    for (const [by, party] of this.invitesTo(player.key)) {
+      const invite = party.invites.get(player.key);
+      const from = this.game.byKey.get(by) ?? null;
+      this.game.send(player.client, {
+        t: 'partyInvite',
+        party: party.id,
+        from: { id: from?.id ?? null, key: by, name: this.who(by).name, colour: this.who(by).colour, world: this.game.worldOf(by) },
+        expiresIn: Math.max(1, Math.round((invite.expires - now) / 1000)),
+      });
+    }
     for (const key of s.friends) {
       const friend = this.game.byKey.get(key);
       if (!friend) continue;
+      // Their list says where you are now - after a trip to another world
+      // too, which is a quiet join; only the "is online" line waits on that.
       this.sendFriends(key);
+      if (quiet) continue;
       if (this.social(key).prefs.notify) {
         this.game.tell(friend, `${player.name} is online${player.world !== 'earth' ? ` — on ${BODIES[player.world].name}` : ''}`, 'friend');
       }
@@ -245,9 +378,11 @@ export class Social {
   }
 
   onLeave(player, { quiet = false } = {}) {
-    for (const [key] of this.invitesTo(player.key)) this.endInvite(key, player.key, 'left');
+    // Invitations to them are left to run out, not ended: a reload, or a trip
+    // to another world, is not saying no. See onJoin.
     const party = this.partyFor(player.key);
     if (party) {
+      if (party.leader === player.key) party.leaderAwaySince = this.game.now();
       if (!party.members.some((k) => k !== player.key && this.game.byKey.has(k))) party.idleSince = this.game.now();
       this.sendParty(party, { except: player.key });
     }
@@ -308,6 +443,7 @@ export class Social {
       invites: new Map(),
       waypoints: [],
       nextMark: 1,
+      joined: false,
       idleSince: null,
     };
     this.parties.set(party.id, party);
@@ -374,6 +510,7 @@ export class Social {
     if (old && old !== party) this.leave(player, { quiet: true });
     party.members.push(player.key);
     party.together.add(player.key);
+    party.joined = true;
     party.idleSince = null;
     this.partyOf.set(player.key, party.id);
     this.game.send(player.client, { t: 'partyInviteEnd', party: party.id, reason: 'accepted' });
@@ -398,13 +535,18 @@ export class Social {
     if (inviter && reason === 'denied') this.game.tell(inviter, `${this.who(key).name} said no to the party`, 'party');
     if (inviter && reason === 'expired') this.game.tell(inviter, `${this.who(key).name} did not answer the party invite`, 'party');
     // A party of one that was only ever an invitation goes away again.
-    if (party.members.length === 1 && party.invites.size === 0) this.disband(party);
+    if (party.members.length === 1 && party.invites.size === 0) this.disband(party, { quiet: !party.joined });
     else this.sendParty(party);
   }
 
   leave(player, { quiet = false } = {}) {
     const party = this.partyFor(player.key);
-    if (!party) return quiet ? null : this.game.tell(player, 'You are not in a party', 'error');
+    if (!party) {
+      // A party the page still shows, one that ended or was wound up while it was
+      // away lets go of it when its Leave button is pressed.
+      if (!quiet) this.game.send(player.client, { t: 'party', party: null });
+      return quiet ? null : this.game.tell(player, 'You are not in a party', 'error');
+    }
     this.removeMember(party, player.key);
     this.game.send(player.client, { t: 'party', party: null });
     if (!quiet) this.game.tell(player, 'You left the party', 'party');
@@ -424,6 +566,11 @@ export class Social {
     if (gone) {
       this.game.send(gone.client, { t: 'party', party: null });
       this.game.tell(gone, `${player.name} removed you from the party`, 'party');
+    } else {
+      // Told when they are next on, rather than finding the party simply gone.
+      this.social(key).notices.push(`${player.name} removed you from the party while you were away`);
+      this.social(key).notices = this.social(key).notices.slice(-MAX_NOTICES);
+      this.save(key);
     }
     if (this.parties.has(party.id)) this.tellParty(party, `${this.who(key).name} was removed from the party`);
     this.game.saveServer();
@@ -432,10 +579,13 @@ export class Social {
   promote(player, name) {
     const party = this.partyFor(player.key);
     if (!party) return this.game.tell(player, 'You are not in a party', 'error');
-    if (party.leader !== player.key) return this.game.tell(player, 'Only the party leader can hand it over', 'error');
     const wanted = nameKey(String(name ?? ''));
     const key = party.members.find((k) => k === wanted) ?? party.members.find((k) => k.startsWith(wanted) && wanted);
-    if (!key || key === player.key) return this.game.tell(player, `${String(name ?? '').slice(0, 32)} is not in your party`, 'error');
+    // The leader hands it over — or anybody, while the leader is away: a party
+    // whose leader went offline for the evening could not invite,
+    // gather or remove anybody until they came back.
+    if (party.leader !== player.key && this.game.byKey.has(party.leader)) return this.game.tell(player, 'Only the party leader can hand it over', 'error');
+    if (!key || key === party.leader) return this.game.tell(player, `${String(name ?? '').slice(0, 32)} is not in your party`, 'error');
     party.leader = key;
     this.tellParty(party, `${this.who(key).name} leads the party now`);
     this.sendParty(party);
@@ -456,13 +606,17 @@ export class Social {
     this.sendParty(party);
   }
 
-  disband(party) {
+  disband(party, { quiet = false } = {}) {
+    // The party's waypoints are not thrown away with it: everybody who was in
+    // it keeps them, among their own waypoints on the world each was made on:
+    // a long evening's marks are not lost because the party wound up.
+    this.keepWaypoints(party);
     for (const key of party.members) {
       this.partyOf.delete(key);
       const member = this.game.byKey.get(key);
       if (member) {
         this.game.send(member.client, { t: 'party', party: null });
-        if (party.members.length > 1 || party.waypoints.length) this.game.tell(member, 'The party is over', 'party');
+        if (!quiet) this.game.tell(member, 'The party is over', 'party');
       }
     }
     for (const key of party.invites.keys()) {
@@ -473,6 +627,7 @@ export class Social {
     this.game.saveServer();
   }
 
+  /** Whether you come along when the party leader teleports: the tick in the panel. */
   setTogether(player, on) {
     const party = this.partyFor(player.key);
     if (!party) return this.game.tell(player, 'You are not in a party', 'error');
@@ -515,6 +670,9 @@ export class Social {
     if (reason === 'party' || reason === 'respawn' || reason === 'correct') return;
     const party = this.partyFor(leader.key);
     if (!party || party.leader !== leader.key) return;
+    // Visiting somebody is visiting them, not bringing a war band: they said
+    // yes to one player. Only when the one visited is in the party too.
+    if (reason === 'tpa' && !(to.host && party.members.includes(to.host))) return;
     const world = to.world ?? leader.world;
     const radius = radiusOf(world);
     let n = 0;
@@ -532,7 +690,7 @@ export class Social {
       const DEG = Math.PI / 180;
       const lat = to.lat + (Math.cos(angle) * RING_M) / radius / DEG;
       const lon = to.lon + (Math.sin(angle) * RING_M) / (radius * Math.max(0.05, Math.cos(to.lat * DEG))) / DEG;
-      this.game.teleport(member, { world, lat, lon, alt: to.alt ?? null, yaw: to.yaw, flying: !!to.flying }, 'party');
+      this.game.teleport(member, { world, lat, lon, alt: to.alt ?? null, ceiling: to.ceiling, yaw: to.yaw, flying: !!to.flying }, 'party');
       this.game.tell(member, `Teleported with ${leader.name}`, 'party');
     }
   }
@@ -545,15 +703,40 @@ export class Social {
     const s = player.state;
     if (!s || player.pending) return this.game.tell(player, 'Land first', 'error');
     if (player.dead) return this.game.tell(player, 'Respawn first', 'error');
-    this.follow(player, { world: player.world, lat: s.lat, lon: s.lon, alt: s.alt, yaw: s.yaw, flying: !(s.flags & 1) }, 'gather');
+    // Not out of a fight: no teleport is, and this one brings seven.
+    if (this.game.inCombat(player)) return this.game.tell(player, 'Not in the middle of a fight', 'error');
+    // Nor over and over: each one is a teleport for everybody, and nobody can
+    // be hit on the way, so a gather a second kept a whole party untouchable.
+    const now = this.game.now();
+    const wait = GATHER_COOLDOWN_S - (now - (party.gatheredAt ?? -Infinity)) / 1000;
+    if (wait > 0) return this.game.tell(player, `Gathered just now — again in ${Math.ceil(wait)} s`, 'error');
+    party.gatheredAt = now;
+    this.follow(player, { world: player.world, lat: s.lat, lon: s.lon, alt: s.alt, ceiling: Math.min(player.ceiling, s.alt), yaw: s.yaw, flying: !(s.flags & FLAG.ground) }, 'gather');
     this.game.tell(player, 'Gathering the party', 'party');
   }
 
   /* ---------------------------------------------------- party waypoints */
 
+  /**
+   * Party waypoint changes, a few a second at most: each one is a notice and
+   * a whole party view to every member, and two hundred of them in a second
+   * buried a party in both.
+   */
+  marking(player) {
+    const now = this.game.now();
+    player.markTimes = (player.markTimes ?? []).filter((t) => now - t < 4000);
+    if (player.markTimes.length >= 6) {
+      this.game.tell(player, 'Slow down a little', 'error');
+      return false;
+    }
+    player.markTimes.push(now);
+    return true;
+  }
+
   mark(player, m) {
     const party = this.partyFor(player.key);
     if (!party) return this.game.tell(player, 'You are not in a party', 'error');
+    if (!this.marking(player)) return;
     const lat = Number(m.lat ?? player.state?.lat);
     const lon = Number(m.lon ?? player.state?.lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 360) return;
@@ -564,7 +747,7 @@ export class Social {
     const point = {
       id: party.nextMark++,
       name,
-      world: BODIES[m.world] ? m.world : player.world,
+      world: typeof m.world === 'string' && Object.hasOwn(BODIES, m.world) ? m.world : player.world,
       lat: Math.round(lat * 1e6) / 1e6,
       lon: Math.round((((lon + 540) % 360) - 180) * 1e6) / 1e6,
       by: player.name,
@@ -580,6 +763,7 @@ export class Social {
   unmark(player, m) {
     const party = this.partyFor(player.key);
     if (!party) return this.game.tell(player, 'You are not in a party', 'error');
+    if (!this.marking(player)) return;
     const id = Number(m.id);
     const wanted = String(m.name ?? '').trim().toLowerCase();
     const index = party.waypoints.findIndex((w) => w.id === id || (wanted && w.name.toLowerCase() === wanted));
@@ -590,14 +774,57 @@ export class Social {
     this.game.saveServer();
   }
 
-  /* ------------------------------------------------------------- upkeep */
+  /**
+   * A party's waypoints, into each member's own: the ones online get them
+   * on their page now (which then keeps them like any other), the ones
+   * away find them there when they next sign in on that world.
+   */
+  keepWaypoints(party) {
+    if (!party.waypoints.length) return;
+    for (const key of party.members) {
+      const member = this.game.byKey.get(key);
+      if (member) {
+        const here = party.waypoints.filter((w) => w.world === member.world);
+        if (here.length) this.game.send(member.client, { t: 'partyKept', waypoints: here });
+      }
+      // And into the record on every world: the list a page there is handed at
+      // sign-in, and all that a member who is away will have.
+      const record = this.game.record(key);
+      for (const w of party.waypoints) {
+        const live = record.on(w.world);
+        if (live.waypoints.some((o) => Math.abs(o.lat - w.lat) < 1e-6 && Math.abs(o.lon - w.lon) < 1e-6)) continue;
+        live.waypoints.push({ id: w.at ?? 0, name: w.name, lat: w.lat, lon: w.lon, altitude: 0, colour: w.colour ?? '#c8b98f', createdAt: w.at ?? 0 });
+      }
+      this.game.saveRecord(record);
+      if (!member) {
+        const n = party.waypoints.length;
+        const said = `The party ended — its ${n === 1 ? 'waypoint is' : `${n} waypoints are`} among yours now`;
+        if (this.social(key).notices.includes(said)) continue;
+        this.social(key).notices.push(said);
+        this.social(key).notices = this.social(key).notices.slice(-MAX_NOTICES);
+        this.save(key);
+      }
+    }
+  }
 
+  /* ------------------------------------------------------------- upkeep */
   tick(now) {
     for (const party of [...this.parties.values()]) {
       for (const [key, invite] of [...party.invites]) {
         if (now >= invite.expires) this.endInvite(invite.by, key, 'expired', party);
       }
       if (!this.parties.has(party.id)) continue;
+      // A leader away a while hands the party to the longest-standing member who
+      // is on, so the rest can still invite, gather and remove.
+      if (party.leaderAwaySince != null && now - party.leaderAwaySince > LEADER_AWAY_MS && !this.game.byKey.has(party.leader)) {
+        const next = party.members.find((k) => this.game.byKey.has(k));
+        if (next) {
+          party.leader = next;
+          party.leaderAwaySince = null;
+          this.tellParty(party, `${this.who(party.leader).name} leads the party now — the leader has been away a while`);
+          this.sendParty(party);
+        }
+      }
       const anyone = party.members.some((k) => this.game.byKey.has(k));
       if (anyone) party.idleSince = null;
       else if (party.idleSince == null) party.idleSince = now;
@@ -629,7 +856,8 @@ export class Social {
       invites: new Map(),
       waypoints: Array.isArray(saved.waypoints) ? saved.waypoints.slice(0, MAX_PARTY_WAYPOINTS) : [],
       nextMark: Number(saved.nextMark) || 1,
-      idleSince: Date.now(),
+      joined: true,
+      idleSince: this.game.now(),
     };
     this.parties.set(id, party);
     for (const key of members) this.partyOf.set(key, id);
