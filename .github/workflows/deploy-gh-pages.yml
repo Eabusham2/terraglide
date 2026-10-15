@@ -24,6 +24,20 @@ jobs:
       - name: Check out main
         uses: actions/checkout@v4
 
+      # The public server everybody plays on: set the repository variable
+      # TERRAGLIDE_PUBLIC_SERVER (Settings, Secrets and variables, Actions,
+      # Variables) to its wss:// address and every published copy offers it
+      # first. Only a plain wss:// address is accepted.
+      - name: Point the game at the public server
+        env:
+          PUBLIC_SERVER: ${{ vars.TERRAGLIDE_PUBLIC_SERVER }}
+        run: |
+          if [ -n "$PUBLIC_SERVER" ]; then
+            [[ "$PUBLIC_SERVER" =~ ^wss://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._/-]*)?$ ]] || { echo "TERRAGLIDE_PUBLIC_SERVER must be a wss:// address"; exit 1; }
+            sed -i "s|^export const PUBLIC_SERVER = .*|export const PUBLIC_SERVER = '$PUBLIC_SERVER';|" src/net/publicServer.js
+            grep -q "PUBLIC_SERVER = '$PUBLIC_SERVER'" src/net/publicServer.js
+          fi
+
       - name: Build the two single-file downloads
         run: |
           node tools/bundle.mjs
