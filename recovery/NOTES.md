@@ -78,7 +78,7 @@ Final line counts are in recovery/STATUS.md.
 New files:
 - [x] Dockerfile · [x] .dockerignore · [x] fly.toml · [x] render.yaml · [x] server/config.example.json · [x] src/net/publicServer.js
 - [x] server/ws.mjs (405) · [x] server/cells.mjs (146) · [~] server/store.mjs (90; count matches, content from the Oct 2–3 paste, unverified)
-- [~] server/game.mjs: V5 (pre-round-6, 2685 lines) rebuilt and committed. 2648 lines from the logs; 37 placed by hand (scratchpad/recover/gm.manual.txt), of which 25 are guessed (see Guessed). Sizes are exactly 52 bytes short in V0, V2 and V4 alike, so the error sits in the guessed lines and the rest very likely matches. NEXT: apply round 6 → final.
+- [x] server/game.mjs FINAL (2720 lines, 126238 bytes) = V5 + round 6 (recovery/diffs/atk6.game.diff, then r6_copy2_edit1.py and r6_copy2_edit2.py, replayed exactly). Its line numbers match my Oct 12 07:56 grep of the copy (GLIDE_ROOM at 104, 915, 1079). Caveat: 25 guessed lines (see Guessed), about 52 bytes short; everything else is from the logs.
 - [~] server/accounts.mjs (319) · [~] server/commands.mjs (244) · [~] server/config.mjs (146) · [~] server/records.mjs (148) · [~] server/server.mjs (321) · [~] server/social.mjs (876)
 - [ ] HOSTING.md (1539)
 - [~] src/core/boot.js (256)
