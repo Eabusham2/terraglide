@@ -16,6 +16,7 @@ import {
 } from '../tiles/providers.js';
 import { escapeHtml } from './worldmap.js';
 import { BODY, ON_EARTH } from '../geo/bodies.js';
+import { ONLINE } from '../core/boot.js';
 import { VOICE_FULL_M, VOICE_RANGE_M } from '../net/protocol.js';
 
 /**
