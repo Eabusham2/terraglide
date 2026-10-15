@@ -25,7 +25,18 @@
 - [ ] Missing whole files: voice.js (only part), planetary.js (only part), HOSTING.md (only part), publicServer.js, config.example.json, Dockerfile, .dockerignore, fly.toml, render.yaml, glb-unplate.py, gazetteerData.js, starCatalogue.js, sword.glb.
 - [ ] Changed tracked files: need the final diffs, src/game.js first.
 
+### Method (decided Oct 15)
+- Final line counts recorded on 10-12T03:24: accounts 319, cells 146, commands 244, config 146, game 2685, records 148, server 321, social 876, store 90, ws 405, session.js 949, servertest 1719, HOSTING.md 1539.
+- T0 = 10-10T03:33 (the main-chat log starts here; every main edit after it is known). For each file:
+  1. V0 = the file at T0, from fragments taken before my first edit to it after T0 (scratchpad/recover/frags.mjs).
+  2. Map later fragments back through the exact edits (python s.replace, patch: x7.diff, fix.diff (X11), swing.diff, skeptic7.diff, round-6 diff) to fill V0's gaps.
+  3. Fill any remaining gaps from earlier fragments, only where both anchor lines match at the same distance.
+  4. Replay the edits forward, then check against the recorded wc -l and md5.
+- Tools are in scratchpad/recover (readfull.mjs, frags.mjs, lastfull.mjs), with copies in /home/user/recovery.
+
 ### Checked (done)
+- [x] server/ws.mjs FINAL, rebuilt from the full read of 10-12T03:25 (405 lines = recorded count). Committed.
+- [x] server/cells.mjs (146) and server/store.mjs (90) from the pastes match the final counts (cells is committed; store is in from upload1).
 - [x] Session events API works: all 149 agents' logs (Oct 2–12) and the main chat since Oct 10 are downloaded to /home/user/recovery.
 - [x] No copies survive on disk, in git objects or in backups; raw disk access is denied.
 - [x] upload1 and upload2 are committed and pushed to the branch.
