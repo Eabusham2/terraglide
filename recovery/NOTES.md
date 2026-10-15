@@ -29,6 +29,13 @@
   - readf.txt: shell log; README "Playing with others" and more.
   - shell-log.txt: shell log containing `cat > src/net/publicServer.js` (the whole publicServer.js!).
   - confex.txt: shell log with git status and config.example.json, Dockerfile, fly.toml and so on.
+- **Dated against the logs** (scratchpad/recover/datepaste.mjs; the date range is where more than 90% of a sighting's lines match at the same line numbers). Nearly all the uploads are EARLY versions, so use them only as a base, then bring them forward from the logs:
+  - accounts Oct 7; commands Oct 3; config Oct 2–3; game.mjs Oct 3 08:12; server.mjs Oct 3; ws Oct 2–3; boot Oct 2–9; storage Oct 7; client, remotePlayers, onlinePanel and chat Oct 5; session Oct 5 13:55; teleportMenu Oct 6–7; servertest Oct 2–6; social Oct 6–7.
+  - flightcheck Oct 9 20:22–21:05.
+  - records (upload3 18) matches Oct 11 04:53, so it is nearly final.
+  - No sightings to date them: cells, combat, deathScreen, gazetteer, stars, stars.mjs, gazetteer.py.
+  - Pasted files have one extra trailing line. Combat (95 lines now, target 96) may be missing a line.
+- Full per-file table: `recovery/STATUS.md` (target line count, count at 2c7ee70, count in the repo now, latest full copy in the logs, sightings since, pastes).
 - **upload1** `cd6cd832-dd.zip`: 33 files, an early snapshot, committed in their real paths (4b6379b). Map is under Sources below. EARLY versions: game.mjs 1127 lines without friends, parties or round-3+ anti-cheat; servertest 363 lines.
 
 ### What the user told me to do
@@ -42,11 +49,21 @@
 - [ ] game.mjs: see "Where I am right now".
 - [ ] More history? The main chat before Oct 10 is NOT downloaded. internal-events (main) starts at the last compaction; `after_compaction=false` did nothing; the client `/events` endpoint returns 401 with the session token. Ideas: other query parameters in the CLI binary, or the user's own `claude --teleport session_01AbPj1ecgWZX5NRERgq23EA` (steps in the chat, Oct 14 23:51).
 - [ ] Background-task outputs: /tmp/claude-0/.../tasks now holds only post-reset tasks; the old ones were wiped. Their contents survive only where agents `cat` them (in calls.jsonl).
-- [ ] Missing whole files: voice.js, planetary.js, HOSTING.md (parts only), config.example.json, Dockerfile, .dockerignore, fly.toml and render.yaml (try confex.txt and the logs), glb-unplate.py, gazetteerData.js and starCatalogue.js (regenerate with their scripts), sword.glb (regenerate). publicServer.js is in pastes2/shell-log.txt.
+- [ ] Missing whole files:
+  - voice.js: full Read of 1401 lines on Oct 5 05:24, plus 8 later changes; target 1553 on Oct 11.
+  - planetary.js: full Read of 1462 lines on Oct 3 21:20, plus later changes; target 1947 on Oct 7.
+  - HOSTING.md: full Read of 1158 lines on Oct 7, plus 22 changes; target 1539.
+  - glb-unplate.py.
+  - gazetteerData.js and starCatalogue.js: regenerate with their scripts.
+  - sword.glb: regenerate.
+  - terraglide-online.html: a build output (tools/online.mjs).
+  - trail.js: 140 lines.
+  - Other files with full Reads in the logs (scratchpad/recover/lastfull.mjs): commands (Oct 6, 228), records (Oct 6, 145), social (Oct 7, 642), session (Oct 6, 548), chat, playersPanel, teleportMenu, exploration and mapRenderer (Oct 6), keybinds.
 - [ ] Changed tracked files (38): need the final diffs, src/game.js first. Look for `git diff` outputs in calls.jsonl.
 - [ ] The logs are archived only on this machine (/home/user/recovery and /root/recovery-copy), which a reset can wipe. Creating a private GitHub repo was refused (403). Google Drive is a possible safe place, but ask the user first.
 
 ### Checked (done)
+- [x] Deploy files RECOVERED from complete `cat -n` / `cat` outputs of Oct 7 16:30–22:00 (agents aed3f8, a79119, abefe6), checked against every later sighting: Dockerfile (66), .dockerignore (31, 1021 bytes = the Oct 5 size), fly.toml (60), render.yaml (47), server/config.example.json (27; maxSpeed 420→180 per round 4, seen Oct 9), src/net/publicServer.js (11), .github/workflows/deploy-gh-pages.yml (120), .gitignore (20). package.json is unchanged from 2c7ee70. Risk: an unlogged main-chat edit between Oct 7 22:00 and Oct 10 03:33.
 - [x] server/ws.mjs FINAL, rebuilt from the full Read of 10-12T03:25 (405 lines = recorded count). Committed (61bc269).
 - [x] server/cells.mjs (146) and server/store.mjs (90) from the pastes match the final counts.
 - [x] Session events API works: all 149 agents' logs (Oct 2–12) and the main chat since Oct 10 are downloaded.
