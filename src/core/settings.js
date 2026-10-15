@@ -480,6 +480,11 @@ export const GRAPHICS_PRESETS = {
 const STORAGE_KEY = 'settings';
 
 /**
+ * The store itself, exported so a reload can be exercised: constructing a
+ * second one reads the same storage back, which is the only way to check that
+ * a pasted key actually survives closing the tab.
+ */
+/**
  * The settings that change how you play rather than how it looks, held to
  * the range the panel offers. A save file, or a hand-edited store, is not
  * the panel: imported with a forty-metre standing height you walked up the

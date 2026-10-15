@@ -100,7 +100,7 @@ Changed tracked files (base = 2c7ee70):
 - [x] .github/workflows/deploy-gh-pages.yml · [x] .gitignore
 - [ ] README.md (696) · [x] assets/manifest.json (swordNote and sword, from the Oct 9 15:04 print; +2 as the Oct 9 stat says) · [ ] styles/main.css
 - [~] src/game.js (2957 = final; every logged line in place; 914 changed against the Oct 9 stat's 918; the Oct 9 gaps rebuilt from the ledger, see Guessed)
-- [x] src/core/cheats.js (218: the commit + the ONLINE import and the unlock() refusal, seen Oct 11) · [x] src/core/keybinds.js (229, whole-file git diff, Oct 7–9) · [~] src/core/settings.js (600: 5 unseen lines left out) · [x] src/core/storage.js (96)
+- [x] src/core/cheats.js (218: the commit + the ONLINE import and the unlock() refusal, seen Oct 11) · [x] src/core/keybinds.js (229, whole-file git diff, Oct 7–9) · [x] src/core/settings.js (605 = final: the 5 lines were SettingsStore's doc comment, left above RANGES when RANGES and settingValue went in between; text from the Oct 5 view, place from the Oct 11 grep's line 484) · [x] src/core/storage.js (96)
 - [x] src/geo/frame.js (104) · [x] src/geo/mercator.js (155)
 - [x] src/player/avatar.js (5137 = final; +353 −5 from the commit, consistent with the Oct 9 stat 318 plus the later sword swing; every known line in place; see Guessed) · [x] src/player/controller.js (813) · [x] src/player/elytra.js (488) · [x] src/player/player.js (755; +239 −42 from the commit = the Oct 9 stat exactly; filled from the commit and the import list, see Guessed)
 - [x] src/tiles/elevation.js (494) · [x] src/tiles/providers.js (1421, git diff of Oct 5) · [x] src/tiles/streamer.js (1167) · [~] src/tiles/tileJobs.js (574; one line changed to pass the layer, see Guessed planetary.js)
@@ -120,7 +120,7 @@ Changed tracked files (base = 2c7ee70):
 
 ## Guessed (not recovered exactly)
 - server/config.mjs: lines 100-135 rebuilt from their known anchors (123 number MAX_PLAYERS, 126 flag OPEN_SIGNUPS, 128 flag PVP, 129 ALLOWED_ORIGINS, 136 TRUST_PROXY) and ledger item H2 (MOTD/MAX_PLAYERS/MAX_ACCOUNTS/SIGNUPS_PER_HOUR/OPEN_SIGNUPS/FIRST_ACCOUNT_ADMIN/PVP/ALLOWED_ORIGINS/CONFIG). The TERRAGLIDE_CONFIG layer and the number()/flag() helper bodies are WRITTEN BY ME; the count (146) and every known line match.
-- src/core/settings.js: 5 lines after `const STORAGE_KEY` (final 481-485) never shown and not referenced: left out (file is 600 lines, not 605).
+- src/core/settings.js: (resolved Oct 15) the 5 lines after `const STORAGE_KEY` are SettingsStore's doc comment, exact from Oct 5, placed by the Oct 11 05:23 grep (484 = its second line). Every view and grep since Oct 11 05:15 now agrees.
 - src/player/elytra.js: exact (the Oct 7-9 version is complete and the final adds exactly FLIGHT_GRAVITY_MPS2 + a blank after line 26).
 - src/net/protocol.js: pickColour's body from the early paste (exact for that version); colourDistance (redmean distance), its doc comment and the doc comments for TWIN_DISTANCE and distinctColour WRITTEN BY ME (never shown). recovery/guess/src_net_protocol.js.txt.
 - server/server.mjs: last 18 lines filled with the Oct 9 02:14 tail (13 lines); the 5 lines added between Oct 9 02:14 and 15:02 were never shown (not in the startup printout; likely shutdown handling).
