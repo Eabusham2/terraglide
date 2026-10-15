@@ -153,130 +153,130 @@ const SPAWN_HEIGHT_M = 420;
 @@MISSING 153@@
 @@MISSING 154@@
     this.lastTime = 0;
-@@MISSING 156@@
-@@MISSING 157@@
-@@MISSING 158@@
-@@MISSING 159@@
-@@MISSING 160@@
-@@MISSING 161@@
-@@MISSING 162@@
-@@MISSING 163@@
-@@MISSING 164@@
-@@MISSING 165@@
-@@MISSING 166@@
+    this.perf = new PerfGovernor();
+    // The dial that was promised in a comment and never built.
+    this.autoQuality = new AutoQuality();
+    this.benchmark = new Benchmark();
+    /** Resolves on the next drawn frame, with its length in ms. */
+    this.frameWaiters = [];
+    this.settleUntil = 0;
+    this.arrivalHeld = false;
+    this._readySince = 0;
+    this._lastGroundSample = NaN;
+    this._groundMovedAt = 0;
     this._holdY = NaN;
-@@MISSING 168@@
-@@MISSING 169@@
-@@MISSING 170@@
-@@MISSING 171@@
-@@MISSING 172@@
-@@MISSING 173@@
-@@MISSING 174@@
-@@MISSING 175@@
-@@MISSING 176@@
-@@MISSING 177@@
-@@MISSING 178@@
-@@MISSING 179@@
-@@MISSING 180@@
-@@MISSING 181@@
-@@MISSING 182@@
-@@MISSING 183@@
-@@MISSING 184@@
-@@MISSING 185@@
-@@MISSING 186@@
-@@MISSING 187@@
-@@MISSING 188@@
-@@MISSING 189@@
-@@MISSING 190@@
-@@MISSING 191@@
-@@MISSING 192@@
-@@MISSING 193@@
-@@MISSING 194@@
-@@MISSING 195@@
-@@MISSING 196@@
-@@MISSING 197@@
-@@MISSING 198@@
-@@MISSING 199@@
-@@MISSING 200@@
-@@MISSING 201@@
-@@MISSING 202@@
-@@MISSING 203@@
-@@MISSING 204@@
-@@MISSING 205@@
-@@MISSING 206@@
-@@MISSING 207@@
-@@MISSING 208@@
-@@MISSING 209@@
-@@MISSING 210@@
-@@MISSING 211@@
-@@MISSING 212@@
-@@MISSING 213@@
-@@MISSING 214@@
-@@MISSING 215@@
-@@MISSING 216@@
-@@MISSING 217@@
-@@MISSING 218@@
-@@MISSING 219@@
-@@MISSING 220@@
-@@MISSING 221@@
-@@MISSING 222@@
-@@MISSING 223@@
-@@MISSING 224@@
-@@MISSING 225@@
-@@MISSING 226@@
-@@MISSING 227@@
-@@MISSING 228@@
-@@MISSING 229@@
-@@MISSING 230@@
-@@MISSING 231@@
-@@MISSING 232@@
-@@MISSING 233@@
-@@MISSING 234@@
-@@MISSING 235@@
-@@MISSING 236@@
-@@MISSING 237@@
-@@MISSING 238@@
-@@MISSING 239@@
-@@MISSING 240@@
-@@MISSING 241@@
-@@MISSING 242@@
-@@MISSING 243@@
-@@MISSING 244@@
-@@MISSING 245@@
-@@MISSING 246@@
-@@MISSING 247@@
-@@MISSING 248@@
-@@MISSING 249@@
-@@MISSING 250@@
-@@MISSING 251@@
-@@MISSING 252@@
-@@MISSING 253@@
-@@MISSING 254@@
-@@MISSING 255@@
-@@MISSING 256@@
-@@MISSING 257@@
-@@MISSING 258@@
-@@MISSING 259@@
-@@MISSING 260@@
-@@MISSING 261@@
-@@MISSING 262@@
-@@MISSING 263@@
-@@MISSING 264@@
-@@MISSING 265@@
-@@MISSING 266@@
-@@MISSING 267@@
-@@MISSING 268@@
-@@MISSING 269@@
-@@MISSING 270@@
-@@MISSING 271@@
-@@MISSING 272@@
-@@MISSING 273@@
-@@MISSING 274@@
-@@MISSING 275@@
-@@MISSING 276@@
-@@MISSING 277@@
-@@MISSING 278@@
-@@MISSING 279@@
+    this.teleporting = false;
+    this.debugVisible = false;
+    this.landFraction = 0.6;
+    this.saveTimer = 0;
+    this.lastYaw = 0;
+    this.notice = '';
+
+    this.onStatus('Creating renderer');
+    // Antialiasing is decided when the context is created and can never be
+    // switched on afterwards, so it is always asked for. Tying it to the
+    // graphics preset meant that booting on a slow machine — or letting the
+    // automatic preset drop a tier and then reloading — left the world with
+    // permanently stepped edges and no setting anywhere that would bring them
+    // back. Multisampling is one of the cheapest things on this list; the
+    // preset gives up tile detail and pixels instead.
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      powerPreference: 'high-performance',
+      stencil: false,
+      logarithmicDepthBuffer: true,
+    });
+    this.watchContext(canvas);
+    this.watchErrors();
+    this.pickFirstRunQuality();
+    this.renderer.setClearColor(0x0d0f12, 1);
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // No tone curve. Everything in this scene is already display-referred —
+    // the imagery is a finished photograph, the sky colours are authored as
+    // the colours they should be, the fog colour is taken from the sky. There
+    // is no high-dynamic-range content here for a film curve to bring into
+    // range, so applying one only grades a picture that was already graded.
+    this.renderer.toneMapping = THREE.NoToneMapping;
+    // For the scanned body in first person, which is cut off below the collar
+    // so looking down does not put the camera inside it. See Avatar.scanClip.
+    this.renderer.localClippingEnabled = true;
+
+    this.scene = new THREE.Scene();
+    this.scene.fog = new THREE.FogExp2(0xaebccd, 1 / 26000);
+    // A near plane close enough to see your own legs when you look down.
+    this.camera = new THREE.PerspectiveCamera(settings.get('fov'), 1, 0.15, 260000);
+    this.scene.add(this.camera);
+
+    this.onStatus('Starting tile worker');
+    this.worker = createTileWorker();
+
+    this.frame = new LocalFrame(DEFAULT_SPAWN.lat, DEFAULT_SPAWN.lon);
+    this.shared = createSharedUniforms();
+    this.streamer = new ImageryStreamer(this.worker, this.renderer);
+    this.elevation = new ElevationField(this.worker);
+    this.terrain = new Terrain({
+      scene: this.scene,
+      frame: this.frame,
+      streamer: this.streamer,
+      elevation: this.elevation,
+      shared: this.shared,
+    });
+    // Distant mode asks the explored map whether a far tile is worth drawing.
+    // The terrain does not know about the UI, so it is handed the question.
+    this.terrain.explored = (tile) => exploration.isExplored(tile.z, tile.x, tile.y);
+    this.sky = new Sky(this.scene, this.shared);
+    this.edgeWall = new EdgeWall(this.scene, this.shared);
+    this.seaFloor = new SeaFloor(this.scene, this.shared);
+    // A beam of light on every waypoint, so a saved place is findable from the
+    // air rather than only on a map. See world/beacons.js.
+    this.beacons = new Beacons({
+      scene: this.scene,
+      store: waypoints,
+      terrain: this.terrain,
+      frame: this.frame,
+    });
+    this.weather = new Weather(this.scene, this.shared);
+    /** Real photogrammetry, loaded on demand — see loadWorld3D(). */
+    this.tiles3d = null;
+    this.buildings = new Buildings({ scene: this.scene, frame: this.frame, terrain: this.terrain });
+    // Where the woods are, from the same survey the buildings come from and
+    // through the same Overpass queue. It draws nothing; it hands the ground
+    // shader a mask so a forest reads as canopy instead of as green paint.
+    this.woodland = new Woodland({ frame: this.frame });
+    /*
+      The photograph's own canopy answer, handed to the sheet that the vertex
+      lift reads.
+
+      Taken off the squares the quadtree is actually drawing rather than off
+      every score ever measured: those are the ones on screen, there are a few
+      hundred of them, and each already knows its own world footprint. Anything
+      outside the sheet is dropped by the painter, so a square a hundred
+      kilometres away costs one comparison.
+    */
+    this.woodland.canopyRects = () => {
+      const out = [];
+      for (const node of this.terrain.drawn ?? []) {
+        const score = node.material?.uniforms?.uCanopy?.value ?? 0;
+        if (!(score > 0.01)) continue;
+        out.push({ x: node.mesh.position.x, z: node.mesh.position.z, size: node.size, score });
+      }
+      return out;
+    };
+    this.panorama = new Panorama({ scene: this.scene, frame: this.frame, worker: this.worker });
+
+    this.player = new Player(this.frame);
+    this.controller = new PlayerController({
+      player: this.player,
+      terrain: this.terrain,
+      buildings: this.buildings,
+    });
+    this.avatar = new Avatar(this.scene, this.shared);
+    // A shadow to stand on and a trail behind the fireworks. Both are drawn
+    // rather than shadow-mapped; see player/effects.js for why.
+    this.shadow = new ContactShadow(this.scene);
+    this.rocketTrail = new RocketTrail(this.scene);
+    this.avatar.loadTextures();
     this.avatar.loadModel();
     this.avatar.loadRocketModel();
     this.avatar.loadSwordModel();

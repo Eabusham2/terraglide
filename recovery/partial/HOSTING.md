@@ -839,21 +839,21 @@ committed without giving them away.
 @@MISSING 839@@
 @@MISSING 840@@
 ### Examples
-@@MISSING 842@@
-@@MISSING 843@@
-@@MISSING 844@@
-@@MISSING 845@@
-@@MISSING 846@@
-@@MISSING 847@@
-@@MISSING 848@@
-@@MISSING 849@@
-@@MISSING 850@@
-@@MISSING 851@@
-@@MISSING 852@@
-@@MISSING 853@@
-@@MISSING 854@@
-@@MISSING 855@@
-@@MISSING 856@@
+
+A private server for a group of friends, PvP off:
+
+```json
+{
+  "name": "The Glider Club",
+  "motd": "TerraGlide by Eabusham2. Friends only; ask Alex for the code.",
+  "pvp": false,
+  "maxAccounts": 20
+}
+```
+
+and start it with the code as a secret:
+`TERRAGLIDE_JOIN_CODE=blue-heron-42 node server/server.mjs`.
+
 A public server behind Caddy, accounts closed after everyone has joined:
 
 ```json

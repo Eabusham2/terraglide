@@ -1,62 +1,62 @@
-@@MISSING 1@@
-@@MISSING 2@@
-@@MISSING 3@@
-@@MISSING 4@@
-@@MISSING 5@@
-@@MISSING 6@@
-@@MISSING 7@@
-@@MISSING 8@@
-@@MISSING 9@@
-@@MISSING 10@@
-@@MISSING 11@@
-@@MISSING 12@@
-@@MISSING 13@@
-@@MISSING 14@@
-@@MISSING 15@@
-@@MISSING 16@@
-@@MISSING 17@@
-@@MISSING 18@@
-@@MISSING 19@@
-@@MISSING 20@@
-@@MISSING 21@@
-@@MISSING 22@@
-@@MISSING 23@@
-@@MISSING 24@@
-@@MISSING 25@@
-@@MISSING 26@@
-@@MISSING 27@@
-@@MISSING 28@@
-@@MISSING 29@@
-@@MISSING 30@@
-@@MISSING 31@@
-@@MISSING 32@@
-@@MISSING 33@@
-@@MISSING 34@@
-@@MISSING 35@@
-@@MISSING 36@@
-@@MISSING 37@@
-@@MISSING 38@@
-@@MISSING 39@@
-@@MISSING 40@@
-@@MISSING 41@@
-@@MISSING 42@@
-@@MISSING 43@@
-@@MISSING 44@@
-@@MISSING 45@@
-@@MISSING 46@@
-@@MISSING 47@@
-@@MISSING 48@@
-@@MISSING 49@@
-@@MISSING 50@@
-@@MISSING 51@@
-@@MISSING 52@@
-@@MISSING 53@@
-@@MISSING 54@@
-@@MISSING 55@@
-@@MISSING 56@@
-@@MISSING 57@@
-@@MISSING 58@@
-@@MISSING 59@@
+#!/usr/bin/env node
+/**
+ * Look at the running game, headlessly, and take pictures of it.
+ *
+ * This existed three times as a scratch file and was lost to a container reset
+ * three times, and each time the answer to "did you actually look at it?" got
+ * worse. So it lives in the repo now.
+ *
+ * It serves the working tree over HTTP, launches the Chromium that Playwright
+ * already ships, and — because the sandbox this runs in has no route out from
+ * the browser, only from Node — proxies every outbound tile request back
+ * through the same server. On a normal machine the proxy is harmless: the
+ * requests go out either way.
+ *
+ * Software rendering means one or two frames a second. That is fine for
+ * screenshots and useless for judging smoothness, so do not judge smoothness
+ * with it.
+ *
+ *   npm i -D playwright                 (once, if it is not already there)
+ *   node tools/shots.mjs                          a few standard views
+ *   node tools/shots.mjs --lat 46.56 --lon 7.91   somewhere specific
+ *   node tools/shots.mjs --out /tmp/shots         where to write them
+ *
+ * Every shot is also measured, because "it looks fine" is what got this wrong
+ * before: each one reports the share of the frame that is sky enclosed by
+ * ground (a hole), and how much fine detail the lower half carries (a flat
+ * frame means the ground has gone to one colour).
+ */
+
+import http from 'node:http';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { extname, join, normalize, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+// Port 0 lets the OS pick a free one. A fixed port meant a second run while
+// the first was still shutting down died on EADDRINUSE before it drew
+// anything, which looks exactly like the game failing to boot.
+let PORT = 0;
+
+const args = process.argv.slice(2);
+const flag = (name, fallback) => {
+  const i = args.indexOf(`--${name}`);
+  return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
+};
+const OUT = resolve(flag('out', join(ROOT, 'shots')));
+const LAT = Number(flag('lat', 46.5623));
+const LON = Number(flag('lon', 7.9126));
+/** Seconds to let the ground arrive before believing what is on screen. */
+const SETTLE_S = Number(flag('settle', 55));
+
+const TYPES = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.mjs': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
     try { value = JSON.parse(raw); } catch {}
     return [pair.slice(0, at), value];
   });

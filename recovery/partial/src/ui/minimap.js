@@ -1,31 +1,31 @@
-@@MISSING 1@@
-@@MISSING 2@@
-@@MISSING 3@@
-@@MISSING 4@@
-@@MISSING 5@@
-@@MISSING 6@@
-@@MISSING 7@@
-@@MISSING 8@@
-@@MISSING 9@@
-@@MISSING 10@@
-@@MISSING 11@@
-@@MISSING 12@@
-@@MISSING 13@@
-@@MISSING 14@@
-@@MISSING 15@@
-@@MISSING 16@@
-@@MISSING 17@@
-@@MISSING 18@@
-@@MISSING 19@@
-@@MISSING 20@@
-@@MISSING 21@@
+import { WheelSteps } from './wheel.js';
+import { keybinds } from '../core/keybinds.js';
+import { clamp } from '../core/math.js';
+import { settings } from '../core/settings.js';
+import { formatDistance } from '../core/units.js';
+import { drawMap, metresPerPixel } from './mapRenderer.js';
+
+/**
+ * Minimap.
+ *
+ * Shows satellite imagery for ground you have explored and a flat map view of
+ * everything you have not, so the world is always legible and the photography
+ * fills in behind you as you travel. Zoom with the hotkeys or the wheel, click
+ * it to open the big map — the key for which is printed underneath.
+ * Redraws at 20 Hz rather than every frame — it is a map, not a viewport.
+ */
+
+const REDRAW_INTERVAL = 1 / 20;
+
+export class Minimap {
+  constructor(root, { tiles, street, exploration, waypointStore, trail, others = null }) {
   constructor(root, { tiles, street, exploration, waypointStore, trail, others = null }) {
     this.others = others;
 @@MISSING 24@@
 @@MISSING 25@@
 @@MISSING 26@@
 @@MISSING 27@@
-@@MISSING 28@@
+    this.timer = 0;
 @@MISSING 29@@
 @@MISSING 30@@
 @@MISSING 31@@
@@ -77,102 +77,102 @@
 @@MISSING 77@@
 @@MISSING 78@@
 @@MISSING 79@@
-@@MISSING 80@@
-@@MISSING 81@@
-@@MISSING 82@@
-@@MISSING 83@@
-@@MISSING 84@@
-@@MISSING 85@@
-@@MISSING 86@@
-@@MISSING 87@@
-@@MISSING 88@@
-@@MISSING 89@@
-@@MISSING 90@@
-@@MISSING 91@@
-@@MISSING 92@@
-@@MISSING 93@@
-@@MISSING 94@@
-@@MISSING 95@@
-@@MISSING 96@@
-@@MISSING 97@@
-@@MISSING 98@@
-@@MISSING 99@@
-@@MISSING 100@@
-@@MISSING 101@@
-@@MISSING 102@@
-@@MISSING 103@@
-@@MISSING 104@@
-@@MISSING 105@@
-@@MISSING 106@@
-@@MISSING 107@@
-@@MISSING 108@@
-@@MISSING 109@@
-@@MISSING 110@@
-@@MISSING 111@@
-@@MISSING 112@@
-@@MISSING 113@@
-@@MISSING 114@@
-@@MISSING 115@@
-@@MISSING 116@@
-@@MISSING 117@@
-@@MISSING 118@@
-@@MISSING 119@@
-@@MISSING 120@@
-@@MISSING 121@@
-@@MISSING 122@@
-@@MISSING 123@@
-@@MISSING 124@@
-@@MISSING 125@@
-@@MISSING 126@@
-@@MISSING 127@@
-@@MISSING 128@@
-@@MISSING 129@@
-@@MISSING 130@@
-@@MISSING 131@@
-@@MISSING 132@@
-@@MISSING 133@@
-@@MISSING 134@@
-@@MISSING 135@@
-@@MISSING 136@@
-@@MISSING 137@@
-@@MISSING 138@@
-@@MISSING 139@@
-@@MISSING 140@@
-@@MISSING 141@@
-@@MISSING 142@@
-@@MISSING 143@@
-@@MISSING 144@@
-@@MISSING 145@@
-@@MISSING 146@@
-@@MISSING 147@@
-@@MISSING 148@@
-@@MISSING 149@@
-@@MISSING 150@@
-@@MISSING 151@@
-@@MISSING 152@@
-@@MISSING 153@@
-@@MISSING 154@@
-@@MISSING 155@@
-@@MISSING 156@@
-@@MISSING 157@@
-@@MISSING 158@@
-@@MISSING 159@@
-@@MISSING 160@@
-@@MISSING 161@@
-@@MISSING 162@@
-@@MISSING 163@@
-@@MISSING 164@@
-@@MISSING 165@@
-@@MISSING 166@@
+        event.stopPropagation();
+        const steps = this.wheel.read(event);
+        if (steps) this.zoomBy(steps);
+      },
+      { passive: false },
+    );
+
+    // A street tile arriving changes unexplored ground, so redraw for it too.
+    this.tiles.onTileLoaded(() => {
+      this.timer = REDRAW_INTERVAL;
+    });
+
+    settings.on('change', ({ key }) => {
+      if (key.startsWith('minimap')) this.applySettings();
+    });
+    this.applySettings();
+  }
+
+  applySettings() {
+    // Never more than a third of the window across. The setting is a size in
+    // pixels, and a 240 px minimap on a 320 px phone is most of the screen
+    // with the toolbar underneath it — so the window gets the last word.
+    const room = Math.max(100, Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.34));
+    const size = Math.min(clamp(settings.get('minimapSize'), 140, 460), room);
+    const dpr = clamp(window.devicePixelRatio || 1, 1, 2);
+    this.element.style.width = `${size}px`;
+    this.element.style.height = `${size}px`;
+    this.canvas.width = Math.round(size * dpr);
+    this.canvas.height = Math.round(size * dpr);
+    this.canvas.style.width = `${size}px`;
+    this.canvas.style.height = `${size}px`;
+    this.dpr = dpr;
+    this.size = size;
+    this.element.dataset.corner = settings.get('minimapCorner');
+    this.element.dataset.shape = settings.get('minimapShape');
+    this.element.style.display = settings.get('minimapVisible') ? '' : 'none';
+    this.timer = REDRAW_INTERVAL;
+  }
+
+  /** Re-fit when the window changes shape; the cap above depends on it. */
+  onResize() {
+    this.applySettings();
+  }
+
+  zoomBy(delta) {
+    const next = clamp(Math.round(settings.get('minimapZoom') + delta), 3, 19);
+    settings.set('minimapZoom', next);
+    this.timer = REDRAW_INTERVAL;
+  }
+
+  toggle() {
+    settings.set('minimapVisible', !settings.get('minimapVisible'));
+  }
+
+  update(player, dt) {
+    if (!settings.get('minimapVisible')) return;
+    this.timer += dt;
+    if (this.timer < REDRAW_INTERVAL) return;
+    this.timer = 0;
+
+    const zoom = settings.get('minimapZoom');
+    const rotate = settings.get('minimapRotates');
+    const rotation = rotate ? -player.heading : 0;
+
+    const ctx = this.ctx;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    drawMap(
+      ctx,
+      {
+        centerLat: player.lat,
+        centerLon: player.lon,
+        zoom,
+        width: this.size,
+        height: this.size,
+        rotation,
+      },
+      {
+        tiles: this.tiles,
+        street: this.street,
+        exploration: this.exploration,
+        waypointStore: this.waypointStore,
+        trail: this.trail,
         others: this.others,
-@@MISSING 168@@
-@@MISSING 169@@
-@@MISSING 170@@
-@@MISSING 171@@
-@@MISSING 172@@
-@@MISSING 173@@
-@@MISSING 174@@
-@@MISSING 175@@
+        player: { lat: player.lat, lon: player.lon, heading: player.heading },
+        options: {
+          fog: settings.get('minimapFog'),
+          trail: settings.get('showTrail'),
+        others: this.others,
+          labels: this.size >= 200,
+          playerSize: 7,
+          pathWidth: 1.3,
+          compass: true,
+          // Eight per cent of a 240 px minimap is a nineteen-pixel letter, which
+          // is bigger than the place names underneath it and reads as a label
+          // for the map rather than a mark on it. Five and a half, floored at
+          // ten so it stays legible on a phone.
 @@MISSING 176@@
 @@MISSING 177@@
 @@MISSING 178@@

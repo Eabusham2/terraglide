@@ -1192,7 +1192,7 @@ export async function composeEqImage(plan, fetchImage, makeCanvas) {
       if (images && !fill) return { images };
       for (const r of results) if (r.status === 'fulfilled') r.value?.close?.();
       if (failed) return { error: failed.reason };
-      const err = new Error('a picture of the map server’s fill colour, not of the ground');
+      const err = new Error('a picture of the map server\'s fill colour, not of the ground');
       err.noImageryHere = true;
       return { error: err };
     }));
@@ -1789,9 +1789,9 @@ export function refusal(status) {
 
 /** fetch, with a transport failure marked transient and a refusal classified. */
 async function request(url, signal, headers) {
-@@MISSING 1792@@
-@@MISSING 1793@@
-@@MISSING 1794@@
+  let res;
+  try {
+    res = await fetch(url, {
 @@MISSING 1795@@
 @@MISSING 1796@@
 @@MISSING 1797@@

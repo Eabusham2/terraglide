@@ -1178,160 +1178,160 @@
 @@MISSING 1178@@
 @@MISSING 1179@@
 @@MISSING 1180@@
-@@MISSING 1181@@
+  // on foot with the sword out in first person the view model is the arm
 @@MISSING 1182@@
 @@MISSING 1183@@
-@@MISSING 1184@@
+    /const handed = prone \|\| sworded;/.test(avatar)
 @@MISSING 1185@@
 @@MISSING 1186@@
-@@MISSING 1187@@
-@@MISSING 1188@@
+  ok('and with the sword out on foot, in first person',
+    /const sworded = this\.firstPerson && player\.selectedSlot === SWORD_SLOT && !player\.dead;/.test(avatar));
 @@MISSING 1189@@
 @@MISSING 1190@@
 @@MISSING 1191@@
 @@MISSING 1192@@
 @@MISSING 1193@@
-@@MISSING 1194@@
-@@MISSING 1195@@
-@@MISSING 1196@@
-@@MISSING 1197@@
-@@MISSING 1198@@
-@@MISSING 1199@@
-@@MISSING 1200@@
-@@MISSING 1201@@
-@@MISSING 1202@@
-@@MISSING 1203@@
-@@MISSING 1204@@
-@@MISSING 1205@@
-@@MISSING 1206@@
-@@MISSING 1207@@
-@@MISSING 1208@@
-@@MISSING 1209@@
-@@MISSING 1210@@
-@@MISSING 1211@@
-@@MISSING 1212@@
-@@MISSING 1213@@
-@@MISSING 1214@@
-@@MISSING 1215@@
-@@MISSING 1216@@
-@@MISSING 1217@@
-@@MISSING 1218@@
-@@MISSING 1219@@
-@@MISSING 1220@@
-@@MISSING 1221@@
-@@MISSING 1222@@
-@@MISSING 1223@@
-@@MISSING 1224@@
-@@MISSING 1225@@
-@@MISSING 1226@@
-@@MISSING 1227@@
-@@MISSING 1228@@
-@@MISSING 1229@@
-@@MISSING 1230@@
-@@MISSING 1231@@
-@@MISSING 1232@@
-@@MISSING 1233@@
-@@MISSING 1234@@
-@@MISSING 1235@@
-@@MISSING 1236@@
-@@MISSING 1237@@
-@@MISSING 1238@@
-@@MISSING 1239@@
-@@MISSING 1240@@
-@@MISSING 1241@@
-@@MISSING 1242@@
-@@MISSING 1243@@
-@@MISSING 1244@@
-@@MISSING 1245@@
-@@MISSING 1246@@
-@@MISSING 1247@@
-@@MISSING 1248@@
-@@MISSING 1249@@
-@@MISSING 1250@@
-@@MISSING 1251@@
-@@MISSING 1252@@
-@@MISSING 1253@@
-@@MISSING 1254@@
-@@MISSING 1255@@
-@@MISSING 1256@@
-@@MISSING 1257@@
-@@MISSING 1258@@
-@@MISSING 1259@@
-@@MISSING 1260@@
-@@MISSING 1261@@
-@@MISSING 1262@@
-@@MISSING 1263@@
-@@MISSING 1264@@
-@@MISSING 1265@@
-@@MISSING 1266@@
-@@MISSING 1267@@
-@@MISSING 1268@@
-@@MISSING 1269@@
-@@MISSING 1270@@
-@@MISSING 1271@@
-@@MISSING 1272@@
-@@MISSING 1273@@
-@@MISSING 1274@@
-@@MISSING 1275@@
-@@MISSING 1276@@
-@@MISSING 1277@@
-@@MISSING 1278@@
-@@MISSING 1279@@
-@@MISSING 1280@@
-@@MISSING 1281@@
-@@MISSING 1282@@
-@@MISSING 1283@@
-@@MISSING 1284@@
-@@MISSING 1285@@
-@@MISSING 1286@@
-@@MISSING 1287@@
-@@MISSING 1288@@
-@@MISSING 1289@@
-@@MISSING 1290@@
-@@MISSING 1291@@
-@@MISSING 1292@@
-@@MISSING 1293@@
-@@MISSING 1294@@
-@@MISSING 1295@@
-@@MISSING 1296@@
-@@MISSING 1297@@
-@@MISSING 1298@@
-@@MISSING 1299@@
-@@MISSING 1300@@
-@@MISSING 1301@@
-@@MISSING 1302@@
-@@MISSING 1303@@
-@@MISSING 1304@@
-@@MISSING 1305@@
-@@MISSING 1306@@
-@@MISSING 1307@@
-@@MISSING 1308@@
-@@MISSING 1309@@
-@@MISSING 1310@@
-@@MISSING 1311@@
-@@MISSING 1312@@
-@@MISSING 1313@@
-@@MISSING 1314@@
-@@MISSING 1315@@
-@@MISSING 1316@@
-@@MISSING 1317@@
-@@MISSING 1318@@
-@@MISSING 1319@@
-@@MISSING 1320@@
-@@MISSING 1321@@
-@@MISSING 1322@@
-@@MISSING 1323@@
-@@MISSING 1324@@
-@@MISSING 1325@@
-@@MISSING 1326@@
-@@MISSING 1327@@
-@@MISSING 1328@@
-@@MISSING 1329@@
-@@MISSING 1330@@
-@@MISSING 1331@@
-@@MISSING 1332@@
-@@MISSING 1333@@
-@@MISSING 1334@@
+console.log('\nthe sword swing: wound back, then brought down through');
+{
+  const THREE = await import('../vendor/three/three.module.js');
+  const { Avatar } = await import('../src/player/avatar.js');
+  const { SWORD_SLOT } = await import('../src/net/protocol.js');
+  const avatar = new Avatar(new THREE.Scene());
+  avatar.setVisible(true);
+  const player = {
+    position: new THREE.Vector3(), renderPosition: new THREE.Vector3(), velocity: new THREE.Vector3(),
+    height: 1.83, scale: 1, pitch: 0, yaw: 0, mode: 'walk', onGround: true,
+    swimming: false, groundSlope: 0, elytraDeployed: false, horizontalSpeed: 0,
+    selectedSlot: SWORD_SLOT, rocketsFired: 0, swings: 0,
+  };
+  // Standing, sword out, settled into the carry pose.
+  for (let i = 0; i < 60; i += 1) avatar.update(player, 1 / 60);
+  // Where the blade points and where the hand is, in the body's own frame,
+  // at a moment of the swing: the pose for the frame, then the swing on it,
+  // in a frame too short to move the swing on.
+  const at = (t) => {
+    avatar.swingTime = t;
+    avatar.update(player, 1e-6);
+    avatar.root.updateMatrixWorld(true);
+    const toBody = new THREE.Matrix4().copy(avatar.root.matrixWorld).invert();
+    const m = new THREE.Matrix4().multiplyMatrices(toBody, avatar.sword.matrixWorld);
+    const blade = new THREE.Vector3(0, 1, 0).transformDirection(m);
+    const hand = new THREE.Vector3().setFromMatrixPosition(m);
+    return { blade, hand };
+  };
+  const rest = at(1);
+  // Forward is wherever the blade points at rest, flattened: it is carried
+  // the way the firework is, nose out the front.
+  const forward = new THREE.Vector3(rest.blade.x, 0, rest.blade.z).normalize();
+  const wound = at(0.35);
+  const struck = at(0.65);
+  const along = (v) => v.dot(forward);
+  ok('held, the blade lies out in front, near level',
+    Math.abs(rest.blade.y) < 0.5, `y ${rest.blade.y.toFixed(2)}`);
+  ok('wound back, the arm comes up in front - not out behind you',
+    along(wound.hand) > along(rest.hand) + 0.02 && wound.hand.y > rest.hand.y,
+    `forward ${along(rest.hand).toFixed(3)} -> ${along(wound.hand).toFixed(3)}, up ${rest.hand.y.toFixed(3)} -> ${wound.hand.y.toFixed(3)}`);
+  ok('and the blade goes up and back over the shoulder',
+    wound.blade.y > 0.5 && along(wound.blade) < 0.3, `y ${wound.blade.y.toFixed(2)}, forward ${along(wound.blade).toFixed(2)}`);
+  ok('then comes down through, in front and below where it was held',
+    struck.blade.y < -0.3 && along(struck.blade) > 0.2, `y ${struck.blade.y.toFixed(2)}, forward ${along(struck.blade).toFixed(2)}`);
+  ok('and is back where it started when the swing is over',
+    at(1).blade.distanceTo(rest.blade) < 1e-6);
+
+  // In first person the blade turns about the screen's level, whatever way
+  // the hand is turned to sit in the corner: across the screen it does not
+  // move, it only goes back toward you and down away.
+  avatar.handR.rotation.set(0.4, -0.6, 0.9);
+  const inView = (t) => {
+    avatar.swingTime = t;
+    avatar.holdSword(player, 0);
+    const q = avatar.handR.quaternion.clone().multiply(avatar.handSword.quaternion);
+    return new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+  };
+  const still = inView(1);
+  const back = inView(0.35);
+  const down = inView(0.65);
+  ok('in first person the blade swings about the screen\'s level, not the hand\'s own axis',
+    Math.abs(back.x - still.x) < 1e-6 && Math.abs(down.x - still.x) < 1e-6 && back.z > still.z && down.z < still.z,
+    `x ${still.x.toFixed(3)}/${back.x.toFixed(3)}/${down.x.toFixed(3)}, z ${still.z.toFixed(2)}/${back.z.toFixed(2)}/${down.z.toFixed(2)}`);
+
+  const src = readFileSync(new URL('../src/player/avatar.js', import.meta.url), 'utf8');
+  const gameSrc = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  // The generated sword, for the generated body: loaded, measured for its
+  // grip, and fitted to the scanned fist the way the firework is.
+  ok('the generated sword is loaded alongside the generated firework',
+    /async loadSwordModel\(base = ASSET_BASE\)/.test(src) && /`\$\{base\}sword\.glb`/.test(src)
+    && /this\.avatar\.loadSwordModel\(\);/.test(gameSrc)
+    && /this\.avatar\.loadSwordModel\(\)\.then\(\(\) => this\.avatar\.applySwordModel\(\)\)/.test(gameSrc));
+  ok('its grip is found on the mesh, not guessed',
+    /const grip = measureSwordGrip\(mesh\);/.test(src) && /function measureSwordGrip\(root\)/.test(src));
+  ok('and in a scanned fist it is sized as the firework is, in the world and in first person',
+    /if \(this\.swordModelShown\) this\.sword\.scale\.copy\(this\.rocket\.scale\);/.test(src)
+    /if \(this\.swordModelShown\) this\.sword\.scale\.copy\(this\.rocket\.scale\);/.test(src)
+    && /if \(this\.swordModelShown\) this\.handSword\.scale\.copy\(this\.handRocket\.scale\);/.test(src));
+  ok('the scanned arm swings with it, not only the built one',
+    /bone\.quaternion\.multiply\(_swingArm\.setFromAxisAngle\(_swingAxis, lift \* SWING_ARM\)\)/.test(src));
+  const manifest = JSON.parse(readFileSync(new URL('../assets/manifest.json', import.meta.url), 'utf8'));
+  ok('and the manifest says where the sword came from and what was done to it',
+    manifest.model?.sword === 'sword.glb' && /glb-unplate/.test(manifest.model?.swordNote ?? '')
+    && existsSync(new URL('../assets/sword.glb', import.meta.url)) && existsSync(new URL('./glb-unplate.py', import.meta.url)));
+}
+
+console.log('\nthe shared map, kept as runs');
+{
+  const { CellRuns } = await import('../server/cells.mjs');
+  const { decodeCells, encodeCells } = await import('../src/ui/exploration.js');
+  const cells = new CellRuns();
+  const keys = ['16/10/5', '16/12/5', '16/11/5', '16/14/5', '14/3/2', '16/10/6'];
+  const added = keys.map((k) => cells.add(k));
+  ok('a cell is added once, and its neighbours join it into one run',
+    added.every(Boolean) && !cells.add('16/11/5') && cells.size === 6 && cells.levels.get(16).get(5).join() === '10,3,14,1');
+  ok('it knows what it has and what it has not', cells.has('16/12/5') && !cells.has('16/13/5') && !cells.has('15/12/5'));
+  ok('rubbish is not a cell', !cells.add('16/x/5') && !cells.add('16/-1/5') && !cells.add('16/70000/5') && !cells.add(42));
+  const decoded = cells.parts(2).flatMap((part) => decodeCells(part)).sort();
+  ok('cut into parts it decodes to exactly the cells, in the format the page reads',
+    decoded.join() === [...keys].sort().join() && cells.parts(2).length === 2 && cells.parts(1).length === 4);
+  ok('the same encoding the page itself makes', JSON.stringify(cells.parts()[0]) === JSON.stringify(encodeCells(keys)));
+  ok('and it counts per level, for the detail count', cells.countAt(16) === 5 && cells.countAt(14) === 1);
+}
+
+console.log('\nparties and friends, on the page');
+{
+  const gameSrc = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  const sessionSrc = readFileSync(new URL('../src/net/session.js', import.meta.url), 'utf8');
+  const panelSrc = readFileSync(new URL('../src/ui/playersPanel.js', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../styles/main.css', import.meta.url), 'utf8');
+  ok('party waypoints stand in the world as beams, not only on the maps',
+    /this\.partyBeacons = ONLINE \? new Beacons\(/.test(gameSrc) && /this\.partySites\.waypoints = \(this\.session\?\.partyWaypoints\(\)/.test(gameSrc));
+  ok('a party waypoint is named when it is made, from the panel and from the map',
+    /this\.session\.partyMark\(askMarkName\(\), here\.lat, here\.lon\)/.test(panelSrc) && /this\.session\.partyMark\(askMarkName\(\), lat, lon\)/.test(gameSrc));
+  ok('a party that ends leaves its waypoints with its members', /net\.on\('partyKept'/.test(sessionSrc));
+  ok('the panel\'s friend and party buttons have a budget of their own, not chat\'s',
+    /t: 'social', cmd: 'party'/.test(sessionSrc) && /t: 'social', cmd: 'friend'/.test(sessionSrc));
+  ok('the account\'s auto-accept choices win over a fresh browser\'s, except one changed here and not yet confirmed',
+    /for \(const key of Object\.keys\(lot\)\) if \(accountValue\(key, m\.prefs\) === lot\[key\]\) delete lot\[key\];/.test(sessionSrc)
+    && /if \(key in unsent\) continue;/.test(sessionSrc)
+    // Another account's leftovers are dropped at sign-in; those made signed in
+    // as nobody go to whoever signs in, never into another account's lot.
+    && /const prefs = \{ \.\.\.\(was\.account === this\.accountKey \? was\.prefs : \{\}\), \.\.\.was\.next \};/.test(sessionSrc)
+    && /if \(account\) \{\s*if \(was\.account !== account\) \{/.test(sessionSrc) && /\} else \{\s*was\.next\[key\] = prefValue\(key\);/.test(sessionSrc));
+  ok('only the friend choices changed here are sent, and a reset or import counts only for the ones it changed',
+    /this\.net\.send\(\{ t: 'socialPrefs', \.\.\.fields \}\)/.test(sessionSrc)
+    && /for \(const key of SOCIAL_PREFS\) if \(now\[key\] !== choices\[key\]\) markPrefUnsent\(key\);/.test(gameSrc)
+    && /const before = shown;\s*shown = shownPrefs\(\);/.test(sessionSrc) && /if \(shown\[key\] === before\[key\]\) continue;/.test(sessionSrc)
+    && !/if \(!account \|\| accountValue/.test(sessionSrc));
+  ok('party voice can be switched on from the party itself', /data-action="voice-on"/.test(panelSrc));
+  const settingsSrc = readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8');
+  const settingsPanelSrc = readFileSync(new URL('../src/ui/settingsPanel.js', import.meta.url), 'utf8');
+  ok('friend requests can be accepted automatically, kept by the server with the rest',
+    /friendsAutoAccept: false/.test(settingsSrc) && /key: 'friendsAutoAccept'/.test(settingsPanelSrc)
+    && /friendsAutoAccept: 'autoFriends'/.test(sessionSrc) && /export const SOCIAL_PREFS = Object\.keys\(PREF_OF\)/.test(sessionSrc));
+  const remoteSrc = readFileSync(new URL('../src/net/remotePlayers.js', import.meta.url), 'utf8');
+  ok('with the scanned body on, the nearest players are drawn with it, sword and all, chosen again as people move',
+    /\.filter\(\(p\) => !p\.scanAsked && p\.avatar && p\.visible && p\.distance < SCAN_NEAR_M\)\s*\.sort\(\(a, b\) => a\.distance - b\.distance\)/.test(remoteSrc)
+    && /p\.distance > furthest\.distance \* SCAN_SWAP_SHARE - SCAN_SWAP_M\) break;/.test(remoteSrc)
+    && /p\.trail\?\.dispose\(\);\s*p\.trail = null;/.test(remoteSrc)
+    && /p\.avatar\.lastSwings = p\.pose\.swings \?\? 0;/.test(remoteSrc)
 @@MISSING 1335@@
 @@MISSING 1336@@
 @@MISSING 1337@@
@@ -1384,7 +1384,7 @@
 @@MISSING 1384@@
 @@MISSING 1385@@
 @@MISSING 1386@@
-@@MISSING 1387@@
+  ok('a /password line is not kept in the chat history', /if \(!\/\^\\\/password\\b\/i\.test\(text\)\)/.test(chatSrc));
     /nearAir\(player\) \{[\s\S]{0,400}if \(!player\.onGround\) return false;/.test(gameSrc));
 @@MISSING 1389@@
 @@MISSING 1390@@
@@ -3530,15 +3530,15 @@
 @@MISSING 3530@@
 @@MISSING 3531@@
 @@MISSING 3532@@
-@@MISSING 3533@@
+  // Six slots now, the sword with the rockets: sized for five, the sixth ran
 @@MISSING 3534@@
 @@MISSING 3535@@
 @@MISSING 3536@@
 @@MISSING 3537@@
 @@MISSING 3538@@
 @@MISSING 3539@@
-@@MISSING 3540@@
-@@MISSING 3541@@
+  ok('and the crosshair is back whenever the sword is out',
+    /body\.touch-active:not\(\.sword-out\) \.hud-crosshair/.test(css));
 @@MISSING 3542@@
 @@MISSING 3543@@
 @@MISSING 3544@@
@@ -7865,110 +7865,110 @@
 @@MISSING 7865@@
 @@MISSING 7866@@
 @@MISSING 7867@@
-@@MISSING 7868@@
-@@MISSING 7869@@
-@@MISSING 7870@@
-@@MISSING 7871@@
-@@MISSING 7872@@
-@@MISSING 7873@@
-@@MISSING 7874@@
-@@MISSING 7875@@
-@@MISSING 7876@@
-@@MISSING 7877@@
-@@MISSING 7878@@
-@@MISSING 7879@@
-@@MISSING 7880@@
-@@MISSING 7881@@
-@@MISSING 7882@@
-@@MISSING 7883@@
-@@MISSING 7884@@
-@@MISSING 7885@@
-@@MISSING 7886@@
-@@MISSING 7887@@
-@@MISSING 7888@@
-@@MISSING 7889@@
-@@MISSING 7890@@
-@@MISSING 7891@@
-@@MISSING 7892@@
-@@MISSING 7893@@
-@@MISSING 7894@@
-@@MISSING 7895@@
-@@MISSING 7896@@
-@@MISSING 7897@@
-@@MISSING 7898@@
-@@MISSING 7899@@
-@@MISSING 7900@@
-@@MISSING 7901@@
-@@MISSING 7902@@
-@@MISSING 7903@@
-@@MISSING 7904@@
-@@MISSING 7905@@
-@@MISSING 7906@@
-@@MISSING 7907@@
-@@MISSING 7908@@
-@@MISSING 7909@@
-@@MISSING 7910@@
-@@MISSING 7911@@
-@@MISSING 7912@@
-@@MISSING 7913@@
-@@MISSING 7914@@
-@@MISSING 7915@@
-@@MISSING 7916@@
-@@MISSING 7917@@
-@@MISSING 7918@@
-@@MISSING 7919@@
-@@MISSING 7920@@
-@@MISSING 7921@@
-@@MISSING 7922@@
-@@MISSING 7923@@
-@@MISSING 7924@@
-@@MISSING 7925@@
-@@MISSING 7926@@
-@@MISSING 7927@@
-@@MISSING 7928@@
-@@MISSING 7929@@
-@@MISSING 7930@@
-@@MISSING 7931@@
-@@MISSING 7932@@
-@@MISSING 7933@@
-@@MISSING 7934@@
-@@MISSING 7935@@
-@@MISSING 7936@@
-@@MISSING 7937@@
-@@MISSING 7938@@
-@@MISSING 7939@@
-@@MISSING 7940@@
-@@MISSING 7941@@
-@@MISSING 7942@@
-@@MISSING 7943@@
-@@MISSING 7944@@
-@@MISSING 7945@@
-@@MISSING 7946@@
-@@MISSING 7947@@
-@@MISSING 7948@@
-@@MISSING 7949@@
-@@MISSING 7950@@
-@@MISSING 7951@@
-@@MISSING 7952@@
-@@MISSING 7953@@
-@@MISSING 7954@@
-@@MISSING 7955@@
-@@MISSING 7956@@
-@@MISSING 7957@@
-@@MISSING 7958@@
-@@MISSING 7959@@
-@@MISSING 7960@@
-@@MISSING 7961@@
-@@MISSING 7962@@
-@@MISSING 7963@@
-@@MISSING 7964@@
-@@MISSING 7965@@
-@@MISSING 7966@@
-@@MISSING 7967@@
-@@MISSING 7968@@
-@@MISSING 7969@@
-@@MISSING 7970@@
-@@MISSING 7971@@
+  ok('and it goes before the unurgent backlog',
+    urgentAt >= before - 1, `dispatched at ${urgentAt} of ${dispatched.length}`);
+
+  // And the backlog cannot grow without bound.
+  const deep = new MapTileCache();
+  deep.source = cache.source;
+  // A real fetch holds a slot until it answers, which is what lets a backlog
+  // build up at all; a stub that returns instantly never queues anything.
+  deep.load = () => { deep.active++; };
+  for (let i = 0; i < 4000; i++) deep.get(16, i, 1, false);
+  ok('an unurgent flood is dropped rather than queued', deep.queue.length < 200,
+    `${deep.queue.length} queued of 4000 asked`);
+  ok('and nothing is remembered that was never queued', deep.tiles.size < 200,
+    `${deep.tiles.size} tiles tracked`);
+  // Urgent work still gets in when the backlog is full.
+  deep.get(14, 9, 9, true);
+  ok('urgent work is never dropped', [...deep.tiles.keys()].some((k) => k.startsWith('14')));
+}
+
+console.log('\nA tile that is culled is still a tile that needs rebuilding');
+{
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  // A node built before its relief arrived is flat at sea level and its cull
+  // box says so. Over ground four hundred metres up that box is nowhere near
+  // the mesh, so the frustum rejects it — and the rebuild pass only walked
+  // the *drawn* list, so a rejected node could never be refreshed. The tile
+  // stayed a hole for as long as you stood there.
+  ok('stale bounds are not trusted for culling',
+    /builtVersion === \(this\.elevation\.version \?\? 0\)/.test(terrain) &&
+    /measured \? cached\.minY : -200/.test(terrain));
+  ok('and the rebuild pass walks every node, not only the drawn ones',
+    /invalidateStale\([\s\S]{0,2000}for \(const node of this\.nodes\.values\(\)\)[\s\S]{0,4000}node\.dirty = true/.test(terrain));
+  // "Something better to build from" was read as "a deeper elevation zoom is
+  // available", which misses the case that actually shows. The height field is
+  // not a pure function of position — sampleFrom fades a fine value into the
+  // coarse one along any edge whose finer neighbour has not arrived — so two
+  // squares can report the same deepest zoom, both be clean, and stand at
+  // different heights. Measured over the Black Forest: two zoom-16 squares
+  // sharing an edge, both built from elevation zoom 7, both wanting 7, neither
+  // dirty, both settled, 135 metres apart for forty-five seconds.
+  ok('and it asks the ground whether it moved, not just the bookkeeping',
+    /if \(!this\.groundMoved\(node, size, this\.seeableMove\(node, size, camX, camZ\)\)\) continue;/
+      .test(terrain)
+    && /groundMoved\(node, size, enough = MOVED_MIN_M\) \{/.test(terrain)
+    && /node\.builtHeights = built;/.test(terrain));
+  /*
+    And "moved" is measured on screen, not in metres.
+
+    Half a metre is fifty pixels under your feet and a twentieth of one on the
+    horizon, so a fixed figure redrew ground five kilometres away that nobody
+    could have told had changed — and every redraw is a walk, and a walk you
+    can see is the ground moving. The same test now decides it in both places
+    that mark a square dirty; marking in one on "a deeper zoom exists" while
+    the other refuses on "it has not visibly moved" leaves the careful test
+    deciding nothing.
+  */
+  ok('and how far it has to move is how far you could see it move',
+    /const MOVED_MIN_RAD = 0\.002;/.test(terrain)
+    && /Math\.hypot\(cx - camX, cz - camZ\) \* MOVED_MIN_RAD/.test(terrain));
+  ok('and the draw path asks the same question, not a different one',
+    /bestZoom > builtFrom && node\.mesh\n\s*&& this\.groundMoved\(node, size,/.test(terrain));
+  /*
+    While a deeper elevation tile is still coming, the rungs in between are not
+    steps toward the answer — they are different answers. Traced at one fixed
+    point over two minutes, the square under it was rebuilt at elevation zooms
+    6, 8, 10, 12 and 14 and drew 107.3, 93.8, 96.9, 92.1 and 92.6 metres: down,
+    up, down, up, two hundred and thirty-six metres of travel for a net
+    fifteen.
+  */
+  /*
+    And distance is all of it, because distance cannot desynchronise
+    neighbours: two squares beside each other are the same distance away.
+
+    Every rule that delays one square and not another was tried and measured.
+    Holding a square until it gets the zoom it asked for cuts one point's
+    rebuilds from eight to three and its direction changes from four to two,
+    and puts neighbours three elevation zooms apart with 218 metres of daylight
+    under the curtain where there had been three. Sharing the timing across the
+    view instead measured worse again. A snapshot of the height field taken at
+    a different moment from your neighbour's does not meet it, however
+    continuous the field is.
+  */
+  ok('and nothing per-square delays it, so neighbours cannot diverge',
+    !/LEVELS_BEHIND_TO_REDRAW/.test(terrain) && !/ELEV_PATIENCE_MS/.test(terrain)
+    && !/PROVISIONAL_MIN_M/.test(terrain) && !/elevEpoch/.test(terrain));
+  /*
+    And a walk only makes sense from a height that was on screen. A merged
+    parent holds whatever heights it was last built with, and for a square
+    built before any elevation arrived that is nought: the ground fell 107
+    metres to sea level and climbed back, with nothing about the terrain having
+    changed — only which square was drawing it.
+  */
+  ok('a square that was not on screen has nothing to walk from',
+    /const seen = node\.shownFrame >= \(this\.streamer\.frame \?\? 0\) - 2;/.test(terrain)
+    && /if \(!seen && prevY\) \{/.test(terrain));
+  /*
+    And it asks along the edges, which is where two squares disagree.
+
+    The corners and the middle were the whole set. A corner is shared with three
+    other squares and is the least likely point to be the one that moved, and
+    the fade that causes this runs along an edge. Measured over the Tibetan
+    plateau at 31.11N 82.56E: two zoom-14 squares standing 103.5 metres apart
+    with neither marked dirty, because two kilometres of edge had moved between
+    The corners and the middle were the whole set. A corner is shared with three
 @@MISSING 7972@@
 @@MISSING 7973@@
 @@MISSING 7974@@
@@ -8047,406 +8047,406 @@
 @@MISSING 8047@@
 @@MISSING 8048@@
 @@MISSING 8049@@
-@@MISSING 8050@@
-@@MISSING 8051@@
-@@MISSING 8052@@
-@@MISSING 8053@@
-@@MISSING 8054@@
-@@MISSING 8055@@
-@@MISSING 8056@@
-@@MISSING 8057@@
-@@MISSING 8058@@
-@@MISSING 8059@@
-@@MISSING 8060@@
-@@MISSING 8061@@
-@@MISSING 8062@@
-@@MISSING 8063@@
-@@MISSING 8064@@
-@@MISSING 8065@@
-@@MISSING 8066@@
-@@MISSING 8067@@
-@@MISSING 8068@@
-@@MISSING 8069@@
-@@MISSING 8070@@
-@@MISSING 8071@@
-@@MISSING 8072@@
-@@MISSING 8073@@
-@@MISSING 8074@@
-@@MISSING 8075@@
-@@MISSING 8076@@
-@@MISSING 8077@@
-@@MISSING 8078@@
-@@MISSING 8079@@
-@@MISSING 8080@@
-@@MISSING 8081@@
-@@MISSING 8082@@
-@@MISSING 8083@@
-@@MISSING 8084@@
-@@MISSING 8085@@
-@@MISSING 8086@@
-@@MISSING 8087@@
-@@MISSING 8088@@
-@@MISSING 8089@@
-@@MISSING 8090@@
-@@MISSING 8091@@
-@@MISSING 8092@@
-@@MISSING 8093@@
-@@MISSING 8094@@
-@@MISSING 8095@@
-@@MISSING 8096@@
-@@MISSING 8097@@
-@@MISSING 8098@@
-@@MISSING 8099@@
-@@MISSING 8100@@
-@@MISSING 8101@@
-@@MISSING 8102@@
-@@MISSING 8103@@
-@@MISSING 8104@@
-@@MISSING 8105@@
-@@MISSING 8106@@
-@@MISSING 8107@@
-@@MISSING 8108@@
-@@MISSING 8109@@
-@@MISSING 8110@@
-@@MISSING 8111@@
-@@MISSING 8112@@
-@@MISSING 8113@@
-@@MISSING 8114@@
-@@MISSING 8115@@
-@@MISSING 8116@@
-@@MISSING 8117@@
-@@MISSING 8118@@
-@@MISSING 8119@@
-@@MISSING 8120@@
-@@MISSING 8121@@
-@@MISSING 8122@@
-@@MISSING 8123@@
-@@MISSING 8124@@
-@@MISSING 8125@@
-@@MISSING 8126@@
-@@MISSING 8127@@
-@@MISSING 8128@@
-@@MISSING 8129@@
-@@MISSING 8130@@
-@@MISSING 8131@@
-@@MISSING 8132@@
-@@MISSING 8133@@
-@@MISSING 8134@@
-@@MISSING 8135@@
-@@MISSING 8136@@
-@@MISSING 8137@@
-@@MISSING 8138@@
-@@MISSING 8139@@
-@@MISSING 8140@@
-@@MISSING 8141@@
-@@MISSING 8142@@
-@@MISSING 8143@@
-@@MISSING 8144@@
-@@MISSING 8145@@
-@@MISSING 8146@@
-@@MISSING 8147@@
-@@MISSING 8148@@
-@@MISSING 8149@@
-@@MISSING 8150@@
-@@MISSING 8151@@
-@@MISSING 8152@@
-@@MISSING 8153@@
-@@MISSING 8154@@
-@@MISSING 8155@@
-@@MISSING 8156@@
-@@MISSING 8157@@
-@@MISSING 8158@@
-@@MISSING 8159@@
-@@MISSING 8160@@
-@@MISSING 8161@@
-@@MISSING 8162@@
-@@MISSING 8163@@
-@@MISSING 8164@@
-@@MISSING 8165@@
-@@MISSING 8166@@
-@@MISSING 8167@@
-@@MISSING 8168@@
-@@MISSING 8169@@
-@@MISSING 8170@@
-@@MISSING 8171@@
-@@MISSING 8172@@
-@@MISSING 8173@@
-@@MISSING 8174@@
-@@MISSING 8175@@
-@@MISSING 8176@@
-@@MISSING 8177@@
-@@MISSING 8178@@
-@@MISSING 8179@@
-@@MISSING 8180@@
-@@MISSING 8181@@
-@@MISSING 8182@@
-@@MISSING 8183@@
-@@MISSING 8184@@
-@@MISSING 8185@@
-@@MISSING 8186@@
-@@MISSING 8187@@
-@@MISSING 8188@@
-@@MISSING 8189@@
-@@MISSING 8190@@
-@@MISSING 8191@@
-@@MISSING 8192@@
-@@MISSING 8193@@
-@@MISSING 8194@@
-@@MISSING 8195@@
-@@MISSING 8196@@
-@@MISSING 8197@@
-@@MISSING 8198@@
-@@MISSING 8199@@
-@@MISSING 8200@@
-@@MISSING 8201@@
-@@MISSING 8202@@
-@@MISSING 8203@@
-@@MISSING 8204@@
-@@MISSING 8205@@
-@@MISSING 8206@@
-@@MISSING 8207@@
-@@MISSING 8208@@
-@@MISSING 8209@@
-@@MISSING 8210@@
-@@MISSING 8211@@
-@@MISSING 8212@@
-@@MISSING 8213@@
-@@MISSING 8214@@
-@@MISSING 8215@@
-@@MISSING 8216@@
-@@MISSING 8217@@
-@@MISSING 8218@@
-@@MISSING 8219@@
-@@MISSING 8220@@
-@@MISSING 8221@@
-@@MISSING 8222@@
-@@MISSING 8223@@
-@@MISSING 8224@@
-@@MISSING 8225@@
-@@MISSING 8226@@
-@@MISSING 8227@@
-@@MISSING 8228@@
-@@MISSING 8229@@
-@@MISSING 8230@@
-@@MISSING 8231@@
-@@MISSING 8232@@
-@@MISSING 8233@@
-@@MISSING 8234@@
-@@MISSING 8235@@
-@@MISSING 8236@@
-@@MISSING 8237@@
-@@MISSING 8238@@
-@@MISSING 8239@@
-@@MISSING 8240@@
-@@MISSING 8241@@
-@@MISSING 8242@@
-@@MISSING 8243@@
-@@MISSING 8244@@
-@@MISSING 8245@@
-@@MISSING 8246@@
-@@MISSING 8247@@
-@@MISSING 8248@@
-@@MISSING 8249@@
-@@MISSING 8250@@
-@@MISSING 8251@@
-@@MISSING 8252@@
-@@MISSING 8253@@
-@@MISSING 8254@@
-@@MISSING 8255@@
-@@MISSING 8256@@
-@@MISSING 8257@@
-@@MISSING 8258@@
-@@MISSING 8259@@
-@@MISSING 8260@@
-@@MISSING 8261@@
-@@MISSING 8262@@
-@@MISSING 8263@@
-@@MISSING 8264@@
-@@MISSING 8265@@
-@@MISSING 8266@@
-@@MISSING 8267@@
-@@MISSING 8268@@
-@@MISSING 8269@@
-@@MISSING 8270@@
-@@MISSING 8271@@
-@@MISSING 8272@@
-@@MISSING 8273@@
-@@MISSING 8274@@
-@@MISSING 8275@@
-@@MISSING 8276@@
-@@MISSING 8277@@
-@@MISSING 8278@@
-@@MISSING 8279@@
-@@MISSING 8280@@
-@@MISSING 8281@@
-@@MISSING 8282@@
-@@MISSING 8283@@
-@@MISSING 8284@@
-@@MISSING 8285@@
-@@MISSING 8286@@
-@@MISSING 8287@@
-@@MISSING 8288@@
-@@MISSING 8289@@
-@@MISSING 8290@@
-@@MISSING 8291@@
-@@MISSING 8292@@
-@@MISSING 8293@@
-@@MISSING 8294@@
-@@MISSING 8295@@
-@@MISSING 8296@@
-@@MISSING 8297@@
-@@MISSING 8298@@
-@@MISSING 8299@@
-@@MISSING 8300@@
-@@MISSING 8301@@
-@@MISSING 8302@@
-@@MISSING 8303@@
-@@MISSING 8304@@
-@@MISSING 8305@@
-@@MISSING 8306@@
-@@MISSING 8307@@
-@@MISSING 8308@@
-@@MISSING 8309@@
-@@MISSING 8310@@
-@@MISSING 8311@@
-@@MISSING 8312@@
-@@MISSING 8313@@
-@@MISSING 8314@@
-@@MISSING 8315@@
-@@MISSING 8316@@
-@@MISSING 8317@@
-@@MISSING 8318@@
-@@MISSING 8319@@
-@@MISSING 8320@@
-@@MISSING 8321@@
-@@MISSING 8322@@
-@@MISSING 8323@@
-@@MISSING 8324@@
-@@MISSING 8325@@
-@@MISSING 8326@@
-@@MISSING 8327@@
-@@MISSING 8328@@
-@@MISSING 8329@@
-@@MISSING 8330@@
-@@MISSING 8331@@
-@@MISSING 8332@@
-@@MISSING 8333@@
-@@MISSING 8334@@
-@@MISSING 8335@@
-@@MISSING 8336@@
-@@MISSING 8337@@
-@@MISSING 8338@@
-@@MISSING 8339@@
-@@MISSING 8340@@
-@@MISSING 8341@@
-@@MISSING 8342@@
-@@MISSING 8343@@
-@@MISSING 8344@@
-@@MISSING 8345@@
-@@MISSING 8346@@
-@@MISSING 8347@@
-@@MISSING 8348@@
-@@MISSING 8349@@
-@@MISSING 8350@@
-@@MISSING 8351@@
-@@MISSING 8352@@
-@@MISSING 8353@@
-@@MISSING 8354@@
-@@MISSING 8355@@
-@@MISSING 8356@@
-@@MISSING 8357@@
-@@MISSING 8358@@
-@@MISSING 8359@@
-@@MISSING 8360@@
-@@MISSING 8361@@
-@@MISSING 8362@@
-@@MISSING 8363@@
-@@MISSING 8364@@
-@@MISSING 8365@@
-@@MISSING 8366@@
-@@MISSING 8367@@
-@@MISSING 8368@@
-@@MISSING 8369@@
-@@MISSING 8370@@
-@@MISSING 8371@@
-@@MISSING 8372@@
-@@MISSING 8373@@
-@@MISSING 8374@@
-@@MISSING 8375@@
-@@MISSING 8376@@
-@@MISSING 8377@@
-@@MISSING 8378@@
-@@MISSING 8379@@
-@@MISSING 8380@@
-@@MISSING 8381@@
-@@MISSING 8382@@
-@@MISSING 8383@@
-@@MISSING 8384@@
-@@MISSING 8385@@
-@@MISSING 8386@@
-@@MISSING 8387@@
-@@MISSING 8388@@
-@@MISSING 8389@@
-@@MISSING 8390@@
-@@MISSING 8391@@
-@@MISSING 8392@@
-@@MISSING 8393@@
-@@MISSING 8394@@
-@@MISSING 8395@@
-@@MISSING 8396@@
-@@MISSING 8397@@
-@@MISSING 8398@@
-@@MISSING 8399@@
-@@MISSING 8400@@
-@@MISSING 8401@@
-@@MISSING 8402@@
-@@MISSING 8403@@
-@@MISSING 8404@@
-@@MISSING 8405@@
-@@MISSING 8406@@
-@@MISSING 8407@@
-@@MISSING 8408@@
-@@MISSING 8409@@
-@@MISSING 8410@@
-@@MISSING 8411@@
-@@MISSING 8412@@
-@@MISSING 8413@@
-@@MISSING 8414@@
-@@MISSING 8415@@
-@@MISSING 8416@@
-@@MISSING 8417@@
-@@MISSING 8418@@
-@@MISSING 8419@@
-@@MISSING 8420@@
-@@MISSING 8421@@
-@@MISSING 8422@@
-@@MISSING 8423@@
-@@MISSING 8424@@
-@@MISSING 8425@@
-@@MISSING 8426@@
-@@MISSING 8427@@
-@@MISSING 8428@@
-@@MISSING 8429@@
-@@MISSING 8430@@
-@@MISSING 8431@@
-@@MISSING 8432@@
+  // A roof takes its colour from the aerial image of that roof, sampled once
+  // when the tile is built. Overpass answers long before the imagery does, so
+  // almost every building kept the flat grey fallback for ever.
+  ok('empty colour samples are counted', /this\.unpainted = \(this\.unpainted \?\? 0\) \+ 1/.test(src));
+  ok('and remembered on the tile', /record\.unpainted = this\.unpainted/.test(src));
+  ok('a tile with grey in it is repainted once a sample succeeds',
+    /const repaint = \(record\.unpainted \?\? 0\) > 0 &&[\s\S]{0,80}!== null/.test(src));
+  ok('and ground with genuinely no imagery is not retried for ever',
+    /if \(!moved && !repaint\) continue/.test(src));
+}
+
+console.log('\nA map falls through rather than inventing');
+{
+  const source = readFileSync(new URL('../src/ui/mapTiles.js', import.meta.url), 'utf8');
+  // A provider with no URL has failed its handshake. There is nothing to
+  // invent in its place any more; the tile is simply not drawn.
+  ok('nothing invents a tile',
+    !/invent\(/.test(source) && !/procedural/i.test(source));
+  ok('and a real one that is not ready falls through to the next',
+    /not ready`\);\s*continue;/.test(source));
+  ok('the chain is first choice, then standbys',
+    /\[this\.source, \.\.\.this\.fallbacks\]/.test(source));
+  ok('and it never asks a provider for a zoom it does not serve',
+    /tile\.z > \(source\.descriptor\?\.maxZoom \?\? Infinity\)\) continue/.test(source));
+}
+
+console.log('\nVector tiles, read by hand');
+{
+  const { decodeVectorTile, POLYGON } = await import('../src/tiles/vectorTile.js');
+  // A tile encoder, just big enough to make one to read back. Protocol
+  // buffers: a varint is base-128 low group first, a field header is the
+  // field number shifted up three with the wire type underneath.
+  const varint = (n) => {
+    const out = [];
+    while (n > 127) {
+      out.push((n & 127) | 128);
+      n = Math.floor(n / 128);
+    }
+    out.push(n);
+    return out;
+  };
+  const tag = (field, wire) => varint((field << 3) | wire);
+  const len = (bytes) => [...varint(bytes.length), ...bytes];
+  const str = (v) => [...new TextEncoder().encode(v)];
+  const zig = (n) => (n < 0 ? -n * 2 - 1 : n * 2);
+
+  // A ten-by-ten square, as the command stream encodes one: move, three
+  // lines, close, every coordinate a delta from the last.
+  const square = [
+    (1 << 3) | 1, ...varint(zig(0)), ...varint(zig(0)),
+    (3 << 3) | 2,
+    ...varint(zig(10)), ...varint(zig(0)),
+    ...varint(zig(0)), ...varint(zig(10)),
+    ...varint(zig(-10)), ...varint(zig(0)),
+    (1 << 3) | 7,
+  ];
+  const feature = [
+    ...tag(3, 0), ...varint(POLYGON),
+    ...tag(2, 2), ...len([...varint(0), ...varint(0)]),
+    ...tag(4, 2), ...len(square),
+  ];
+  const layer = (name) => [
+    ...tag(15, 0), ...varint(2),
+    ...tag(1, 2), ...len(str(name)),
+    ...tag(3, 2), ...len(str('class')),
+    ...tag(4, 2), ...len([...tag(1, 2), ...len(str('lake'))]),
+    ...tag(5, 0), ...varint(4096),
+    ...tag(2, 2), ...len(feature),
+  ];
+  const tile = new Uint8Array([
+    ...tag(3, 2), ...len(layer('water')),
+    ...tag(3, 2), ...len(layer('poi')),
+  ]);
+
+  const layers = decodeVectorTile(tile);
+  ok('both layers come back', layers.size === 2, [...layers.keys()].join(','));
+  const water = layers.get('water');
+  ok('the extent is read, not assumed', water.extent === 4096);
+  ok('one feature, a polygon', water.features.length === 1 && water.features[0].type === POLYGON);
+  ok('its tag resolves through both side tables',
+    water.features[0].properties.class === 'lake', JSON.stringify(water.features[0].properties));
+  const ring = water.features[0].rings[0];
+  ok('deltas accumulate into real coordinates',
+    ring.join(',') === '0,0,10,0,10,10,0,10', ring.join(','));
+
+  const filtered = decodeVectorTile(tile, new Set(['water']));
+  ok('a layer nobody draws is never decoded',
+    filtered.size === 1 && filtered.has('water'), [...filtered.keys()].join(','));
+
+  // Negative deltas are the case zigzag exists for, and getting the sign
+  // wrong draws a ring inside out rather than failing.
+  ok('a negative delta comes back negative', ring[6] === 0 && ring[4] === 10);
+
+  // A tile is bytes off the network from a host we do not control, so the
+  // reader has to survive nonsense rather than trust it. The dangerous one is
+  // a geometry command claiming more points than the tile could possibly
+  // hold: reading past the end returns zero instead of stopping, so an
+  // unbounded loop would sit there for minutes on the thread that draws.
+  {
+    const huge = new Uint8Array([
+      ...tag(3, 2),
+      ...len([
+        ...tag(1, 2), ...len(str('water')),
+        ...tag(5, 0), ...varint(4096),
+        ...tag(2, 2), ...len([
+          ...tag(3, 0), ...varint(POLYGON),
+          // MoveTo claiming sixteen million points, in a four-byte tile.
+          ...tag(4, 2), ...len([...varint((1 << 24) | 1), 0, 0, 0, 0]),
+        ]),
+      ]),
+    ]);
+    const started = Date.now();
+    const out = decodeVectorTile(huge);
+    ok('a geometry count larger than the tile cannot hang the reader',
+      Date.now() - started < 500, `${Date.now() - started} ms`);
+    ok('and it still returns something usable', out.has('water'));
+  }
+
+  // Truncation mid-varint, and a tile that is not a tile at all.
+  ok('a truncated tile does not throw', (() => {
+    try {
+      decodeVectorTile(tile.slice(0, Math.floor(tile.length / 2)));
+      return true;
+    } catch {
+      return false;
+    }
+  })());
+  ok('random bytes do not hang or throw', (() => {
+    const noise = new Uint8Array(512);
+    for (let i = 0; i < noise.length; i++) noise[i] = (i * 37 + 11) & 0xff;
+    const started = Date.now();
+    try {
+      decodeVectorTile(noise);
+    } catch {
+      /* refusing is fine; hanging is not */
+    }
+    return Date.now() - started < 500;
+  })());
+}
+
+console.log('\nA provider only gets asked as deep as it answers');
+{
+  const { ImageryStreamer } = await import('../src/tiles/streamer.js');
+  const worker = { addEventListener() {}, postMessage() {} };
+  const make = (maxZoom = 19) => {
+    const s = new ImageryStreamer(worker, null);
+    s.source = { maxZoom, synthetic: false, urlFor: () => 'x', ready: true };
+    return s;
+  };
+  const fail = (s, z, n, x = 1, y = 1) => {
+    for (let i = 0; i < n; i++) {
+      s.zoomRecord(z).failed++;
+      s.reviewDepth({ z, x, y });
+    }
+  };
+
+  {
+    const s = make();
+    s.zoomRecord(16).loaded = 3;
+    fail(s, 17, 8);
+    ok('a level that refuses everything while the one above answers is dropped',
+      s.maxUsefulZoom === 16, `z${s.maxUsefulZoom}`);
+  }
+  {
+    // A regional provider refuses every level outside its coverage. That is
+    // not a depth problem and lowering the zoom would not help.
+    const s = make();
+    fail(s, 17, 20);
+    fail(s, 16, 20);
+    fail(s, 15, 20);
+    ok('a provider with no coverage here is not mistaken for a shallow one',
+      s.maxUsefulZoom === 19, `z${s.maxUsefulZoom}`);
+  }
+  {
+    const s = make();
+    s.zoomRecord(16).loaded = 3;
+    fail(s, 17, 8);
+    const record = s.zoomRecord(17);
+    record.loaded += 1;
+    record.failedAtLoad = record.failed;
+    s.reviewDepth({ z: 17, x: 1, y: 1 });
+    ok('and one tile arriving puts the level back', s.maxUsefulZoom === 19, `z${s.maxUsefulZoom}`);
+  }
+  {
+    // And the fix this replaced. `loaded` is cumulative for the session and
+    // never decays, so returning early on "has this level ever worked" meant one
+    // tile at zoom 22 arriving over a city stopped zoom 22 ever being written
+    // off again. Fly on to a valley where it does not exist and every square
+    // asks for it and is refused, for ever: measured over Grindelwald, the
+    // refusal count climbed 39 to 73 in seventy-five seconds with nothing
+    // pending. A success ends the run; a fresh run writes the level off again.
+    const s = make();
+    s.zoomRecord(16).loaded = 3;
+    const record = s.zoomRecord(17);
+    record.loaded = 1;              // it worked, once, somewhere else
+    record.failedAtLoad = record.failed;
+    fail(s, 17, 8);                 // and here it does not work at all
+    s.reviewDepth({ z: 17, x: 1, y: 1 });
+    ok('a level that worked an hour ago does not vouch for the ground here',
+      s.maxUsefulZoom === 16, `z${s.maxUsefulZoom}`);
+  }
+  {
+    const s = make(15);
+    ok('the published maximum still applies', s.maxUsefulZoom === 15);
+  }
+  {
+    const terrainSource = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+    ok('the terrain asks for the smaller of the ceiling and what is served',
+      /Math\.min\(ceiling, this\.streamer\.maxUsefulZoom\)/.test(terrainSource));
+    // "As detailed as possible" is not a tick any more, it is simply how it
+    // works: the only ceiling is the one you set, and it starts at whatever
+    // the deepest provider serves.
+    //
+    // This used to pin the number — 22 — and the number is exactly the thing
+    // that moves. It went stale the moment Esri's entry was raised past it,
+    // and a stale ceiling silently caps the quadtree below a level that does
+    // exist. So the relationship is asserted instead of the value.
+    const { DEFAULT_SETTINGS: D } = await import('../src/core/settings.js');
+    const { NO_ZOOM_CEILING: none } = await import('../src/tiles/providers.js');
+    ok('there is no tick to forget to turn on', !('maxTileZoomAuto' in D));
+    ok('and it starts with no ceiling at all', D.maxTileZoom >= none);
+    ok('which the detail dial scales down with everything else',
+      /detailLimit'\) \/ 100/.test(terrainSource));
+  }
+}
+
+console.log('\nThe wheel, in whole steps');
+{
+  const { WheelSteps } = await import('../src/ui/wheel.js');
+  const notch = (w, deltaY, deltaMode = 0, t = 0) =>
+    w.read({ deltaY, deltaMode, timeStamp: t });
+
+  {
+    // A mouse arrives in whole clicks and every click should count, however
+    // slowly it is turned. Accumulating those was worse than not accumulating:
+    // a deliberate one-click-at-a-time scroll never reached the threshold and
+    // the map never zoomed at all.
+    const w = new WheelSteps(2);
+    ok('one notch of a mouse wheel is one step', notch(w, -100, 0, 0) === 1);
+    ok('and so is the next one', notch(w, -100, 0, 100) === 1);
+    ok('and one a whole second later, which is the case that was broken',
+      notch(w, -100, 0, 1100) === 1);
+    // Browsers disagree about how big a click is; none of them is wrong and
+    // all of them mean one click.
+    for (const size of [53, 100, 114, 120, 133]) {
+      ok(`a browser whose notch is ${size} still means one click`,
+        new WheelSteps(2).read({ deltaY: -size, deltaMode: 0, timeStamp: 0 }) === 1);
+    }
+    // Two clicks in one event, which is what a fast flick of a real wheel
+    // looks like, should be two.
+    ok('a double click in one event is two steps',
+      new WheelSteps(2).read({ deltaY: -240, deltaMode: 0, timeStamp: 0 }) === 2);
+  }
+  {
+    // Down then up has to get back to where it started. Rounding finer than
+    // the step is what let the world map zoom in but never out.
+    const w = new WheelSteps(2);
+    let z = 6;
+    for (const [d, t] of [[-100, 0], [-100, 100], [100, 200], [100, 300]]) z += notch(w, d, 0, t) * 0.5;
+    ok('two notches out undo two notches in', near(z, 6, 1e-9), `${z}`);
+  }
+  {
+    // A trackpad: a flick is a stream of small deltas, not one big one.
+    const w = new WheelSteps(2);
+    let steps = 0;
+    for (let i = 0; i < 20; i++) steps += Math.abs(notch(w, -12, 0, i * 12));
+    ok('a trackpad flick moves a couple of levels, not twenty',
+      steps >= 1 && steps <= 2, `${steps} steps from 20 events`);
+  }
+  {
+    // Lines and pages are notches too, not pixels.
+    const w = new WheelSteps(1);
+    ok('a line-mode wheel counts as a notch', notch(w, -3, 1, 0) === 1);
+    const p = new WheelSteps(1);
+    ok('and a page-mode one does too', notch(p, -1, 2, 0) === 1);
+  }
+  {
+    // One enormous delta is still one gesture.
+    const w = new WheelSteps(1);
+    ok('a single huge delta cannot skip the whole range', notch(w, -4000, 0, 0) <= 3);
+  }
+  {
+    // A trackpad fragment left over from a minute ago is not part of this
+    // gesture and must not be added to it.
+    const w = new WheelSteps(2);
+    notch(w, -12, 0, 0);
+    ok('a stale fragment is forgotten', w.accumulated !== 0 && notch(w, -12, 0, 5000) === 0);
+    // The accumulator is not empty afterwards and should not be: the event
+    // that arrived *after* the gap is the start of a new gesture and leaves
+    // its own fragment behind. This check used to ask for nearly nothing,
+    // which was right when a fragment this small was dropped outright and
+    // wrong ever since fragments started being added up - it has been failing
+    // at 0.24 against a limit of 0.2 since. What it can ask is that the
+    // leftover is one event's worth and not two, so it is compared against a
+    // wheel that has seen only that one event.
+    const alone = new WheelSteps(2);
+    notch(alone, -12, 0, 0);
+    ok('and it really was dropped rather than kept',
+      Math.abs(w.accumulated - alone.accumulated) < 1e-9,
+      `${w.accumulated} against ${alone.accumulated} for a single event`);
+  }
+}
+
+console.log('\nElevation that arrives as numbers rather than pixels');
+{
+  const grid = await import('../src/tiles/elevationGrid.js');
+  const { TileSource, ELEVATION_PROVIDERS, findProvider } = await import('../src/tiles/providers.js');
+
+  // The published algorithm's own worked example.
+  ok('the polyline encoder matches Google\u2019s worked example',
+    grid.encodePolyline([[38.5, -120.2], [40.7, -120.95], [43.252, -126.453]]) === '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
+    grid.encodePolyline([[38.5, -120.2], [40.7, -120.95], [43.252, -126.453]]));
+
+  const tile = { z: 12, x: 2048, y: 1362 };
+  const bounds = grid.tileBounds(tile);
+  ok('a tile\u2019s north edge is above its south edge', bounds.north > bounds.south,
+    `${bounds.north.toFixed(3)} vs ${bounds.south.toFixed(3)}`);
+  ok('and its west edge is left of its east edge', bounds.west < bounds.east);
+
+  const points = grid.googleSamplePoints(tile, 4);
+  ok('the sample grid starts at the north-west corner and ends at the south-east',
+    near(points[0][0], bounds.north, 1e-9) && near(points[0][1], bounds.west, 1e-9) &&
+    near(points[15][0], bounds.south, 1e-9) && near(points[15][1], bounds.east, 1e-9));
+
+  // Bing counts from the south-west; every raster decoder here counts from the
+  // north-west. Getting that wrong mirrors the terrain about its own middle,
+  // which is the kind of bug that looks like plausible scenery.
+  const side = 4;
+  const ascending = [];
+  for (let row = 0; row < side; row++) for (let col = 0; col < side; col++) ascending.push(row * 100);
+  const bing = grid.decodeBingElevation(
+    { resourceSets: [{ resources: [{ elevations: ascending }] }] }, side, side,
+  );
+  ok('Bing\u2019s south-first rows are flipped to north-first',
+    bing[0] === 300 && bing[side * (side - 1)] === 0,
+    `top ${bing[0]} m, bottom ${bing[side * (side - 1)]} m`);
+
+  const google = grid.decodeGoogleElevation(
+    { status: 'OK', results: ascending.map((elevation) => ({ elevation })) }, side, side,
+  );
+  ok('Google\u2019s rows are already north-first and stay that way',
+    google[0] === 0 && google[side * (side - 1)] === 300);
+  let refused = false;
+  try {
+    grid.decodeGoogleElevation({ status: 'REQUEST_DENIED', error_message: 'no key' }, 4, 4);
+  } catch { refused = true; }
+  ok('a refused Google request is an error, not a flat plain', refused);
+
+  const bigger = grid.resampleGrid(Float32Array.from(ascending), side, 7);
+  ok('a small grid stretches to the size the mesh wants, corners intact',
+    bigger.length === 49 && near(bigger[0], 0, 1e-6) && near(bigger[42], 300, 1e-6),
+    `${bigger[0]} to ${bigger[42]}`);
+  ok('and interpolates between them rather than stepping',
+    bigger[21] > 100 && bigger[21] < 200, `${bigger[21].toFixed(1)} m halfway down`);
+
+  const keys = { bingKey: 'BKEY', googleKey: 'GKEY' };
+  const bingSource = new TileSource(findProvider(ELEVATION_PROVIDERS, 'bing-elevation'), keys);
+  const bingUrl = bingSource.urlFor(tile);
+  ok('the Bing URL asks for the tile\u2019s own rectangle, south first',
+    bingUrl.includes(`bounds=${bounds.south.toFixed(6)},${bounds.west.toFixed(6)}`) &&
+    bingUrl.includes('rows=32&cols=32'));
+  ok('and the worker is told to read it as a grid', bingSource.decode === 'bing-elevation');
+  ok('it is capped shallow, because each tile costs a request',
+    findProvider(ELEVATION_PROVIDERS, 'bing-elevation').maxZoom <= 12);
+  // Google's Elevation API sends no CORS headers at all — it is a server-side
+  // API, and a browser cannot call it whatever key you hold. It was in the
+  // list and it could only ever fail with "Failed to fetch", so it is not in
+  // the list any more.
+  ok('and Google elevation is not offered, because a browser cannot reach it',
+    !ELEVATION_PROVIDERS.some((p) => p.id === 'google-elevation'));
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nOther worlds: NASA\u2019s maps moved into the game\u2019s tiles');
+{
+  /*
+    Every planetary source is equirectangular — a pixel is a fixed number of
+    degrees each way — and the game is a mercator quadtree. The two agree
+    across a tile and disagree down it, so the pictures and the heights are
+    fetched in their own projection and have their rows moved before anything
+    else sees them. All of it is plain arithmetic in tiles/planetary.js, and
+    Every planetary source is equirectangular — a pixel is a fixed number of
+    against NASA and USGS are in the planetary work's report, run from Node and
 @@MISSING 8433@@
 @@MISSING 8434@@
-@@MISSING 8435@@
-@@MISSING 8436@@
-@@MISSING 8437@@
-@@MISSING 8438@@
-@@MISSING 8439@@
-@@MISSING 8440@@
-@@MISSING 8441@@
-@@MISSING 8442@@
-@@MISSING 8443@@
-@@MISSING 8444@@
-@@MISSING 8445@@
-@@MISSING 8446@@
-@@MISSING 8447@@
-@@MISSING 8448@@
-@@MISSING 8449@@
+    else sees them. All of it is plain arithmetic in tiles/planetary.js, and
+    all of it is checked here without a network or a canvas: the live checks
+    against NASA and USGS are in the planetary work's report, run from Node and
+    from a real browser worker.
+  */
+  const P = await import('../src/tiles/planetary.js');
+  const { createBodySources, TileSource } = await import('../src/tiles/providers.js');
+  const { BODIES } = await import('../src/geo/bodies.js');
+  const tileAt = (lat, lon, z) => {
+    const n = 2 ** z;
+    return { z, x: Math.floor(lonToNormX(lon) * n), y: Math.floor(latToNormY(lat) * n) };
+  };
+
+  // --- the picture plan -----------------------------------------------------
+  const moonPics = P.PLANETARY_SOURCES.moon.imagery[0];
 @@MISSING 8450@@
 @@MISSING 8451@@
 @@MISSING 8452@@
@@ -8455,7 +8455,7 @@
 @@MISSING 8455@@
 @@MISSING 8456@@
 @@MISSING 8457@@
-@@MISSING 8458@@
+    && /C3-MDIR/.test(P.PLANETARY_SOURCES.venus.imagery[0].layers[0].template));
 @@MISSING 8459@@
 @@MISSING 8460@@
 @@MISSING 8461@@
@@ -8475,44 +8475,44 @@
 @@MISSING 8475@@
 @@MISSING 8476@@
 @@MISSING 8477@@
-@@MISSING 8478@@
-@@MISSING 8479@@
-@@MISSING 8480@@
-@@MISSING 8481@@
-@@MISSING 8482@@
-@@MISSING 8483@@
-@@MISSING 8484@@
-@@MISSING 8485@@
-@@MISSING 8486@@
-@@MISSING 8487@@
-@@MISSING 8488@@
-@@MISSING 8489@@
-@@MISSING 8490@@
-@@MISSING 8491@@
-@@MISSING 8492@@
-@@MISSING 8493@@
-@@MISSING 8494@@
-@@MISSING 8495@@
-@@MISSING 8496@@
-@@MISSING 8497@@
-@@MISSING 8498@@
-@@MISSING 8499@@
-@@MISSING 8500@@
-@@MISSING 8501@@
-@@MISSING 8502@@
-@@MISSING 8503@@
-@@MISSING 8504@@
-@@MISSING 8505@@
-@@MISSING 8506@@
+    const full = P.eqImageryPlan(moonPics, t);
+    const p = full.layers[0];
+    const deg = 180 / 2 ** p.level;
+    // The stack's west and north edges, from the first source tile's own column and row.
+    const [firstRow, firstCol] = p.sources[0].url.split('/').slice(-2).map((v) => parseInt(v, 10));
+    const stackWest = -180 + firstCol * deg;
+    const stackNorth = 90 - firstRow * deg;
+    const lats = P.rowLatitudes(t, full.size);
+    let thinnest = Infinity;
+    for (let j = 0; j < full.size; j++) {
+      thinnest = Math.min(thinnest, normYToLat((t.y + j / full.size) / 2 ** z)
+        - normYToLat((t.y + (j + 1) / full.size) / 2 ** z));
+    }
+    for (let j = 0; j < full.size; j += 17) {
+      const shownLat = stackNorth - ((p.sy + ((full.rowY[j] + 0.5) / full.midH) * p.sh) / T) * deg;
+      for (let i = 0; i < full.size; i += 17) {
+        const lon = ((t.x + (i + 0.5) / full.size) / 2 ** z) * 360 - 180;
+        const shownLon = stackWest + ((p.sx + ((i + 0.5) / full.size) * p.sw) / T) * deg;
+        const off = Math.abs(shownLon - lon) > 1e-9 || Math.abs(shownLat - lats[j]) > thinnest / 2 + 1e-9;
+        worst += off ? 1 : 0;
+        checked++;
+      }
+    }
+  }
+  ok(`every output pixel is drawn from the ground under it  (${checked} checked)`, worst === 0,
+    `${worst} landed elsewhere`);
+  // And the rows are smoothed before they are moved, so a stretched picture —
+  // 1/cos of latitude, or Viking cropped under CTX — is not drawn in bands.
+  const stretched = P.eqImageryPlan(P.PLANETARY_SOURCES.mars.imagery[0], tileAt(70, 10, 13));
 @@MISSING 8507@@
 @@MISSING 8508@@
 @@MISSING 8509@@
 @@MISSING 8510@@
-@@MISSING 8511@@
+  const stretched = P.eqImageryPlan(P.PLANETARY_SOURCES.mars.imagery[0], tileAt(70, 10, 13));
 @@MISSING 8512@@
 @@MISSING 8513@@
 @@MISSING 8514@@
-@@MISSING 8515@@
+  const deep = top(P.eqImageryPlan(moonPics, tileAt(0.5, 23.5, 13)));
 @@MISSING 8516@@
 @@MISSING 8517@@
 @@MISSING 8518@@
@@ -8521,12 +8521,12 @@
 @@MISSING 8521@@
 @@MISSING 8522@@
 @@MISSING 8523@@
-@@MISSING 8524@@
+        const p = P.eqImageryPlan(d, tileAt(BODIES[id].spawn.lat, BODIES[id].spawn.lon, z));
 @@MISSING 8525@@
-@@MISSING 8526@@
-@@MISSING 8527@@
-@@MISSING 8528@@
-@@MISSING 8529@@
+  for (const [id, entry] of Object.entries(P.PLANETARY_SOURCES)) {
+    for (const d of entry.imagery.filter((x) => x.kind === 'eq')) {
+      for (let z = 0; z <= d.maxZoom + 3; z++) {
+        const p = P.eqImageryPlan(d, tileAt(BODIES[id].spawn.lat, BODIES[id].spawn.lon, z));
 @@MISSING 8530@@
 @@MISSING 8531@@
 @@MISSING 8532@@
@@ -8535,50 +8535,50 @@
 @@MISSING 8535@@
 @@MISSING 8536@@
 @@MISSING 8537@@
-@@MISSING 8538@@
-@@MISSING 8539@@
-@@MISSING 8540@@
-@@MISSING 8541@@
-@@MISSING 8542@@
+  // Mars's sharp grey CTX goes over Viking's colour only where Viking is
+  // already magnified; above that it washes Viking's craters out.
+  const marsPics = P.PLANETARY_SOURCES.mars.imagery[0];
+  const marsCoarse = P.eqImageryPlan(marsPics, tileAt(18.44, 77.45, 7));
+  const marsDeep = P.eqImageryPlan(marsPics, tileAt(18.44, 77.45, 9));
 @@MISSING 8543@@
 @@MISSING 8544@@
-@@MISSING 8545@@
+  const marsPics = P.PLANETARY_SOURCES.mars.imagery[0];
 @@MISSING 8546@@
 @@MISSING 8547@@
-@@MISSING 8548@@
-@@MISSING 8549@@
-@@MISSING 8550@@
-@@MISSING 8551@@
-@@MISSING 8552@@
-@@MISSING 8553@@
-@@MISSING 8554@@
-@@MISSING 8555@@
-@@MISSING 8556@@
+  const world = P.eqImageryPlan(moonPics, { z: 0, x: 0, y: 0 }).layers[0];
+  ok('zoom 0 is both halves of level 0, side by side',
+    world.sources.length === 2 && world.sources[1].x === T && near(world.sw, 2 * T, 1e-9));
+
+  // Titan: every Trek layer runs 0 to 360 east while saying -180 to 180, so
+  // true longitude L is asked for as L - 180.
+  const titan = P.PLANETARY_SOURCES.titan;
+  const huygens = tileAt(-10.573, 167.665, 4);
+  const tp = P.eqImageryPlan(titan.imagery[0], huygens).layers[0];
 @@MISSING 8557@@
 @@MISSING 8558@@
-@@MISSING 8559@@
+  const titan = P.PLANETARY_SOURCES.titan;
 @@MISSING 8560@@
-@@MISSING 8561@@
+  const titanGrid = P.arcgisGridPlan(titan.elevation, huygens, 65, { offset: -BODIES.titan.radius });
 @@MISSING 8562@@
 @@MISSING 8563@@
 @@MISSING 8564@@
 @@MISSING 8565@@
-@@MISSING 8566@@
-@@MISSING 8567@@
-@@MISSING 8568@@
-@@MISSING 8569@@
-@@MISSING 8570@@
-@@MISSING 8571@@
+  const titanGrid = P.arcgisGridPlan(titan.elevation, huygens, 65, { offset: -BODIES.titan.radius });
+  ok('and so is its relief',
+    titanGrid.west < 167.665 - 180 && titanGrid.east > 167.665 - 180 && titanGrid.lonOffset === -180);
+
+  // The map server: one box, the tile's own, with the rows then moved.
+  const pluto = P.eqImageryPlan(P.PLANETARY_SOURCES.pluto.imagery[0], tileAt(20, 175, 5));
 @@MISSING 8572@@
 @@MISSING 8573@@
 @@MISSING 8574@@
 @@MISSING 8575@@
 @@MISSING 8576@@
-@@MISSING 8577@@
+  const g = P.arcgisGridPlan(lola, tileAt(0.674, 23.473, 10), 65, {});
 @@MISSING 8578@@
 @@MISSING 8579@@
 @@MISSING 8580@@
-@@MISSING 8581@@
+  const lola = P.PLANETARY_SOURCES.moon.elevation;
 @@MISSING 8582@@
 @@MISSING 8583@@
 @@MISSING 8584@@
@@ -8586,46 +8586,46 @@
 @@MISSING 8586@@
 @@MISSING 8587@@
 @@MISSING 8588@@
-@@MISSING 8589@@
-@@MISSING 8590@@
-@@MISSING 8591@@
-@@MISSING 8592@@
-@@MISSING 8593@@
-@@MISSING 8594@@
-@@MISSING 8595@@
-@@MISSING 8596@@
-@@MISSING 8597@@
-@@MISSING 8598@@
-@@MISSING 8599@@
-@@MISSING 8600@@
-@@MISSING 8601@@
-@@MISSING 8602@@
-@@MISSING 8603@@
-@@MISSING 8604@@
-@@MISSING 8605@@
-@@MISSING 8606@@
-@@MISSING 8607@@
-@@MISSING 8608@@
-@@MISSING 8609@@
-@@MISSING 8610@@
-@@MISSING 8611@@
-@@MISSING 8612@@
-@@MISSING 8613@@
-@@MISSING 8614@@
-@@MISSING 8615@@
-@@MISSING 8616@@
-@@MISSING 8617@@
-@@MISSING 8618@@
-@@MISSING 8619@@
-@@MISSING 8620@@
-@@MISSING 8621@@
-@@MISSING 8622@@
-@@MISSING 8623@@
-@@MISSING 8624@@
-@@MISSING 8625@@
-@@MISSING 8626@@
-@@MISSING 8627@@
-@@MISSING 8628@@
+  const big = P.arcgisGridPlan(lola, tileAt(0.674, 23.473, 5), 65, {});
+  ok('a wide box goes to the service with overviews, a small one to the sharp one',
+    big.url.includes('128ppd_v04') && g.url.includes('256ppd_v06'));
+  let crossed = 0;
+  let boxes = 0;
+  for (const d of [lola, titan.elevation]) {
+    for (const z of [3, 4, 6, 9]) {
+      const n = 2 ** z;
+      for (const x of [0, 1, n / 2 - 1, n / 2, n - 1]) {
+        const b = P.arcgisGridPlan(d, { z, x, y: n / 2 }, 65, {});
+        boxes++;
+        if (b.west < -180 - 1e-9 || b.east > 180 + 1e-9) crossed++;
+      }
+    }
+  }
+  ok(`no box ever crosses the antimeridian  (${boxes} boxes, Titan\u2019s shifted ones included)`, crossed === 0);
+
+  // A synthetic answer in the server's exact layout: floats little-endian,
+  // row 0 north, then one validity bit per pixel, most significant first.
+  const bsq = (w, h, valueAt, validAt) => {
+    const n = w * h;
+    const buf = new ArrayBuffer(P.arcgisExpectedBytes(w, h));
+    const view = new DataView(buf);
+    for (let i = 0; i < n; i++) {
+      const ok2 = validAt(i % w, Math.floor(i / w));
+      view.setFloat32(i * 4, ok2 ? valueAt(i % w, Math.floor(i / w)) : -3.4028234663852886e38, true);
+      if (ok2) view.setUint8(n * 4 + (i >> 3), view.getUint8(n * 4 + (i >> 3)) | (0x80 >> (i & 7)));
+    }
+    return buf;
+  };
+  ok('the answer is exactly the floats and one bit each, as measured',
+    P.arcgisExpectedBytes(64, 64) === 16896 && P.arcgisExpectedBytes(65, 65) === 17429
+    && P.arcgisExpectedBytes(1, 1) === 5);
+  const decoded = P.decodeArcgisF32(bsq(5, 3, (x, y) => y * 10 + x, (x) => x !== 2), 5, 3);
+  ok('values are read row by row from the north-west', decoded.values[0] === 0 && decoded.values[14] === 24);
+  ok('and a cleared bit marks a cell that is not ground',
+    decoded.valid[2] === 0 && decoded.valid[7] === 0 && decoded.valid[3] === 1);
+  let refusedHtml = null;
+  try {
+    P.decodeArcgisF32(new TextEncoder().encode('<html>Error exporting image</html>').buffer, 5, 3);
 @@MISSING 8629@@
 @@MISSING 8630@@
 @@MISSING 8631@@
@@ -8635,12 +8635,12 @@
 @@MISSING 8635@@
 @@MISSING 8636@@
 @@MISSING 8637@@
-@@MISSING 8638@@
-@@MISSING 8639@@
-@@MISSING 8640@@
-@@MISSING 8641@@
-@@MISSING 8642@@
-@@MISSING 8643@@
+  ok('a height above the body\u2019s own sphere is used as it is', P.heightOffset(lola, BODIES.moon.radius) === 0);
+  ok('Vesta\u2019s and Titan\u2019s are distances from the centre, so the radius comes off',
+    P.heightOffset(P.PLANETARY_SOURCES.vesta.elevation, BODIES.vesta.radius) === -262700
+    && P.heightOffset(titan.elevation, BODIES.titan.radius) === -2574730);
+  ok('Io\u2019s sphere is 110 m smaller than the game\u2019s, and the difference goes back',
+    P.heightOffset(P.PLANETARY_SOURCES.io.elevation, BODIES.io.radius) === -110);
 @@MISSING 8644@@
 @@MISSING 8645@@
 @@MISSING 8646@@
@@ -8653,101 +8653,101 @@
 @@MISSING 8653@@
 @@MISSING 8654@@
 @@MISSING 8655@@
-@@MISSING 8656@@
-@@MISSING 8657@@
-@@MISSING 8658@@
-@@MISSING 8659@@
-@@MISSING 8660@@
-@@MISSING 8661@@
-@@MISSING 8662@@
-@@MISSING 8663@@
-@@MISSING 8664@@
-@@MISSING 8665@@
-@@MISSING 8666@@
-@@MISSING 8667@@
-@@MISSING 8668@@
-@@MISSING 8669@@
-@@MISSING 8670@@
-@@MISSING 8671@@
-@@MISSING 8672@@
-@@MISSING 8673@@
-@@MISSING 8674@@
-@@MISSING 8675@@
-@@MISSING 8676@@
-@@MISSING 8677@@
-@@MISSING 8678@@
-@@MISSING 8679@@
-@@MISSING 8680@@
-@@MISSING 8681@@
-@@MISSING 8682@@
-@@MISSING 8683@@
-@@MISSING 8684@@
+  const rg = P.arcgisGridPlan(lola, remapTile, 65, {});
+  const latGrid = new Float32Array(rg.width * rg.height);
+  const lonGrid = new Float32Array(rg.width * rg.height);
+  for (let y = 0; y < rg.height; y++) {
+    for (let x = 0; x < rg.width; x++) {
+      latGrid[y * rg.width + x] = rg.north - (y + 0.5) * ((rg.north - rg.south) / rg.height);
+      lonGrid[y * rg.width + x] = rg.west + (x + 0.5) * ((rg.east - rg.west) / rg.width);
+    }
+  }
+  const latOut = P.sampleToMercator(latGrid, rg, 65);
+  const lonOut = P.sampleToMercator(lonGrid, rg, 65);
+  const lats = P.rowLatitudes(rg.tile, 65, true);
+  const rb = P.mercatorBounds(rg.tile);
+  let latErr = 0;
+  let lonErr = 0;
+  for (let j = 0; j < 65; j++) {
+    for (let i = 0; i < 65; i++) {
+      latErr = Math.max(latErr, Math.abs(latOut[j * 65 + i] - lats[j]));
+      lonErr = Math.max(lonErr, Math.abs(lonOut[j * 65 + i] - (rb.west + ((rb.east - rb.west) * i) / 64)));
+    }
+  }
+  ok('latitude-spaced rows land on the terrain\u2019s mercator rows', latErr < 1e-4,
+    `worst ${latErr.toExponential(1)} degrees at 70\u00b0N`);
+  ok('and the columns on its corners', lonErr < 1e-4, `worst ${lonErr.toExponential(1)} degrees`);
+  ok('the first and last rows are the tile\u2019s own edges, so neighbours share them',
+    near(latOut[0], rb.north, 1e-4) && near(latOut[64 * 65], rb.south, 1e-4));
+
+  // End to end, from bytes: a datum taken off and a hole filled.
+  const vestaGrid = P.arcgisGridPlan(P.PLANETARY_SOURCES.vesta.elevation, tileAt(8.98, -20.45, 7), 65,
 @@MISSING 8685@@
 @@MISSING 8686@@
 @@MISSING 8687@@
 @@MISSING 8688@@
-@@MISSING 8689@@
-@@MISSING 8690@@
+  const vestaGrid = P.arcgisGridPlan(P.PLANETARY_SOURCES.vesta.elevation, tileAt(8.98, -20.45, 7), 65,
+    { offset: -262700, reach: BODIES.vesta.reach });
 @@MISSING 8691@@
 @@MISSING 8692@@
-@@MISSING 8693@@
+  const rowsPlan = P.tiffRowsPlan(plutoDem, tileAt(20, 175, 9), 65, {});
 @@MISSING 8694@@
 @@MISSING 8695@@
 @@MISSING 8696@@
-@@MISSING 8697@@
-@@MISSING 8698@@
-@@MISSING 8699@@
-@@MISSING 8700@@
-@@MISSING 8701@@
-@@MISSING 8702@@
-@@MISSING 8703@@
-@@MISSING 8704@@
-@@MISSING 8705@@
-@@MISSING 8706@@
-@@MISSING 8707@@
-@@MISSING 8708@@
-@@MISSING 8709@@
-@@MISSING 8710@@
-@@MISSING 8711@@
-@@MISSING 8712@@
-@@MISSING 8713@@
-@@MISSING 8714@@
-@@MISSING 8715@@
-@@MISSING 8716@@
-@@MISSING 8717@@
-@@MISSING 8718@@
-@@MISSING 8719@@
-@@MISSING 8720@@
-@@MISSING 8721@@
-@@MISSING 8722@@
-@@MISSING 8723@@
-@@MISSING 8724@@
-@@MISSING 8725@@
-@@MISSING 8726@@
-@@MISSING 8727@@
-@@MISSING 8728@@
-@@MISSING 8729@@
-@@MISSING 8730@@
-@@MISSING 8731@@
-@@MISSING 8732@@
-@@MISSING 8733@@
-@@MISSING 8734@@
-@@MISSING 8735@@
-@@MISSING 8736@@
-@@MISSING 8737@@
-@@MISSING 8738@@
-@@MISSING 8739@@
-@@MISSING 8740@@
-@@MISSING 8741@@
-@@MISSING 8742@@
-@@MISSING 8743@@
-@@MISSING 8744@@
-@@MISSING 8745@@
-@@MISSING 8746@@
-@@MISSING 8747@@
-@@MISSING 8748@@
-@@MISSING 8749@@
-@@MISSING 8750@@
+  const plutoDem = P.PLANETARY_SOURCES.pluto.elevation;
+  const coarsePlan = P.tiffRowsPlan(plutoDem, tileAt(20, 175, 4), 65, {});
+  ok('a coarse one reads two rows a sample, and never more than 130',
+    coarsePlan.ranges.length <= 130 && coarsePlan.sampleRows.every((r) => r[2] === 0.5),
+    `${coarsePlan.ranges.length} reads`);
+  // The seam: Pluto's file starts at 0 east, which is a tile edge. The tile
+  // ending there must read the last column of the file, not wrap to the first.
+  const seam = P.tiffRowsPlan(plutoDem, { z: 9, x: 255, y: 200 }, 65, {});
+  const colBuffers = seam.ranges.map(([a, b]) => {
+    const buf = new ArrayBuffer(b - a + 1);
+    const view = new DataView(buf);
+    for (let c = 0; c <= seam.c1 - seam.c0; c++) view.setInt16(c * 2, Math.round((seam.c0 + c) / 10), true);
+    return buf;
+  });
+  const seamHeights = P.tiffRowsHeights(colBuffers, seam, 65);
+  ok('the tile ending at Pluto\u2019s 0\u00b0 seam reads the file\u2019s last column there',
+    seamHeights[64] > seamHeights[0] && seamHeights[64] > (plutoDem.width - 80) / 10,
+    `east edge reads column ${Math.round(seamHeights[64] * 10)} of ${plutoDem.width}`);
+  const holes = P.tiffRowsHeights(seam.ranges.map(([a, b]) => {
+    const buf = new ArrayBuffer(b - a + 1);
+    const view = new DataView(buf);
+    for (let c = 0; c < (b - a + 1) / 2; c++) view.setInt16(c * 2, -32768, true);
+    return buf;
+  }), seam, 65);
+  ok('ground New Horizons never saw in stereo is flat', holes.every((v) => v === 0));
+
+  // --- the sources the game is handed ----------------------------------------
+  const ids = ['moon', 'mars', 'mercury', 'venus', 'ceres', 'vesta', 'io', 'europa', 'ganymede',
+    'callisto', 'titan', 'enceladus', 'pluto', 'charon'];
+  const sets = ids.map((id) => [id, createBodySources(id, {})]);
+  ok(`every world has its own sources  (${ids.length})`,
+    sets.every(([, s]) => s && s.imagery instanceof TileSource && s.imagery.decode === 'eq'
+      && s.streetFallback === null && typeof s.attribution === 'string' && s.attribution.length > 20));
+  ok('Europa, Ganymede and Callisto are flat, because nobody has measured them',
+    sets.filter(([, s]) => s.elevation === null).map(([id]) => id).join() === 'europa,ganymede,callisto');
+  ok('and the list of worlds with relief says the same',
+    P.BODIES_WITH_ELEVATION.length === 11 && !P.BODIES_WITH_ELEVATION.includes('europa'));
+  ok('Earth is not one of them', createBodySources('earth', {}) === null);
+  const moonSet = sets[0][1];
+  const job = moonSet.imagery.jobFor(tileAt(0.674, 23.473, 9));
+  ok('a planetary picture job carries its plan and skips the woodland measure',
+    P.BODIES_WITH_ELEVATION.length === 11 && !P.BODIES_WITH_ELEVATION.includes('europa'));
+  ok('Earth is not one of them', createBodySources('earth', {}) === null);
+  const moonSet = sets[0][1];
+  const job = moonSet.imagery.jobFor(tileAt(0.674, 23.473, 9));
+  ok('a planetary picture job carries its plan and skips the woodland measure',
+    job.eq?.layers?.length === 1 && job.canopy === false);
+  ok('and the plan survives being posted to a worker', JSON.stringify(structuredClone(job.eq)) === JSON.stringify(job.eq));
+  const vestaJob = sets[5][1].elevation.jobFor(tileAt(8.98, -20.45, 8), 65);
+  ok('a relief job carries the datum and the body\u2019s range, worked out on the page',
+    vestaJob.grid.offset === -BODIES.vesta.radius && vestaJob.grid.reach.join() === BODIES.vesta.reach.join());
+  ok('and every source still answers urlFor with a string',
+    sets.every(([id, s]) => [s.imagery, ...s.standbys, s.elevation].filter(Boolean).every((src) => {
+      const t = tileAt(BODIES[id].spawn.lat, BODIES[id].spawn.lon, Math.min(src.maxZoom, 9));
 @@MISSING 8751@@
 @@MISSING 8752@@
 @@MISSING 8753@@
@@ -8769,78 +8769,78 @@
 @@MISSING 8769@@
 @@MISSING 8770@@
 @@MISSING 8771@@
-@@MISSING 8772@@
-@@MISSING 8773@@
-@@MISSING 8774@@
-@@MISSING 8775@@
-@@MISSING 8776@@
-@@MISSING 8777@@
+  const marsPlan = P.eqImageryPlan(P.PLANETARY_SOURCES.mars.imagery[0], tileAt(18.44, 77.45, 10));
+  const gap = (url) => (url.includes('astro.arcgis.com')
+    ? Promise.reject(Object.assign(new Error('HTTP 404'), { noImageryHere: true }))
+    : Promise.resolve({ width: 256, height: 256, close() {} }));
+  const composed = await P.composeEqImage(marsPlan, gap, fakeCanvas);
+  const marsPlan = P.eqImageryPlan(P.PLANETARY_SOURCES.mars.imagery[0], tileAt(18.44, 77.45, 10));
 @@MISSING 8778@@
 @@MISSING 8779@@
-@@MISSING 8780@@
-@@MISSING 8781@@
-@@MISSING 8782@@
-@@MISSING 8783@@
-@@MISSING 8784@@
-@@MISSING 8785@@
-@@MISSING 8786@@
-@@MISSING 8787@@
-@@MISSING 8788@@
-@@MISSING 8789@@
-@@MISSING 8790@@
-@@MISSING 8791@@
-@@MISSING 8792@@
-@@MISSING 8793@@
-@@MISSING 8794@@
-@@MISSING 8795@@
-@@MISSING 8796@@
-@@MISSING 8797@@
-@@MISSING 8798@@
-@@MISSING 8799@@
-@@MISSING 8800@@
-@@MISSING 8801@@
-@@MISSING 8802@@
-@@MISSING 8803@@
-@@MISSING 8804@@
-@@MISSING 8805@@
-@@MISSING 8806@@
-@@MISSING 8807@@
-@@MISSING 8808@@
-@@MISSING 8809@@
-@@MISSING 8810@@
-@@MISSING 8811@@
-@@MISSING 8812@@
-@@MISSING 8813@@
-@@MISSING 8814@@
-@@MISSING 8815@@
-@@MISSING 8816@@
-@@MISSING 8817@@
-@@MISSING 8818@@
-@@MISSING 8819@@
-@@MISSING 8820@@
-@@MISSING 8821@@
-@@MISSING 8822@@
-@@MISSING 8823@@
-@@MISSING 8824@@
-@@MISSING 8825@@
-@@MISSING 8826@@
-@@MISSING 8827@@
-@@MISSING 8828@@
-@@MISSING 8829@@
-@@MISSING 8830@@
+    await P.composeEqImage(marsPlan, (url) => (url.includes('trek.nasa.gov')
+      ? Promise.reject(Object.assign(new Error('HTTP 502'), { transient: true }))
+      : Promise.resolve({ width: 512, height: 512, close() {} })), fakeCanvas);
+  } catch (err) { lost = err; }
+  ok('but the colour layer failing is the tile failing, as a fault', lost?.transient === true);
+  const moonDeepPlan = P.eqImageryPlan(moonPics, tileAt(0.674, 23.473, 11));
+  const baseless = await P.composeEqImage(moonDeepPlan, (url) => (url.includes('LRO_WAC')
+    ? Promise.reject(Object.assign(new Error('HTTP 404'), { noImageryHere: true }))
+    : Promise.resolve({ width: 256, height: 256, close() {} })), fakeCanvas);
+  ok('and a base map with nothing here does not throw away the picture drawn over it', baseless.w === 256);
+
+  // The map server answers ground its mosaic does not cover with a good JPEG
+  // of one flat colour — measured at 85°S on the Moon: 692 bytes, every
+  // pixel 0. That is "nothing here", like Kaguya's blank file, not ground.
+  const px = (r, gr, b, n = 4) => Uint8ClampedArray.from({ length: n * 4 }, (_, i) => [r, gr, b, 255][i % 4]);
+  ok('a picture of nothing but the server’s black or white fill is no picture',
+    P.isFillColour(px(0, 0, 0)) && P.isFillColour(px(255, 255, 255)) && P.isFillColour(px(1, 0, 2))
+    && !P.isFillColour(px(72, 72, 72)) && !P.isFillColour(Uint8ClampedArray.from([0, 0, 0, 255, 40, 40, 40, 255])));
+  const fillCanvas = (w, h) => ({ w, h, getContext: () => ({
+    drawImage() {},
+    globalCompositeOperation: 'source-over',
+    getImageData: (x, y, gw, gh) => ({ data: new Uint8ClampedArray(gw * gh * 4) }),
+  }) });
+  let filled = null;
+  try {
+    await P.composeEqImage(pluto, () => Promise.resolve({ width: 256, height: pluto.midH, close() {} }), fillCanvas);
+  } catch (err) { filled = err; }
+  ok('so a box that comes back as fill moves the square on, rather than drawing a black one',
+    filled?.noImageryHere === true);
+
+  // Europa, Ganymede and Callisto have no elevation source at all. Their
+  // ground is flat and that is the whole answer — not a gap still loading,
+  // which is what "no source" means on Earth and what the arrival hold waits
+  // out.
+  const { ElevationField } = await import('../src/tiles/elevation.js');
+  const flatField = new ElevationField({ postMessage() {}, addEventListener() {} });
+  flatField.setSource(null, { flat: true });
+  flatField.ensureAround(0.3, 0.4, 10, 1);
+  ok('a world nobody has measured is flat and known to be, so nothing waits on it',
+    flatField.hasDataAt(0.3, 0.4) && flatField.hasData(0.3, 0.4) && flatField.zoomAt(0.3, 0.4) === flatField.maxZoom
+    && flatField.sampleNorm(0.3, 0.4) === 0 && flatField.hasRelief);
+  ok('and nothing is queued for a source that does not exist', flatField.queue.length === 0 && flatField.tiles.size === 0);
+  const unsetField = new ElevationField({ postMessage() {}, addEventListener() {} });
+  unsetField.setSource(null);
+  ok('while no source without that still means nothing has arrived yet', !unsetField.hasDataAt(0.3, 0.4));
+
+  // --- where it is wired in -----------------------------------------------------
+  const jobsSrc = readFileSync(new URL('../src/tiles/tileJobs.js', import.meta.url), 'utf8');
+  const planetSrc = readFileSync(new URL('../src/tiles/planetary.js', import.meta.url), 'utf8');
+  ok('the worker decides nothing about which world it is on',
+    !/geo\/bodies\.js|core\/boot\.js/.test(jobsSrc) && !/geo\/bodies\.js|core\/boot\.js/.test(planetSrc));
 @@MISSING 8831@@
 @@MISSING 8832@@
-@@MISSING 8833@@
-@@MISSING 8834@@
-@@MISSING 8835@@
-@@MISSING 8836@@
-@@MISSING 8837@@
-@@MISSING 8838@@
-@@MISSING 8839@@
-@@MISSING 8840@@
+  const planetSrc = readFileSync(new URL('../src/tiles/planetary.js', import.meta.url), 'utf8');
+  ok('the worker decides nothing about which world it is on',
+    !/geo\/bodies\.js|core\/boot\.js/.test(jobsSrc) && !/geo\/bodies\.js|core\/boot\.js/.test(planetSrc));
+  const planetBranch = jobsSrc.slice(jobsSrc.indexOf("msg.decode === 'arcgis-f32' || msg.decode === 'tiff-rows'"),
+    jobsSrc.indexOf("msg.decode === 'bing-elevation'"));
+  ok('and Earth\u2019s despike and Earth\u2019s height limits are not run on another world',
+    planetBranch.length > 0 && !/despike|fillImpossible|decodeHeights/.test(planetBranch.replace(/\/\*[\s\S]*?\*\//g, '')));
+  ok('a planetary picture is drawn in the worker without the canopy measure',
 @@MISSING 8841@@
 @@MISSING 8842@@
-@@MISSING 8843@@
+  ok('and the flat maps draw the same plan with the same code', /composeEqImage\(plan/.test(mapSrc));
 @@MISSING 8844@@
 @@MISSING 8845@@
 @@MISSING 8846@@
@@ -8895,179 +8895,179 @@
 @@MISSING 8895@@
 @@MISSING 8896@@
 @@MISSING 8897@@
-@@MISSING 8898@@
-@@MISSING 8899@@
-@@MISSING 8900@@
-@@MISSING 8901@@
-@@MISSING 8902@@
-@@MISSING 8903@@
-@@MISSING 8904@@
-@@MISSING 8905@@
-@@MISSING 8906@@
-@@MISSING 8907@@
-@@MISSING 8908@@
-@@MISSING 8909@@
-@@MISSING 8910@@
-@@MISSING 8911@@
-@@MISSING 8912@@
-@@MISSING 8913@@
-@@MISSING 8914@@
-@@MISSING 8915@@
-@@MISSING 8916@@
-@@MISSING 8917@@
-@@MISSING 8918@@
-@@MISSING 8919@@
-@@MISSING 8920@@
-@@MISSING 8921@@
-@@MISSING 8922@@
-@@MISSING 8923@@
-@@MISSING 8924@@
-@@MISSING 8925@@
-@@MISSING 8926@@
-@@MISSING 8927@@
-@@MISSING 8928@@
-@@MISSING 8929@@
-@@MISSING 8930@@
-@@MISSING 8931@@
-@@MISSING 8932@@
-@@MISSING 8933@@
-@@MISSING 8934@@
-@@MISSING 8935@@
-@@MISSING 8936@@
-@@MISSING 8937@@
-@@MISSING 8938@@
-@@MISSING 8939@@
-@@MISSING 8940@@
-@@MISSING 8941@@
-@@MISSING 8942@@
-@@MISSING 8943@@
-@@MISSING 8944@@
-@@MISSING 8945@@
-@@MISSING 8946@@
-@@MISSING 8947@@
-@@MISSING 8948@@
-@@MISSING 8949@@
-@@MISSING 8950@@
-@@MISSING 8951@@
-@@MISSING 8952@@
-@@MISSING 8953@@
-@@MISSING 8954@@
-@@MISSING 8955@@
-@@MISSING 8956@@
-@@MISSING 8957@@
-@@MISSING 8958@@
-@@MISSING 8959@@
-@@MISSING 8960@@
-@@MISSING 8961@@
-@@MISSING 8962@@
-@@MISSING 8963@@
-@@MISSING 8964@@
-@@MISSING 8965@@
-@@MISSING 8966@@
-@@MISSING 8967@@
-@@MISSING 8968@@
-@@MISSING 8969@@
-@@MISSING 8970@@
-@@MISSING 8971@@
-@@MISSING 8972@@
-@@MISSING 8973@@
-@@MISSING 8974@@
-@@MISSING 8975@@
-@@MISSING 8976@@
-@@MISSING 8977@@
-@@MISSING 8978@@
-@@MISSING 8979@@
-@@MISSING 8980@@
-@@MISSING 8981@@
-@@MISSING 8982@@
-@@MISSING 8983@@
-@@MISSING 8984@@
-@@MISSING 8985@@
-@@MISSING 8986@@
-@@MISSING 8987@@
-@@MISSING 8988@@
-@@MISSING 8989@@
-@@MISSING 8990@@
-@@MISSING 8991@@
-@@MISSING 8992@@
-@@MISSING 8993@@
-@@MISSING 8994@@
-@@MISSING 8995@@
-@@MISSING 8996@@
-@@MISSING 8997@@
-@@MISSING 8998@@
-@@MISSING 8999@@
-@@MISSING 9000@@
-@@MISSING 9001@@
-@@MISSING 9002@@
-@@MISSING 9003@@
-@@MISSING 9004@@
-@@MISSING 9005@@
-@@MISSING 9006@@
-@@MISSING 9007@@
-@@MISSING 9008@@
-@@MISSING 9009@@
-@@MISSING 9010@@
-@@MISSING 9011@@
-@@MISSING 9012@@
-@@MISSING 9013@@
-@@MISSING 9014@@
-@@MISSING 9015@@
-@@MISSING 9016@@
-@@MISSING 9017@@
-@@MISSING 9018@@
-@@MISSING 9019@@
-@@MISSING 9020@@
-@@MISSING 9021@@
-@@MISSING 9022@@
-@@MISSING 9023@@
-@@MISSING 9024@@
-@@MISSING 9025@@
-@@MISSING 9026@@
-@@MISSING 9027@@
-@@MISSING 9028@@
-@@MISSING 9029@@
-@@MISSING 9030@@
-@@MISSING 9031@@
-@@MISSING 9032@@
-@@MISSING 9033@@
-@@MISSING 9034@@
-@@MISSING 9035@@
-@@MISSING 9036@@
-@@MISSING 9037@@
-@@MISSING 9038@@
-@@MISSING 9039@@
-@@MISSING 9040@@
-@@MISSING 9041@@
-@@MISSING 9042@@
-@@MISSING 9043@@
-@@MISSING 9044@@
-@@MISSING 9045@@
-@@MISSING 9046@@
-@@MISSING 9047@@
-@@MISSING 9048@@
-@@MISSING 9049@@
-@@MISSING 9050@@
-@@MISSING 9051@@
-@@MISSING 9052@@
-@@MISSING 9053@@
-@@MISSING 9054@@
-@@MISSING 9055@@
-@@MISSING 9056@@
-@@MISSING 9057@@
-@@MISSING 9058@@
-@@MISSING 9059@@
-@@MISSING 9060@@
-@@MISSING 9061@@
-@@MISSING 9062@@
-@@MISSING 9063@@
-@@MISSING 9064@@
-@@MISSING 9065@@
-@@MISSING 9066@@
-@@MISSING 9067@@
-@@MISSING 9068@@
-@@MISSING 9069@@
-@@MISSING 9070@@
+    const player = new Player(frame);
+    return { player, controller: new PlayerController({ player, terrain: flat, buildings: null }) };
+  };
+  const keys = (over = {}) => ({
+    forward: false, back: false, left: false, right: false,
+    jump: false, sprint: false, crouch: false, ...over,
+  });
+  const run = (r, frames, over) => { for (let i = 0; i < frames; i++) r.controller.update(1 / 60, keys(over)); };
+
+  {
+    const r = rig();
+    r.player.position.set(0, 4000, 0);
+    r.player.onGround = false;
+    run(r, 60 * 30);
+    ok('a fall reaches terminal velocity and stops there',
+      near(-r.player.velocity.y, 78.4, 0.5), `${(-r.player.velocity.y).toFixed(1)} m/s`);
+  }
+  {
+    const r = rig();
+    r.player.onGround = true;
+    run(r, 180, { forward: true });
+    ok('walking is 4.32 m/s', near(r.player.horizontalSpeed, 4.32, 0.05),
+      `${r.player.horizontalSpeed.toFixed(2)} m/s`);
+    run(r, 180, { forward: true, sprint: true });
+    ok('sprinting is 5.61 m/s', near(r.player.horizontalSpeed, 5.61, 0.05),
+      `${r.player.horizontalSpeed.toFixed(2)} m/s`);
+  }
+  {
+    const r = rig();
+    r.player.onGround = true;
+    let peak = 0;
+    for (let i = 0; i < 120; i++) {
+      r.controller.update(1 / 60, keys({ jump: i < 2 }));
+      peak = Math.max(peak, r.player.position.y);
+    }
+    // Two frames at 60 Hz is shorter than one 20 Hz physics tick, so this also
+    // pins the buffering: without it the tap falls between ticks and is lost.
+    ok('a tap of jump clears a block and a quarter', near(peak, 1.25, 0.06), `${peak.toFixed(2)} m`);
+  }
+  {
+    // The gesture a player actually makes, from standing: tap jump to leave
+    // the ground, tap it again once airborne. That is the double jump, and it
+    // is what used to do nothing at all — the old rule wanted two taps *after*
+    // you were already in the air, which is four presses from standing.
+    const r = rig();
+    r.player.onGround = true;
+    const tap = (frames = 12) => { run(r, 1, { jump: true }); run(r, frames); };
+    tap();
+    ok('one tap of jump leaves the ground', !r.player.onGround);
+    tap();
+    ok('a second tap in the air opens the wings', r.player.elytraDeployed);
+    tap();
+    // And a third leaves them open. This asserted the opposite, because the
+    // key was a toggle — which is what "pressing jump breaks it" was: gliding
+    // down at 1.4 m/s, one press, wings shut, falling at 16. Minecraft does
+    // nothing on that press, and so does this now; the wings key stows.
+    ok('and a third leaves them open', r.player.elytraDeployed);
+
+    const held = rig();
+    held.player.onGround = true;
+    run(held, 240, { jump: true });
+    ok('holding jump down never opens them', !held.player.elytraDeployed);
+
+    // The press that launches you must not come back round as an airborne
+    // press on the very next frame and open the wings from standing.
+    const launch = rig();
+    launch.player.onGround = true;
+    launch.controller.update(1 / 60, keys({ jump: true }));
+    for (let i = 0; i < 30; i++) launch.controller.update(1 / 60, keys());
+    ok('leaving the ground on its own does not open them', !launch.player.elytraDeployed);
+
+    // A frame slow enough to hold two presses still counts two.
+    const slow = rig();
+    slow.player.position.set(0, 300, 0);
+    slow.player.onGround = false;
+    slow.controller.update(1 / 5, keys({ jump: true, jumpPresses: 1 }));
+    ok('one press while already airborne opens them', slow.player.elytraDeployed);
+  }
+  {
+    const r = rig();
+    r.player.onGround = true;
+    r.player.startSpeedMode();
+    run(r, 60);
+    const { SURGE_FACTOR: factor } = await import('../src/player/player.js');
+    ok(`surge is worth exactly its factor  (${factor}x)`,
+      near(r.player.speedMultiplier, factor, 0.01));
+    r.player.stopSpeedMode();
+    run(r, 30);
+    const half = r.player.speedMultiplier;
+    run(r, 60 * 8);
+    ok('and bleeds off rather than switching off', half > 1.4 && half < 2,
+      `${half.toFixed(2)}x half a second later`);
+    ok('and does get all the way back to one', near(r.player.speedMultiplier, 1, 0.02),
+      `${r.player.speedMultiplier.toFixed(2)}x`);
+  }
+  {
+    const r = rig();
+    r.player.onGround = true;
+    r.player.position.set(0, 0, 0);
+    run(r, 90);
+    ok('standing still leaves the feet on the ground, not in it',
+      near(r.player.position.y, 0, 0.001), `${r.player.position.y.toFixed(3)} m`);
+  }
+  {
+    // The drawn position has to advance on *every* frame, not only on the
+    // frames that happen to carry a physics tick. At 120 Hz that is one frame
+    // in six; the other five held still, and holding still for five frames and
+    // then jumping is exactly what flying fast looked like on a good monitor.
+    const r = rig();
+    r.player.position.set(0, 500, 0);
+    r.player.onGround = false;
+    r.player.elytraDeployed = true;
+    run(r, 120);
+    const steps = [];
+    let last = r.player.renderPosition.clone();
+    for (let i = 0; i < 120; i++) {
+      r.controller.update(1 / 120, keys());
+      steps.push(r.player.renderPosition.distanceTo(last));
+      last = r.player.renderPosition.clone();
+    }
+    const still = steps.filter((d) => d < 1e-6).length;
+    const biggest = Math.max(...steps);
+    const smallest = Math.min(...steps);
+    ok('the drawn position moves on every frame at 120 Hz', still === 0,
+      `${still} of ${steps.length} frames held still`);
+    ok('and moves by about the same amount each time',
+      biggest < smallest * 2.5, `${smallest.toFixed(4)} to ${biggest.toFixed(4)} m`);
+  }
+  {
+    // A teleport is not motion, so it must not be smeared across a frame.
+    const r = rig();
+    r.player.position.set(0, 200, 0);
+    run(r, 4);
+    r.player.position.set(9000, 200, -9000);
+    r.controller.update(1 / 60, keys());
+    ok('and jumps straight to a teleport rather than interpolating into it',
+      r.player.renderPosition.distanceTo(r.player.position) < 1,
+      `${r.player.renderPosition.distanceTo(r.player.position).toFixed(1)} m behind`);
+  }
+}
+
+// J2: a test on every mode.
+//
+// The individual behaviours are tested above and throughout — a fall reaches
+// 78.4, a walk is 4.32, a glide is Minecraft's tick. What was missing is the
+// thing the request actually names: that the controller *picks* the right mode
+// for each state, and that each one moves you at all when it is picked. Those
+// are different failures. A mode that is never selected passes every test of
+// what it does, because none of them go through the selector.
+//
+// Driven through the real controller, one state per mode, rather than by
+// setting player.mode and reading it back.
+console.log('\nEvery mode, through the selector that chooses it');
+{
+  const { Player } = await import('../src/player/player.js');
+  const { PlayerController } = await import('../src/player/controller.js');
+  const { cheats } = await import('../src/core/cheats.js');
+  const frame = { setAnchor() {}, toGeo: () => ({ lat: 0, lon: 0 }) };
+  // Dry land at zero, with a lake from x = 400 east so swimming has somewhere
+  // to happen.
+  const world = {
+    heightAt: (x) => (x > 400 ? -6 : 0),
+    bedAt: (x) => (x > 400 ? -6 : 0),
+    meshHeightAt: () => null,
+    hasElevationAt: () => true,
+    isWaterAt: (x) => x > 400,
+  };
+  const keys = (over = {}) => ({
+    forward: false, back: false, left: false, right: false,
+    jump: false, sprint: false, crouch: false, ...over,
+  });
+  const rig = () => {
+    const player = new Player(frame);
 @@MISSING 9071@@
 @@MISSING 9072@@
 @@MISSING 9073@@
@@ -9164,170 +9164,170 @@
 @@MISSING 9164@@
 @@MISSING 9165@@
 @@MISSING 9166@@
-@@MISSING 9167@@
-@@MISSING 9168@@
-@@MISSING 9169@@
-@@MISSING 9170@@
-@@MISSING 9171@@
-@@MISSING 9172@@
-@@MISSING 9173@@
-@@MISSING 9174@@
-@@MISSING 9175@@
-@@MISSING 9176@@
-@@MISSING 9177@@
-@@MISSING 9178@@
-@@MISSING 9179@@
-@@MISSING 9180@@
-@@MISSING 9181@@
-@@MISSING 9182@@
-@@MISSING 9183@@
-@@MISSING 9184@@
-@@MISSING 9185@@
-@@MISSING 9186@@
-@@MISSING 9187@@
-@@MISSING 9188@@
-@@MISSING 9189@@
-@@MISSING 9190@@
-@@MISSING 9191@@
-@@MISSING 9192@@
-@@MISSING 9193@@
-@@MISSING 9194@@
-@@MISSING 9195@@
-@@MISSING 9196@@
-@@MISSING 9197@@
-@@MISSING 9198@@
-@@MISSING 9199@@
-@@MISSING 9200@@
-@@MISSING 9201@@
-@@MISSING 9202@@
-@@MISSING 9203@@
-@@MISSING 9204@@
-@@MISSING 9205@@
-@@MISSING 9206@@
-@@MISSING 9207@@
-@@MISSING 9208@@
-@@MISSING 9209@@
-@@MISSING 9210@@
-@@MISSING 9211@@
-@@MISSING 9212@@
-@@MISSING 9213@@
-@@MISSING 9214@@
-@@MISSING 9215@@
-@@MISSING 9216@@
-@@MISSING 9217@@
-@@MISSING 9218@@
-@@MISSING 9219@@
-@@MISSING 9220@@
-@@MISSING 9221@@
-@@MISSING 9222@@
-@@MISSING 9223@@
-@@MISSING 9224@@
-@@MISSING 9225@@
-@@MISSING 9226@@
-@@MISSING 9227@@
-@@MISSING 9228@@
-@@MISSING 9229@@
-@@MISSING 9230@@
-@@MISSING 9231@@
-@@MISSING 9232@@
-@@MISSING 9233@@
-@@MISSING 9234@@
-@@MISSING 9235@@
-@@MISSING 9236@@
-@@MISSING 9237@@
-@@MISSING 9238@@
-@@MISSING 9239@@
-@@MISSING 9240@@
-@@MISSING 9241@@
-@@MISSING 9242@@
-@@MISSING 9243@@
-@@MISSING 9244@@
-@@MISSING 9245@@
-@@MISSING 9246@@
-@@MISSING 9247@@
-@@MISSING 9248@@
-@@MISSING 9249@@
-@@MISSING 9250@@
-@@MISSING 9251@@
-@@MISSING 9252@@
-@@MISSING 9253@@
-@@MISSING 9254@@
-@@MISSING 9255@@
-@@MISSING 9256@@
-@@MISSING 9257@@
-@@MISSING 9258@@
-@@MISSING 9259@@
-@@MISSING 9260@@
-@@MISSING 9261@@
-@@MISSING 9262@@
-@@MISSING 9263@@
-@@MISSING 9264@@
-@@MISSING 9265@@
-@@MISSING 9266@@
-@@MISSING 9267@@
-@@MISSING 9268@@
-@@MISSING 9269@@
-@@MISSING 9270@@
-@@MISSING 9271@@
-@@MISSING 9272@@
-@@MISSING 9273@@
-@@MISSING 9274@@
-@@MISSING 9275@@
-@@MISSING 9276@@
-@@MISSING 9277@@
-@@MISSING 9278@@
-@@MISSING 9279@@
-@@MISSING 9280@@
-@@MISSING 9281@@
-@@MISSING 9282@@
-@@MISSING 9283@@
-@@MISSING 9284@@
-@@MISSING 9285@@
-@@MISSING 9286@@
-@@MISSING 9287@@
-@@MISSING 9288@@
-@@MISSING 9289@@
-@@MISSING 9290@@
-@@MISSING 9291@@
-@@MISSING 9292@@
-@@MISSING 9293@@
-@@MISSING 9294@@
-@@MISSING 9295@@
-@@MISSING 9296@@
-@@MISSING 9297@@
-@@MISSING 9298@@
-@@MISSING 9299@@
-@@MISSING 9300@@
-@@MISSING 9301@@
-@@MISSING 9302@@
-@@MISSING 9303@@
-@@MISSING 9304@@
-@@MISSING 9305@@
-@@MISSING 9306@@
-@@MISSING 9307@@
-@@MISSING 9308@@
-@@MISSING 9309@@
-@@MISSING 9310@@
-@@MISSING 9311@@
-@@MISSING 9312@@
-@@MISSING 9313@@
-@@MISSING 9314@@
-@@MISSING 9315@@
-@@MISSING 9316@@
-@@MISSING 9317@@
-@@MISSING 9318@@
-@@MISSING 9319@@
-@@MISSING 9320@@
-@@MISSING 9321@@
-@@MISSING 9322@@
-@@MISSING 9323@@
-@@MISSING 9324@@
-@@MISSING 9325@@
-@@MISSING 9326@@
-@@MISSING 9327@@
-@@MISSING 9328@@
-@@MISSING 9329@@
-@@MISSING 9330@@
+  const { Exploration } = await import('../src/ui/exploration.js');
+  const e = new Exploration();
+  e.visit(51.5, -0.12, 100, 3000);
+  const eight = [...e.cells].filter((k) => k.startsWith('8/'));
+  ok('walking somewhere records the coarse tile you are standing in',
+    eight.length === 1, eight.join(',') || 'nothing at level 8');
+  const [, x, y] = eight[0].split('/').map(Number);
+  ok('and the world map still knows you were there four levels out',
+    e.isExplored(4, x >> 4, y >> 4));
+  ok('and eight levels out', e.isExplored(2, x >> 6, y >> 6));
+  ok('but not somewhere you have never been',
+    !e.isExplored(4, (((x >> 4) + 3) % 16 + 16) % 16, y >> 4));
+  const before = e.isExplored(4, x >> 4, y >> 4);
+  e.visit(-33.9, 151.2, 100, 3000);
+  ok('and a new visit does not stale the cached coarse answer',
+    before && e.isExplored(4, x >> 4, y >> 4));
+}
+
+console.log('\ndetail follows your eyes');
+{
+  const terrainSource = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  ok('the split threshold is weighted by where you are looking',
+    /const line = size \* this\.lodFactor \* this\.splitScale\(/.test(terrainSource));
+  // Borrow the method rather than standing a whole quadtree up: it is pure
+  // arithmetic on the view vector, and that is the whole of the behaviour.
+  const { Terrain } = await import('../src/world/terrain.js');
+  const probe = { _viewX: 0, _viewZ: -1, splitScale: Terrain.prototype.splitScale };
+  const ahead = probe.splitScale(0, -10000, 0, 0, 10000, 500);
+  const behind = probe.splitScale(0, 10000, 0, 0, 10000, 500);
+  const across = probe.splitScale(10000, 0, 0, 0, 10000, 500);
+  ok('ground you are facing subdivides from further away', ahead > across,
+    `${ahead.toFixed(2)} vs ${across.toFixed(2)} across`);
+  ok('and ground behind you from closer', behind < across,
+    `${behind.toFixed(2)} vs ${across.toFixed(2)}`);
+  ok('by well under a level either way, so turning round is not a rebuild',
+    ahead / behind < 2, `${(ahead / behind).toFixed(2)}x`);
+  ok('and ground underfoot is never coarsened for facing away',
+    probe.splitScale(0, 300, 0, 0, 300, 500) === 1);
+}
+
+console.log('\nthe edge of the loaded world');
+{
+  const { EDGE_SECTORS } = await import('../src/world/edgeWall.js');
+  const { Terrain } = await import('../src/world/terrain.js');
+  const probe = { edgeProfile: new Float32Array(EDGE_SECTORS), noteEdge: Terrain.prototype.noteEdge };
+  probe.edgeProfile.fill(24000);
+  // A tile 100 km due north, 2 km across.
+  probe.noteEdge(-1000, -101000, 1000, -99000, 0, 0);
+  const north = probe.edgeProfile[0];
+  ok('distant ground pushes the wall out in its own direction',
+    north > 100000 && north < 102000, `${Math.round(north)} m north`);
+  ok('and leaves the rest of the ring where the ground actually stops',
+    probe.edgeProfile[EDGE_SECTORS / 2] === 24000,
+    `${Math.round(probe.edgeProfile[EDGE_SECTORS / 2])} m south`);
+  const wide = [...probe.edgeProfile].filter((v) => v > 24000).length;
+  ok('over a narrow wedge rather than half the sky', wide <= 5, `${wide} sectors`);
+  const gameSource = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  ok('and the game hands the wall the measured edge, not the setting',
+    /edgeWall\.update\(this\.camera, this\.terrain\.edgeProfile\)/.test(gameSource));
+}
+
+console.log('\nwhere the photogrammetry actually is');
+{
+  const { Tiles3D } = await import('../src/world/tiles3d.js');
+  const THREE = await import('../vendor/three/three.module.js');
+  // Borrow the two methods rather than connecting to Google: they are
+  // arithmetic over a box and a frame, and that is the whole of the behaviour.
+  const { LocalFrame: LF } = await import('../src/geo/frame.js');
+  const frame = new LF();
+  frame.setAnchor(51.5, -0.12);
+  const probe = {
+    frame,
+    coverage: new Set(),
+    visible: new Set(['a']),
+    loaded: new Map([['a', { object: null, bounds: new THREE.Box3(
+      new THREE.Vector3(-400, 0, -400), new THREE.Vector3(400, 60, 400)) }]]),
+    buildCoverage: Tiles3D.prototype.buildCoverage,
+    covers: Tiles3D.prototype.covers,
+  };
+  probe.buildCoverage();
+  ok('a loaded tile claims the ground under it', probe.covers(0, 0),
+    `${probe.coverage.size} cells`);
+  ok('and not the ground a kilometre away', !probe.covers(3000, 3000));
+  ok('and nothing at all before anything has loaded',
+    !new Set().size && !Tiles3D.prototype.covers.call({ coverage: new Set(), frame }, 0, 0));
+  // A root tile's box spans a continent and says nothing about what is loaded.
+  probe.loaded.set('big', { bounds: new THREE.Box3(
+    new THREE.Vector3(-9e5, 0, -9e5), new THREE.Vector3(9e5, 9e4, 9e5)) });
+  probe.visible.add('big');
+  const before = probe.coverage.size;
+  probe.buildCoverage();
+  ok('and a tile whose box spans a continent claims nothing',
+    probe.coverage.size === before, `${probe.coverage.size} vs ${before} cells`);
+}
+
+console.log('\nwhat the world says about itself');
+{
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  // Unmeasured ground reads back as exactly sea level, and treating that as
+  // "at sea" put you in the open ocean on the top of Uluru.
+  ok('nothing is called water until its depth has been measured',
+    /isWaterAt\(x, z\) \{[\s\S]{0,900}hasDataAt\(this\._norm\.nx, this\._norm\.ny\)\) return false;/.test(terrain));
+  const geo = readFileSync(new URL('../src/geo/geocode.js', import.meta.url), 'utf8');
+  ok('and a place with no street address is not announced as water',
+    !/label: 'Open water'/.test(geo) && /label: 'Unmapped location'/.test(geo));
+  ok('and a lookup that fails says so rather than locating for ever',
+    /backoffUntil = performance\.now\(\)[\s\S]{0,600}emit\('address', \{ label: 'Address unavailable'/.test(geo));
+}
+
+console.log('\nphotograph where you have been, drawn map where you have not');
+{
+  const renderer = readFileSync(new URL('../src/ui/mapRenderer.js', import.meta.url), 'utf8');
+  // Tiles are published at whole zooms. The view moves in half steps, and
+  // handing a half step straight to the lookup asked for `6.5/x/y` — which no
+  // provider has and no cache holds — so half the zoom levels drew nothing.
+  ok('the map fetches whole zooms and scales them to the view',
+    /const tileZoom = Math\.max\(0, Math\.min\(22, Math\.round\(zoom\)\)\);/.test(renderer) &&
+    /const tileScale = Math\.pow\(2, zoom - tileZoom\);/.test(renderer));
+  ok('and never asks a cache for a fractional zoom',
+    !/resolve\(zoom,/.test(renderer) && !/isExplored\(zoom,/.test(renderer));
+  // The fog is the difference between two real pictures of the world, not a
+  // wash laid over one of them: photograph where you have been, drawn street
+  // map where you have not.
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  ok('the unexplored half is a drawn map, not the photograph dimmed',
+    /paint\(ctx, layers\.street, STREET_BLANK\)/.test(renderer)
+    && !/grayscale/.test(renderer) && !/asMap/.test(renderer));
+  ok('and it comes from its own cache and its own keyless providers',
+    /export const streetTiles/.test(readFileSync(new URL('../src/ui/mapTiles.js', import.meta.url), 'utf8'))
+    && /imageryProvider: 'esri-street'/.test(game)
+    && /imageryProvider: 'openfreemap'/.test(game));
+  // Whatever the spread is called, the street layer's own id is written last
+  // and wins — which is the thing that matters, and is why this no longer
+  // pins the name of the object being spread.
+  ok('so swapping which satellite you fly over does not change the fog',
+    /streetTiles\.setSource\(createImagerySource\(\{ \.\.\.\w+, imageryProvider: 'esri-street' \}\)\)/.test(game));
+
+  // The edge follows what you could see from where you stood — exploration
+  // records by horizon, not by the square you are in — and is then feathered,
+  // because the record is kept on a grid and what it records is not.
+  ok('the photograph is cut to the explored shape',
+    /globalCompositeOperation = 'destination-in'/.test(renderer)
+    && /layers\.exploration\.isExplored\(maskZoom/.test(renderer));
+  ok('with a soft edge rather than a staircase of squares',
+    /const FOG_FEATHER = 0\.45;/.test(renderer) && /filter = `blur\(/.test(renderer));
+  ok('the mask is blurred once, composited once',
+    /blurring them one at a time and/.test(renderer));
+  ok('and the scratch canvases match the real backing store',
+    /Math\.round\(width \* pixelRatio\)/.test(renderer)
+    && /target\.setTransform\(pixelRatio, 0, 0, pixelRatio, 0, 0\)/.test(renderer));
+  ok('with the photograph simply drawn everywhere when there is no fog to draw',
+    /if \(!pair\) \{\n    paint\(ctx, layers\.tiles, '#161a1f'\);/.test(renderer));
+
+  // And the fog is read at a level the record actually keeps, or it grows.
+  //
+  // It used to subdivide every map tile sixteen ways whatever the zoom, which
+  // makes the mask level `tileZoom + 4`. That is coarser than the record
+  // everywhere below map zoom 12, and on the odd zooms it lands between
+  // recorded levels — where isExplored shifts *down* to the nearest one it has,
+  // and a coarser cell counts as explored if any part of it is. So ground you
+  // had seen grew as you zoomed out: sixteen times the area at map zoom 10 and
+  // 11, two hundred and fifty-six at 8, four thousand at 6.
+  {
+    const { LEVELS } = await import('../src/ui/exploration.js');
 @@MISSING 9331@@
 @@MISSING 9332@@
 @@MISSING 9333@@
@@ -10005,153 +10005,153 @@
 @@MISSING 10005@@
 @@MISSING 10006@@
 @@MISSING 10007@@
-@@MISSING 10008@@
-@@MISSING 10009@@
-@@MISSING 10010@@
-@@MISSING 10011@@
-@@MISSING 10012@@
-@@MISSING 10013@@
-@@MISSING 10014@@
-@@MISSING 10015@@
-@@MISSING 10016@@
-@@MISSING 10017@@
-@@MISSING 10018@@
-@@MISSING 10019@@
+  const flow = readFileSync(new URL('../.github/workflows/deploy-gh-pages.yml', import.meta.url), 'utf8');
+  ok('the published page asks for the bundle by fingerprint',
+    /terraglide\.bundle\.js\?v=\$STAMP/.test(flow));
+  ok('and the fingerprint comes from the bundle rather than the clock',
+    /__TERRAGLIDE_BUNDLE__/.test(flow) && !/date \+%s/.test(flow));
+  ok('and the deploy fails rather than publishing an unstamped page',
+    /grep -q "terraglide\.bundle\.js\?v=\$STAMP" _site\/index\.html/.test(flow)
+    || /grep -q "terraglide\.bundle\.js\\?v=\$STAMP" _site\/index\.html/.test(flow));
+
+  // The stamp has to be findable in what the bundler actually writes.
+  const bundle = readFileSync(new URL('../terraglide.bundle.js', import.meta.url), 'utf8');
+  const stamp = /__TERRAGLIDE_BUNDLE__ = "([0-9a-f]{8,})"/.exec(bundle);
 @@MISSING 10020@@
 @@MISSING 10021@@
 @@MISSING 10022@@
 @@MISSING 10023@@
-@@MISSING 10024@@
-@@MISSING 10025@@
-@@MISSING 10026@@
-@@MISSING 10027@@
-@@MISSING 10028@@
-@@MISSING 10029@@
-@@MISSING 10030@@
-@@MISSING 10031@@
-@@MISSING 10032@@
-@@MISSING 10033@@
-@@MISSING 10034@@
-@@MISSING 10035@@
-@@MISSING 10036@@
-@@MISSING 10037@@
-@@MISSING 10038@@
-@@MISSING 10039@@
-@@MISSING 10040@@
-@@MISSING 10041@@
-@@MISSING 10042@@
-@@MISSING 10043@@
-@@MISSING 10044@@
-@@MISSING 10045@@
-@@MISSING 10046@@
-@@MISSING 10047@@
-@@MISSING 10048@@
-@@MISSING 10049@@
-@@MISSING 10050@@
-@@MISSING 10051@@
-@@MISSING 10052@@
-@@MISSING 10053@@
-@@MISSING 10054@@
-@@MISSING 10055@@
-@@MISSING 10056@@
-@@MISSING 10057@@
-@@MISSING 10058@@
-@@MISSING 10059@@
-@@MISSING 10060@@
-@@MISSING 10061@@
-@@MISSING 10062@@
-@@MISSING 10063@@
-@@MISSING 10064@@
-@@MISSING 10065@@
-@@MISSING 10066@@
-@@MISSING 10067@@
-@@MISSING 10068@@
-@@MISSING 10069@@
-@@MISSING 10070@@
-@@MISSING 10071@@
-@@MISSING 10072@@
-@@MISSING 10073@@
-@@MISSING 10074@@
-@@MISSING 10075@@
-@@MISSING 10076@@
-@@MISSING 10077@@
-@@MISSING 10078@@
-@@MISSING 10079@@
-@@MISSING 10080@@
-@@MISSING 10081@@
-@@MISSING 10082@@
-@@MISSING 10083@@
-@@MISSING 10084@@
-@@MISSING 10085@@
-@@MISSING 10086@@
-@@MISSING 10087@@
-@@MISSING 10088@@
-@@MISSING 10089@@
-@@MISSING 10090@@
-@@MISSING 10091@@
-@@MISSING 10092@@
-@@MISSING 10093@@
-@@MISSING 10094@@
-@@MISSING 10095@@
-@@MISSING 10096@@
-@@MISSING 10097@@
-@@MISSING 10098@@
-@@MISSING 10099@@
-@@MISSING 10100@@
-@@MISSING 10101@@
-@@MISSING 10102@@
-@@MISSING 10103@@
-@@MISSING 10104@@
-@@MISSING 10105@@
-@@MISSING 10106@@
-@@MISSING 10107@@
-@@MISSING 10108@@
-@@MISSING 10109@@
-@@MISSING 10110@@
-@@MISSING 10111@@
-@@MISSING 10112@@
-@@MISSING 10113@@
-@@MISSING 10114@@
-@@MISSING 10115@@
-@@MISSING 10116@@
-@@MISSING 10117@@
-@@MISSING 10118@@
-@@MISSING 10119@@
-@@MISSING 10120@@
-@@MISSING 10121@@
-@@MISSING 10122@@
-@@MISSING 10123@@
-@@MISSING 10124@@
-@@MISSING 10125@@
-@@MISSING 10126@@
-@@MISSING 10127@@
-@@MISSING 10128@@
-@@MISSING 10129@@
-@@MISSING 10130@@
-@@MISSING 10131@@
-@@MISSING 10132@@
-@@MISSING 10133@@
-@@MISSING 10134@@
-@@MISSING 10135@@
-@@MISSING 10136@@
-@@MISSING 10137@@
-@@MISSING 10138@@
-@@MISSING 10139@@
-@@MISSING 10140@@
-@@MISSING 10141@@
-@@MISSING 10142@@
-@@MISSING 10143@@
-@@MISSING 10144@@
-@@MISSING 10145@@
-@@MISSING 10146@@
-@@MISSING 10147@@
-@@MISSING 10148@@
-@@MISSING 10149@@
-@@MISSING 10150@@
-@@MISSING 10151@@
-@@MISSING 10152@@
-@@MISSING 10153@@
-@@MISSING 10154@@
+  ok('the boot retry joins onto a URL that may already carry a query',
+    /pack\.indexOf\('\?'\) < 0 \? '\?' : '&'/.test(index));
+  const join = (pack, tries) => (tries ? pack + (pack.indexOf('?') < 0 ? '?' : '&') + 'retry=' + tries : pack);
+  ok('a plain URL gets a question mark', join('./b.js', 1) === './b.js?retry=1');
+  ok('and a stamped one gets an ampersand', join('./b.js?v=abc', 2) === './b.js?v=abc&retry=2');
+  ok('and the first attempt adds nothing at all', join('./b.js?v=abc', 0) === './b.js?v=abc');
+}
+
+console.log('\ngiving up is not the same as covering it');
+{
+  // traverse() returns "everything this subtree wants to draw is drawn", and a
+  // REPLACE parent stops drawing itself the moment its children all say yes.
+  // Four early exits answered yes when they meant "I gave up here": past the
+  // depth cap, an unreadable bounding volume, past the render distance, and no
+  // content. Each one is a parent dropped over ground nobody drew — a hole the
+  // exact shape of one tile, which is what the missing blocks in the city are.
+  const { Tiles3D } = await import('../src/world/tiles3d.js');
+  const THREE = await import('../vendor/three/three.module.js');
+  const { settings } = await import('../src/core/settings.js');
+
+  const probe = (loaded = []) => ({
+    budget: { sse: 16, active: 8, tilesets: 4 },
+    tilesets: new Map(),
+    loaded: new Map(loaded.map((u) => [u, {}])),
+    pending: new Set(),
+    copyrights: new Set(),
+    visible: new Set(),
+    wanted: [],
+    _matrix2: new THREE.Vector3(),
+    _ecefToLocal: new THREE.Matrix4(),
+    _camX: 0, _camZ: 0, _viewX: 1, _viewZ: 0,
+    requestTileset() {},
+    traverse: Tiles3D.prototype.traverse,
+    want: Tiles3D.prototype.want,
+  });
+  const cam = new THREE.Vector3(0, 0, 0);
+  const run = (rig, tree) => rig.traverse(tree, new THREE.Matrix4(), cam, 900, 1.2, 0);
+
+  // A parent whose children sit past the render distance. Its far half is never
+  // drawn, so letting it go leaves a hole there.
+  const reach = settings.get('renderDistanceKm') * 1000;
+  const straddling = {
+    boundingVolume: { sphere: [0, 0, 0, 500] },
+    geometricError: 900, refine: 'REPLACE', content: { uri: 'parent.glb' },
+    children: [
+      { boundingVolume: { sphere: [0, 0, 0, 100] }, geometricError: 2, content: { uri: 'near.glb' } },
+      { boundingVolume: { sphere: [reach * 4, 0, 0, 100] }, geometricError: 2, content: { uri: 'far.glb' } },
+    ],
+  };
+  const far = probe(['near.glb']);
+  const farReady = run(far, straddling);
+  ok('a child past the render distance does not claim to cover it',
+    !farReady && far.visible.has('parent.glb'), [...far.visible].join(','));
+
+  // Past the depth cap. Google's tree at street level goes deeper than the old
+  // cap of 24, counting the hops between tilesets, so this fired in ordinary
+  // play and every tile it stopped at was reported to its parent as covered.
+  const deep = probe();
+  const deepReady = deep.traverse(straddling, new THREE.Matrix4(), cam, 900, 1.2, 900);
+  ok('and neither does giving up at the depth cap', deepReady === false);
+
+  const src = readFileSync(new URL('../src/world/tiles3d.js', import.meta.url), 'utf8');
+  const cap = /const MAX_DEPTH = (\d+)/.exec(src);
+  ok(`the cap is a runaway guard rather than a limit hit in play  (${cap && cap[1]})`,
+    cap && Number(cap[1]) >= 48);
+
+  // A bounding volume in a shape we cannot read.
+  const unreadable = probe();
+  const unreadableReady = run(unreadable, {
+    boundingVolume: { nonsense: true }, geometricError: 900, content: { uri: 'x.glb' },
+  });
+  ok('an unreadable bounding volume does not claim to cover it either',
+    unreadableReady === false);
+
+  // And the case that must still answer yes, or a parent is drawn for ever.
+  const arrived = probe(['near.glb', 'far.glb']);
+  const closeTree = {
+    boundingVolume: { sphere: [0, 0, 0, 500] },
+    geometricError: 900, refine: 'REPLACE', content: { uri: 'parent.glb' },
+    children: [
+      { boundingVolume: { sphere: [-200, 0, 0, 100] }, geometricError: 2, content: { uri: 'near.glb' } },
+      { boundingVolume: { sphere: [200, 0, 0, 100] }, geometricError: 2, content: { uri: 'far.glb' } },
+    ],
+  };
+  ok('children that really did arrive still release the parent',
+    run(arrived, closeTree) === true && !arrived.visible.has('parent.glb'));
+}
+
+console.log('\nthe provider is allowed to say what is wrong');
+{
+  // Google answers a bad key with 400, not 401 or 403, so every real key
+  // problem came out as "root 400" — a number that tells you nothing and points
+  // nowhere. Confirmed against the live endpoint: no key gives 403 "Method
+  // doesn't allow unregistered callers", a bad key gives 400 "API key not
+  // valid". The commonest real answer is that the Map Tiles API was never
+  // enabled on the project, which names the project and the fix.
+  const { explain, rebase } = await import('../src/world/tiles3d.js');
+  const answer = (status, body) => new Response(JSON.stringify(body), { status });
+
+  ok('Google\'s own words come through',
+    (await explain(answer(400, { error: { message: 'API key not valid. Please pass a valid API key.' } })))
+      === 'API key not valid. Please pass a valid API key.');
+  ok('and so does the one that names the API to switch on',
+    /Map Tiles API has not been used/.test(
+      await explain(answer(403, { error: { message: 'Map Tiles API has not been used in project 12345 before or it is disabled.' } }))));
+  ok('a body with nothing useful falls back to something readable',
+    (await explain(new Response('', { status: 500 }))) === 'the tileset server answered 500');
+  ok('and a refusal still says it is the key',
+    (await explain(new Response('', { status: 403 }))) === 'that key was refused');
+
+  // A child tileset's contents are relative to that tileset, not to the root.
+  const tree = {
+    content: { uri: 'a.glb' },
+    children: [{ content: { uri: 'sub/b.glb' } }, { content: { url: '../c.glb' } }],
+  };
+  rebase(tree, 'https://tiles.example.com/deep/set.json?session=abc');
+  ok('a child tileset\'s contents resolve against itself',
+    tree.content.uri === 'https://tiles.example.com/deep/a.glb'
+    && tree.children[0].content.uri === 'https://tiles.example.com/deep/sub/b.glb'
+    && tree.children[1].content.url === 'https://tiles.example.com/c.glb',
+    tree.content.uri);
+
+  // Enough in flight to be worth having on a connection that multiplexes.
+  const src = readFileSync(new URL('../src/world/tiles3d.js', import.meta.url), 'utf8');
+  const budgets = [...src.matchAll(/(low|medium|high|ultra): \{[^}]*active: (\d+)/g)]
+    .map((m) => Number(m[2]));
+  ok(`the request budget is not a leftover HTTP/1.1 six  (${budgets.join(', ')})`,
+    budgets.length === 4 && budgets.every((n) => n >= 12) && budgets[3] > budgets[0]);
+}
+
+console.log('\nthe ground does not flicker to a flat colour');
 @@MISSING 10155@@
 @@MISSING 10156@@
 @@MISSING 10157@@
@@ -10163,8 +10163,8 @@
 @@MISSING 10163@@
 @@MISSING 10164@@
 @@MISSING 10165@@
-@@MISSING 10166@@
-@@MISSING 10167@@
+  const { ImageryStreamer, STATE_READY } = await import('../src/tiles/streamer.js');
+  const src = readFileSync(new URL('../src/tiles/streamer.js', import.meta.url), 'utf8');
 @@MISSING 10168@@
 @@MISSING 10169@@
 @@MISSING 10170@@
@@ -10219,146 +10219,146 @@
 @@MISSING 10219@@
 @@MISSING 10220@@
 @@MISSING 10221@@
-@@MISSING 10222@@
-@@MISSING 10223@@
-@@MISSING 10224@@
-@@MISSING 10225@@
-@@MISSING 10226@@
-@@MISSING 10227@@
-@@MISSING 10228@@
-@@MISSING 10229@@
-@@MISSING 10230@@
-@@MISSING 10231@@
-@@MISSING 10232@@
-@@MISSING 10233@@
-@@MISSING 10234@@
-@@MISSING 10235@@
-@@MISSING 10236@@
-@@MISSING 10237@@
-@@MISSING 10238@@
-@@MISSING 10239@@
-@@MISSING 10240@@
-@@MISSING 10241@@
-@@MISSING 10242@@
-@@MISSING 10243@@
-@@MISSING 10244@@
-@@MISSING 10245@@
-@@MISSING 10246@@
-@@MISSING 10247@@
-@@MISSING 10248@@
-@@MISSING 10249@@
-@@MISSING 10250@@
-@@MISSING 10251@@
-@@MISSING 10252@@
-@@MISSING 10253@@
-@@MISSING 10254@@
-@@MISSING 10255@@
-@@MISSING 10256@@
-@@MISSING 10257@@
-@@MISSING 10258@@
-@@MISSING 10259@@
-@@MISSING 10260@@
-@@MISSING 10261@@
-@@MISSING 10262@@
-@@MISSING 10263@@
-@@MISSING 10264@@
-@@MISSING 10265@@
-@@MISSING 10266@@
-@@MISSING 10267@@
-@@MISSING 10268@@
-@@MISSING 10269@@
-@@MISSING 10270@@
-@@MISSING 10271@@
-@@MISSING 10272@@
-@@MISSING 10273@@
-@@MISSING 10274@@
-@@MISSING 10275@@
-@@MISSING 10276@@
-@@MISSING 10277@@
-@@MISSING 10278@@
-@@MISSING 10279@@
-@@MISSING 10280@@
-@@MISSING 10281@@
-@@MISSING 10282@@
-@@MISSING 10283@@
-@@MISSING 10284@@
-@@MISSING 10285@@
-@@MISSING 10286@@
-@@MISSING 10287@@
-@@MISSING 10288@@
-@@MISSING 10289@@
-@@MISSING 10290@@
-@@MISSING 10291@@
-@@MISSING 10292@@
-@@MISSING 10293@@
-@@MISSING 10294@@
-@@MISSING 10295@@
-@@MISSING 10296@@
-@@MISSING 10297@@
-@@MISSING 10298@@
-@@MISSING 10299@@
-@@MISSING 10300@@
-@@MISSING 10301@@
-@@MISSING 10302@@
-@@MISSING 10303@@
-@@MISSING 10304@@
-@@MISSING 10305@@
-@@MISSING 10306@@
-@@MISSING 10307@@
-@@MISSING 10308@@
-@@MISSING 10309@@
-@@MISSING 10310@@
-@@MISSING 10311@@
-@@MISSING 10312@@
-@@MISSING 10313@@
-@@MISSING 10314@@
-@@MISSING 10315@@
-@@MISSING 10316@@
-@@MISSING 10317@@
-@@MISSING 10318@@
-@@MISSING 10319@@
-@@MISSING 10320@@
-@@MISSING 10321@@
-@@MISSING 10322@@
-@@MISSING 10323@@
-@@MISSING 10324@@
-@@MISSING 10325@@
-@@MISSING 10326@@
-@@MISSING 10327@@
-@@MISSING 10328@@
-@@MISSING 10329@@
-@@MISSING 10330@@
-@@MISSING 10331@@
-@@MISSING 10332@@
-@@MISSING 10333@@
-@@MISSING 10334@@
-@@MISSING 10335@@
-@@MISSING 10336@@
-@@MISSING 10337@@
-@@MISSING 10338@@
-@@MISSING 10339@@
-@@MISSING 10340@@
-@@MISSING 10341@@
-@@MISSING 10342@@
-@@MISSING 10343@@
-@@MISSING 10344@@
-@@MISSING 10345@@
-@@MISSING 10346@@
-@@MISSING 10347@@
-@@MISSING 10348@@
-@@MISSING 10349@@
-@@MISSING 10350@@
-@@MISSING 10351@@
-@@MISSING 10352@@
-@@MISSING 10353@@
-@@MISSING 10354@@
-@@MISSING 10355@@
-@@MISSING 10356@@
-@@MISSING 10357@@
-@@MISSING 10358@@
-@@MISSING 10359@@
-@@MISSING 10360@@
-@@MISSING 10361@@
+console.log('\nthe online single file finds the assets it was told to use');
+{
+  // You asked for it twice: "online single file should use assets too like gen
+  // stuff" and "add the assets gened and other features via grab from GitHub to
+  // the single file". It started and looked right, and the player model never
+  // arrived, because every module-relative path went at the folder beside a
+  // file:// page instead of at the site the bundle came from.
+  const bundler = readFileSync(new URL('../tools/bundle.mjs', import.meta.url), 'utf8');
+  ok('the bundle resolves paths against where the bundle came from',
+    /document\.currentScript/.test(bundler) && /self && self\.src/.test(bundler));
+  ok('and falls back to the document when it is inlined and has no src',
+    /return \(typeof document !== 'undefined' && document\.baseURI\) \|\| 'about:blank';/.test(bundler));
+
+  // The same arithmetic the runtime does, so the expectation is checked rather
+  // than described: a module inside a bundle served from the site resolves the
+  // assets folder onto that site.
+  const tgUrl = (id, base) => new URL(id, base).href;
+  const site = 'https://eabusham2.github.io/terraglide/';
+  const fromSite = new URL('../../assets/', tgUrl('src/core/paths.js', site + 'terraglide.bundle.js')).href;
+  ok(`a bundle served from the site points assets at the site  (${fromSite})`,
+    fromSite === site + 'assets/');
+  // And the failure it replaces, spelled out so it cannot come back quietly.
+  const fromPage = new URL('../../assets/', tgUrl('src/core/paths.js', 'file:///downloads/terraglide-online.html')).href;
+  ok('where resolving against the page put them somewhere that does not exist',
+    fromPage.startsWith('file://'));
+  // And the failure it replaces, spelled out so it cannot come back quietly.
+  const online = readFileSync(new URL('../terraglide-online.html', import.meta.url), 'utf8');
+  ok('and the online page still asks for the published bundle by absolute URL',
+    /__TERRAGLIDE_PACK__ = "https:\/\/[^"]*terraglide\.bundle\.js"/.test(online));
+}
+
+console.log('\nthe explored map answers at the zoom it is asked about');
+{
+  // "Explored on map still doesn't show exactly what u explored, it's extremely
+  // inaccurate" and "the explored being wrong especially zooming out".
+  // Levels are recorded at 8, 10, 12, 14 and 16, so half the zooms fall between
+  // two of them, and those were answered from the coarser one — at zoom 9 from
+  // level 8, at zoom 11 from level 10. One recorded cell answered for four
+  // squares of the zoom being drawn, and answered yes for all four.
+  const { Exploration, LEVELS } = await import('../src/ui/exploration.js');
+  const fresh = () => new Exploration({ load: () => null, save() {} });
+
+  // visit(lat, lon, altitudeAboveGround, seenRadius). Deliberately not at
+  // (0, 0): that is exactly the corner of four tiles at every zoom, so a disc
+  // there really does touch four of them and four is the right answer. Inside
+  // one tile is where over-reporting shows.
+  const record = fresh();
+  // The centre of a zoom-11 tile, which is comfortably inside its zoom 8, 9 and
+  // 10 parents too.
+  const NX = (1024 + 0.5) / 2048;
+  record.visit(-0.0878906, 0.0878906, 2, 1200);
+
+  // Count how many squares of each zoom the record claims.
+  const claimedAt = (z) => {
+    const n = 2 ** z;
+    let count = 0;
+    // A window around the origin is enough: nothing else was visited.
+    const cx = Math.floor(NX * n);
+    const cy = Math.floor(NX * n);
+    for (let y = cy - 6; y <= cy + 6; y++) {
+      for (let x = cx - 6; x <= cx + 6; x++) {
+        if (x < 0 || y < 0 || x >= n || y >= n) continue;
+        if (record.isExplored(z, x, y)) count++;
+      }
+    }
+    return count;
+  };
+
+  // Zoom 8 is exact: one square, because a level-8 tile is 157 km and the
+  // horizon here is 1.2 km.
+  ok(`zoom 8 claims one square  (${claimedAt(8)})`, claimedAt(8) === 1);
+  // Zoom 9 used to inherit that one answer for all four of its children.
+  ok(`zoom 9 no longer inherits it for four  (${claimedAt(9)})`, claimedAt(9) === 1);
+  ok(`and zoom 11 likewise  (${claimedAt(11)})`, claimedAt(11) === 1);
+
+  // The claim must never shrink as the squares get finer within a level pair,
+  // and a square must still be explored where you actually stood.
+  const tx = (z) => Math.floor(NX * 2 ** z);
+  const ty = (z) => Math.floor(NX * 2 ** z);
+  ok('the square you stood in is explored at the finest level',
+    record.isExplored(16, tx(16), ty(16)));
+  ok('and still explored at the coarsest',
+    record.isExplored(8, tx(8), ty(8)));
+
+  // Below the coarsest recorded level the old folding still applies.
+  ok('a whole continent counts as visited if any of it was',
+    record.isExplored(4, tx(4), ty(4)));
+
+  // Finer than anything recorded there is nothing better than the coarse cell,
+  // and saying nothing would hide ground you really did explore.
+  ok('past the finest recorded level it still answers from what it has',
+    record.isExplored(18, tx(18), ty(18)));
+
+  const src = readFileSync(new URL('../src/ui/exploration.js', import.meta.url), 'utf8');
+  ok('and the rule is stated where it is applied',
+    /at least as fine as/.test(src) && /folded\(z\)/.test(src));
+}
+
+console.log('\na worker that cannot start says nothing, so something has to ask');
+{
+  // The online edition builds a real Worker from a same-origin blob whose only
+  // job is to import the real worker off the published site. `new Worker`
+  // succeeds — the blob is fine — and if that import fails the thread dies
+  // without ever posting a message. Nothing listened for that. Measured running
+  // the online edition: twelve jobs accepted, none answered, none *failed*,
+  // 4,205 queued behind them, every square of ground drawn bare while the
+  // minimap beside it had full imagery. For the whole session.
+  const { GuardedWorker } = await import('../src/tiles/workerHost.js');
+
+  const mute = () => {
+    const w = { posted: [], handlers: {}, terminated: false };
+    w.addEventListener = (t, fn) => { (w.handlers[t] ??= []).push(fn); };
+    w.removeEventListener = (t, fn) => { w.handlers[t] = (w.handlers[t] ?? []).filter((f) => f !== fn); };
+    w.postMessage = (m) => w.posted.push(m);
+    w.terminate = () => { w.terminated = true; };
+    return w;
+  };
+
+  // The quiet death: it accepts jobs and never answers.
+  {
+    const real = mute();
+    let fire = null;
+    const realTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = (fn) => { fire = fn; return 1; };
+    const guard = new GuardedWorker(() => real);
+    const seen = [];
+    guard.addEventListener('message', (e) => seen.push(e.data));
+    guard.postMessage({ kind: 'imagery', channel: 'imagery', id: 1 });
+    guard.postMessage({ kind: 'imagery', channel: 'imagery', id: 2 });
+    ok('the jobs go to the real worker first', real.posted.length === 2);
+    ok('and it is given a deadline to answer by', typeof fire === 'function');
+    guard.postMessage({ kind: 'imagery', channel: 'imagery', id: 1 });
+    guard.postMessage({ kind: 'imagery', channel: 'imagery', id: 2 });
+    ok('a worker that never answers is given up on', guard.inline === true);
+    ok('and the dead one is stopped', real.terminated === true);
+    const held = guard.delegate.queue.length + guard.delegate.running;
+    ok('the jobs it was holding are re-posted, not dropped', held === 2, `${held} re-posted`);
+  }
+
+  // The loud death: an error event.
 @@MISSING 10362@@
 @@MISSING 10363@@
 @@MISSING 10364@@
@@ -10507,196 +10507,196 @@
 @@MISSING 10507@@
 @@MISSING 10508@@
 @@MISSING 10509@@
-@@MISSING 10510@@
-@@MISSING 10511@@
-@@MISSING 10512@@
-@@MISSING 10513@@
-@@MISSING 10514@@
-@@MISSING 10515@@
-@@MISSING 10516@@
-@@MISSING 10517@@
-@@MISSING 10518@@
-@@MISSING 10519@@
-@@MISSING 10520@@
-@@MISSING 10521@@
-@@MISSING 10522@@
-@@MISSING 10523@@
-@@MISSING 10524@@
-@@MISSING 10525@@
-@@MISSING 10526@@
-@@MISSING 10527@@
-@@MISSING 10528@@
-@@MISSING 10529@@
-@@MISSING 10530@@
-@@MISSING 10531@@
-@@MISSING 10532@@
-@@MISSING 10533@@
-@@MISSING 10534@@
-@@MISSING 10535@@
-@@MISSING 10536@@
-@@MISSING 10537@@
-@@MISSING 10538@@
-@@MISSING 10539@@
-@@MISSING 10540@@
-@@MISSING 10541@@
-@@MISSING 10542@@
-@@MISSING 10543@@
-@@MISSING 10544@@
-@@MISSING 10545@@
-@@MISSING 10546@@
-@@MISSING 10547@@
-@@MISSING 10548@@
-@@MISSING 10549@@
-@@MISSING 10550@@
-@@MISSING 10551@@
-@@MISSING 10552@@
-@@MISSING 10553@@
-@@MISSING 10554@@
-@@MISSING 10555@@
-@@MISSING 10556@@
-@@MISSING 10557@@
-@@MISSING 10558@@
-@@MISSING 10559@@
-@@MISSING 10560@@
-@@MISSING 10561@@
-@@MISSING 10562@@
-@@MISSING 10563@@
-@@MISSING 10564@@
-@@MISSING 10565@@
-@@MISSING 10566@@
-@@MISSING 10567@@
-@@MISSING 10568@@
-@@MISSING 10569@@
-@@MISSING 10570@@
-@@MISSING 10571@@
-@@MISSING 10572@@
-@@MISSING 10573@@
-@@MISSING 10574@@
-@@MISSING 10575@@
-@@MISSING 10576@@
-@@MISSING 10577@@
-@@MISSING 10578@@
-@@MISSING 10579@@
-@@MISSING 10580@@
-@@MISSING 10581@@
-@@MISSING 10582@@
-@@MISSING 10583@@
-@@MISSING 10584@@
-@@MISSING 10585@@
-@@MISSING 10586@@
-@@MISSING 10587@@
-@@MISSING 10588@@
-@@MISSING 10589@@
-@@MISSING 10590@@
-@@MISSING 10591@@
-@@MISSING 10592@@
-@@MISSING 10593@@
-@@MISSING 10594@@
-@@MISSING 10595@@
-@@MISSING 10596@@
-@@MISSING 10597@@
-@@MISSING 10598@@
-@@MISSING 10599@@
-@@MISSING 10600@@
-@@MISSING 10601@@
-@@MISSING 10602@@
-@@MISSING 10603@@
-@@MISSING 10604@@
-@@MISSING 10605@@
-@@MISSING 10606@@
-@@MISSING 10607@@
-@@MISSING 10608@@
-@@MISSING 10609@@
-@@MISSING 10610@@
-@@MISSING 10611@@
-@@MISSING 10612@@
-@@MISSING 10613@@
-@@MISSING 10614@@
-@@MISSING 10615@@
-@@MISSING 10616@@
-@@MISSING 10617@@
-@@MISSING 10618@@
-@@MISSING 10619@@
-@@MISSING 10620@@
-@@MISSING 10621@@
-@@MISSING 10622@@
-@@MISSING 10623@@
-@@MISSING 10624@@
-@@MISSING 10625@@
-@@MISSING 10626@@
-@@MISSING 10627@@
-@@MISSING 10628@@
-@@MISSING 10629@@
-@@MISSING 10630@@
-@@MISSING 10631@@
-@@MISSING 10632@@
-@@MISSING 10633@@
-@@MISSING 10634@@
-@@MISSING 10635@@
-@@MISSING 10636@@
-@@MISSING 10637@@
-@@MISSING 10638@@
-@@MISSING 10639@@
-@@MISSING 10640@@
-@@MISSING 10641@@
-@@MISSING 10642@@
-@@MISSING 10643@@
-@@MISSING 10644@@
-@@MISSING 10645@@
-@@MISSING 10646@@
-@@MISSING 10647@@
-@@MISSING 10648@@
-@@MISSING 10649@@
-@@MISSING 10650@@
-@@MISSING 10651@@
-@@MISSING 10652@@
-@@MISSING 10653@@
-@@MISSING 10654@@
-@@MISSING 10655@@
-@@MISSING 10656@@
-@@MISSING 10657@@
-@@MISSING 10658@@
-@@MISSING 10659@@
-@@MISSING 10660@@
-@@MISSING 10661@@
-@@MISSING 10662@@
-@@MISSING 10663@@
-@@MISSING 10664@@
-@@MISSING 10665@@
-@@MISSING 10666@@
-@@MISSING 10667@@
-@@MISSING 10668@@
-@@MISSING 10669@@
-@@MISSING 10670@@
-@@MISSING 10671@@
-@@MISSING 10672@@
-@@MISSING 10673@@
-@@MISSING 10674@@
-@@MISSING 10675@@
-@@MISSING 10676@@
-@@MISSING 10677@@
-@@MISSING 10678@@
-@@MISSING 10679@@
-@@MISSING 10680@@
-@@MISSING 10681@@
-@@MISSING 10682@@
-@@MISSING 10683@@
-@@MISSING 10684@@
-@@MISSING 10685@@
-@@MISSING 10686@@
-@@MISSING 10687@@
-@@MISSING 10688@@
-@@MISSING 10689@@
-@@MISSING 10690@@
-@@MISSING 10691@@
-@@MISSING 10692@@
-@@MISSING 10693@@
-@@MISSING 10694@@
-@@MISSING 10695@@
-@@MISSING 10696@@
-@@MISSING 10697@@
-@@MISSING 10698@@
-@@MISSING 10699@@
+    /this\.shared\.uCloudTime\.value = this\.time;/.test(weather));
+  ok('and casts nothing when no deck is drawn',
+    /uCloudCover\.value = this\.deck\.visible \? this\.state\.cloudCover : 0;/.test(weather));
+  ok('the shadow darkens the sun, not the sky',
+    /uSunColor \* wrapped \* shade/.test(shaders));
+}
+
+console.log('\nno seam where two zooms meet');
+{
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  // Resolving *something* was treated as being fine. A tile could sit at
+  // sixty-four times magnification off a distant ancestor for as long as its
+  // own photograph took to arrive, because the ancestor request only ran when
+  // there was nothing at all — so the intermediate zooms were never asked for.
+  // Beside a tile that did get its own photograph, that is a hard straight
+  // line across the sea, and no amount of geometry work would have removed it.
+  ok('a heavily stretched tile still asks for the zooms in between',
+    /if \(resolved\.scale < 0\.25\) this\.streamer\.requestAncestors\(node\.tile, priority\);/.test(terrain));
+  ok('and a tile with nothing at all still asks for them too',
+    /uHasTexture\.value = 0;[\s\S]{0,700}requestAncestors\(node\.tile, priority\)/.test(terrain));
+}
+
+console.log('\nApple Maps, for the parts Apple actually publishes');
+{
+  const { appleMaps } = await import('../src/geo/appleMaps.js');
+  const { settings: S } = await import('../src/core/settings.js');
+  const before = S.get('appleMapsToken');
+
+  S.set('appleMapsToken', '');
+  ok('nothing happens without a token', !appleMaps.available);
+  let threw = '';
+  await appleMaps.accessToken().catch((e) => { threw = String(e.message); });
+  ok('and asking for one says so plainly rather than hanging',
+    /no Apple Maps token/.test(threw), threw);
+
+  S.set('appleMapsToken', '  eyJhbGciOiJFUzI1NiJ9.test  ');
+  ok('a pasted token is trimmed before use', appleMaps.token === 'eyJhbGciOiJFUzI1NiJ9.test');
+  ok('and switches the source on', appleMaps.available);
+
+  // Minting is cached against the token it was minted from, so replacing the
+  // token in Settings cannot leave a stale access token in play.
+  appleMaps.access = 'stale';
+  appleMaps.mintedFrom = 'a-different-token';
+  appleMaps.expires = performance.now() + 1e6;
+  ok('a replaced token invalidates the access token it minted',
+    appleMaps.mintedFrom !== appleMaps.token);
+
+  S.set('appleMapsToken', before ?? '');
+  appleMaps.access = '';
+  appleMaps.mintedFrom = '';
+  appleMaps.expires = 0;
+
+  const client = readFileSync(new URL('../src/geo/appleMaps.js', import.meta.url), 'utf8');
+  ok('the Server API is called, not a tile endpoint that does not exist',
+    /https:\/\/maps-api\.apple\.com\/v1/.test(client) &&
+    !/tile|satellite|elevation/i.test(client.replace(/\/\*[\s\S]*?\*\//g, '')));
+  const geo = readFileSync(new URL('../src/geo/geocode.js', import.meta.url), 'utf8');
+  ok('and it takes precedence over the keyless fallback when present',
+    /if \(appleMaps\.available\)/.test(geo));
+  ok('the credit follows whoever answered',
+    /Geocoding: Apple Maps/.test(readFileSync(new URL('../src/game.js', import.meta.url), 'utf8')));
+}
+
+console.log('\nthe sea is not black');
+{
+  const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+
+  // Deep ocean photographed from orbit really is nearly black — measured over
+  // the Strait of Gibraltar, the raw Esri pixels are (3, 12, 19). What lifts it
+  // is the sky it reflects, and that only runs where the shader knows it is
+  // water. Keying that off surveyed bathymetry meant five of the eighty tiles
+  // standing at sea level in that view got it, and seventy-five did not.
+  ok('water is recognised by the surface being clamped to sea level',
+    /float wet = uMeasured \* \(1\.0 - smoothstep\(0\.0, 2\.0, vHeight\)\);/.test(shaders));
+  ok('and not by whether anyone surveyed the depth under it',
+    !/float wet = smoothstep\(0\.0, 3\.0, depth\);/.test(shaders));
+  ok('with a guard, so unmeasured ground does not come up as ocean',
+    /uMeasured\.value = node\.builtElevZoom >= 0 \? 1 : 0;/.test(terrain));
+
+  // A stand-in and the finer tiles under it are exactly coplanar over flat
+  // water, and the depth test cannot separate them.
+  ok('a stand-in is sunk so the detail wins the depth test',
+    /uSink\.value =\s*\n?\s*node\.tile\.z < requestedTile\.z \? 0\.25 \* \(requestedTile\.z - node\.tile\.z\) : 0;/.test(terrain));
+  ok('by moving it, because polygon offset cannot bias a depth the shader writes',
+    /worldPos\.y -= sink \+ uCurvature/.test(shaders) && !/polygonOffset/.test(terrain));
+
+  // The skirt hides the crack between two levels of detail. The crack is
+  // bounded by the relief along the shared edge, not by how wide the tile
+  // happens to be — and it is measured point by point, so the seaward half of
+  // a coastal tile's edge hangs nothing while the headland half keeps its
+  // curtain. Over open water that is the difference between a dotted grid and
+  // a clean sea: 208 stray dark pixels in a patch of the Strait of Gibraltar
+  // before, 39 after.
+  ok('the skirt is sized by the relief along the edge it has to cover',
+    /drops\[i\] = clamp\(\(hi - lo\) \* 0\.6, 0, cap\);/.test(terrain));
+  ok('so a level stretch of edge hangs no curtain at all',
+    /Math\.max\(0, i - SKIRT_REACH\)/.test(terrain) && !/relief \* 0\.6 \+ 1/.test(terrain));
+  /*
+    And the ceiling on that depth does not decide the answer for the ground.
+
+    Two per cent of the square was what the biggest squares actually got, not
+    what their edges asked for. Measured flying the Himalaya at 31.11N 82.56E,
+    sampling every crack between neighbouring squares and asking how far it
+    runs past the bottom of the curtain hung to cover it:
+
+      worst you look through   ceiling 2%   ceiling 5%
+      over ten samples         27.4 m       0.2 m
+      samples with a leak      2 of 10      0 of 10
+
+    The 27-metre one was two zoom-12 squares eight kilometres across, 194.9
+    metres apart, wearing a 167.5-metre curtain — which is two per cent of
+    8,377 to the decimal. On ordinary ground nothing changes: the edge's own
+    relief is far below either ceiling and is what sets the depth, and a
+    262-metre square's ceiling moves from 12 metres to 13.
+  */
+  ok('and the ceiling on it does not bind before the ground does',
+    /const cap = Math\.max\(12, size \* 0\.05\);/.test(terrain));
+  // Relief is not the only crack an edge has to cover. A rebuilt square is
+  // drawn at its old height and walks to the new one, so for that third of a
+  // second it sits below any neighbour that has already arrived — by however
+  // far it is about to move, which has nothing to do with how rough it is.
+  // The walk is covered too, but not by making the geometry deeper. A walk
+  // lasts a third of a second and geometry lasts until the next rebuild, so a
+  // square that moved a hundred metres wore a hundred-metre curtain for as long
+  // as it stood there — a wall of striped green standing out of the hillside,
+  // which is worse than the crack it was hiding. It hangs in the shader, on the
+  // skirt ring only, and is gone by the time the walk finishes.
+  ok('and the walk is covered by a curtain that lasts as long as the walk',
+    /const edgeWalk = \(vyOf, vxOf\)/.test(terrain)
+    && /walk\[i\] = Math\.abs\(prevY\[vy \* verts \+ vx\] - heights\[gy \* grid \+ gx\]\);/.test(terrain)
+    && /uniforms\.uWalk\.value = startMorph \? walked \* 1\.1 : 0;/.test(terrain));
+  ok('hung on the skirt ring alone, and gone once the walk is done',
+    /sink \+= skirt \* uWalk \* \(1\.0 - uMorph\);/.test(shaders)
+    && /attribute float skirt;/.test(shaders)
+    && /geometry\.setAttribute\('skirt'/.test(terrain));
+  ok('taken along the real edge row, not the skirt row that already hangs',
+    /const skirtTop = edgeDrop\(\(i\) => i, \(\) => 1, \(i\) => i \+ 1\);/.test(terrain));
+  ok('and each of the four edges is measured separately',
+    /const skirtTop = edgeDrop/.test(terrain)
+    && /const skirtBottom = edgeDrop/.test(terrain)
+    && /const skirtLeft = edgeDrop/.test(terrain)
+    && /const skirtRight = edgeDrop/.test(terrain));
+}
+
+console.log('\nmetric or imperial, worked out rather than assumed');
+{
+  const units = readFileSync(new URL('../src/core/units.js', import.meta.url), 'utf8');
+  const settings = readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8');
+
+  ok('the starting units come from the browser, not from a hard-coded default',
+    /units: defaultUnits\(\),/.test(settings) && /import \{ defaultUnits \} from '\.\/units\.js';/.test(settings));
+  ok('and it reads the region out of the language tags',
+    /navigator\.languages/.test(units) && /new Intl\.Locale\(tag\)\.maximize\(\)\.region/.test(units));
+
+  // The four are the whole of it: the United States, Liberia and Myanmar do not
+  // use the metric system for everyday distance, and the United Kingdom still
+  // signs its roads in miles. Everywhere else is metric.
+  const listed = units.match(/IMPERIAL_REGIONS = new Set\(\[([^\]]*)\]\)/);
+  const regions = listed ? listed[1].match(/'[A-Z]{2}'/g).map((r) => r.slice(1, -1)) : [];
+  ok('the imperial list is US, GB, LR and MM',
+    regions.join(',') === 'US,GB,LR,MM', regions.join(','));
+
+  // Intl is what does the work, so check it lands where the code expects. A
+  // bare 'en' maximizes to the United States, which is why the tag has to be
+  // taken as the browser gives it rather than trimmed to a language.
+  const regionOf = (tag) => new Intl.Locale(tag).maximize().region;
+  ok('en-US is a region the browser can name', regionOf('en-US') === 'US');
+  ok('en-GB too', regionOf('en-GB') === 'GB');
+  ok('and a bare language still resolves', regionOf('fr') === 'FR' && regionOf('ja') === 'JP');
+  ok('so France and Japan come out metric',
+    !regions.includes(regionOf('fr')) && !regions.includes(regionOf('ja')));
+  ok('and the United States comes out imperial', regions.includes(regionOf('en-US')));
+  ok('metric is what you get when nothing can be read',
+    /\} catch \{[\s\S]*?\}\s*return 'metric';/.test(units));
+}
+
+console.log('\none north marker on the minimap, not two');
+{
+  const minimap = readFileSync(new URL('../src/ui/minimap.js', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../styles/main.css', import.meta.url), 'utf8');
+  const renderer = readFileSync(new URL('../src/ui/mapRenderer.js', import.meta.url), 'utf8');
+
+  // There used to be an HTML "N" pinned over the corner as well as the compass
+  // the canvas draws. With the map rotating under it the two disagreed: the
+  // HTML one turned with the map, the drawn one stayed with the compass.
+  ok('the HTML north label is gone', !/minimap-north/.test(minimap) && !/minimap-north/.test(css));
+  ok('and nothing still tries to rotate it', !/northLabel/.test(minimap));
+  ok('the canvas compass is the one that is left',
+    /compass: true,/.test(minimap) && /function drawCompass/.test(renderer));
 @@MISSING 10700@@
 @@MISSING 10701@@
 @@MISSING 10702@@
@@ -10836,7 +10836,7 @@
 @@MISSING 10836@@
 @@MISSING 10837@@
 @@MISSING 10838@@
-@@MISSING 10839@@
+  // the Alps at 2 km: the rim was 84 levels off the sky above it, and is now
 @@MISSING 10840@@
 @@MISSING 10841@@
 @@MISSING 10842@@
@@ -10871,24 +10871,24 @@
 @@MISSING 10871@@
 @@MISSING 10872@@
 @@MISSING 10873@@
-@@MISSING 10874@@
-@@MISSING 10875@@
-@@MISSING 10876@@
-@@MISSING 10877@@
-@@MISSING 10878@@
-@@MISSING 10879@@
-@@MISSING 10880@@
-@@MISSING 10881@@
-@@MISSING 10882@@
-@@MISSING 10883@@
-@@MISSING 10884@@
-@@MISSING 10885@@
-@@MISSING 10886@@
-@@MISSING 10887@@
-@@MISSING 10888@@
-@@MISSING 10889@@
-@@MISSING 10890@@
-@@MISSING 10891@@
+  // their shared edge while the middle — all the finer tiles ever cover — sinks
+  // as far as it ever did. Both measurements then read zero.
+  ok('the stand-in sink tapers to nothing at the tile edge',
+    /float edgeFade = min\(min\(uv\.x, 1\.0 - uv\.x\), min\(uv\.y, 1\.0 - uv\.y\)\);/.test(shaders)
+    && /float sink = uSink \* smoothstep\(0\.0, 0\.03, edgeFade\);/.test(shaders));
+  ok('and it is the tapered sink that moves the geometry, not the flat one',
+    /worldPos\.y -= sink \+ uCurvature/.test(shaders) && !/worldPos\.y -= uSink \+/.test(shaders));
+  ok('so a level edge that did not move still hangs no curtain at all',
+    /drops\[i\] = clamp\(\(hi - lo\) \* 0\.6, 0, cap\);/.test(terrain));
+}
+console.log('\nthe world map is not a black square');
+{
+  const tiles = readFileSync(new URL('../src/ui/mapTiles.js', import.meta.url), 'utf8');
+  const world = readFileSync(new URL('../src/ui/worldmap.js', import.meta.url), 'utf8');
+  const renderer = readFileSync(new URL('../src/ui/mapRenderer.js', import.meta.url), 'utf8');
+
+  // Open the world map over a city and it drew nothing: an empty grid with a
+  // compass on it. Two faults, both of them about what happens before a tile
 @@MISSING 10892@@
 @@MISSING 10893@@
 @@MISSING 10894@@
@@ -10915,75 +10915,75 @@
 @@MISSING 10915@@
 @@MISSING 10916@@
 @@MISSING 10917@@
-@@MISSING 10918@@
-@@MISSING 10919@@
-@@MISSING 10920@@
-@@MISSING 10921@@
-@@MISSING 10922@@
-@@MISSING 10923@@
-@@MISSING 10924@@
-@@MISSING 10925@@
-@@MISSING 10926@@
-@@MISSING 10927@@
-@@MISSING 10928@@
-@@MISSING 10929@@
-@@MISSING 10930@@
-@@MISSING 10931@@
-@@MISSING 10932@@
-@@MISSING 10933@@
-@@MISSING 10934@@
-@@MISSING 10935@@
-@@MISSING 10936@@
-@@MISSING 10937@@
-@@MISSING 10938@@
-@@MISSING 10939@@
-@@MISSING 10940@@
-@@MISSING 10941@@
-@@MISSING 10942@@
-@@MISSING 10943@@
-@@MISSING 10944@@
-@@MISSING 10945@@
-@@MISSING 10946@@
-@@MISSING 10947@@
-@@MISSING 10948@@
-@@MISSING 10949@@
-@@MISSING 10950@@
-@@MISSING 10951@@
-@@MISSING 10952@@
-@@MISSING 10953@@
-@@MISSING 10954@@
-@@MISSING 10955@@
-@@MISSING 10956@@
-@@MISSING 10957@@
-@@MISSING 10958@@
-@@MISSING 10959@@
-@@MISSING 10960@@
-@@MISSING 10961@@
-@@MISSING 10962@@
-@@MISSING 10963@@
-@@MISSING 10964@@
-@@MISSING 10965@@
-@@MISSING 10966@@
-@@MISSING 10967@@
-@@MISSING 10968@@
-@@MISSING 10969@@
-@@MISSING 10970@@
-@@MISSING 10971@@
-@@MISSING 10972@@
-@@MISSING 10973@@
-@@MISSING 10974@@
-@@MISSING 10975@@
-@@MISSING 10976@@
-@@MISSING 10977@@
-@@MISSING 10978@@
-@@MISSING 10979@@
-@@MISSING 10980@@
-@@MISSING 10981@@
-@@MISSING 10982@@
-@@MISSING 10983@@
-@@MISSING 10984@@
-@@MISSING 10985@@
-@@MISSING 10986@@
+  ok('and so does exploring somewhere new',
+    /this\.exploration\.on\('change', \(\) => \{/.test(world));
+
+  // A drawn map with no photography on it at all, for reading rather than
+  // looking at.
+  ok('the world map can be asked for the drawn map only',
+    /data-drawn/.test(world) && /mapDrawnOnly/.test(world));
+  ok('and the renderer draws just the street layer when it is',
+    /const drawnOnly = !!options\.drawnOnly && !!layers\.street;/.test(renderer)
+    && /if \(drawnOnly\) \{\n    paint\(ctx, layers\.street/.test(renderer));
+}
+
+console.log('\nbuildings wear the roof the survey gave them');
+{
+  const b = readFileSync(new URL('../src/world/buildings.js', import.meta.url), 'utf8');
+
+  // OpenStreetMap records roof:shape on a great many buildings and it was all
+  // being thrown away: every building was a box with a flat lid. A gabled house
+  // twelve metres tall with a four-metre roof now comes out as fourteen
+  // triangles — eight of wall, four of slope, two of gable end — measured in
+  // the browser, with its apex four metres above its eaves.
+  ok('the roof shape is read from the survey',
+    /tags\['roof:shape'\]/.test(b) && /tags\['roof:height'\]/.test(b) && /tags\['roof:levels'\]/.test(b));
+  ok('and a part that starts above the ground starts there',
+    /tags\.min_height/.test(b) && /tags\['building:min_level'\]/.test(b));
+  ok('walls stop at the eaves rather than running through the roof',
+    /const eaves = base \+ height - roofHeight;/.test(b));
+  ok('ridges, hips, lean-tos, pyramids and domes are all built',
+    /gabled\|round\|hipped/.test(b) && /skillion\|lean_to/.test(b) && /dome\|onion\|round/.test(b));
+
+  // The one rule: no shape without a surveyed height for it. "Gabled" with no
+  // roof height would mean choosing one, and choosing one is inventing.
+  ok('but nothing is drawn without a height that was surveyed',
+    /roofHeight > 0\.2 && roofShape && roofShape !== 'flat'/.test(b));
+}
+console.log('\nthe grid over the sea was the depth tint');
+{
+  const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
+  const settings = readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8');
+
+  // The water was tinted darker and bluer with depth, from a sea bed that
+  // arrives as a per-vertex attribute. So the tint is a piecewise-linear field
+  // sampled on the terrain mesh, and two tiles at different levels of detail
+  // sample it at different resolutions: along every edge where they meet, it
+  // steps. Amplified six times, the difference the tint made is bounded by
+  // hard polygon edges with square corners, and it moved 39,104 pixels of open
+  // sea by up to 77 levels. That is the dotted grid, the wedges and the long
+  // straight lines, all of it.
+  //
+  // A photograph of the sea from orbit already shows deep water dark and a
+  // sandbank pale — over the Strait the raw Esri pixels run from (3, 12, 19) in
+  // the channel to (150, 168, 170) over the Tarifa shallows. Nothing replaces
+  // it because nothing needs to.
+  ok('the water is not tinted by a per-vertex sea bed',
+    !/smoothstep\(2\.0, 900\.0, depth\)/.test(shaders) && !/float depth = max\(0\.0, -vBed\)/.test(shaders));
+  ok('and the sea is still lifted by the sky it reflects, which is per-fragment',
+    /float fresnel = 0\.08 \+ 0\.92 \* pow\(1\.0 - facing, 5\.0\);/.test(shaders));
+
+  // Half the ground was drawn from a stretched ancestor for the first half
+  // minute because the request width was set for the six-connections-per-host
+  // era. Flying the Strait and counting the share of drawn ground wearing its
+  // own photograph: 41% / 42% / 49% at 4, 12 and 24 seconds before; 71% / 81% /
+  // 87% after.
+  ok('the streamer is allowed enough requests in flight to fill the ground',
+    /maxConcurrentRequests: 26,/.test(settings) && !/maxConcurrentRequests: 6,/.test(settings));
+}
+console.log('\nwhat you uncover is a circle');
+{
+  const e = readFileSync(new URL('../src/ui/exploration.js', import.meta.url), 'utf8');
 @@MISSING 10987@@
 @@MISSING 10988@@
 @@MISSING 10989@@
@@ -11042,142 +11042,142 @@
 @@MISSING 11042@@
 @@MISSING 11043@@
 @@MISSING 11044@@
-@@MISSING 11045@@
-@@MISSING 11046@@
-@@MISSING 11047@@
-@@MISSING 11048@@
-@@MISSING 11049@@
-@@MISSING 11050@@
-@@MISSING 11051@@
-@@MISSING 11052@@
-@@MISSING 11053@@
-@@MISSING 11054@@
-@@MISSING 11055@@
-@@MISSING 11056@@
-@@MISSING 11057@@
-@@MISSING 11058@@
-@@MISSING 11059@@
-@@MISSING 11060@@
-@@MISSING 11061@@
-@@MISSING 11062@@
-@@MISSING 11063@@
-@@MISSING 11064@@
-@@MISSING 11065@@
-@@MISSING 11066@@
-@@MISSING 11067@@
-@@MISSING 11068@@
-@@MISSING 11069@@
-@@MISSING 11070@@
-@@MISSING 11071@@
-@@MISSING 11072@@
-@@MISSING 11073@@
-@@MISSING 11074@@
-@@MISSING 11075@@
-@@MISSING 11076@@
-@@MISSING 11077@@
-@@MISSING 11078@@
-@@MISSING 11079@@
-@@MISSING 11080@@
-@@MISSING 11081@@
-@@MISSING 11082@@
-@@MISSING 11083@@
-@@MISSING 11084@@
-@@MISSING 11085@@
-@@MISSING 11086@@
-@@MISSING 11087@@
-@@MISSING 11088@@
-@@MISSING 11089@@
-@@MISSING 11090@@
-@@MISSING 11091@@
-@@MISSING 11092@@
-@@MISSING 11093@@
-@@MISSING 11094@@
-@@MISSING 11095@@
-@@MISSING 11096@@
-@@MISSING 11097@@
-@@MISSING 11098@@
-@@MISSING 11099@@
-@@MISSING 11100@@
-@@MISSING 11101@@
-@@MISSING 11102@@
-@@MISSING 11103@@
-@@MISSING 11104@@
-@@MISSING 11105@@
-@@MISSING 11106@@
-@@MISSING 11107@@
-@@MISSING 11108@@
-@@MISSING 11109@@
-@@MISSING 11110@@
-@@MISSING 11111@@
-@@MISSING 11112@@
-@@MISSING 11113@@
-@@MISSING 11114@@
-@@MISSING 11115@@
-@@MISSING 11116@@
-@@MISSING 11117@@
-@@MISSING 11118@@
-@@MISSING 11119@@
-@@MISSING 11120@@
-@@MISSING 11121@@
-@@MISSING 11122@@
-@@MISSING 11123@@
-@@MISSING 11124@@
-@@MISSING 11125@@
-@@MISSING 11126@@
-@@MISSING 11127@@
-@@MISSING 11128@@
-@@MISSING 11129@@
-@@MISSING 11130@@
-@@MISSING 11131@@
-@@MISSING 11132@@
-@@MISSING 11133@@
-@@MISSING 11134@@
-@@MISSING 11135@@
-@@MISSING 11136@@
-@@MISSING 11137@@
-@@MISSING 11138@@
-@@MISSING 11139@@
-@@MISSING 11140@@
-@@MISSING 11141@@
-@@MISSING 11142@@
-@@MISSING 11143@@
-@@MISSING 11144@@
-@@MISSING 11145@@
-@@MISSING 11146@@
-@@MISSING 11147@@
-@@MISSING 11148@@
-@@MISSING 11149@@
-@@MISSING 11150@@
-@@MISSING 11151@@
-@@MISSING 11152@@
-@@MISSING 11153@@
-@@MISSING 11154@@
-@@MISSING 11155@@
-@@MISSING 11156@@
-@@MISSING 11157@@
-@@MISSING 11158@@
-@@MISSING 11159@@
-@@MISSING 11160@@
-@@MISSING 11161@@
-@@MISSING 11162@@
-@@MISSING 11163@@
-@@MISSING 11164@@
-@@MISSING 11165@@
-@@MISSING 11166@@
-@@MISSING 11167@@
-@@MISSING 11168@@
-@@MISSING 11169@@
-@@MISSING 11170@@
-@@MISSING 11171@@
-@@MISSING 11172@@
-@@MISSING 11173@@
-@@MISSING 11174@@
-@@MISSING 11175@@
+    /new SeaFloor\(this\.scene, this\.shared\)/.test(game)
+    && /this\.seaFloor\.update\(this\.camera, this\.terrain\.farDistance\)/.test(game));
+
+  // And it paints sea only. A disc a hundred kilometres across, twelve metres
+  // under sea level, is far below the Spanish plateau and therefore hidden by
+  // it — right up until you arrive and the ground has not streamed in yet.
+  // Then it was what showed through: twelve point eight per cent of the frame
+  // slate blue at twenty-five seconds over the Meseta, against two point three
+  // with no sheet at all. Two point two now.
+  ok('and only over ground the elevation field says is sea',
+    /uniform sampler2D uMask/.test(sea)
+    && /texture2D\(uMask, muv\)\.r < 0\.5\) discard/.test(sea));
+  ok('with unmeasured ground left alone rather than claimed',
+    /hasDataAt\(nx, ny, MASK_ZOOM\)/.test(sea)
+    && /const sea =\s*\n?\s*known &&/.test(sea));
+  ok('the mask is published whole, never half of one sweep and half of another',
+    /this\.sweepRow >= MASK/.test(sea)
+    && /this\.maskTexture\.image\.data\.set\(this\.pending\)/.test(sea));
+  ok('and nothing is drawn before the first sweep lands',
+    /uHasMask < 0\.5\) discard/.test(sea));
+  ok('the game sweeps it off the same elevation the ground is built from',
+    /this\.seaFloor\.updateMask\(this\.terrain, this\.camera, this\.terrain\.farDistance\)/.test(game));
+
+  // Reading it from zoom nine rather than the finest tile loaded saves six
+  // levels of walking down the pyramid, sixteen thousand times a sweep, for an
+  // answer that is thrown away at a kilometre and a half a texel anyway.
+  const elev = readFileSync(new URL('../src/tiles/elevation.js', import.meta.url), 'utf8');
+  ok('and the field can be asked coarsely, which is what that costs less',
+    /sampleCoarse\(nx, ny, topZoom\)/.test(elev)
+    && /hasDataAt\(nx, ny, topZoom = this\.maxZoom\)/.test(elev));
+}
+console.log('\nthe world ends on a squircle');
+{
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+
+  // A circle is the honest shape for "how far can I see", but a screen is not
+  // round: the corners of the view are the first place a circular edge shows
+  // itself. A squircle of exponent four keeps the setting's distance along the
+  // axes and reaches 1.19 times further on the diagonals, which costs a few per
+  // cent of the tiles and keeps the horizon still as you turn.
+  ok('the cull is a squircle, not a circle or a square',
+    /squircle\(dx, dz\)/.test(terrain) && /Math\.pow\(c \* c \* c \* c \+ s \* s \* s \* s, 0\.25\)/.test(terrain));
+  ok('and the far edge follows the same shape',
+    /this\.farDistance \* this\.squircle\(dx, dz\)/.test(terrain));
+  ok('so the wall that closes the world lands on it rather than inside it',
+    /this\.edgeProfile\[i\] = renderDistance \* this\.squircle\(/.test(terrain));
+  ok('a tile the camera is standing in gets one rather than a divide by zero',
+    /if \(r < 1e-6\) return 1;/.test(terrain));
+
+  // Checked in the browser over the Strait: the recorded reach per sector came
+  // back 91.4 km along the axes and 117.6 km on the diagonals.
+}
+console.log('\nThe HUD only shows what is happening');
+{
+  const hud = readFileSync(new URL('../src/ui/hud.js', import.meta.url), 'utf8');
+  // The surge gauge sat there permanently reading "Ready" — a box, a title, a
+  // keycap and a bar spent saying that nothing is happening. It appears while
+  // the burst runs, while you are still coasting on it, and while it recharges,
+  // all three of which are a number counting down, and is gone otherwise.
+  ok('the surge gauge is hidden unless it has something to count',
+    /const surgeBusy = player\.speedActive \|\| coasting \|\| player\.speedCooldown > 0;/.test(hud)
+    && /this\.setHidden\('speed-gauge', !surgeBusy\)/.test(hud));
+  ok('and the numbers you fly by are only there while you are flying',
+    /player\.mode === 'glide' \|\| player\.mode === 'fall' \|\| player\.mode === 'fly'/.test(hud)
+    && /this\.setHidden\('glide', !flying\)/.test(hud)
+    && /this\.setHidden\('pitch', !flying\)/.test(hud));
+  ok('hiding goes through `hidden`, so a hidden row takes no space',
+    /node\.hidden = hide;/.test(hud) && /setHidden\(id, hide\)/.test(hud));
+  ok('and it is cached like the text, so it is not written every frame',
+    /const key = `\$\{id\}:hidden`;/.test(hud));
+  // Checked in the browser, four states in one flight: on the ground the surge
+  // box, the glide angle and the pitch are all gone; gliding brings the angle
+  // and the pitch back; lighting the surge shows the box reading "2x . 10.9s";
+  // once spent it stays, counting the recharge down from 21s.
+}
+
+console.log('\nThe size keys change your size');
+{
+  const { cheats } = await import('../src/core/cheats.js');
+  const { settings: S } = await import('../src/core/settings.js');
+  const { clamp: clampM } = await import('../src/core/math.js');
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+
+  // Both size keys did nothing, in every build, and said so in a way nobody
+  // would read as a bug: `player.scale` reads cheats.playerScale, and the
+  // keybind was left behind pointing at settings, where there is no
+  // `playerScale` at all. undefined * 1.12 is NaN, and clamp passes NaN
+  // straight through because NaN < lo and NaN > hi are both false. The result
+  // was written to a setting nothing reads and the toast said "Size NaNx".
+  ok('there is still no playerScale setting to point at',
+    S.get('playerScale') === undefined);
+  ok('and clamp really does pass NaN through, which is how it got this far',
+    Number.isNaN(clampM(NaN, 0.25, 40)));
+  ok('so the key writes the store the player reads',
+    /cheats\.set\('playerScale', this\.player\.scale \* factor\)/.test(game)
+    && !/settings\.get\('playerScale'\)/.test(game));
+
+  {
+    const before = cheats.playerScale;
+    cheats.set('playerScale', 1);
+    cheats.set('playerScale', 1 * 1.12 * 1.12);
+    ok(`two steps up is 1.12 squared  (${cheats.playerScale.toFixed(4)})`,
+      Math.abs(cheats.playerScale - 1.2544) < 1e-6);
+    // The store refuses what the old path produced, which is the second reason
+    // this never blew up loudly.
+    const kept = cheats.playerScale;
+    cheats.set('playerScale', NaN);
+    ok('and a NaN is refused rather than stored', cheats.playerScale === kept);
+    cheats.set('playerScale', 500);
+    ok(`clamped at the top  (${cheats.playerScale})`, cheats.playerScale === 40);
+    cheats.set('playerScale', before);
+  }
+
+  // Being tall is not cheating: it is a designed feature with its own keybind
+  // and a permanent row in the HUD, so it must not light the cheat indicator.
+  {
+    const before = cheats.playerScale;
+    cheats.lock();
+    ok('nothing is flagged to start with', cheats.active === false);
+    cheats.set('playerScale', 3);
+    ok('resizing does not turn the cheat flag on', cheats.active === false);
+    ok('and does not appear in the label list', !cheats.labels.some((l) => /size/i.test(l)));
+    cheats.set('playerSpeed', 4);
+    ok('while an actual cheat does', cheats.active === true);
+    cheats.lock();
+    ok('and locking puts the size back with everything else', cheats.playerScale === 1);
+    cheats.set('playerScale', before);
+  }
+
+  // I20 asked for it in the cheat panel as well as on the keys.
+  const panel = readFileSync(new URL('../src/ui/cheatPanel.js', import.meta.url), 'utf8');
 @@MISSING 11176@@
 @@MISSING 11177@@
 @@MISSING 11178@@
 @@MISSING 11179@@
-@@MISSING 11180@@
+    // Constructed from storage; this is a test, so start it empty.
 @@MISSING 11181@@
 @@MISSING 11182@@
 @@MISSING 11183@@
@@ -11366,20 +11366,20 @@
 @@MISSING 11366@@
 @@MISSING 11367@@
 @@MISSING 11368@@
-@@MISSING 11369@@
+  const { BODIES } = await import('../src/geo/bodies.js');
 @@MISSING 11370@@
 @@MISSING 11371@@
 @@MISSING 11372@@
-@@MISSING 11373@@
+  const full = skyFrame(BODIES.moon, new Date('2024-01-25T17:54:00Z'), 0, 0);
 @@MISSING 11374@@
-@@MISSING 11375@@
+  const fresh = skyFrame(BODIES.moon, new Date('2024-01-11T11:57:00Z'), 0, 0);
 @@MISSING 11376@@
-@@MISSING 11377@@
+  const quarter = skyFrame(BODIES.moon, new Date('2024-01-18T03:53:00Z'), 0, 0);
 @@MISSING 11378@@
 @@MISSING 11379@@
 @@MISSING 11380@@
 @@MISSING 11381@@
-@@MISSING 11382@@
+  const base = skyFrame(BODIES.moon, new Date(), BODIES.moon.spawn.lat, BODIES.moon.spawn.lon);
 @@MISSING 11383@@
 @@MISSING 11384@@
 @@MISSING 11385@@
@@ -11397,21 +11397,21 @@
 @@MISSING 11397@@
 @@MISSING 11398@@
 @@MISSING 11399@@
-@@MISSING 11400@@
+  const p = place(polaris, skyFrame(BODIES.earth, new Date('2024-06-21T22:00:00Z'), 51.5, 0));
 @@MISSING 11401@@
 @@MISSING 11402@@
-@@MISSING 11403@@
+  const s = place(sirius, skyFrame(BODIES.earth, new Date('2024-01-01T00:00:00Z'), 51.5, 0));
 @@MISSING 11404@@
 @@MISSING 11405@@
 @@MISSING 11406@@
 @@MISSING 11407@@
-@@MISSING 11408@@
+  const mars = skyFrame(BODIES.mars, new Date(), 18.44, 77.45, 10.5);
 @@MISSING 11409@@
-@@MISSING 11410@@
-@@MISSING 11411@@
+  const venus = skyFrame(BODIES.venus, new Date(), 0, 0, 9);
+  const moon = skyFrame(BODIES.moon, new Date(), 0, 0, 9);
 @@MISSING 11412@@
 @@MISSING 11413@@
-@@MISSING 11414@@
+    Object.values(BODIES).every((b) => Array.isArray(b.pole) && Array.isArray(b.spin) && typeof b.orbit === 'string'));
 @@MISSING 11415@@
 @@MISSING 11416@@
 @@MISSING 11417@@
@@ -11424,12 +11424,12 @@
 @@MISSING 11424@@
 @@MISSING 11425@@
 @@MISSING 11426@@
-@@MISSING 11427@@
+console.log('\nother worlds: gravity and air');
 @@MISSING 11428@@
-@@MISSING 11429@@
-@@MISSING 11430@@
+  const { BODIES, aeroFactor, gravityRatio } = await import('../src/geo/bodies.js');
+  const env = (id) => ({ gravity: gravityRatio(BODIES[id]), air: aeroFactor(BODIES[id]) });
 @@MISSING 11431@@
-@@MISSING 11432@@
+    env('earth').gravity === 1 && env('earth').air === 1);
 @@MISSING 11433@@
 @@MISSING 11434@@
 @@MISSING 11435@@
@@ -11443,16 +11443,16 @@
 @@MISSING 11443@@
 @@MISSING 11444@@
 @@MISSING 11445@@
-@@MISSING 11446@@
-@@MISSING 11447@@
+  const expected = 0.08 * env('moon').gravity * 400 * 20;
+  ok('and the fall is exactly the Moon’s gravity, tick for tick', Math.abs(-moon.y - expected) < 1e-6);
 @@MISSING 11448@@
 @@MISSING 11449@@
 @@MISSING 11450@@
 @@MISSING 11451@@
 @@MISSING 11452@@
 @@MISSING 11453@@
-@@MISSING 11454@@
-@@MISSING 11455@@
+  ok('walking and falling use the same gravity and air',
+    /GRAVITY \* this\.env\.gravity \* step/.test(controller)
 @@MISSING 11456@@
 @@MISSING 11457@@
 @@MISSING 11458@@
@@ -11477,57 +11477,57 @@
 @@MISSING 11477@@
 @@MISSING 11478@@
 @@MISSING 11479@@
-@@MISSING 11480@@
+  const { BODIES } = await import('../src/geo/bodies.js');
 @@MISSING 11481@@
 @@MISSING 11482@@
 @@MISSING 11483@@
 @@MISSING 11484@@
-@@MISSING 11485@@
-@@MISSING 11486@@
-@@MISSING 11487@@
-@@MISSING 11488@@
-@@MISSING 11489@@
-@@MISSING 11490@@
-@@MISSING 11491@@
-@@MISSING 11492@@
-@@MISSING 11493@@
-@@MISSING 11494@@
-@@MISSING 11495@@
-@@MISSING 11496@@
-@@MISSING 11497@@
-@@MISSING 11498@@
-@@MISSING 11499@@
-@@MISSING 11500@@
-@@MISSING 11501@@
-@@MISSING 11502@@
-@@MISSING 11503@@
-@@MISSING 11504@@
-@@MISSING 11505@@
-@@MISSING 11506@@
-@@MISSING 11507@@
-@@MISSING 11508@@
-@@MISSING 11509@@
-@@MISSING 11510@@
-@@MISSING 11511@@
-@@MISSING 11512@@
-@@MISSING 11513@@
-@@MISSING 11514@@
-@@MISSING 11515@@
-@@MISSING 11516@@
-@@MISSING 11517@@
-@@MISSING 11518@@
-@@MISSING 11519@@
-@@MISSING 11520@@
-@@MISSING 11521@@
-@@MISSING 11522@@
-@@MISSING 11523@@
-@@MISSING 11524@@
-@@MISSING 11525@@
-@@MISSING 11526@@
-@@MISSING 11527@@
-@@MISSING 11528@@
-@@MISSING 11529@@
-@@MISSING 11530@@
+  ok('and Tycho', searchFeatures('moon', 'tycho')[0]?.label === 'Tycho crater');
+  const unnamed = Object.values(BODIES).filter((b) => b.id !== 'earth' && !describePlace(b.id, b.spawn.lat, b.spawn.lon));
+  ok(`every landing site has a named place by it  (${unnamed.map((b) => b.id).join(', ') || 'all'})`, unnamed.length === 0);
+  const wide = Object.values(BODIES).filter((b) => b.id !== 'earth').every((b) => featuresOn(b.id).every((f) => [...f.name].every((ch) => ch.codePointAt(0) <= 0xff)));
+  ok('every name is drawable in any font (Latin-1)', wide);
+  let calls = 0;
+  const picked = randomFeature('moon', 5, () => (calls++, 0.5));
+  ok('a random teleport off Earth lands on a named feature', !!picked?.label && Number.isFinite(picked.lat) && calls === 1);
+}
+
+console.log('\nthe teleport menu');
+{
+  const { matchRank } = await import('../src/ui/teleportMenu.js');
+  ok('an exact name beats a prefix, a prefix beats the middle of a name',
+    matchRank('Al', 'al') < matchRank('Alex', 'al') && matchRank('Alex', 'al') < matchRank('Sal', 'al'));
+  ok('and a name without the letters is not on the list', matchRank('Bruno', 'zq') === Infinity);
+  ok('with nothing typed, everybody is', Number.isFinite(matchRank('Bruno', '  ')));
+  const menu = readFileSync(new URL('../src/ui/teleportMenu.js', import.meta.url), 'utf8');
+  ok('it sends the same commands chat does', /`\/tpa \$\{name\}`/.test(menu) && /`\/tpahere \$\{name\}`/.test(menu));
+  ok('and only an admin is offered the ones that do not ask', /this\.session\.you\?\.admin \? \[\.\.\.MODES, \.\.\.ADMIN_MODES\] : MODES/.test(menu));
+}
+
+console.log('\nthe last review: flight off Earth, relief, players from a server');
+{
+  const { BODIES, aeroFactor, gravityRatio, terminalSpeed } = await import('../src/geo/bodies.js');
+  const env = (id, limit) => ({ gravity: gravityRatio(BODIES[id]), air: aeroFactor(BODIES[id]), glideLimit: limit });
+  // Ten minutes of level glide, the fall held at terminal as the controller holds it.
+  const glide = (e, terminal, ticks = 20 * 600) => {
+    const v = { x: 0, y: 0, z: -30 };
+    const look = { x: 0, y: 0, z: -1 };
+    let top = 0;
+    for (let t = 0; t < ticks; t++) {
+      stepGlide(v, look, 0, e);
+      if (v.y < -terminal) v.y = -terminal;
+      top = Math.max(top, Math.hypot(v.x, v.z));
+    }
+    return { v, top };
+  };
+  const mars = terminalSpeed(BODIES.mars);
+  const capped = glide(env('mars', mars), mars);
+  const uncapped = glide(env('mars', Infinity), mars);
+  ok(`a long glide on Mars stops at its terminal speed  (${capped.top.toFixed(0)} m/s, ${uncapped.top.toFixed(0)} without the limit)`,
+    capped.top <= mars + 0.5 && uncapped.top > 2 * mars);
+  const a = glide(env('earth', Infinity), Infinity, 400).v;
+  const b = glide({ gravity: 1, air: 1 }, Infinity, 400).v;
+  ok('and Earth\'s glide is the same to the last bit', a.x === b.x && a.y === b.y && a.z === b.z);
 @@MISSING 11531@@
 @@MISSING 11532@@
 @@MISSING 11533@@
@@ -11550,7 +11550,7 @@
 @@MISSING 11550@@
 @@MISSING 11551@@
 @@MISSING 11552@@
-@@MISSING 11553@@
+  const { tiffRowsHeights } = await import('../src/tiles/planetary.js');
 @@MISSING 11554@@
 @@MISSING 11555@@
 @@MISSING 11556@@
