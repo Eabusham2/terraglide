@@ -1,0 +1,83 @@
+[
+ {
+  "at": 443,
+  "gapLines": 49,
+  "filledLines": 41,
+  "from": "cat (whole file)",
+  "t": "2026-10-09T02:14:16.076687Z"
+ },
+ {
+  "at": 485,
+  "gapLines": 42,
+  "filledLines": 41,
+  "from": "cat (whole file)",
+  "t": "2026-10-09T02:14:16.076687Z"
+ },
+ {
+  "at": 538,
+  "gapLines": 8,
+  "filledLines": 0,
+  "from": null
+ },
+ {
+  "at": 547,
+  "gapLines": 24,
+  "filledLines": 0,
+  "from": null
+ },
+ {
+  "at": 572,
+  "gapLines": 14,
+  "filledLines": 0,
+  "from": null
+ },
+ {
+  "at": 587,
+  "gapLines": 10,
+  "filledLines": 0,
+  "from": null
+ },
+ {
+  "at": 598,
+  "gapLines": 12,
+  "filledLines": 0,
+  "from": null
+ },
+ {
+  "at": 611,
+  "gapLines": 23,
+  "filledLines": 0,
+  "from": null
+ },
+ {
+  "at": 636,
+  "gapLines": 10,
+  "filledLines": 9,
+  "from": "cat (whole file)",
+  "t": "2026-10-09T02:14:16.076687Z"
+ },
+ {
+  "at": 781,
+  "gapLines": 22,
+  "filledLines": 0,
+  "from": null
+ },
+ {
+  "at": 804,
+  "gapLines": 14,
+  "filledLines": 0,
+  "from": null
+ },
+ {
+  "at": 819,
+  "gapLines": 5,
+  "filledLines": 0,
+  "from": null
+ },
+ {
+  "at": 825,
+  "gapLines": 16,
+  "filledLines": 0,
+  "from": null
+ }
+]
