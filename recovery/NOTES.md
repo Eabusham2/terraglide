@@ -93,14 +93,14 @@ New files:
 
 Changed tracked files (base = 2c7ee70):
 - [x] .github/workflows/deploy-gh-pages.yml · [x] .gitignore
-- [ ] README.md (696) · [ ] assets/manifest.json · [ ] styles/main.css
+- [ ] README.md (696) · [x] assets/manifest.json (swordNote and sword, from the Oct 9 15:04 print; +2 as the Oct 9 stat says) · [ ] styles/main.css
 - [ ] src/game.js (2957)
 - [x] src/core/cheats.js (218: the commit + the ONLINE import and the unlock() refusal, seen Oct 11) · [x] src/core/keybinds.js (229, whole-file git diff, Oct 7–9) · [~] src/core/settings.js (600: 5 unseen lines left out) · [x] src/core/storage.js (96)
 - [x] src/geo/frame.js (104) · [x] src/geo/mercator.js (155)
 - [~] src/player/avatar.js (5137; only part of a diff pasted) · [x] src/player/controller.js (813) · [x] src/player/elytra.js (488) · [ ] src/player/player.js (755)
 - [x] src/tiles/elevation.js (494) · [x] src/tiles/providers.js (1421, git diff of Oct 5) · [x] src/tiles/streamer.js (1167) · [~] src/tiles/tileJobs.js (574; one line changed to pass the layer, see Guessed planetary.js)
-- [x] src/ui/cheatPanel.js (282) · [x] src/ui/exploration.js (400) · [x] src/ui/help.js (158) · [~] src/ui/hud.js (747; paste is early) · [x] src/ui/mapRenderer.js (667) · [~] src/ui/mapTiles.js (522; one line changed to pass the layer, see Guessed planetary.js) · [~] src/ui/minimap.js (191; older-text fills, see Guessed) · [~] src/ui/settingsPanel.js (924; older-text fill, see Guessed) · [~] src/ui/touch.js (the Oct 7 version, 331, is complete; an Oct 9 change added at least 15 lines that were never shown: +2 before line 66, +13 in the three-finger hold) · [x] src/ui/waypoints.js (100) · [ ] src/ui/worldmap.js (567)
-- [ ] src/world/beacons.js · [x] src/world/edgeWall.js (228) · [x] src/world/shaders.js (1118) · [x] src/world/sky.js (465) · [x] src/world/terrain.js (1996)
+- [x] src/ui/cheatPanel.js (282) · [x] src/ui/exploration.js (400) · [x] src/ui/help.js (158) · [~] src/ui/hud.js (747; paste is early) · [x] src/ui/mapRenderer.js (667) · [~] src/ui/mapTiles.js (522; one line changed to pass the layer, see Guessed planetary.js) · [~] src/ui/minimap.js (191; older-text fills, see Guessed) · [~] src/ui/settingsPanel.js (924; older-text fill, see Guessed) · [~] src/ui/touch.js (351; the Oct 7 version is exact, 10913 bytes as the Oct 9 ls says; the Oct 9 F5/P1 changes are mine, see Guessed) · [x] src/ui/waypoints.js (100) · [ ] src/ui/worldmap.js (567)
+- [x] src/world/beacons.js (193; the 5 lines from the Oct 5 sed 36,66p; every line of the Oct 5 grep in place) · [x] src/world/edgeWall.js (228) · [x] src/world/shaders.js (1118) · [x] src/world/sky.js (465) · [x] src/world/terrain.js (1996)
 - [ ] tools/selftest.mjs (11622) · [ ] tools/shots.mjs (389)
 
 ## WHAT TO VERIFY (when the checklist is done)
@@ -148,7 +148,14 @@ Changed tracked files (base = 2c7ee70):
   - P8: a touch tap on the log opens it.
   - Checked in Node: '/tp' + Tab ×3 gives /tpa, /tpahere, /tpaccept, which is what the Oct 10 onlinecheck run printed.
 
+- src/ui/touch.js (351 lines): the Oct 7 version is exact. It is 10913 bytes, matching the Oct 9 02:22 `ls`; the chain had mixed Oct 9 views into it, so it was rebuilt from a window ending Oct 9 03:00. The Oct 9 change is WRITTEN BY ME to fit the Oct 9 15:06 grep (66→68, 105→120, 109→124) and the Oct 9 16:16 diff stat (48 lines changed from the commit; mine is +43 −5):
+  - F5: the rtp touch button is now "Random", with a comment; a keydown typed into an input no longer puts the touch controls away;
+  - P1: layout() sets --touch-rows from the buttons shown, called when Talk or the cheat button comes or goes and when the controls appear.
+  - Main.css must use --touch-rows (to do with main.css).
+- .github/workflows/deploy-gh-pages.yml: the Oct 9 15:03 `cat` (H5: only '', '/' or '/ws' after the host) replaced the older copy; 16 insertions, as the Oct 9 stat says. Exact.
+
 ## Facts found while rebuilding (Oct 15)
+- The Oct 9 16:16 `git diff --stat` (agent a14e835a) gives every tracked file's lines changed from 2c7ee70 at that moment: recovery/diffstats.txt. 21 'exact' files match it to the line. Later totals only: Oct 9 20:50 5637/279, Oct 10 03:04 5644/279, 03:48 5654/279, Oct 11 05:15 5658/279 (insertions/deletions over all 38 tracked files).
 - The pasted files arrived with CRLF line endings and no final newline. The originals were LF with a final newline. All are converted to LF now (needed for the same SHA). Pastes also miss and duplicate lines (storage.js lost 9), so they are only a base.
 - A recorded line count can be stale: cheats.js was 212 on Oct 9 and 218 by Oct 11. Check views after the count before trusting it.
 - Tool results lose leading and trailing blank lines; grep patterns can contain `*` and `\|`; pipes inside $( ) don't change output. All of this is handled in recovery/tools (runs.mjs, frags.mjs).
