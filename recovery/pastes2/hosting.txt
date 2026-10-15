@@ -1,0 +1,251 @@
+$ grep -n "^#" HOSTING.md | head -60
+
+1:# Hosting a TerraGlide server
+36:## What the server is
+68:## Quick start on your own computer
+134:## Friends on the same wifi
+185:## Over the internet with a tunnel (easiest)
+192:### Cloudflare quick tunnel
+246:### A permanent address: a named Cloudflare tunnel
+284:### Tailscale Funnel
+300:### ngrok
+315:## Your own domain with Caddy
+389:## Cloud hosting
+395:### Render
+431:### Fly.io
+485:### A VPS (Ubuntu)
+539:# The server saves everything on SIGTERM before it exits.
+580:### Docker
+638:## Joining from the published game and the single files
+677:## Configuration
+706:### Every setting
+733:### Environment variables
+748:### Examples
+776:## Accounts and security
+778:### How accounts work
+801:### Rate limits
+815:### Private servers
+824:### Admins
+850:### Resetting a password
+871:### Bans
+884:### What is stored, and what never leaves
+922:### Backups
+927:# your computer or a VPS
+930:# Docker, from a named volume
+944:## Commands and rules
+950:### Everyone
+972:### Admins
+990:### Teleport requests
+999:### Fighting
+1018:### Anti-cheat
+1041:## Voice chat
+1058:### When people cannot hear each other: TURN
+1085:# The ports relayed audio uses. Keep the range small and open it in the firewall.
+1088:# Only on a cloud machine whose public address is not on its own network card
+1089:# (AWS, Google Cloud, Oracle): external-ip=PUBLIC.IP/PRIVATE.IP
+1090:# Limits, because everyone signed in to the game is given the password.
+1096:# Never relay into private networks.
+1107:# On older Ubuntu releases, also uncomment TURNSERVER_ENABLED=1 in /etc/default/coturn
+1157:## Worlds
+1176:## Updating
+1217:## Troubleshooting
+1245:## Publishing and credit
+1270:## Checking it works$ grep -n "^#" HOSTING.md | head -60
+
+1:# Hosting a TerraGlide server
+36:## What the server is
+68:## Quick start on your own computer
+134:## Friends on the same wifi
+185:## Over the internet with a tunnel (easiest)
+192:### Cloudflare quick tunnel
+246:### A permanent address: a named Cloudflare tunnel
+284:### Tailscale Funnel
+300:### ngrok
+315:## Your own domain with Caddy
+389:## Cloud hosting
+395:### Render
+431:### Fly.io
+485:### A VPS (Ubuntu)
+539:# The server saves everything on SIGTERM before it exits.
+580:### Docker
+638:## Joining from the published game and the single files
+677:## Configuration
+706:### Every setting
+733:### Environment variables
+748:### Examples
+776:## Accounts and security
+778:### How accounts work
+801:### Rate limits
+815:### Private servers
+824:### Admins
+850:### Resetting a password
+871:### Bans
+884:### What is stored, and what never leaves
+922:### Backups
+927:# your computer or a VPS
+930:# Docker, from a named volume
+944:## Commands and rules
+950:### Everyone
+972:### Admins
+990:### Teleport requests
+999:### Fighting
+1018:### Anti-cheat
+1041:## Voice chat
+1058:### When people cannot hear each other: TURN
+1085:# The ports relayed audio uses. Keep the range small and open it in the firewall.
+1088:# Only on a cloud machine whose public address is not on its own network card
+1089:# (AWS, Google Cloud, Oracle): external-ip=PUBLIC.IP/PRIVATE.IP
+1090:# Limits, because everyone signed in to the game is given the password.
+1096:# Never relay into private networks.
+1107:# On older Ubuntu releases, also uncomment TURNSERVER_ENABLED=1 in /etc/default/coturn
+1157:## Worlds
+1176:## Updating
+1217:## Troubleshooting
+1245:## Publishing and credit
+1270:## Checking it works$ python3 - <<'EOF'
+p='/home/user/terraglide/HOSTING.md'
+s=open(p).read()
+pairs=[
+("""Share the address exactly like that — `http://address:8080` — not
+`…/index.html`, which the current version does not join correctly.
+
+""",""),
+("""They are a speed bump for casual abuse, not a wall: someone determined can
+come from many addresses, and on hosts whose proxy adds the real address to
+the end of `X-Forwarded-For` rather than replacing the header (Cloudflare
+documents that it does, and many cloud proxies do the same), can put a
+made-up address at the front, which is the entry the server reads. Caddy and
+the nginx block above replace the header, so behind them it holds.""","""They are a speed bump for casual abuse, not a wall: someone determined can
+come from many addresses. What they cannot do is pick their address: a
+visitor can start `X-Forwarded-For` with anything they like, so the server
+reads the **last** entry — the one your proxy added — never the first. Behind
+Cloudflare you can name its own header instead with `proxyHeader:
+"cf-connecting-ip"` (or `TERRAGLIDE_PROXY_HEADER=cf-connecting-ip`); only do
+that behind Cloudflare, because anyone can send that header to a server that
+is not."""),
+("""| `signupsPerHour` | `5` | New accounts allowed per address per hour. Everyone behind one public address shares it — a household, a school, an office — so a class making accounts together from school needs it raised for the day (say `40`). `0` does **not** mean "no limit": it refuses every sign-up (with a confusing *"try again in NaN s"*); use `openSignups: false` to stop sign-ups and a large number such as `1000` for no practical limit. |""",
+"""| `signupsPerHour` | `5` | New accounts allowed per address per hour. Everyone behind one public address shares it — a household, a school, an office — so a class making accounts together from school needs it raised for the day (say `40`). `0` means no limit; to stop sign-ups altogether use `openSignups: false`. |"""),
+("""| `trustProxy` | `false` | Read the player's address from the first entry of the `X-Forwarded-For` header (or Cloudflare's `CF-Connecting-IP` when there is no `X-Forwarded-For`). Without it, behind a tunnel or proxy every player looks like the proxy — `127.0.0.1` for a tunnel on the same machine — and they all share one set of rate limits and bans. Turn on **only** behind a tunnel or reverse proxy; directly on the internet it would let anyone claim any address. |""",
+"""| `trustProxy` | `false` | Read the player's address from what the proxy reports — the **last** entry of `X-Forwarded-For`, the one the proxy added, or `proxyHeader` if set. Without it, behind a tunnel or proxy every player looks like the proxy — `127.0.0.1` for a tunnel on the same machine — and they all share one set of rate limits and bans. Turn on **only** behind a tunnel or reverse proxy; directly on the internet it would let anyone claim any address. |
+| `proxyHeader` | `""` | With `trustProxy` on, a header your proxy names the visitor in, which then wins over `X-Forwarded-For` — `"cf-connecting-ip"` behind Cloudflare. Leave it empty anywhere else: a header your proxy does not set, anyone can send. |"""),
+("""| `TERRAGLIDE_TRUST_PROXY` | `trustProxy` | `1` for on, `0` for off. **Any value other than `0` means on** — even `false`. |""",
+"""| `TERRAGLIDE_TRUST_PROXY` | `trustProxy` | `1` for on, `0` for off. **Any value other than `0` means on** — even `false`. |
+| `TERRAGLIDE_PROXY_HEADER` | `proxyHeader` | e.g. `cf-connecting-ip`. |"""),
+("""| Opening `http://HOST:8080/index.html` never connects | Use `http://HOST:8080/` — the current version does not join from the `/index.html` address. |
+""",""),
+("""| *"Too many new accounts from here — try again in NaN s"* | `signupsPerHour` is `0`, which refuses every sign-up. Set a number; use `openSignups: false` if you meant to close sign-ups. |
+""",""),
+]
+for old,new in pairs:
+    assert old in s, old[:60]
+    s=s.replace(old,new,1)
+open(p,'w').write(s)
+EOF
+grep -n "signupsPerHour.*0\b\|NaN\|index.html" HOSTING.md | head
+
+729:| `signupsPerHour` | `5` | New accounts allowed per address per hour. Everyone behind one public address shares it — a household, a school, an office — so a class making accounts together from school needs it raised for the day (say `40`). `0` means no limit; to stop sign-ups altogether use `openSignups: false`. |
+938:**Never served:** the web side hands out only the game (`index.html`, the two{"title":"After a normal server restart, players never reconnect, and the sign-in form shown to them does nothing","file":"src/net/client.js","line":110,"severity":"high","scenario":"A host restarts the server: Ctrl+C, systemctl restart, docker restart or a Render redeploy, which HOSTING.md tells hosts to do after every update. stop() (server/server.mjs:222) sends every client {t:'kick', reason:'The server is restarting'} before closing. In the client, handle() at line 192 sets this.kicked. onclose at lines 110-113 then sets wanted=false and returns without calling retry(), so the client never reconnects, even after the server is back up. OnlinePanel's 'kicked' handler (src/ui/onlinePanel.js:92-96) opens the panel. info is still set from the old welcome, so renderJoin draws the full Sign in form. The panel cannot be closed, because mustStay is true. When the player enters a password and presses Sign in, submit() calls net.login(). send() returns false because ws is null, so nothing goes out. busy stays true, and the button reads 'One moment…' forever. The only ways out are 'Play locally instead' or reloading the page. The same dead form appears after a 4001 'signed in somewhere else' kick and after an admin /kick. The class comment (client.js lines 8-11) promises it reconnects after 'a server restart'.","evidence":"A scratch run (scratchpad/review/kick.mjs) used a real NetClient against startServer, called server.stop(), and started the server again on the same port. 20 s later the client still had wanted=false, status=closed and ws=null, and send({t:'login'}) returned false. Event log: 'kick The server is restarting', then 'status closed The server is restarting', and no further connect.","fix":"Do not treat the restart kick as final. Only 4000/4001 or an explicit 'stay disconnected' flag should set wanted=false; the server's stop() could also send a distinct reason or code. Clear this.kicked in connect(). When the panel's form is submitted and the socket is not open, call net.connect() first and send the login after 'welcome', instead of silently dropping it."},
+{"title":"Fly.io deploy (and very likely Render) puts every player on one IP address: banning any online player locks out the whole server, admin included, and the 5 sign-ups an hour are shared by everyone","file":"fly.toml","line":31,"severity":"high","scenario":"A host deploys on Fly as HOSTING.md describes. fly.toml sets TERRAGLIDE_TRUST_PROXY=1 and no proxyHeader. clientAddress() (server/server.mjs:103-104) then takes the LAST X-Forwarded-For entry. Fly's own docs (docs.fly.io/networking/request-headers) say: \"On the Fly.io platform, the last address (rightmost) in this list will be a shared or dedicated IP address assigned to your app.\" So every player gets the app's own IP. An admin uses /ban on a griefer who is online. The ban is stored with address = the app IP, isBanned() then matches every connection, and every sign-in or session resume (the owner's too) gets 'This address is banned from the server'. Nobody can get back in to /unban. Fixing it means stopping the machine and editing server.json on the volume. Even without a ban, the 6th new account in any hour, from anyone, gets 'Too many new accounts from here', and 8 failed sign-ins (or wrong join codes) server-wide lock everybody out for 5 minutes. HOSTING.md:477-480 says fly.toml's TERRAGLIDE_TRUST_PROXY=1 handles this, and fly.toml:29-30 says 'read the player's real address from X-Forwarded-For'.","evidence":"Script at scratchpad/review/docs/fly_xff.mjs against the real startServer({trustProxy:true}). It uses Fly-shaped headers 'visitor, 66.241.124.10'. Visitors 198.51.100.7 and 203.0.113.20 both come out as 66.241.124.10. The 4th new account after the first two gets 'Too many new accounts from here — try again in 3600 s'. After '/ban Griefer' the ban address is 66.241.124.10, and the owner logging in from a different visitor IP gets 'This address is banned from the server'. Render: render.yaml:33-34 sets the same variable. Render sits behind Cloudflare. Third-party reports (github.com/Atreyeed02/Keel/pull/8) show its X-Forwarded-For as [visitor, Cloudflare edge, Render 10.x hop], so the last entry is not the visitor there either.","fix":"Add TERRAGLIDE_PROXY_HEADER = \"fly-client-ip\" to fly.toml [env], since Fly's proxy sets Fly-Client-IP itself. For Render, use TERRAGLIDE_PROXY_HEADER=cf-connecting-ip after checking it on a live service. Update HOSTING.md's Fly and Render sections, and the 'last entry is the one your proxy added' wording at lines 740 and 840-847, to say this only holds for a single proxy that appends exactly one hop."},
+{"title":"Docs say every move is checked against maxSpeed and the extra allowance is for falls. The code now checks only horizontal movement but still adds the fall allowance, so speed cheats reach about 2x on airless worlds and vertical teleports are never refused","file":"server/game.mjs","line":509,"severity":"medium","scenario":"onState now measures only horizontal distance (separation with alt set to s.alt), but maxSpeed() at lines 460-466 still raises the limit to fallLimit(body)+150 'because a long fall goes faster'. Falls are vertical and are no longer measured, so that allowance is now pure horizontal headroom. A modified page can fly level at 800 m/s on Mercury (limit 836), 600 m/s on the Moon (611) or Io (652), with nothing refused, against the documented 420. Legitimate horizontal speed on airless worlds is far below that, since the wings do nothing there. Vertical movement is unbounded: a page can add 5,000 m of altitude every 100 ms. That is a free escape from sword reach mid-fight and an unverified altitude feeding the explored-area radius. HOSTING.md:1075 says 'Every move is measured against maxSpeed', and HOSTING.md:736 describes the per-world figures as a fall allowance.","evidence":"Script at scratchpad/review/docs/speed.mjs, driving the real Game with a fake socket. Earth at 600 m/s level: refused 43 times. Moon at 600 m/s for 30 s: all accepted. Mercury at 800 m/s for 30 s: all accepted. Earth with +5,000 m altitude per 100 ms: refused 0 times, final accepted altitude 95,500 m.","fix":"With horizontal-only checking, use config.maxSpeed alone, without the fallLimit term, for the horizontal budget. Add a separate, generous vertical-rate check, for example fallLimit+150 down and the rocket climb rate up, with grace after teleports and terrain loads. Or correct HOSTING.md:736 and :1075 to say what is actually checked."},
+{"title":"server/data/ (password hashes, session hashes, banned players' IPs) and server/config.json are not gitignored, while the guide runs the server inside the clone and then says to push that clone to GitHub","file":".gitignore","line":4,"severity":"medium","scenario":"A beginner follows the Quick start in their git clone. node server/server.mjs creates server/data/accounts.json, server.json and players/*.json inside the checkout. They may also create server/config.json holding joinCode or a TURN credential. They then follow Cloud hosting → Render (HOSTING.md:389-390: 'your own copy of this repository on GitHub (fork it, or push your clone)') and run git add -A / git add . && git push. Every account's scrypt hash, the session hashes, players' records and the IP addresses of banned players get published in a public fork. The only safeguard is a prose warning at HOSTING.md:953. .dockerignore excludes server/data, but .gitignore does not.","evidence":"git check-ignore -v server/data/accounts.json server/config.json matches nothing (exit 1). .gitignore holds only node_modules/, .DS_Store, *.log, the three build outputs and shots/raw/. config.mjs:25 defaults dataDir to 'data', relative to server/.","fix":"Add server/data/ and server/config.json to .gitignore. The example stays tracked as server/config.example.json. Keep the HOSTING.md:953 warning as a second line of defence."},
+{"title":"HOSTING says 'Everything is also saved when a player leaves', but leaving only marks the data dirty: nothing reaches disk until the next 30 s tick or a clean shutdown","file":"HOSTING.md","line":742,"severity":"low","scenario":"A player signs up (or the owner makes the first, admin account), plays and leaves. The process dies uncleanly within the next 30 s: a crash with systemd Restart=on-failure, an OOM kill, a power cut, docker rm -f or a host reboot. The account and that session's progress are gone. If it was the first account on the server, the next person to sign up becomes admin. disconnect() (server/game.mjs:418-420) calls remember() and saveRecord(), which only do store.mark(). store.flush() is called only from tick() (game.mjs:1134) and saveAll() (1170). server/store.mjs:17-18 makes the same false claim ('written on a timer, on disconnect and on shutdown').","evidence":"Script at scratchpad/review/docs/leave_save.mjs: real startServer() with default saveEveryS. Sign up 'Alex', close the socket, wait 1.5 s (players online = 0), then the data dir holds only an empty players/. accounts.json and players/alex.json both missing.","fix":"Call this.store.flush() at the end of disconnect() (or flush just that player's record and accounts.json), and after a successful signup. Or change HOSTING.md:742 and store.mjs:17-18 to say saves happen every saveEveryS and on a clean stop only."}
+$ S=/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party; cd $S && sed -n 36,67p HOSTING.md; grep -n "maxPlayers\|openSignups" HOSTING.md | head -5; sed -n 433,445p HOSTING.md
+
+## What the server is
+
+- **One Node.js process, nothing to install.** The server is the `server/`
+  folder of this repository and uses only Node's standard library — even the
+  WebSocket code is its own. There is no `npm install`, no database and no
+  build step you have to remember.
+- **One port for everything.** The same port serves the game itself (open the
+  server's address in a browser and you are playing on it) *and* takes the
+  game's WebSocket connection at `/ws`. Port 8080 unless you choose another.
+- **It keeps what matters.** Accounts, sessions, where everyone is on every
+  world, what they have explored, their trails, waypoints, landers, health,
+  kills and deaths. All of it is plain JSON in `server/data/`, which you can
+  open, read, back up by copying, and fix by hand.
+- **It is the referee.** The page does the flying, because only the page has
+  the ground to collide with. The server decides everything that would be a
+  cheat if the page decided it: whether a move was possible, every sword hit,
+  every teleport, health, and what counts as explored.
+- **The game bundle is built on first run.** The page loads one
+  `terraglide.bundle.js` rather than a hundred modules. It is a build output
+  and not stored in git, so the first time the server starts it builds it
+  (`Building the game bundle (first run only)…`, a second or two).
+- **It also answers two small addresses** for monitoring:
+  `/healthz` replies `ok`, and `/api/status` replies with the server's name,
+  message, how many are online and whether it needs a join code — handy for an
+  uptime checker, and safe for anyone to read.
+
+What it needs: a computer that stays on while people play, Node.js 18 or newer
+(22 is what this guide and the Docker image use), and about 100 MB of memory.
+A Raspberry Pi is plenty for a group of friends.
+
+---
+
+731:| `maxPlayers` | `50` | Most people online at once. Past it: *"The server is full — try again in a bit"*. |
+733:| `openSignups` | `true` | Whether anyone can make an account. `false` freezes the list; existing accounts still sign in. |
+735:| `signupsPerHour` | `5` | New accounts allowed per address per hour. Everyone behind one public address shares it — a household, a school, an office — so a class making accounts together from school needs it raised for the day (say `40`). `0` means no limit; to stop sign-ups altogether use `openSignups: false`. |
+788:  "openSignups": false
+863:- **Close sign-ups** (`openSignups: false`) once everybody has an account.
+### Fly.io
+
+[Fly.io](https://fly.io) runs the `Dockerfile` in this repository on a small
+virtual machine near your players, with a volume for the data. It is paid
+(pay as you go; a 256 MB machine and a 1 GB volume cost a few dollars a month
+— check <https://fly.io/pricing>), and works from your local copy, so you do
+not need the repository on GitHub.
+
+1. Install `flyctl`: macOS `brew install flyctl`; Linux
+   `curl -L https://fly.io/install.sh | sh`; Windows PowerShell
+   `pwsh -Command "iwr https://fly.io/install.ps1 -useb | iex"`.
+2. `fly auth signup` (or `fly auth login`).
+3. Make the app — the name must be unique across Fly — and put the same name
+Shell cwd was reset to /home/user/terraglide$ S=/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party; cd $S && grep -n "TERRAGLIDE_ADMINS\|TERRAGLIDE_NAME" server/config.mjs | head; sed -n "$(grep -n '^## Voice chat' HOSTING.md | cut -d: -f1),+16p" HOSTING.md
+
+103:  if (env.TERRAGLIDE_NAME) config.name = env.TERRAGLIDE_NAME;
+105:  if (env.TERRAGLIDE_ADMINS) config.admins = env.TERRAGLIDE_ADMINS.split(',').map((s) => s.trim()).filter(Boolean);
+## Voice chat
+
+Proximity voice is off until a player switches it on in **Settings → Online**
+(push to talk on `Z` by default, or always on). Players near you are heard
+from where they are: full volume within 40 m, fading to silence at 800 m, up
+to the 16 nearest at once. Only players on the same world hear each other.
+
+**How it works.** The sound goes straight from browser to browser (WebRTC).
+The server only introduces them: it passes their connection details between
+two players on the same world within about 1.5 km of each other. So voice
+costs your server almost no bandwidth however much people talk.
+
+**The microphone needs a secure page** — `https://…`, or `http://localhost` on
+the server's own machine. On a plain `http://` address players can listen but
+not talk (the game says *mic needs https*). Any tunnel, Caddy, Render or Fly
+fixes that.
+Shell cwd was reset to /home/user/terraglide$ S=/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party; cd $S && python3 - <<'EOF'
+p='HOSTING.md'
+s=open(p).read()
+old="""from where they are: full volume within 40 m, fading to silence at 800 m, up
+to the 16 nearest at once. Only players on the same world hear each other.
+
+**How it works.** The sound goes straight from browser to browser (WebRTC).
+The server only introduces them: it passes their connection details between
+two players on the same world within about 1.5 km of each other."""
+new="""from where they are: full volume within 40 m, fading to silence at 800 m, up
+to the 16 nearest at once. Only players on the same world hear each other —
+except a **party**, whose members hear each other wherever they are, on any
+world: from where they stand when they are near, like a radio when they are
+not (*Party voice* in Settings → Online). Party members are never the ones
+dropped to make room for a stranger.
+
+**How it works.** The sound goes straight from browser to browser (WebRTC).
+The server only introduces them: it passes their connection details between
+two players on the same world within about 1.5 km of each other, or between
+two members of the same party anywhere."""
+assert old in s
+s=s.replace(old,new,1)
+open(p,'w').write(s)
+EOF
+echo ok
+
+ok
+Shell cwd was reset to /home/user/terraglide

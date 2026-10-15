@@ -1,0 +1,600 @@
+$ S=/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party; cd $S && sed -n 208,254p README.md
+
+## Playing with other people
+
+Press `K` (or **Play online** in the toolbar) and type a server's address. Every
+player signs up with a username and a password the first time and signs in
+after that; the server keeps the account, the session and everything the
+player does there. Playing alone and playing on a server are kept apart: what
+you explore, your trail and your waypoints on a server live on the server, and
+none of it touches your own offline save.
+
+On a server you get:
+
+- **Everybody else, in the world and on every map.** Each player gets a colour
+  of their own, used for their jacket and wings, their arrow on the minimap and
+  the world map, their mark on the compass and on the **locator bar** under it
+  (bigger the closer they are, with a notch above or below when they are higher
+  or lower), and their name tag.
+- **What they have discovered.** In the players list (`Tab`) tick *trail* or
+  *discovered* next to anyone — or *everyone* — to draw their trail and the
+  ground they have uncovered on your maps, in their colour.
+- **Teleport requests, Minecraft-style.** `/tpa name` asks to go to someone,
+  `/tpahere name` asks them to come to you; they answer with `/tpaccept` or
+  `/tpdeny`, or with `Y` / `N` on the prompt that appears. A request lasts
+  forty seconds. Or press `J` for the **teleport menu**: pick *TPA* or *TPA
+  here* (`Tab` switches), type a few letters of the name — the list narrows as
+  you type — and press `Enter`. Admins also get the instant `/tp`.
+- **Chat**: `T` to talk, `/` for commands, `/msg` to whisper, `/near` for the
+  players within a few kilometres of you, `/help` for the rest.
+- **Proximity voice**, if you switch it on in *Settings → Online*: players near
+  you hear you from where you are, fading out with distance — push to talk on
+  `Z`, or always on.
+- **Swords.** Slot 6 is a sword. Click to swing, Minecraft's way: a full swing
+  every 0.625 s does full damage, a falling swing is a critical, and ten
+  hearts is a life. The server decides every hit, so nobody can reach
+  further or hit harder than the rules allow. Nobody can be hurt within a short
+  walk of the spawn, and a fight blocks teleporting away from it for ten
+  seconds.
+- **No cheats.** On a server the cheat panel, freecam, size changes and pause
+  are off, speed is checked, and random teleports are chosen by the server.
+
+To **host a server** — on your own computer for friends on the same wifi, or
+on the internet for anyone — see **[HOSTING.md](HOSTING.md)**. It is one Node
+process with nothing to install: `node server/server.mjs`, then open
+<http://localhost:8080>.
+
+---
+
+## Other worlds
+Shell cwd was reset to /home/user/terraglide$ S=/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party; rm -f $S/tools/_swordshot.mjs; cd $S && grep -n "tpa\|Online\|online" src/ui/help.js | head -20; grep -n "^## \|^### " README.md | sed -n 1,60p
+
+33:  ['Play online \u2014 join a server, sign in', ['online']],
+34:  ['Chat, or type a command (online)', ['chat', 'command']],
+35:  ['Players \u2014 teleport requests, trails, discoveries (online)', ['players']],
+36:  ['Teleport menu \u2014 TPA or TPA here, type a name to find them (online)', ['teleportMenu']],
+37:  ['Accept / deny a teleport request (online)', ['acceptRequest', 'denyRequest']],
+38:  ['Push to talk, with proximity voice set to push (online)', ['pushToTalk']],
+16:## Run it
+68:## First flight
+99:### Flying
+170:### The two mouse modes
+182:## What is on screen
+208:## Playing with other people
+254:## Other worlds
+288:## Map data
+337:### Three tiers, most real first
+379:### What is standing on the ground
+526:### How the world is put together
+543:### Keeping it smooth
+556:## Settings
+608:## Checking it works
+624:## Layout
+654:## Licence
+670:## Not for navigation
+Shell cwd was reset to /home/user/terraglide$ S=/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party; cd $S && sed -n 20,80p .github/workflows/deploy-gh-pages.yml
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+
+      - name: Build the two single-file downloads
+        run: |
+          node tools/bundle.mjs
+          node tools/online.mjs
+
+      # After the build, not before: the two single files are build outputs
+      # and are no longer tracked in the source tree, and the self-test reads
+      # both of them — including a check that the bundle matches the sources.
+      - name: Verify the modules parse and the maths still holds
+        run: |
+          node tools/check.mjs
+          node tools/selftest.mjs
+
+      - name: Assemble the site
+        run: |
+          rm -rf _site
+          mkdir _site
+          cp -r index.html terraglide.html terraglide-online.html terraglide.bundle.js src styles vendor assets LICENSE THIRD-PARTY.md README.md _site/
+          # The textures are part of the served game — without assets/ the site
+          # silently falls back to flat colour and nobody can tell why.
+          test -f _site/assets/manifest.json
+          # The page asks for the bundle first and only falls back to seventy-
+          # seven separate module requests if it is not there. That fallback is
+          # the failure this was built to remove — at one per cent packet loss
+          # it booted zero times out of three — so a site published without the
+          # bundle is a site that still has the bug. Fail the build instead.
+          test -f _site/terraglide.bundle.js
+          # src/ is still published: the module fallback needs it, and so does
+          # the online single-file edition.
+          test -f _site/src/main.js
+          # Stamp the bundle's own fingerprint into the URL the page asks for.
+          #
+          # Without this the page requests `terraglide.bundle.js` at a URL that
+          # never changes, and GitHub Pages serves it with max-age=600. So for
+          # ten minutes after a deploy — longer on a phone that is holding the
+          # response for its own reasons — anyone who had opened the site
+          # recently keeps running the old three megabytes and sees none of the
+          # change. That has cost real time already: a fix was tested against
+          # code that did not contain it, twice.
+          #
+          # The fingerprint is over the sources, so an unchanged deploy keeps
+          # the same URL and the cache still does its job.
+          STAMP=$(grep -o '__TERRAGLIDE_BUNDLE__ = "[0-9a-f]*"' _site/terraglide.bundle.js | head -1 | grep -o '[0-9a-f]\{8,\}')
+          test -n "$STAMP"
+          sed -i "s|'./terraglide.bundle.js'|'./terraglide.bundle.js?v=$STAMP'|" _site/index.html
+          grep -q "terraglide.bundle.js?v=$STAMP" _site/index.html
+          # Stop GitHub's Jekyll pass from touching plain static files.
+          touch _site/.nojekyll
+
+      # Both downloads also live on their own branch, so they can be fetched
+      # without the site and without a build. Force-pushed: it is an output,
+      # not a history.
+      - name: Publish the downloads to the singlefiles branch
+        env:
+Shell cwd was reset to /home/user/terraglide$ python3 - <<'EOF'
+p='README.md'
+s=open(p).read()
+old="""  where you have. The boundary is what you could actually see from where you
+  were, worked out from the geometric horizon at your height rather than from
+  the square you were standing in, and it is feathered so it reads as a shape
+  you flew rather than a staircase of tiles."""
+new="""  where you have. The boundary is what you could actually see from where you
+  were, worked out from the geometric horizon at your height rather than from
+  the square you were standing in — but never more than 2 km from you, however
+  high you climb, so the map shows where you went and not everything you could
+  see from the top of a climb — and it is feathered so it reads as a shape
+  you flew rather than a staircase of tiles."""
+assert old in s
+s=s.replace(old,new)
+open(p,'w').write(s)
+EOF
+cat .gitignore; cat fly.toml; grep -n "proxy\|Proxy\|X-Forwarded\|cf-connecting\|fly-client" HOSTING.md render.yaml | head -40
+
+node_modules/
+.DS_Store
+*.log
+terraglide.bundle.js
+
+# Build outputs. Both single files are built by tools/bundle.mjs and
+# tools/online.mjs and published to the `singlefiles` branch; tracking them
+# here meant every source change carried a three-megabyte diff of itself.
+terraglide.html
+terraglide-online.html
+
+# Working renders of candidate GLBs, written by tools/rawmodel.mjs. Several
+# sets of fourteen 1400-pixel images per sitting; the finished views that are
+# worth keeping live in shots/ itself.
+shots/raw/
+# Fly.io configuration for the TerraGlide server. See HOSTING.md, "Fly.io".
+#
+# Put your own app name in `app` below (it must be unique across Fly) and the
+# region nearest your players in `primary_region`, then:
+#
+#   fly apps create <your-app-name>
+#   fly volumes create terraglide_data --size 1 --region <primary_region> -y
+#   fly deploy --ha=false
+#
+# The app is built from the Dockerfile beside this file. Accounts and players
+# live on the volume mounted at /data, so they survive deploys and restarts.
+# The game's state is held in one process, so run exactly one machine: a
+# second one would be a second, separate server with its own empty volume.
+
+app = "terraglide"
+primary_region = "lhr"
+
+# Stop the server with SIGINT and give it time to save. It saves on SIGTERM
+# too; this just says so explicitly.
+kill_signal = "SIGINT"
+kill_timeout = 15
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  DATA_DIR = "/data"
+  # Fly's proxy is in front of every connection: read the player's real
+  # address from X-Forwarded-For, for the rate limits and bans.
+  TERRAGLIDE_TRUST_PROXY = "1"
+  # Secrets (TERRAGLIDE_JOIN_CODE, TURN_CREDENTIAL) go in `fly secrets set`,
+  # never in this file.
+
+[[mounts]]
+  source = "terraglide_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Stopped when nobody is connected, started again by the next visitor; the
+  # first page load after a quiet spell takes a few seconds longer. Set to
+  # "off" and min_machines_running = 1 to keep it running all the time.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+HOSTING.md:225:  "trustProxy": true,
+HOSTING.md:230:and restart the server. `trustProxy` makes it read each player's real address
+HOSTING.md:231:from the `X-Forwarded-For` header the tunnel adds. `host: 127.0.0.1` makes it
+HOSTING.md:278:and run `cloudflared tunnel run terraglide`. Keep the `trustProxy` /
+HOSTING.md:293:it. Set `trustProxy` and `host` as for Cloudflare. (Without Funnel, friends
+HOSTING.md:307:that warning page can get in the way of. Set `trustProxy` and `host` as for
+HOSTING.md:352:	reverse_proxy 127.0.0.1:8080
+HOSTING.md:358:**6. Set `trustProxy` and `host`** in `server/config.json` exactly as in
+HOSTING.md:361:`X-Forwarded-For` a visitor sends with their real address, so the header the
+HOSTING.md:371:    proxy_pass http://127.0.0.1:8080;
+HOSTING.md:372:    proxy_http_version 1.1;
+HOSTING.md:373:    proxy_set_header Upgrade $http_upgrade;
+HOSTING.md:374:    proxy_set_header Connection "upgrade";
+HOSTING.md:375:    proxy_set_header Host $host;
+HOSTING.md:376:    proxy_set_header X-Forwarded-For $remote_addr;
+HOSTING.md:377:    proxy_read_timeout 120s;
+HOSTING.md:381:(`$remote_addr` rather than `$proxy_add_x_forwarded_for`, so a visitor cannot
+HOSTING.md:405:check, Node 22, and `TERRAGLIDE_TRUST_PROXY=1` (Render's proxy is in front of
+HOSTING.md:521:  "trustProxy": true,
+HOSTING.md:722:| `host` | `"0.0.0.0"` | Which network interface to listen on. `0.0.0.0` is every IPv4 address; `127.0.0.1` only this machine (use it behind a tunnel or proxy on the same machine); `::` IPv6 as well on most systems. |
+HOSTING.md:740:| `trustProxy` | `false` | Read the player's address from what the proxy reports — the **last** entry of `X-Forwarded-For`, the one the proxy added, or `proxyHeader` if set. Without it, behind a tunnel or proxy every player looks like the proxy — `127.0.0.1` for a tunnel on the same machine — and they all share one set of rate limits and bans. Turn on **only** behind a tunnel or reverse proxy; directly on the internet it would let anyone claim any address. |
+HOSTING.md:741:| `proxyHeader` | `""` | With `trustProxy` on, a header your proxy names the visitor in, which then wins over `X-Forwarded-For` — `"cf-connecting-ip"` behind Cloudflare. Leave it empty anywhere else: a header your proxy does not set, anyone can send. |
+HOSTING.md:754:| `TERRAGLIDE_TRUST_PROXY` | `trustProxy` | `1` for on, `0` for off. **Any value other than `0` means on** — even `false`. |
+HOSTING.md:755:| `TERRAGLIDE_PROXY_HEADER` | `proxyHeader` | e.g. `cf-connecting-ip`. |
+HOSTING.md:781:  "trustProxy": true,
+HOSTING.md:836:**Behind a tunnel or proxy these need `trustProxy`.** Without it every player
+HOSTING.md:837:arrives from the proxy — `127.0.0.1`, for a tunnel on the same machine — and
+HOSTING.md:842:visitor can start `X-Forwarded-For` with anything they like, so the server
+HOSTING.md:843:reads the **last** entry — the one your proxy added — never the first. Behind
+HOSTING.md:844:Cloudflare you can name its own header instead with `proxyHeader:
+HOSTING.md:845:"cf-connecting-ip"` (or `TERRAGLIDE_PROXY_HEADER=cf-connecting-ip`); only do
+HOSTING.md:913:> Behind a tunnel or proxy **without** `trustProxy`, every player has the
+HOSTING.md:914:> proxy's address — so banning someone who is online bans everybody. If that
+HOSTING.md:916:> server stopped), then turn `trustProxy` on.
+HOSTING.md:1280:| *"Too many new accounts from here — try again in N s"* for everybody | The server is behind a tunnel or proxy without `trustProxy`, so everyone shares one address. Turn `trustProxy` on. |
+render.yaml:29:      # Render's proxy sits in front of every request, so the address a
+render.yaml:30:      # connection comes from is the proxy's. This makes the server read the
+render.yaml:31:      # player's real address from the header the proxy adds, which the$ sed -n 185,198p README.md; grep -n "MAX_REVEAL_M" -B3 -A3 src/ui/exploration.js | head -30
+
+  height above ground, speed, heading and what you are currently doing.
+- **Seasonal temperature**, top left: the average temperature for the season you
+  are standing in, from latitude, elevation, time of year and how much land
+  surrounds you. It is a climate model, not a weather feed, and says so.
+- **Minimap**, top right: satellite imagery for ground you have seen, and a
+  drawn street map for ground you have not — so the whole world is legible,
+  with named roads and coastlines where you have not been, and photography
+  where you have. The boundary is what you could actually see from where you
+  were, worked out from the geometric horizon at your height rather than from
+  the square you were standing in, and it is feathered so it reads as a shape
+  you flew rather than a staircase of tiles. It fills in behind you as you
+  travel. Zoom with `=`/`-` or the wheel, click it to open the big map.
+- **World map** (`G`): the same thing at any zoom, plus search, your waypoints,
+  your drawn paths, and how much of the world you have covered. Drag to pan,
+61- * from the air — wider than the minimap at its default zoom — and it means a
+62- * place on the map was somewhere you were actually near.
+63- */
+64:export const MAX_REVEAL_M = 2000;
+65-
+66-export class Exploration extends Emitter {
+67-  /**
+--
+113-   */
+114-  visit(lat, lon, altitudeAboveGround, seenRadius) {
+115-    const radius = Number.isFinite(seenRadius) && seenRadius > 0
+116:      ? Math.min(MAX_REVEAL_M, Math.max(220, seenRadius))
+117:      : Math.min(MAX_REVEAL_M, Math.max(220, altitudeAboveGround * 0.45 + 220));
+118-    const nx = lonToNormX(lon);
+119-    const ny = latToNormY(lat);
+120-    // Tile space is mercator, which stretches away from the equator, so the$ S=/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party; cd $S && python3 - <<'EOF'
+p='README.md'
+s=open(p).read()
+def rep(old,new):
+    global s
+    assert old in s, old[:90]
+    s=s.replace(old,new,1)
+rep("""Press `K` (or **Play online** in the toolbar) and type a server's address. Every
+player signs up with a username and a password the first time and signs in
+after that;""","""Press `K` (or **Play online** in the toolbar) and press **Play on the public
+server** — the one everybody plays on together — or type another server's
+address. Every player signs up with a username and a password the first time
+and signs in after that;""")
+rep("""- **What they have discovered.** In the players list (`Tab`) tick *trail* or
+  *discovered* next to anyone — or *everyone* — to draw their trail and the
+  ground they have uncovered on your maps, in their colour.""","""- **What everybody has discovered, on one map.** Ground anyone on the server
+  has explored is uncovered on your maps too, with a faint wash over the parts
+  you have not been to yourself — on from the start (*Settings → Online →
+  Everyone's discoveries*). Paths are lines in each player's colour: tick
+  *Everyone's paths*, or *trail* / *discovered* next to anyone in the players
+  list (`Tab`) to see just theirs.
+- **Friends.** Press *Friend* next to someone in the players list, or type
+  their name in the box at the bottom of it, or `/friend add name`. You hear
+  when friends come online and go, and can let them teleport to you and pull
+  you into their party without asking (*Settings → Online*). A request sent
+  to somebody offline waits for them.
+- **Parties.** Press *Party* next to someone, or `/party invite name`: up to
+  eight of you, with a leader. A party talks on voice however far apart its
+  members are — on another world too, like a radio when they are out of
+  earshot — has its own chat (`/pc message`), its own **waypoints** (*Mark
+  here for the party* in the players list, or *Party waypoint at centre* on
+  the world map; they show on every member's maps and compass), and a tick,
+  *teleport with the party*: when the leader teleports, travels to another
+  world or presses *Gather the party*, everyone with it ticked comes along.
+  `/party leave`, `/party kick name`, `/party leader name`, `/party list`.""")
+rep("""- **No cheats.** On a server the cheat panel, freecam, size changes and pause
+  are off, speed is checked, and random teleports are chosen by the server.""","""- **No cheats.** On a server the cheat panel, freecam, size changes and pause
+  are off; speed over the ground is checked (a surge is allowed only for as
+  long as a surge lasts); hits, damage, health, oxygen and the explored map
+  are the server's; teleports go only where the server sends you; and random
+  teleports are chosen by the server.""")
+open(p,'w').write(s)
+EOF
+python3 - <<'EOF'
+p='/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party/src/ui/help.js'
+s=open(p).read()
+old="""  ['Players \\u2014 teleport requests, trails, discoveries (online)', ['players']],"""
+new="""  ['Players \\u2014 friends, party, teleport requests, trails, discoveries (online)', ['players']],"""
+assert old in s
+s=s.replace(old,new,1)
+old2="""  ['Accept / deny a teleport request (online)', ['acceptRequest', 'denyRequest']],"""
+new2="""  ['Accept / deny a teleport request or party invite (online)', ['acceptRequest', 'denyRequest']],"""
+assert old2 in s
+s=s.replace(old2,new2,1)
+open(p,'w').write(s)
+EOF
+grep -n "^## \|^### " /tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party/HOSTING.md | head -50
+
+36:## What the server is
+68:## Quick start on your own computer
+134:## Friends on the same wifi
+182:## Over the internet with a tunnel (easiest)
+189:### Cloudflare quick tunnel
+243:### A permanent address: a named Cloudflare tunnel
+281:### Tailscale Funnel
+297:### ngrok
+312:## Your own domain with Caddy
+386:## Cloud hosting
+392:### Render
+433:### Fly.io
+495:### A VPS (Ubuntu)
+590:### Docker
+654:## Joining from the published game and the single files
+693:## Configuration
+722:### Every setting
+750:### Environment variables
+766:### Examples
+794:## Accounts and security
+796:### How accounts work
+819:### Rate limits
+857:### Private servers
+866:### Admins
+892:### Resetting a password
+913:### Bans
+931:### What is stored, and what never leaves
+969:### Backups
+999:## Commands and rules
+1005:### Everyone
+1027:### Admins
+1054:### Teleport requests
+1063:### Fighting
+1082:### Anti-cheat
+1107:## Voice chat
+1124:### When people cannot hear each other: TURN
+1225:## Worlds
+1244:## Updating
+1285:## Troubleshooting
+1314:## Publishing and credit
+1345:## Checking it works
+Shell cwd was reset to /home/user/terraglide$ S=/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party; cd $S && sed -n 1,35p HOSTING.md; sed -n 999,1030p HOSTING.md; sed -n 931,968p HOSTING.md
+
+# Hosting a TerraGlide server
+
+TerraGlide plays alone in your browser with nothing but the page. To fly with
+other people you need a **server**: one small program that everybody's game
+connects to. This guide takes you from "I have never hosted anything" to a
+server on the internet with its own address, step by step, and documents
+every setting, command and rule along the way.
+
+If you only read one part, read [Quick start](#quick-start-on-your-own-computer)
+and then [Over the internet with a tunnel](#over-the-internet-with-a-tunnel-easiest):
+together they get friends anywhere in the world flying with you in about ten
+minutes, for free, without touching your router.
+
+**Contents**
+
+- [What the server is](#what-the-server-is)
+- [Quick start on your own computer](#quick-start-on-your-own-computer)
+- [Friends on the same wifi](#friends-on-the-same-wifi)
+- [Over the internet with a tunnel (easiest)](#over-the-internet-with-a-tunnel-easiest)
+- [Your own domain with Caddy](#your-own-domain-with-caddy)
+- [Cloud hosting](#cloud-hosting): [Render](#render), [Fly.io](#flyio),
+  [a VPS](#a-vps-ubuntu), [Docker](#docker)
+- [Joining from the published game and the single files](#joining-from-the-published-game-and-the-single-files)
+- [Configuration](#configuration)
+- [Accounts and security](#accounts-and-security)
+- [Commands and rules](#commands-and-rules)
+- [Voice chat](#voice-chat)
+- [Worlds](#worlds)
+- [Updating](#updating)
+- [Troubleshooting](#troubleshooting)
+- [Publishing and credit](#publishing-and-credit)
+- [Checking it works](#checking-it-works)
+
+---
+
+## Commands and rules
+
+Commands are typed into chat (`T`, or `/` to start with a slash). `/help` lists
+the ones you can use. Player names forgive case and can be shortened while the
+start is unambiguous (`/tpa ale` for Alexandra).
+
+### Everyone
+
+| Command | What it does |
+| --- | --- |
+| `/help` | List the commands. |
+| `/tpa <player>` | Ask to teleport to a player. |
+| `/tpahere <player>` | Ask a player to teleport to you. |
+| `/tpaccept [player]` | Accept a teleport request — the newest, or the one from that player. |
+| `/tpdeny [player]` | Refuse one. |
+| `/tpacancel [player]` | Take back a request you sent. |
+| `/tp <player>` | For players, the same as `/tpa`. For admins, see below. |
+| `/msg <player> <message>` | Whisper to one player. Also `/w`, `/tell`. |
+| `/r <message>` | Reply to whoever last whispered with you. |
+| `/near <message>` | Say something only to players within 3 km of you on your world. Also `/l`, `/local`. |
+| `/me <action>` | Describe what you are doing. |
+| `/list` | Who is online, grouped by world. |
+| `/spawn` | Go back to this world's spawn. Once every `spawnCooldownS` (15 s). |
+| `/rtp` | Random teleport, to a place the server chooses: a populated place on Earth, a named feature elsewhere. Once every `rtpCooldownS` (60 s). |
+| `/travel <world>` | Go to another world: `/travel moon`, `/travel mars`… Also `/planet`, `/world`. |
+| `/kill` | Give up and respawn. |
+| `/password <old> <new>` | Change your password; your other devices are signed out. |
+
+### Admins
+
+| Command | What it does |
+| --- | --- |
+### What is stored, and what never leaves
+
+```text
+server/data/
+  accounts.json         every account: name, colour, admin, password hash,
+                        and the hashes of active sessions
+  server.json           bans (with the banned address) and spawn points
+                        moved with /setspawn
+  players/<name>.json   one player: which world they are on, their health,
+                        kills, deaths and time played, and for every world
+                        they have visited: where they are, what they have
+                        explored, their trail, waypoints and lander
+```
+
+Every save writes to a temporary file and renames it over the old one, so a
+crash or a power cut mid-save leaves the last good copy, never half a file.
+(A leftover `*.tmp` is harmless.) If a file ever cannot be read, the server
+does not overwrite it: it renames it to `<file>.broken-<time>` and carries on
+without it — see [Troubleshooting](#troubleshooting).
+
+**Never served:** the web side hands out only the game (`index.html`, the two
+single files, the bundle, `src/`, `styles/`, `vendor/`, `assets/`) and the
+documents (`LICENSE`, `README.md`, `THIRD-PARTY.md`, this file). Nothing in
+`server/` — not the data, not `config.json` — and no hidden file is ever sent,
+whatever address is asked for. Password hashes, session hashes and players'
+addresses never leave the machine; the server's log does not print them.
+
+**What players can see of each other:** names, colours, and position, health
+and what they are holding for everyone on the same world; who is on which
+world. Anyone on a world can switch on another player's **trail** and
+**explored ground** on their map (players list, `Tab`), including players who
+are offline — tell your players. Waypoints are private. **Voice chat connects
+browsers directly**, so the people you talk to can learn your IP address, as
+with most voice chat.
+
+**Do not commit `server/data/`** (or a `config.json` holding secrets) to git:
+it contains every account's password hash.
+Shell cwd was reset to /home/user/terraglide$ cd /tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party && grep -n "this.net.send(\|net.on('loggedOut'\|leaveServer(" src/net/session.js | head -5; grep -n "NAME_PATTERN\|PASSWORD_MIN\|PASSWORD_MAX\|passwordProblem" src/ui/onlinePanel.js src/net/protocol.js | head; grep -n "authenticate(client, m)\|async authenticate" server/game.mjs; grep -n "t: 'auth', ok: false" server/game.mjs | head -3; sed -n 1130,1145p server/game.mjs | grep -n "onChat" ; grep -n "  onChat(player, text) {" -A4 server/game.mjs
+
+275:      this.net.send({ t: 'damage', amount: how.amount, cause: how.cause });
+291:      if (this.signedIn) this.net.send({ t: 'waypoints', list: waypoints.export().waypoints });
+351:    this.net.send({ t: 'watch', name: key, explored: overlay.showExplored, trail: overlay.showTrail });
+371:    this.net.send({ t: 'watch', name: '*', explored: what === 'explored', trail: what === 'trail', off: !on });
+381:      if (this.watchingAll[what]) this.net.send({ t: 'watch', name: '*', explored: what === 'explored', trail: what === 'trail' });
+src/ui/onlinePanel.js:4:import { NAME_PATTERN, PASSWORD_MIN, nameProblem, passwordProblem } from '../net/protocol.js';
+src/ui/onlinePanel.js:199:            pattern="${NAME_PATTERN.source.slice(1, -1)}" value="${escapeHtml(this.name ?? '')}" />
+src/ui/onlinePanel.js:202:          <input name="password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" minlength="${PASSWORD_MIN}" />
+src/ui/onlinePanel.js:296:    const problem = nameProblem(name) ?? (kind === 'signup' ? passwordProblem(password) : null);
+src/net/protocol.js:31:export const NAME_PATTERN = /^[A-Za-z0-9_]{3,16}$/;
+src/net/protocol.js:41:  if (!NAME_PATTERN.test(name)) return 'Letters, numbers and _ only';
+src/net/protocol.js:55:export const PASSWORD_MIN = 6;
+src/net/protocol.js:56:export const PASSWORD_MAX = 128;
+src/net/protocol.js:58:export function passwordProblem(password) {
+src/net/protocol.js:59:  if (typeof password !== 'string' || password.length < PASSWORD_MIN) {
+263:      if (m.t === 'signup' || m.t === 'login' || m.t === 'resume') this.authenticate(client, m);
+310:  async authenticate(client, m) {
+319:        this.send(client, { t: 'auth', ok: false, error: 'This address is banned from the server' });
+334:        this.send(client, { t: 'auth', ok: false, error: result.error, expired: !!result.expired });
+342:        this.send(client, { t: 'auth', ok: false, error: `Banned: ${this.bans[account.key].reason || 'no reason given'}` });
+1158:  onChat(player, text) {
+1159-    text = String(text ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, CHAT_MAX);
+1160-    if (!text) return;
+1161-    const now = this.now();
+1162-    player.client.chatTimes = player.client.chatTimes.filter((t) => now - t < CHAT_WINDOW_S * 1000);
+Shell cwd was reset to /home/user/terraglide$ grep -rn "MAX_BUFFERED_BYTES\|BACKLOG_MAX\|PACE_BYTES" server tools HOSTING.md README.md | grep -v "^server/game.mjs:4[3-6][0-9]" ; sed -n 150,175p server/game.mjs; sed -n 50,60p server/ws.mjs
+
+server/game.mjs:157:const PACE_BYTES = 256 * 1024;
+server/game.mjs:171:const BACKLOG_MAX = 24 * 1024 * 1024;
+server/ws.mjs:57:export const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
+server/ws.mjs:289:    if (this.bufferedAmount > MAX_BUFFERED_BYTES) {
+/** Repeated impossible moves before a player is disconnected. */
+const KICK_AFTER_VIOLATIONS = 40;
+/** States a second a page may send before the rest are dropped; pages send ten. */
+const MAX_STATES_PER_S = 30;
+/** Metres of grace on a single move, lent against the next allowance. */
+const SPEED_SLACK_M = 25;
+/** A paced send waits while this much is still waiting to go out on the socket. */
+const PACE_BYTES = 256 * 1024;
+/** Cells per message of a shared map sent whole. */
+/** Runs to a part when the shared map is sent or saved in pieces. */
+const SHARED_PART_RUNS = 20000;
+/** New cells one player may add to a world's shared map in a day. See addShared. */
+const SHARED_PER_DAY = 150000;
+/** The most cells a shared map holds. */
+const SHARED_MAX = 30000000;
+/**
+ * The most a connection may fall behind, bytes queued for it here and in its
+ * socket together. A page that stops reading - asleep, or hostile - is let
+ * go past this rather than held in the server's memory without end; it
+ * reconnects and starts clean.
+ */
+const BACKLOG_MAX = 24 * 1024 * 1024;
+/** Past this many players on one world, the far-off ones are sent less often. */
+const CROWD = 64;
+/**
+ * The most players one atlas lists: everybody online, then your party and
+ *
+ * A browser tab that is backgrounded, or a phone that walked out of wifi
+ * range, stops reading while the server keeps writing positions to it. Without
+ * a ceiling those writes pile up in the socket's buffer for as long as the TCP
+ * connection takes to notice — minutes — and one stalled player becomes the
+ * server's whole heap. Two megabytes is a few seconds of everything at once.
+ */
+export const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
+
+const OPCODES = { continuation: 0x0, text: 0x1, binary: 0x2, close: 0x8, ping: 0x9, pong: 0xa };$ ls; ls server 2>&1 | head; git branch -a 2>&1 | head; git log --oneline -3; git stash list | head; ls -la /tmp/claude-0/-home-user-terraglide/ 2>&1 | head; ls ~/.claude/projects/-home-user-terraglide/ 2>&1 | head
+
+LICENSE
+README.md
+THIRD-PARTY.md
+assets
+index.html
+package-lock.json
+package.json
+probe-face.mjs
+serve.mjs
+shots
+src
+styles
+tools
+vendor
+ls: cannot access 'server': No such file or directory
+* claude/world-exploration-game-962wpo
+  main
+  remotes/origin/claude/world-exploration-game-962wpo
+  remotes/origin/main
+2c7ee70 Rockets: a lit firework works until its time is up
+a7b08b2 Firework: the agreed grip and size in every scenario
+dd75e41 Both arms out diving; first person uses the scanned body and firework
+total 12
+drwx------ 3 root root 4096 Oct 12 20:03 .
+drwx------ 4 root root 4096 Oct 14 23:28 ..
+drwx------ 4 root root 4096 Oct 14 23:28 8985411a-491b-549e-9d82-8d44b4f321b8
+8985411a-491b-549e-9d82-8d44b4f321b8
+8985411a-491b-549e-9d82-8d44b4f321b8.jsonl
