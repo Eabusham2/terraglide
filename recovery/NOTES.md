@@ -84,7 +84,7 @@ New files:
 - [x] Dockerfile · [x] .dockerignore · [x] fly.toml · [x] render.yaml · [x] server/config.example.json · [x] src/net/publicServer.js
 - [x] server/ws.mjs (405) · [x] server/cells.mjs (146) · [x] server/store.mjs (90; the paste had a stray leading blank line, removed; all 62 logged lines then match)
 - [x] server/game.mjs FINAL (2720 lines, 126238 bytes) = V5 + round 6 (recovery/diffs/atk6.game.diff, then r6_copy2_edit1.py and r6_copy2_edit2.py, replayed exactly). Its line numbers match my Oct 12 07:56 grep of the copy (GLIDE_ROOM at 104, 915, 1079). Caveat: 25 guessed lines (see Guessed), about 52 bytes short; everything else is from the logs.
-- [x] server/accounts.mjs (319) · [x] server/commands.mjs (244) · [~] server/config.mjs (146; lines 100-135 rebuilt, see Guessed) · [x] server/records.mjs (148) · [~] server/server.mjs (321) · [~] server/social.mjs (866 of 876; 10 lines short in the Oct 9 fills, see Guessed)
+- [x] server/accounts.mjs (319) · [x] server/commands.mjs (244) · [~] server/config.mjs (146; lines 100-135 rebuilt, see Guessed) · [x] server/records.mjs (148) · [~] server/server.mjs (321) · [~] server/social.mjs (876 = final; every view and grep since Oct 10 03:48 agrees; the party fixes in the three Oct 9 fills are mine, see Guessed)
 - [~] HOSTING.md (1533 of 1544; 11 lines short in the older-text fills, see Guessed)
 - [x] src/core/boot.js (256, whole cat of Oct 7 16:54; count matches Oct 11)
 - [x] src/geo/bodies.js (395) · [x] src/geo/ephemeris.js (231) · [x] src/geo/gazetteer.js (151, the whole file from an Oct 5 13:56 `cat -n` inside a mixed command; one version to the end) · [x] src/geo/gazetteerData.js (regenerated Oct 15 after the apostrophe fix: 8147 features, 254409 bytes; no older size was logged)
@@ -232,6 +232,13 @@ Changed tracked files (base = 2c7ee70):
     - All 18 game regexes in recovery/selftest_regexes.txt pass.
     - The 13 checkable greps logged after Oct 10 03:48, re-run on it (recovery/tools/grepcheck.mjs), match.
     - Without the Oct 10 block it is 2939 lines, the Oct 9 15:02 count, and +844 −70 against the commit, where the Oct 9 16:16 stat says 918 = +846 −72. So 2 commit lines the real file changed are still the commit's text, somewhere unseen.
+
+- server/social.mjs (876, final count; was 866): an Oct 11 05:47 grep of the final (`gather\|together`, complete) showed `party.together.add(player.key)` in accept() is gone (PA4: not ticked on join). It also showed how many lines each of the three Oct 9 02:14 fills lacks: +8 before 492, +1 by 535, +1 by 672. WRITTEN BY ME (recovery/guess/social_pa_edits.py):
+  - PA1: a party invite to the same person once a minute (`party.invitedAt`).
+  - F1: an unknown name answers with game.nobodyCalled(name).
+  - The invite's `from` carries the inviter's world, as the rejoin re-send does.
+  - PA4: a 2-line comment where together.add was.
+  - PA7: setTogether calls saveServer().
 
 ## Facts found while rebuilding (Oct 15)
 - Grep output is a source in three more shapes. Context lines `NN-text` (from -A/-B/-C). Multi-file `path:NN:text`, which frags already reads. And complete greps: a grep not cut by `head` lists every line with its pattern, so the rest of the file has none. recovery/tools/grepcheck.mjs re-runs every logged grep on a rebuilt file, in a mirror of the repo, and compares the output. Run it on every rebuilt file.
