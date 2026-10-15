@@ -1495,17 +1495,17 @@ body.touch-active .hud-hotbar {
   body.touch-active .hud-hotbar {
     top: auto;
     /* The stick is 132px tall and sits 22px up, so its top is at 154. */
-    bottom: 182px;
+    bottom: max(182px, calc(var(--touch-rows, 2) * 60px + 30px));
   }
 
   body.touch-active .hud-hotbar .slot {
-    width: min(74px, calc((100vw - 28px) / 5));
+    width: min(74px, calc((100vw - 28px) / var(--slots, 6)));
     height: 44px;
   }
 
   /* Above the hotbar, which is above the controls. */
   body.touch-active .hud-bottomleft {
-    bottom: 234px;
+    bottom: max(234px, calc(var(--touch-rows, 2) * 60px + 82px));
   }
 
   /* 74px is an icon and a keycap wide. The name and the burn-and-speed line
@@ -1520,10 +1520,10 @@ body.touch-active .hud-hotbar {
 /* Wide touch screens keep the hotbar along the bottom too, so the location
    panel clears both it and the controls. Narrow ones override this above. */
 body.touch-active .hud-bottomleft {
-  bottom: 234px;
+  bottom: max(234px, calc(var(--touch-rows, 2) * 60px + 82px));
 }
 
-body.touch-active .hud-crosshair {
+body.touch-active:not(.sword-out) .hud-crosshair {
   display: none;
 }
 
@@ -1682,7 +1682,7 @@ body.touch-active .hud-crosshair {
   /* The controls' own band, plus the hotbar's row above it, so the two blocks
      that join the flow on a phone stack clear of both. */
   body.touch-active .hud {
-    padding-bottom: 234px;
+    padding-bottom: max(234px, calc(var(--touch-rows, 2) * 60px + 82px));
   }
 }
 
@@ -1748,4 +1748,1316 @@ body.touch-active .hud-crosshair {
   justify-self: start;
   font-size: 11px;
   padding: 2px 8px;
+}
+
+/* ---------- online ---------- */
+
+/*
+ * Everything about other people, in the same flat instrument style as the
+ * rest. Each person's colour is carried as --player and used sparingly: a dot,
+ * a stripe, a name — never a fill behind text, which is where colour stops
+ * being an identifier and starts being decoration.
+ */
+
+#ui > .chat,
+#ui > .tp-prompts,
+#ui > .death-screen {
+  pointer-events: auto;
+}
+
+#ui > .nametags {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.nametag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 6px 1px 5px;
+  background: rgba(20, 20, 16, 0.62);
+  border-left: 2px solid var(--player, var(--accent));
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+/* `display: flex` above beats the browser's own [hidden] rule, as for panels. */
+.nametag[hidden] {
+  display: none;
+}
+
+.nametag-hearts {
+  font-weight: 400;
+  font-size: 10px;
+  color: #e8a39a;
+}
+
+.nametag-hearts::before,
+.heart-icon {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 8px;
+  margin-right: 2px;
+  vertical-align: -1px;
+  background: no-repeat center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 8'%3E%3Cpath d='M1 0h2v1h1v1h1V1h1V0h2v1h1v3H8v1H7v1H6v1H5v1H4V7H3V6H2V5H1V4H0V1h1z' fill='%23c8302b'/%3E%3C/svg%3E");
+}
+
+.online-panel {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, 94vw);
+  max-height: 92vh;
+  z-index: 30;
+}
+
+.online-body {
+  padding: 12px 14px 14px;
+  overflow-y: auto;
+}
+
+.online-intro,
+.online-note,
+.online-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.online-note code,
+.online-hint code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.online-server {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 12px;
+  padding: 6px 10px;
+  background: var(--panel-raised);
+  border-left: 2px solid var(--accent-dim);
+}
+
+.online-server strong {
+  font-size: 14px;
+}
+
+.online-server span {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.online-server em {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.online-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 10px;
+}
+
+.online-tabs button {
+  flex: 1;
+}
+
+.online-tabs button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.online-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.online-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.online-form input {
+  padding: 6px 8px;
+  background: rgba(10, 10, 8, 0.6);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.online-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.online-form button[type='submit'] {
+  align-self: flex-start;
+}
+
+.online-recent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 10px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.online-error {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--bad);
+}
+
+.online-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.online-you i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  background: var(--player, var(--accent));
+  margin-right: 4px;
+}
+
+.toolbar button.online-on {
+  border-color: rgba(157, 184, 132, 0.6);
+}
+
+/* chat: bottom left, above the location block, fading when quiet */
+
+.chat {
+  position: absolute;
+  left: 12px;
+  /* Above the location block, which is the bottom-left corner's first tenant. */
+  bottom: 156px;
+  width: min(440px, 60vw);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-log {
+  max-height: 34vh;
+  overflow-y: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  scrollbar-width: thin;
+}
+
+.chat.open .chat-log {
+  overflow-y: auto;
+}
+
+.chat-line {
+  padding: 2px 7px;
+  background: rgba(20, 20, 16, 0.55);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  transition: opacity 0.6s ease;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
+}
+
+.chat-line.faded {
+  opacity: 0;
+}
+
+.chat-line b {
+  color: var(--player, var(--accent));
+}
+
+.chat-line b::after {
+  content: ':';
+  color: var(--text-faint);
+}
+
+.chat-me b::after {
+  content: '';
+}
+
+.chat-line em {
+  color: var(--text-faint);
+  font-style: normal;
+  font-size: 11px;
+}
+
+.chat-system,
+.chat-join,
+.chat-leave,
+.chat-travel,
+.chat-help {
+  color: var(--text-dim);
+}
+
+.chat-death {
+  color: #e8a39a;
+}
+
+.chat-error {
+  color: var(--bad);
+}
+
+.chat-request {
+  color: var(--accent);
+}
+
+.chat-whisper,
+.chat-whisperSent {
+  color: #c5b7e0;
+}
+
+.chat-announce {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.chat-form {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.chat-form[hidden] {
+  display: none;
+}
+
+.chat-form input {
+  width: 100%;
+  padding: 6px 8px;
+  background: rgba(10, 10, 8, 0.82);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.chat-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.chat-hint {
+  min-height: 14px;
+  padding: 0 2px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.players-panel {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(640px, 96vw);
+  max-height: 86vh;
+}
+
+.players-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.players-body {
+  padding: 10px 12px 12px;
+  overflow-y: auto;
+}
+
+.players-body h3 {
+  margin: 10px 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.players-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.players-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--panel-raised);
+  border-left: 2px solid var(--player, var(--line));
+}
+
+.players-name {
+  font-weight: 600;
+  min-width: 110px;
+}
+
+.players-name em {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.players-where {
+  min-width: 90px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* An arrow drawn with borders: a glyph for it is one a minimal font may lack. */
+.players-arrow {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-left: 4px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 9px solid var(--player, var(--text));
+  vertical-align: -1px;
+}
+
+.players-hearts {
+  min-width: 34px;
+  font-size: 11px;
+  color: #e8a39a;
+}
+
+.players-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--player, var(--accent));
+}
+
+.players-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.players-tick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.players-help,
+.players-empty,
+.players-you {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.tp-prompts {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(380px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tp-prompt {
+  padding: 8px 10px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--player, var(--accent));
+}
+
+.tp-text b {
+  color: var(--player, var(--accent));
+}
+
+.tp-text em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.tp-bar {
+  height: 3px;
+  margin: 6px 0;
+  background: var(--line);
+}
+
+.tp-bar i {
+  display: block;
+  height: 100%;
+  background: var(--player, var(--accent));
+}
+
+.tp-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tp-buttons span {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* the death screen: the world tinted red, and the one button */
+
+.death-screen {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(120, 10, 10, 0.42);
+  z-index: 40;
+}
+
+.death-screen[hidden] {
+  display: none;
+}
+
+.death-inner {
+  text-align: center;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7);
+}
+
+.death-inner h2 {
+  margin: 0 0 8px;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #f6d9d4;
+}
+
+.death-cause {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.death-score {
+  margin: 0 0 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.death-inner button {
+  min-width: 160px;
+  padding: 8px 18px;
+  font-size: 14px;
+}
+
+.death-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* other worlds: a card each, and the one button that takes you there */
+
+.travel-panel {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(760px, 96vw);
+  max-height: 88vh;
+}
+
+.travel-body {
+  padding: 10px 12px 12px;
+  overflow-y: auto;
+}
+
+.travel-intro {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.travel-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.travel-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--panel-raised);
+  border-left: 2px solid var(--line-strong);
+}
+
+.travel-card.here {
+  border-left-color: var(--accent);
+}
+
+.travel-name strong {
+  display: block;
+  font-size: 14px;
+}
+
+.travel-name span,
+.travel-card p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.travel-card dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0;
+  font-size: 11px;
+}
+
+.travel-card dd {
+  margin: 0;
+}
+
+.travel-card em {
+  font-style: normal;
+  color: var(--accent);
+}
+
+.travel-card button {
+  align-self: flex-start;
+}
+
+/* hearts, oxygen and the locator bar: above the hotbar, where Minecraft has them */
+
+.hud-vitals {
+  position: absolute;
+  bottom: 68px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 420px;
+  max-width: 94vw;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.hud-bars {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.hearts {
+  display: flex;
+  gap: 1px;
+}
+
+.heart {
+  width: 13px;
+  height: 12px;
+  display: inline-block;
+  background: no-repeat center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 8'%3E%3Cpath d='M1 0h2v1h1v1h1V1h1V0h2v1h1v3H8v1H7v1H6v1H5v1H4V7H3V6H2V5H1V4H0V1h1z' fill='%23111'/%3E%3Cpath d='M1 1h2v1h1v1h1V2h1V1h2v3H7v1H6v1H5v1H4V6H3V5H2V4H1z' fill='%23c8302b'/%3E%3Cpath d='M1 1h1v1H1z' fill='%23f3a49c'/%3E%3C/svg%3E");
+  image-rendering: pixelated;
+}
+
+.heart.half {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 8'%3E%3Cpath d='M1 0h2v1h1v1h1V1h1V0h2v1h1v3H8v1H7v1H6v1H5v1H4V7H3V6H2V5H1V4H0V1h1z' fill='%23111'/%3E%3Cpath d='M5 2V1h1V0' fill='none'/%3E%3Cpath d='M1 1h2v1h1v5H4V6H3V5H2V4H1z' fill='%23c8302b'/%3E%3Cpath d='M5 2h1V1h2v3H7v1H6v1H5z' fill='%233a2422'/%3E%3C/svg%3E");
+}
+
+.heart.empty {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 8'%3E%3Cpath d='M1 0h2v1h1v1h1V1h1V0h2v1h1v3H8v1H7v1H6v1H5v1H4V7H3V6H2V5H1V4H0V1h1z' fill='%23111'/%3E%3Cpath d='M1 1h2v1h1v1h1V2h1V1h2v3H7v1H6v1H5v1H4V6H3V5H2V4H1z' fill='%233a2422'/%3E%3C/svg%3E");
+}
+
+.hearts.low .heart.full,
+.hearts.low .heart.half {
+  animation: heart-shake 0.5s steps(2) infinite;
+}
+
+@keyframes heart-shake {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
+
+.oxygen {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: #bfe3ff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.oxygen-label {
+  font-weight: 700;
+}
+
+.oxygen-bar {
+  width: 120px;
+  height: 7px;
+  background: rgba(20, 20, 16, 0.7);
+  border: 1px solid rgba(191, 227, 255, 0.35);
+}
+
+.oxygen-bar i {
+  display: block;
+  height: 100%;
+  background: #7fc4f2;
+  transition: width 0.25s linear;
+}
+
+.oxygen[data-state='low'] .oxygen-bar i {
+  background: #e07a64;
+}
+
+.oxygen[data-state='low'] {
+  color: #ffb5a5;
+}
+
+.oxygen[data-state='filling'] .oxygen-bar i {
+  background: #a6e3a1;
+}
+
+.hud-locator {
+  position: relative;
+  height: 9px;
+  margin: 0 30px;
+  background: rgba(20, 20, 16, 0.55);
+  border: 1px solid rgba(232, 228, 216, 0.18);
+}
+
+.locator-dot {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--player, #fff);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.75);
+}
+
+/* Above or below you: a small triangle drawn with borders, never a glyph. */
+.locator-dot[data-vertical='up']::after,
+.locator-dot[data-vertical='down']::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+}
+
+.locator-dot[data-vertical='up']::after {
+  bottom: calc(100% + 1px);
+  border-bottom: 4px solid var(--player, #fff);
+}
+
+.locator-dot[data-vertical='down']::after {
+  top: calc(100% + 1px);
+  border-top: 4px solid var(--player, #fff);
+}
+
+.locator-dot[data-edge='left'],
+.locator-dot[data-edge='right'] {
+  opacity: 0.6;
+}
+
+.compass-mark {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  min-width: 11px;
+  height: 11px;
+  padding: 0 2px;
+  font-size: 8px;
+  line-height: 11px;
+  font-weight: 700;
+  text-align: center;
+  color: #111;
+  background: var(--player, #fff);
+  border-radius: 1px;
+}
+
+/* the sword in the hotbar, the attack indicator and the hit marker */
+
+.hud-hotbar .slot.sword {
+  --rocket: #d7dde4;
+}
+
+.attack-charge {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 18px;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.attack-charge em {
+  display: block;
+  height: 100%;
+  background: rgba(240, 236, 226, 0.85);
+}
+
+.attack-charge.ready {
+  display: none;
+}
+
+.hit-marker {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  opacity: 0;
+  background:
+    linear-gradient(#fff, #fff) center / 2px 100% no-repeat,
+    linear-gradient(#fff, #fff) center / 100% 2px no-repeat;
+  -webkit-mask: radial-gradient(circle, transparent 3px, #000 3.5px);
+  mask: radial-gradient(circle, transparent 3px, #000 3.5px);
+}
+
+.hit-marker.on {
+  animation: hit-marker 0.28s ease-out;
+}
+
+.hit-marker.crit {
+  filter: drop-shadow(0 0 2px #ffcf6a) sepia(1) saturate(4) hue-rotate(-10deg);
+}
+
+@keyframes hit-marker {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.hud-hurt {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(160, 0, 0, 0) 55%, rgba(160, 0, 0, 0.55) 100%);
+}
+
+@media (max-width: 640px) {
+  .chat {
+    bottom: 150px;
+    width: 86vw;
+  }
+  .hud-vitals {
+    bottom: 64px;
+    width: 92vw;
+  }
+}
+
+/* teleport menu (J): the kind of teleport, a name box, the filtered list */
+
+.tp-menu {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(460px, calc(100vw - 32px));
+  max-height: 82vh;
+}
+
+.tp-modes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  padding: 10px 12px 0;
+}
+
+.tp-mode {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 7px 10px;
+  text-align: left;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.tp-mode b {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.tp-mode span {
+  font-size: 11px;
+}
+
+.tp-mode.on {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--text);
+}
+
+.tp-mode.on b {
+  color: var(--accent);
+}
+
+.tp-mode.admin b::after {
+  content: " admin";
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.tp-search {
+  margin: 10px 12px 6px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  outline: none;
+}
+
+.tp-search:focus {
+  border-color: var(--accent);
+}
+
+.tp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px;
+  overflow-y: auto;
+  min-height: 34px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tp-list li[data-player] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--panel-raised);
+  border-left: 2px solid var(--player, var(--line));
+  cursor: pointer;
+}
+
+.tp-list li.on {
+  background: rgba(216, 196, 138, 0.16);
+  outline: 1px solid var(--accent-dim);
+}
+
+.tp-name {
+  flex: 1;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tp-name mark {
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tp-name em {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.tp-where {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.tp-hearts {
+  min-width: 30px;
+  font-size: 11px;
+  color: #e8a39a;
+  text-align: right;
+}
+
+.tp-empty {
+  padding: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.tp-outgoing {
+  list-style: none;
+  margin: 6px 12px 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.tp-outgoing li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.tp-outgoing .tp-left {
+  font-family: var(--mono);
+  margin-left: auto;
+}
+
+.tp-help {
+  margin: 8px 12px 12px;
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.6;
+}
+
+.tp-help code {
+  font-family: var(--mono);
+  color: var(--text-dim);
+}
+
+/* proximity voice: the HUD line, and who is talking */
+
+.hud-voice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.hud-voice-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6b6a64;
+}
+
+.hud-voice.live .hud-voice-dot {
+  background: #a8a59b;
+}
+
+.hud-voice.talking .hud-voice-dot {
+  background: var(--good);
+  box-shadow: 0 0 6px var(--good);
+}
+
+.hud-voice.blocked .hud-voice-dot {
+  background: var(--warn);
+}
+
+.nametag.talking .nametag-name::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 5px var(--good);
+  vertical-align: 1px;
+}
+
+.players-name em.players-talking {
+  color: var(--good);
+}
+
+.players-buttons button.on {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* parties and friends: the players panel's own sections, and the invites */
+
+.players-dynamic {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.players-body h4 {
+  margin: 8px 0 4px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+.players-body h3 .players-count {
+  margin-left: 6px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.players-list.party li {
+  background: rgba(56, 52, 42, 0.92);
+}
+
+.players-list li.offline,
+.players-list.offline li,
+.players-invited {
+  opacity: 0.6;
+}
+
+.players-dot.square {
+  border-radius: 0;
+}
+
+.players-request {
+  font-size: 12px;
+}
+
+.players-request b {
+  color: var(--player, var(--accent));
+}
+
+.players-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 8px;
+}
+
+.players-tick.everyone {
+  display: flex;
+  margin: 0 0 4px;
+}
+
+.players-add {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.players-add input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  background: rgba(10, 10, 8, 0.6);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  font: inherit;
+}
+
+/* A party invite, told apart from a teleport request at a glance. */
+.tp-prompt.party {
+  background: rgba(40, 46, 34, 0.96);
+}
+
+/* ---------- the public server ---------- */
+
+.online-public {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  background: var(--panel-raised);
+  border-left: 2px solid var(--accent);
+}
+
+.online-public button {
+  align-self: flex-start;
+}
+
+.online-public span {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.online-or {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* ---------- Oct 9: proximity, passwords, parties on the move ---------- */
+
+/* Changing your password: folded away until you ask for it. */
+.online-password {
+  margin: 0 0 10px;
+}
+
+.online-password summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.online-password[open] summary {
+  margin-bottom: 8px;
+}
+
+.online-password .online-form {
+  margin: 0 0 6px;
+}
+
+/* A party talks over the radio, which is off until you turn it on. */
+.players-note {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  border-left: 2px solid var(--warn);
+  background: rgba(212, 171, 106, 0.08);
+}
+
+.players-note button {
+  margin-left: 6px;
+}
+
+/* Focusable, so it keeps the keyboard after one of its buttons is clicked
+   (see playersPanel.js). That focus is the panel's business, not a ring. */
+.players-panel:focus {
+  outline: none;
+}
+
+/* Who is on each world, by the names you know, and the line that says the
+   party will come along when its leader travels. */
+.travel-people,
+.travel-party {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.travel-party {
+  margin: 0 0 10px;
+}
+
+/* Where a line in the chat came from, when that is another world. */
+.chat-line em.chat-world {
+  color: var(--accent-dim);
+}
+
+.tie-party,
+.tie-friend {
+  color: var(--player, var(--text));
+}
+
+.tie-party::after,
+.tie-friend::after {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 3px;
+  border-radius: 50%;
+  vertical-align: 2px;
+}
+
+.tie-party::after {
+  background: #fff;
+}
+
+.tie-friend::after {
+  background: #e3c15a;
+}
+
+/* Your party and your friends on the compass and the locator bar: a ring,
+   white for the party and gold for a friend, around the player's own colour. */
+.locator-dot[data-tie='party'],
+.compass-mark[data-tie='party'] {
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.locator-dot[data-tie='friend'],
+.compass-mark[data-tie='friend'] {
+  box-shadow: 0 0 0 2px #e3c15a;
+}
+
+/* An empty tank: the label says so as loudly as the toast and the tone do. */
+.oxygen[data-state='low'] .oxygen-label {
+  color: var(--bad);
+}
+
+/* Touch: the vitals and the chat ride above the band the controls and the
+   hotbar take, whatever number of rows of buttons that band has today. */
+body.touch-active .hud-vitals {
+  bottom: max(232px, calc(var(--touch-rows, 2) * 60px + 80px));
+}
+
+body.touch-active .chat {
+  bottom: max(300px, calc(var(--touch-rows, 2) * 60px + 148px));
+  width: min(440px, calc(100vw - 24px));
+}
+
+/* A phone on its side: the credit line goes up beside the location panel,
+   off the sixth slot it used to sit on. */
+@media (max-height: 460px) {
+  body.touch-active .hud-bottomright {
+    bottom: auto;
+    top: 40px;
+  }
+
+  body.touch-active .hud-vitals {
+    bottom: max(150px, calc(var(--touch-rows, 2) * 46px + 58px));
+  }
+}
+
+/* The compass stays clear of the minimap on a narrow screen: the minimap
+   says how far down the top-right corner it reaches (minimap.js). */
+@media (max-width: 700px) {
+  .hud-compass {
+    top: calc(var(--minimap-top-right, 0px) + 14px);
+  }
 }
