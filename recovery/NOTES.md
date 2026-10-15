@@ -104,7 +104,7 @@ Changed tracked files (base = 2c7ee70):
 - [x] src/geo/frame.js (104) · [x] src/geo/mercator.js (155)
 - [~] src/player/avatar.js (5137; only part of a diff pasted) · [x] src/player/controller.js (813) · [x] src/player/elytra.js (488) · [ ] src/player/player.js (755)
 - [x] src/tiles/elevation.js (494) · [x] src/tiles/providers.js (1421, git diff of Oct 5) · [x] src/tiles/streamer.js (1167) · [~] src/tiles/tileJobs.js (574; one line changed to pass the layer, see Guessed planetary.js)
-- [x] src/ui/cheatPanel.js (282) · [x] src/ui/exploration.js (400) · [x] src/ui/help.js (158) · [~] src/ui/hud.js (747; paste is early) · [x] src/ui/mapRenderer.js (667) · [~] src/ui/mapTiles.js (522; one line changed to pass the layer, see Guessed planetary.js) · [~] src/ui/minimap.js (191; older-text fills, see Guessed) · [~] src/ui/settingsPanel.js (924; older-text fill, see Guessed) · [~] src/ui/touch.js (351; the Oct 7 version is exact, 10913 bytes as the Oct 9 ls says; the Oct 9 F5/P1 changes are mine, see Guessed) · [x] src/ui/waypoints.js (100) · [ ] src/ui/worldmap.js (567)
+- [x] src/ui/cheatPanel.js (282) · [x] src/ui/exploration.js (400) · [x] src/ui/help.js (158) · [~] src/ui/hud.js (747, every known line in place, +255 −9 from the commit = the Oct 9 stat's 264; see Guessed) · [x] src/ui/mapRenderer.js (667) · [~] src/ui/mapTiles.js (522; one line changed to pass the layer, see Guessed planetary.js) · [~] src/ui/minimap.js (191; older-text fills, see Guessed) · [~] src/ui/settingsPanel.js (924; older-text fill, see Guessed) · [~] src/ui/touch.js (351; the Oct 7 version is exact, 10913 bytes as the Oct 9 ls says; the Oct 9 F5/P1 changes are mine, see Guessed) · [x] src/ui/waypoints.js (100) · [ ] src/ui/worldmap.js (567)
 - [x] src/world/beacons.js (193; the 5 lines from the Oct 5 sed 36,66p; every line of the Oct 5 grep in place) · [x] src/world/edgeWall.js (228) · [x] src/world/shaders.js (1118) · [x] src/world/sky.js (465) · [x] src/world/terrain.js (1996)
 - [ ] tools/selftest.mjs (11622) · [ ] tools/shots.mjs (389)
 
@@ -158,6 +158,15 @@ Changed tracked files (base = 2c7ee70):
   - P1: layout() sets --touch-rows from the buttons shown, called when Talk or the cheat button comes or goes and when the controls appear.
   - Main.css must use --touch-rows (to do with main.css).
 - .github/workflows/deploy-gh-pages.yml: the Oct 9 15:03 `cat` (H5: only '', '/' or '/ws' after the host) replaced the older copy; 16 insertions, as the Oct 9 stat says. Exact.
+
+- src/ui/hud.js (747 lines, matches the final count): the Oct 5 version. Its never-seen lines 1–24 are the commit's: the body imports nothing else but OXYGEN_SECONDS and SLOTS, which are both in known lines. The never-seen 28 lines after `function swordIcon() {` hold an 8-line body WRITTEN BY ME (a flat steel/brass/leather SVG), then the commit's modeLabel and rocketIcon doc start; nothing else defines modeLabel, and keeping it in place gives exactly the stat. The 19 lines the final adds (264 − 245 = 19 insertions) are placed by the known lines:
+  - P1: Chat button on the toolbar (+1);
+  - P1: `--slots` (+2; the line is the Oct 11 selftest's);
+  - P1: body.sword-out toggled in updateAttack (+8, mine; the CSS rule is the Oct 9 selftest's `body.touch-active:not(.sword-out) .hud-crosshair`);
+  - P7: locator dot size (known);
+  - P4: party/friend tie on the locator dots (known) and the compass marks (+3, +1).
+- src/ui/chat.js: the history check is now `if (!/^\/password\b/i.test(text))`, the exact text the Oct 9 selftest line 1383 tests for.
+- tools/selftest regexes seen after Oct 5 are collected in recovery/selftest_regexes.txt (68 lines). Use them as exact text for the files they read.
 
 ## Facts found while rebuilding (Oct 15)
 - The Oct 9 16:16 `git diff --stat` (agent a14e835a) gives every tracked file's lines changed from 2c7ee70 at that moment: recovery/diffstats.txt. 21 'exact' files match it to the line. Later totals only: Oct 9 20:50 5637/279, Oct 10 03:04 5644/279, 03:48 5654/279, Oct 11 05:15 5658/279 (insertions/deletions over all 38 tracked files).
