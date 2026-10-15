@@ -62,7 +62,9 @@ def main():
                 continue
             if fields.get('approval') != 'Adopted by IAU':
                 continue
-            name = fields.get('clean_name') or ''
+            # Every name has to draw in any font (the self-test holds them to
+            # Latin-1): a typographic apostrophe becomes a plain one.
+            name = (fields.get('clean_name') or '').replace('\u2019', "'").replace('\u2018', "'")
             if not name or ';' in name or '|' in name:
                 continue
             lon = float(point.group(1))

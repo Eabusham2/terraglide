@@ -177,7 +177,19 @@ export function fragments(rows, rel, { copies = false } = {}) {
       const c = /^cat -n\s+(\S+)(\s*\|\s*(head|sed -n)\b.*)?$/.exec(p);
       const f = g ? g[2] : c ? c[1] : null;
       if (!f || !isFile(f, inRepo)) continue;
-      if (cmds.length > 1) continue; // mixed output: skip to be safe
+      if (cmds.length > 1) {
+        // Mixed output. A lone `cat -n FILE` (no other numbered listing in the command) is still readable: the
+        // run of tab-numbered lines that starts at 1 and counts up by one.
+        const others = cmds.filter((x) => x.p !== p && /(^|\s)(cat -n|grep\s.*-n|nl)\b/.test(x.p));
+        if (!c || others.length || process.env.NO_MIXEDCAT === '1') continue;
+        const m = new Map(); let next = 1;
+        for (const line of r.result.split('\n')) {
+          const x = /^\s*(\d+)\t(.*)$/s.exec(line);
+          if (x && Number(x[1]) === next) { m.set(next, x[2]); next++; } else if (next > 1) break;
+        }
+        if (m.size) out.push({ t: r.t, agent: r.agent, src: 'cat -n (in mixed)', lines: m });
+        continue;
+      }
       const m = new Map();
       for (const line of r.result.split('\n')) {
         const x = c ? /^\s*(\d+)\t(.*)$/s.exec(line) : /^(\d+)[:-](.*)$/s.exec(line);

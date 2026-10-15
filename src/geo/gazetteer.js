@@ -17,6 +17,13 @@ import { FEATURES, FEATURE_KINDS } from './gazetteerData.js';
 const cache = new Map();
 const DEG = Math.PI / 180;
 
+/**
+ * Feature types that are long rather than round — a linea, a rille, a scarp,
+ * a valley. The gazetteer's "diameter" for those is their length, so a circle
+ * that size is not where they are, and being inside it is not being in them.
+ */
+const LONG = new Set(['LI', 'SU', 'RI', 'RU', 'DO', 'FO', 'CM', 'CA', 'VA', 'FE', 'FL', 'FM', 'VI', 'AR', 'SC', 'SE', 'LN']);
+
 /** Feature types whose names do not already say what they are. */
 const SAY_KIND = new Set(['AA']);
 
@@ -66,8 +73,8 @@ function fold(text) {
  *
  * Inside means within the feature's own radius, and when you are inside
  * several — a crater on a mare inside a basin — the smallest wins, because it
- * is the most particular thing that is true. Outside all of them, the one
- * whose edge is nearest.
+ * is the most particular thing that is true, unless you are only skirting its
+ * edge. Outside all of them, the one whose edge is nearest.
  *
  * @returns {{feature:object, label:string, inside:boolean, distanceKm:number}|null}
  */
@@ -81,10 +88,17 @@ export function describePlace(bodyId, lat, lon) {
   for (const feature of list) {
     const d = distanceKm(radius, lat, lon, feature.lat, feature.lon);
     const r = Math.max(0.05, feature.diameterKm / 2);
-    if (d <= r) {
-      if (!inside || feature.diameterKm < inside.feature.diameterKm) inside = { feature, d };
-    } else if (d - r < nearestGap) {
-      nearestGap = d - r;
+    if (d <= r && !LONG.has(feature.code)) {
+      // The smallest, unless you are only just inside it: a crater on a mare
+      // beats the mare, but where two great plains overlap at the edges the
+      // one you are well inside wins. Size times how near the edge you are.
+      const depth = d / r;
+      const score = feature.diameterKm * (0.25 + depth * depth);
+      if (!inside || score < inside.score) inside = { feature, d, score };
+    } else if (Math.max(0, d - r) < nearestGap) {
+      // A long feature you are within the length of counts as nought away:
+      // you are on it, or right by it.
+      nearestGap = Math.max(0, d - r);
       nearest = { feature, d };
     }
   }
@@ -120,4 +134,18 @@ export function searchFeatures(bodyId, query, limit = 6) {
     lon: feature.lon,
     diameterKm: feature.diameterKm,
   }));
+}
+
+/**
+ * Somewhere with a name, at random — what a random teleport means off Earth,
+ * where "somewhere with people" is not on offer. Any named feature at least
+ * `minKm` across, chosen evenly among them, so the Moon sends you to craters
+ * and maria rather than to the astronauts' boulders. Null for a body with no
+ * names at all.
+ */
+export function randomFeature(bodyId, minKm = 5, random = Math.random) {
+  const list = featuresOn(bodyId).filter((f) => f.diameterKm >= minKm && Math.abs(f.lat) < 80);
+  if (!list.length) return null;
+  const feature = list[Math.floor(random() * list.length) % list.length];
+  return { label: featureLabel(feature), lat: feature.lat, lon: feature.lon };
 }
