@@ -17,14 +17,27 @@ const put = (v, n, text, why) => {
   v.known.set(n, text); return true;
 };
 // 1. Each version's own window.
+// newest first: where two views in one window disagree (an edit nobody logged), the later one is the file's
 for (const v of Object.values(V)) {
-  for (const f of all) if (f.t >= v.from && f.t < v.to && !f.hyps) for (const [n, t] of f.lines) put(v, n, t, 'win ' + f.t);
+  for (const f of all.slice().sort((a, b) => (a.t < b.t ? 1 : -1))) if (f.t >= v.from && f.t < v.to && !f.hyps) for (const [n, t] of f.lines) put(v, n, t, 'win ' + f.t);
 }
 const settleHyps = () => {
   for (const v of Object.values(V)) for (const f of all) {
     if (!f.hyps || f.t < v.from || f.t >= v.to || f.used) continue;
     const sc = f.hyps.map((m) => { let a = 0, c = 0; for (const [n, t] of m) { if (!v.known.has(n)) continue; if (v.known.get(n) === t) a++; else c++; } return { m, a, c }; });
-    const ok = sc.filter((s) => s.c === 0 && s.a > 0);
+    let ok = sc.filter((s) => s.c === 0 && s.a > 0);
+    // Nothing to compare with in this version: decide by what comes before the first line shown (or after the
+    // last) in any version that has it - a blank there means a blank was trimmed off the output.
+    if (!ok.length && f.hyps.length === 2 && sc.every((s) => s.a === 0 && s.c === 0)) {
+      const [h0, h1] = f.hyps; const k0 = [...h0.keys()].sort((a, b) => a - b), k1 = [...h1.keys()].sort((a, b) => a - b);
+      const top = /top of mixed|chain short/.test(f.src);
+      const shown = top ? h0.get(k0[0]) : h0.get(k0.at(-1));
+      const votes = { blank: 0, text: 0 };
+      if (shown && shown.trim()) for (const w of Object.values(V)) for (const [n, t] of w.known) {
+        if (t !== shown) continue; const nb = w.known.get(top ? n - 1 : n + 1); if (nb === undefined) continue; votes[nb === '' ? 'blank' : 'text']++;
+      }
+      if (votes.text && !votes.blank) ok = [sc[0]]; else if (votes.blank && !votes.text) ok = [sc[1]];
+    }
     if (ok.length === 1) { for (const [n, t] of ok[0].m) put(v, n, t, 'hyp ' + f.t); f.used = true; }
   }
 };
@@ -46,6 +59,31 @@ for (const d of spec.diffs ?? []) edges.push({ from: d.from, to: d.to, hunks: pa
 // python s.replace edits: an edge with an ordered list of {old, new}; each is placed by finding its block,
 // uniquely, among the known lines of either version; the other side's position follows from the blocks before it.
 for (const r of spec.replaces ?? []) edges.push({ from: r.from, to: r.to, edits: r.edits });
+for (const u of spec.unknown ?? []) edges.push({ from: u.from, to: u.to, unknown: true });
+// An edit nobody logged: line up the two versions on distinctive lines both know, and copy across only the
+// stretches between two such lines that are the same distance apart in both.
+function alignUnknown(e) {
+  const A = V[e.from], B = V[e.to]; let moved = 0;
+  const uniq = (v) => { const m = new Map(); for (const [n, t] of v.known) { if (t.replace(/\s/g, '').length < 20) continue; m.set(t, m.has(t) ? -1 : n); } return m; };
+  const ua = uniq(A), ub = uniq(B);
+  const pairs = []; for (const [t, a] of ua) { const b = ub.get(t); if (a > 0 && b > 0) pairs.push([a, b]); }
+  pairs.sort((x, y) => x[0] - y[0]);
+  // longest chain increasing in both
+  const n = pairs.length; const len = Array(n).fill(1), prev = Array(n).fill(-1);
+  for (let i = 0; i < n; i++) for (let j = Math.max(0, i - 200); j < i; j++) if (pairs[j][1] < pairs[i][1] && len[j] + 1 > len[i]) { len[i] = len[j] + 1; prev[i] = j; }
+  let best = -1; for (let i = 0; i < n; i++) if (best < 0 || len[i] > len[best]) best = i;
+  const chain = []; for (let i = best; i >= 0; i = prev[i]) chain.unshift(pairs[i]);
+  // The file's start and end line up too (before line 1, after the last line).
+  chain.unshift([0, 0]); chain.push([A.count + 1, B.count + 1]);
+  for (let i = 0; i + 1 < chain.length; i++) {
+    const [a1, b1] = chain[i], [a2, b2] = chain[i + 1];
+    if (a2 - a1 !== b2 - b1) continue;
+    let ok = true; for (let k = 1; k < a2 - a1 && ok; k++) { const x = A.known.get(a1 + k), y = B.known.get(b1 + k); if (x !== undefined && y !== undefined && x !== y) ok = false; }
+    if (!ok) continue;
+    for (let k = 1; k < a2 - a1; k++) { const x = A.known.get(a1 + k), y = B.known.get(b1 + k); if (x !== undefined && y === undefined) { if (put(B, b1 + k, x, 'unknown-edge')) moved++; } else if (y !== undefined && x === undefined) { if (put(A, a1 + k, y, 'unknown-edge')) moved++; } }
+  }
+  return moved;
+}
 function findBlock(v, blk) {
   // python's replace(old, new, 1) changes the first occurrence: take the first place where the whole block is
   // known, unless an earlier place could also hold it (partly known, nothing against it).
@@ -89,12 +127,41 @@ function edgeHunks(e) {
   if (e.hunks) return e.hunks;
   if (e.done) return e.done;
   const A = V[e.from], B = V[e.to];
+  // Text that is not whole lines: find it inside a run of known lines of A (or the new text in B), widen to the
+  // lines it touches, and make the replacement there. Unique occurrences only.
+  const viaSubstring = (x) => {
+    for (const [V1, find, repl, side] of [[A, x.old, x.new, 'A'], [B, x.new, x.old, 'B']]) {
+      if (!find || find.length < 12) continue;
+      const nums = [...V1.known.keys()].sort((a, b) => a - b);
+      let hits = [];
+      for (let i = 0; i < nums.length;) {
+        let j = i; while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++;
+        const start = nums[i]; const lines = nums.slice(i, j + 1).map((n) => V1.known.get(n));
+        const text = lines.join('\n');
+        let k = text.indexOf(find);
+        while (k >= 0) { hits.push({ start, text, k, lines }); k = text.indexOf(find, k + 1); }
+        i = j + 1;
+      }
+      if (hits.length !== 1) continue;
+      const h = hits[0];
+      const before = h.text.slice(0, h.k); const firstLine = before.split('\n').length - 1;
+      const lastLine = (before + find).split('\n').length - 1;
+      const oldLines = h.lines.slice(firstLine, lastLine + 1);
+      const joined = oldLines.join('\n'); const off = before.length - (before.lastIndexOf('\n') + 1);
+      const replaced = joined.slice(0, off) + repl + joined.slice(off + find.length);
+      const pos = h.start + firstLine;
+      return side === 'A' ? { old: oldLines, nw: replaced.split('\n'), os: pos, ns: null } : { old: replaced.split('\n'), nw: oldLines, os: null, ns: pos };
+    }
+    return null;
+  };
   const items = e.edits.map((x) => {
     // Whole lines: a block that ends (or starts) with a newline on both sides has no extra empty line.
     let o = x.old, w = x.new;
     while (o.endsWith('\n') && w.endsWith('\n')) { o = o.slice(0, -1); w = w.slice(0, -1); }
     while (o.startsWith('\n') && w.startsWith('\n')) { o = o.slice(1); w = w.slice(1); }
-    const old = o.split('\n'), nw = w.split('\n'); return { old, nw, d: nw.length - old.length, os: findBlock(A, old), ns: findBlock(B, nw) }; });
+    let old = o.split('\n'), nw = w.split('\n');
+    let os0 = findBlock(A, old), ns0 = findBlock(B, nw);
+    if (os0 == null && ns0 == null) { const sub = viaSubstring(x); if (sub) { old = sub.old; nw = sub.nw; os0 = sub.os; ns0 = sub.ns; } } return { old, nw, d: nw.length - old.length, os: os0, ns: ns0 }; });
   if (items.some((it) => it.os == null && it.ns == null)) return null;
   // order by position (either coordinate; deltas are small next to the distances between blocks)
   items.sort((a, b) => (a.os ?? a.ns) - (b.os ?? b.ns));
@@ -106,6 +173,7 @@ function edgeHunks(e) {
 function propagate() {
   let moved = 0;
   for (const e of edges) {
+    if (e.unknown) { moved += alignUnknown(e); continue; }
     const A = V[e.from], B = V[e.to]; const hs = edgeHunks(e); if (!hs) continue;
     // hunk content itself
     for (const h of hs) {
@@ -126,7 +194,7 @@ function propagate() {
   return moved;
 }
 for (let i = 0; i < 10; i++) { const m = propagate(); settleHyps(); if (!m) break; }
-for (const e of edges) console.log(`edge ${e.from}->${e.to}:`, edgeHunks(e) ? edgeHunks(e).map((h) => `${h.os}+${h.ol}->${h.ns}+${h.nl}`).join(" ") : "NOT PLACED", e.edits ? e.edits.map((x) => JSON.stringify(x.old.split("\n")[0]).slice(0, 50)).join(" / ") : "");
+for (const e of edges) if (!e.unknown) console.log(`edge ${e.from}->${e.to}:`, edgeHunks(e) ? edgeHunks(e).map((h) => `${h.os}+${h.ol}->${h.ns}+${h.nl}`).join(" ") : "NOT PLACED", e.edits ? e.edits.map((x) => JSON.stringify(x.old.split("\n")[0]).slice(0, 50)).join(" / ") : "");
 for (const v of Object.values(V)) {
   console.log(`${v.name} (${v.count}): known ${v.known.size}, conflicts ${v.conflicts.length}`);
   for (const c of v.conflicts.slice(0, 6)) console.log('   conflict', c.n, c.why, JSON.stringify(c.have).slice(0, 60), '|', JSON.stringify(c.got).slice(0, 60));
@@ -207,16 +275,51 @@ function fillVersion(T) {
   }
   return filled;
 }
+// Views in no window (between an unlogged change's two count records): each goes to the one version it agrees
+// with (3 or more lines alike, none against) while it contradicts every other.
+const orphans = all.filter((f) => !f.hyps && !spec.versions.some((v) => f.t >= v.from && f.t < v.to) && f.agent !== 'git');
+function placeOrphans() {
+  let moved = 0;
+  for (const f of orphans) {
+    if (f.placed) continue;
+    const fits = [], against = [];
+    for (const v of Object.values(V)) { let a = 0, c = 0; for (const [n, t] of f.lines) { if (!v.known.has(n)) continue; if (v.known.get(n) === t) a++; else c++; } if (!c && a >= 3) fits.push(v); else if (c) against.push(v); }
+    if (fits.length === 1 && against.length >= 1) { for (const [n, t] of f.lines) if (put(fits[0], n, t, 'orphan ' + f.t)) moved++; f.placed = true; continue; }
+    // Between the version before it in time (A) and the one after (B): contradicting one and not the other
+    // puts it in the other.
+    const vs = Object.values(V).slice().sort((x, y) => (x.from < y.from ? -1 : 1));
+    const A = vs.filter((v) => v.to <= f.t).at(-1), B = vs.find((v) => v.from > f.t);
+    if (!A || !B) continue;
+    const score = (v) => { let a = 0, c = 0; for (const [n, t] of f.lines) { if (!v.known.has(n)) continue; if (v.known.get(n) === t) a++; else c++; } return { a, c }; };
+    const sa = score(A), sb = score(B);
+    const pick = sa.c >= 3 && sb.c === 0 && sb.a >= 2 ? B : sb.c >= 3 && sa.c === 0 && sa.a >= 2 ? A : null;
+    if (pick) { for (const [n, t] of f.lines) if (n <= pick.count && put(pick, n, t, 'orphan* ' + f.t)) moved++; f.placed = true; }
+  }
+  return moved;
+}
 for (let pass = 0; pass < 8; pass++) {
-  let changed = 0;
+  let changed = placeOrphans();
   for (let i = 0; i < 10; i++) { const m = propagate(); settleHyps(); changed += m; if (!m) break; }
   for (const v of Object.values(V)) changed += fillVersion(v);
   if (!changed) break;
 }
-for (const e of edges) if (!edgeHunks(e)) console.log(`edge ${e.from}->${e.to}: STILL NOT PLACED`);
+for (const e of edges) if (!e.unknown && !edgeHunks(e)) console.log(`edge ${e.from}->${e.to}: STILL NOT PLACED`);
 for (const v of Object.values(V)) console.log(`after filling: ${v.name} (${v.count}) known ${v.known.size}, conflicts ${v.conflicts.length}`);
 const T = V[target]; const N = T.count; const base = T.known;
 console.log(`${target}: text fills ${JSON.stringify(fillStats)}`);
+// A whole copy of the file (a git diff applied, a full Read, a lone cat) with exactly the target's length that
+// agrees with every line known so far: the latest one fills what is still missing.
+{
+  const wholes = all.filter((f) => !f.hyps && (f.whole || /^Read 1\+all/.test(f.src)) && f.lines.size === N && Math.max(...f.lines.keys()) === N)
+    .sort((a, b) => (a.t < b.t ? 1 : -1));
+  for (const w of wholes) {
+    let clash = 0, agree = 0; for (const [n, t] of base) { if (!w.lines.has(n)) continue; if (w.lines.get(n) === t) agree++; else clash++; }
+    if (clash) continue;
+    let k = 0; for (const [n, t] of w.lines) if (!base.has(n)) { base.set(n, t); k++; }
+    if (k) console.log(`${target}: ${k} lines from a whole copy of ${w.t} (${w.src}), agreeing with ${agree} known`);
+    break;
+  }
+}
 // Hand-written or hand-placed lines (spec.manual: "N<TAB>text" per line), only where nothing else is known.
 let manual = 0;
 if (spec.manual) for (const l of readFileSync(spec.manual, 'utf8').split('\n')) { const m = /^(\d+)\t(.*)$/s.exec(l); if (m && !base.has(+m[1])) { base.set(+m[1], m[2]); manual++; } }

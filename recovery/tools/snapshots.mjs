@@ -37,9 +37,12 @@ export function applyDiff(base, section) {
 }
 export function snapshots(rows, rel) {
   const out = [];
+  // A tracked file as it was committed: the state before any of this work (the session's first day).
+  const h = headLines(rel);
+  if (h) { const m = new Map(); h.forEach((t, i) => m.set(i + 1, t)); out.push({ t: '2026-10-01T00:00:01.000Z', agent: 'git', src: 'commit 2c7ee70', lines: m, whole: h.length }); }
   const base = rel.split('/').pop();
   for (const r of rows) {
-    if (r.name !== 'Bash' || !r.result || r.error) continue;
+    if (r.name !== 'Bash' || !r.result || r.error || r.preview) continue;
     const cmd = r.input?.command ?? '';
     if (!cmd.includes(base)) continue;
     const cds = [...cmd.matchAll(/(?:^|[;&|\n]\s*)cd\s+(\S+)/g)].map((m) => m[1]);
@@ -47,7 +50,12 @@ export function snapshots(rows, rel) {
     // git diff sections
     const key = `diff --git a/${rel} b/${rel}\n`;
     let k = r.result.indexOf(key);
-    if (k >= 0 && /\bgit (-C \S+ )?diff\b/.test(cmd) && !/--stat|--name|-U\d|--word|--color/.test(cmd)) {
+    // A diff cut by head/tail/sed may end between hunks and still apply: only trust it when the output is shorter
+    // than the cut (so nothing was cut).
+    const cut = [...cmd.matchAll(/git (?:-C \S+ )?diff[^;&|\n]*\|\s*(?:head\s+-n?\s*(\d+)|head\s+-(\d+)|sed -n ['"]?(\d+),(\d+)p|tail\b)/g)];
+    const outLines = r.result.split('\n').length;
+    const wasCut = cut.some((m) => (m[1] || m[2]) ? outLines >= +(m[1] || m[2]) - 1 : true);
+    if (k >= 0 && !wasCut && /\bgit (-C \S+ )?diff\b/.test(cmd) && !/--stat|--name|-U\d|--word|--color/.test(cmd)) {
       let end = r.result.indexOf('\ndiff --git ', k + 1); const sec = r.result.slice(k, end < 0 ? undefined : end + 1);
       const h = headLines(rel);
       // a cut-short tail (head -N) is caught by the hunk counts in applyDiff
