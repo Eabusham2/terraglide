@@ -28,7 +28,7 @@ rep("""    if (text) {
       this.session.chat(text);""", """    if (text) {
       // Never a password: the arrows would hand it to whoever sits down at
       // the keyboard next.
-      if (!/^\\/password(\\s|$)/i.test(text)) {
+      if (!/^\\/password\\b/i.test(text)) {
         this.history.unshift(text);
         if (this.history.length > 50) this.history.pop();
       }
