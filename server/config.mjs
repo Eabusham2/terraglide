@@ -46,13 +46,19 @@ export const DEFAULTS = {
   /** Seconds between /spawn uses. */
   spawnCooldownS: 15,
   /**
-   * How fast anyone may go, metres a second, before a move is refused.
+   * How fast anyone may fly, metres a second, across the ground and upwards,
+   * before a move is refused. Falls never count.
    *
-   * The fastest legitimate thing is a Rocket V in a surge, diving: about 330.
-   * This leaves room for a bad network bunching updates together, and is
-   * still a third of what the speed cheats reach.
+   * The fastest legitimate thing outside a surge is a Rocket V held on a
+   * climb, 143 m/s on Earth; the room is for a bad network bunching updates
+   * together. A surge is allowed 5.5 times this for its twelve seconds — it
+   * stretches each tick and a rocket's push with it, so a Rocket V lit inside
+   * one honestly climbs at about 870 m/s — and the server holds surges to the
+   * same twelve on, thirty off that the game does. In thin air, where a glide
+   * can reach the world's terminal speed, the limit is raised to clear it (on
+   * Mars to about 490). On foot it is walking pace whatever this says.
    */
-  maxSpeed: 420,
+  maxSpeed: 180,
   /**
    * Which origins may connect, for the WebSocket. "*" for any — including the
    * single-file game opened from disk, whose origin is "null" — or a list.
@@ -66,8 +72,18 @@ export const DEFAULTS = {
   iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }],
   /** Serve the game itself on the same port, so the server's address is playable. */
   serveGame: true,
-  /** Trust X-Forwarded-For for client addresses (set when behind a proxy or tunnel). */
+  /**
+   * Behind a proxy or tunnel, take the client's address from what the proxy
+   * reports (the last X-Forwarded-For entry, or proxyHeader) instead of from
+   * the socket, which is the proxy's own. Off when players connect directly.
+   */
   trustProxy: false,
+  /**
+   * With trustProxy on, a header the proxy names the visitor in, which then
+   * wins over X-Forwarded-For — "cf-connecting-ip" behind Cloudflare. Empty
+   * for none. Only behind that proxy: anyone can send the header otherwise.
+   */
+  proxyHeader: '',
   /** Seconds between saves to disk. */
   saveEveryS: 30,
 };
@@ -81,7 +97,36 @@ export function loadConfig({ file = join(HERE, 'config.json'), env = process.env
       throw new Error(`server/config.json is not valid JSON: ${error.message}`);
     }
   }
-  const config = { ...DEFAULTS, ...fromFile };
+  // The same, from one variable, for hosts that build from the repository and
+  // so never have a config.json: laid over the file, under the variables below.
+  let fromEnv = {};
+  if (env.TERRAGLIDE_CONFIG) {
+    try {
+      fromEnv = JSON.parse(env.TERRAGLIDE_CONFIG);
+    } catch (error) {
+      throw new Error(`TERRAGLIDE_CONFIG is not valid JSON: ${error.message}`);
+    }
+  }
+  const config = { ...DEFAULTS, ...fromFile, ...fromEnv };
+  const number = (name, key) => {
+    if (!env[name]) return;
+    const n = Number(env[name]);
+    if (Number.isFinite(n) && n >= 0) config[key] = n;
+    else console.warn(`[terraglide] ${name}=${env[name]} is not a number; ${key} stays ${config[key]}`);
+  };
+  const flag = (name, key) => {
+    if (!env[name]) return;
+    if (/^(1|true|yes|on|0|false|no|off)$/i.test(env[name])) config[key] = /^(1|true|yes|on)$/i.test(env[name]);
+    else console.warn(`[terraglide] ${name}=${env[name]} is not 1 or 0; ${key} stays ${config[key]}`);
+  };
+  if (env.TERRAGLIDE_MOTD) config.motd = env.TERRAGLIDE_MOTD;
+  number('TERRAGLIDE_MAX_PLAYERS', 'maxPlayers');
+  number('TERRAGLIDE_MAX_ACCOUNTS', 'maxAccounts');
+  number('TERRAGLIDE_SIGNUPS_PER_HOUR', 'signupsPerHour');
+  flag('TERRAGLIDE_OPEN_SIGNUPS', 'openSignups');
+  flag('TERRAGLIDE_FIRST_ACCOUNT_ADMIN', 'firstAccountIsAdmin');
+  flag('TERRAGLIDE_PVP', 'pvp');
+  if (env.TERRAGLIDE_ALLOWED_ORIGINS) config.allowedOrigins = env.TERRAGLIDE_ALLOWED_ORIGINS;
   if (env.PORT) config.port = Number(env.PORT);
   if (env.HOST) config.host = env.HOST;
   if (env.DATA_DIR) config.dataDir = env.DATA_DIR;
@@ -89,12 +134,12 @@ export function loadConfig({ file = join(HERE, 'config.json'), env = process.env
   if (env.TERRAGLIDE_JOIN_CODE) config.joinCode = env.TERRAGLIDE_JOIN_CODE;
   if (env.TERRAGLIDE_ADMINS) config.admins = env.TERRAGLIDE_ADMINS.split(',').map((s) => s.trim()).filter(Boolean);
   if (env.TERRAGLIDE_TRUST_PROXY) config.trustProxy = env.TERRAGLIDE_TRUST_PROXY !== '0';
+  if (env.TERRAGLIDE_PROXY_HEADER) config.proxyHeader = env.TERRAGLIDE_PROXY_HEADER;
   if (env.TURN_URL) {
     config.iceServers = [
       ...config.iceServers,
       { urls: env.TURN_URL.split(','), username: env.TURN_USERNAME ?? '', credential: env.TURN_CREDENTIAL ?? '' },
     ];
-
   }
   config.dataDir = resolve(HERE, config.dataDir);
   return config;
