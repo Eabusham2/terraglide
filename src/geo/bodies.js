@@ -34,6 +34,7 @@ import { BOOT } from '../core/boot.js';
  *              J2000 — the IAU working group's figures
  *   spin       [W at J2000, degrees per day]: how far round its prime meridian
  *              has turned, also the IAU's. Negative turns backwards.
+ *   landmark   something real standing at the landing site, drawn there
  *   parent     for a moon that keeps one face to its planet (and Pluto, which
  *              keeps one to Charon): what hangs over the middle of that face —
  *              its name, angular size in degrees from the surface, and colours
@@ -66,7 +67,10 @@ export const BODIES = {
     breathable: false,
     water: false,
     day: 708.7,
-    spawn: { lat: 0.67416, lon: 23.47314, label: 'Tranquility Base, Apollo 11' },
+    // Twenty-five metres west of where Eagle came down, so you arrive beside
+    // its descent stage rather than inside it — see `landmark`.
+    spawn: { lat: 0.67416, lon: 23.47232, label: 'Tranquility Base, Apollo 11' },
+    landmark: { lat: 0.67416, lon: 23.47314, label: "Eagle's descent stage" },
     sky: 'vacuum',
     tempC: -20,
     reach: [-9200, 10900],
@@ -103,14 +107,14 @@ export const BODIES = {
     breathable: false,
     water: false,
     day: 4222.6,
-    spawn: { lat: 30.5, lon: -170.2, label: 'Caloris Planitia' },
+    spawn: { lat: 30.5, lon: -170.2, label: 'Caloris Montes, the rim of the Caloris basin' },
     sky: 'vacuum',
     tempC: 167,
     reach: [-11000, 8500],
     orbit: 'mercury',
     pole: [281.0097, 61.4143],
     spin: [329.5469, 6.1385025],
-    blurb: 'The sun is two and a half times wider here, and there is no air to soften it.',
+    blurb: 'The sun is up to three times wider here, and there is no air to soften it.',
   },
   venus: {
     id: 'venus',
@@ -124,7 +128,8 @@ export const BODIES = {
     spawn: { lat: 0.5, lon: -165.4, label: 'Maat Mons' },
     sky: 'venus',
     tempC: 464,
-    reach: [-3000, 11000],
+    // Magellan's Maxwell Montes reads 11,613 m against this datum.
+    reach: [-3000, 12000],
     orbit: 'venus',
     pole: [272.76, 67.16],
     spin: [160.2, -1.4813688],
@@ -204,7 +209,6 @@ export const BODIES = {
     spawn: { lat: 9.7, lon: 86.3, label: 'Conamara Chaos' },
     sky: 'vacuum',
     tempC: -160,
-    tempC: -160,
     reach: [-2000, 2000],
     orbit: 'jupiter',
     pole: [268.08, 64.51],
@@ -278,7 +282,7 @@ export const BODIES = {
     breathable: false,
     water: false,
     day: 32.9,
-    spawn: { lat: 15, lon: 30, label: 'Samarkand Sulci' },
+    spawn: { lat: 30, lon: 32.5, label: 'Samarkand Sulci' },
     sky: 'vacuum',
     tempC: -198,
     reach: [-6000, 6500],
@@ -316,10 +320,11 @@ export const BODIES = {
     breathable: false,
     water: false,
     day: 153.3,
-    spawn: { lat: 5, lon: 0, label: 'Vulcan Planitia' },
+    spawn: { lat: -5.12, lon: 7.05, label: 'Clarke Montes' },
     sky: 'vacuum',
     tempC: -220,
-    reach: [-13500, 6000],
+    // New Horizons' map runs from about -14,100 m to +6,600 m, with room.
+    reach: [-15000, 7500],
     orbit: 'pluto',
     pole: [132.993, -6.163],
     spin: [122.695, 56.3625225],
@@ -356,6 +361,25 @@ export function aeroFactor(body = BODY) {
 /** The body's gravity as a fraction of Earth's. */
 export function gravityRatio(body = BODY) {
   return body.gravity / EARTH_GRAVITY;
+}
+
+/** Minecraft's straight-down dive: the game's terminal velocity on Earth, m/s. */
+export const EARTH_TERMINAL_MPS = 78.4;
+/**
+ * How fast you can fall through this world's air, in metres per second.
+ *
+ * The flight model's drag is Minecraft's, a fixed share of your speed each
+ * tick, and that is fine for Earth and for thick air — but real drag grows
+ * with the square of speed, and in thin air the difference is everything:
+ * scaled linearly, Mars's air would let you reach eighteen hundred metres a
+ * second before it pushed back. Real terminal speed goes as the square root
+ * of gravity over air density, so that is used here, from Earth's 78.4:
+ * about 380 on Mars, and no limit at all with no air.
+ */
+export function terminalSpeed(body = BODY) {
+  const air = aeroFactor(body);
+  if (air <= 0) return Infinity;
+  return EARTH_TERMINAL_MPS * Math.sqrt(gravityRatio(body) / air);
 }
 
 /** Look a world up by id, alias or name, for /travel. Null if unknown. */

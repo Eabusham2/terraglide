@@ -1,7 +1,30 @@
 // Every line-numbered sighting of one repo file in the logs: {t, agent, src, lines: Map<lineNo, text>}.
 // Sources: Read (with or without offset), `sed -n 'A,Bp' FILE` chains, `grep -n`/`cat -n` output.
 import { readFileSync } from 'node:fs';
-export function loadRows() { return readFileSync(new URL('./calls.jsonl', import.meta.url), 'utf8').split('\n').filter(Boolean).map(JSON.parse); }
+let ROWS = null;
+export function loadRows() {
+  if (ROWS) return ROWS;
+  const rows = readFileSync(new URL('./calls.jsonl', import.meta.url), 'utf8').split('\n').filter(Boolean).map(JSON.parse);
+  // A result too large for the log was saved to a file, with a 2 KB preview left in its place. Where an agent
+  // read that file back, the read is the whole result; otherwise keep the preview without its cut last line.
+  const readBack = new Map();
+  for (const r of rows) if (r.name === 'Read' && /tool-results\//.test(r.input?.file_path ?? '') && r.result && !r.input.offset && !r.input.limit) {
+    const lines = []; for (const l of r.result.split('\n')) { const m = /^(\d+)\t(.*)$/s.exec(l); if (m) lines.push(m[2]); else if (l.startsWith('<system-reminder>')) break; }
+    if (lines.at(-1) === '') lines.pop();
+    readBack.set(r.input.file_path, lines.join('\n'));
+  }
+  for (const r of rows) {
+    if (typeof r.result !== 'string' || !r.result.startsWith('<persisted-output>')) continue;
+    const m = /saved to: (\S+)/.exec(r.result);
+    if (m && readBack.has(m[1])) { r.result = readBack.get(m[1]); r.restored = true; continue; }
+    const k = r.result.indexOf('Preview (first 2KB):\n');
+    if (k < 0) { r.result = ''; continue; }
+    let prev = r.result.slice(k + 'Preview (first 2KB):\n'.length).replace(/\n?<\/persisted-output>\s*$/, '');
+    prev = prev.split('\n'); prev.pop(); // the last line may be cut
+    r.result = prev.join('\n'); r.preview = true;
+  }
+  return (ROWS = rows);
+}
 const R = '/home/user/terraglide/';
 function readLines(text) {
   const m = new Map();
@@ -29,7 +52,16 @@ export function fragments(rows, rel, { copies = false } = {}) {
   const abs = R + rel;
   for (const r of rows) {
     if (!r.result || r.error) continue;
-    if (r.name === 'Read' && r.input?.file_path === abs) { out.push({ t: r.t, agent: r.agent, src: `Read ${r.input.offset ?? 1}+${r.input.limit ?? 'all'}`, lines: readLines(r.result) }); continue; }
+    if (r.name === 'Read' && r.input?.file_path === abs) {
+      const m = readLines(r.result);
+      // A Read that reaches the end of the file shows one more, empty line: not part of the file.
+      const lim = r.input.limit ?? 2000; const last = Math.max(0, ...m.keys());
+      const reachedEnd = m.size < lim;
+      if (reachedEnd && m.get(last) === '') m.delete(last);
+      const whole = (r.input.offset == null || r.input.offset <= 1) && reachedEnd ? m.size : undefined;
+      out.push({ t: r.t, agent: r.agent, src: `Read ${r.input.offset ?? 1}+${r.input.limit ?? 'all'}`, lines: m, whole, endsAt: reachedEnd ? last - (m.has(last) ? 0 : 1) : undefined });
+      continue;
+    }
     if (r.name !== 'Bash') continue;
     const cmd = r.input?.command ?? '';
     if (!cmd.includes(rel.split('/').pop())) continue;

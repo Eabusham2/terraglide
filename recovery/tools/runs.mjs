@@ -12,7 +12,7 @@ export function shellParts(cmd) {
   const endPart = () => { endStage(); if (stages.length) parts.push(stages); stages = []; };
   for (let i = 0; i < cmd.length; i++) {
     const c = cmd[i];
-    if (q) { if (c === q) q = null; else if (c === '\\' && q === '"' && i + 1 < cmd.length) word += cmd[++i]; else word += c; continue; }
+    if (q) { if (c === q) q = null; else if (c === '\\' && q === '"' && i + 1 < cmd.length) { const d = cmd[++i]; word += '$`"\\\n'.includes(d) ? d : '\\' + d; } else word += c; continue; }
     if (c === "'" || c === '"') { q = c; continue; }
     if (c === '$' && cmd[i + 1] === '(') { depth++; word += '$('; i++; continue; }
     if (depth) { if (c === '(') depth++; if (c === ')') depth--; word += c; continue; }
@@ -87,6 +87,21 @@ export function textRuns(rows, rel) {
 }
 // Numbered sightings from grep output lines anywhere: "path:N:text" / "path-N-text" when the path is this
 // file (with the command's cwd at the repo), or "N:text" when every grep in the command is on this file alone.
+// A grep's pattern as a JS RegExp (basic regex: \| \( \) are operators, + ? | ( ) are literal), or null.
+function grepRegex(words) {
+  const flags = words.filter((x) => /^-[a-zA-Z]+$/.test(x)).join('');
+  const args = words.slice(1).filter((x) => !x.startsWith('-'));
+  let pat = args[0]; if (pat == null) return null;
+  const ei = words.indexOf('-e'); if (ei > 0) pat = words[ei + 1];
+  try {
+    let src;
+    if (/F/.test(flags)) src = pat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    else if (/E/.test(flags)) src = pat;
+    else { src = ''; for (let i = 0; i < pat.length; i++) { const c = pat[i]; if (c === '\\' && i + 1 < pat.length) { const d = pat[++i]; src += '|(){}?+'.includes(d) ? d : d === 'b' ? '\\b' : d === 'w' ? '\\w' : d === 's' ? '\\s' : d === '.' ? '\\.' : d === '\\' ? '\\\\' : '\\' + d; } else src += '|()+?{}'.includes(c) ? '\\' + c : c; } }
+    if (/w/.test(flags)) src = `\\b(?:${src})\\b`;
+    return new RegExp(src, /i/.test(flags) ? 'i' : '');
+  } catch { return null; }
+}
 export function grepNumbered(rows, rel) {
   const base = rel.split('/').pop();
   const out = [];
@@ -126,6 +141,31 @@ export function grepNumbered(rows, rel) {
     const allThis = singles.length > 0 && singles.every((g) => g.files[0] === R + rel || (inRepo && (g.files[0] === rel || g.files[0] === './' + rel)))
       && !info.some((g) => /h/.test(g.flags)) && singles.some((g) => /n/.test(g.flags));
     const otherNumbered = parts.some((st) => (st[0][0] === 'cat' && st[0][1] === '-n') || st[0][0] === 'nl');
+    // Several single-file greps on different files: their outputs follow each other in order, and each one's
+    // numbers rise. Cut the bare N:text lines where the number drops; if that gives one chunk per grep, each
+    // chunk is its grep's.
+    const onlyGreps = parts.every((st) => (st[0][0] === 'grep' || st[0][0] === 'rg') && st.slice(1).every((x) => x[0] === 'head' || x[0] === 'tail'));
+    if (!allThis && singles.length > 1 && inRepo && onlyGreps && singles.length === info.length) {
+      const bare = r.result.split('\n').filter((l) => /^\d+[:-]/.test(l));
+      const nonBare = r.result.split('\n').filter((l) => l && !/^\d+[:-]/.test(l) && l !== '--');
+      if (!nonBare.length) {
+        // Walk the lines in order; each belongs to the current grep if its text matches that grep's pattern and
+        // its number rises, otherwise to the next grep that matches.
+        const res = grepStages.map((w) => grepRegex(w));
+        if (res.every(Boolean)) {
+          let g = 0, last = -1; const owner = []; let bad = false;
+          for (const l of bare) {
+            const n = parseInt(l, 10); const text = l.replace(/^\d+[:-]/, '');
+            const ctx = /^\d+-/.test(l); // -A/-B context lines need not match
+            let k = g;
+            if (!(n > last && (ctx || res[k].test(text)))) { k = g + 1; while (k < res.length && !(ctx || res[k].test(text))) k++; }
+            if (k >= res.length) { bad = true; break; }
+            if (k !== g) last = -1; g = k; owner.push(g); last = n;
+          }
+          if (!bad) bare.forEach((l, i) => { const f = info[owner[i]].files[0]; if (!(f === R + rel || f === rel || f === './' + rel)) return; const x = /^(\d+)([:-])(.*)$/s.exec(l); if (x && !m.has(+x[1])) m.set(+x[1], x[3]); });
+        }
+      }
+    }
     if (allThis && !otherNumbered && inRepo) for (const line of r.result.split('\n')) { if (/^[\w./-]+[:-]\d+[:-]/.test(line)) continue; const x = /^(\d+)([:-])(.*)$/s.exec(line); if (x && !m.has(+x[1])) m.set(+x[1], x[3]); }
     if (m.size) out.push({ t: r.t, agent: r.agent, src: 'grep -n (any)', lines: m });
   }
