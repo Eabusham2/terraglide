@@ -1,0 +1,33 @@
+@@ 828-835
+| `TERRAGLIDE_MOTD` | `motd` | |
+| `TERRAGLIDE_MAX_PLAYERS` | `maxPlayers` | A number. Anything else is ignored with a warning in the log. |
+| `TERRAGLIDE_MAX_ACCOUNTS` | `maxAccounts` | A number; `0` for no limit. |
+| `TERRAGLIDE_SIGNUPS_PER_HOUR` | `signupsPerHour` | A number. |
+| `TERRAGLIDE_OPEN_SIGNUPS` | `openSignups` | `1`, `true`, `yes` or `on` for on; `0`, `false`, `no` or `off` for off. Anything else is ignored with a warning. |
+| `TERRAGLIDE_FIRST_ACCOUNT_ADMIN` | `firstAccountIsAdmin` | As `TERRAGLIDE_OPEN_SIGNUPS`. |
+| `TERRAGLIDE_PVP` | `pvp` | As `TERRAGLIDE_OPEN_SIGNUPS`: `TERRAGLIDE_PVP=0` turns sword damage between players off. |
+| `TERRAGLIDE_ALLOWED_ORIGINS` | `allowedOrigins` | `*`, or a comma-separated list: `https://play.example.com,https://eabusham2.github.io,null`. |
+@@end
+@@ 837-840
+| `TURN_URL` | adds to `iceServers` | One or more TURN addresses, comma-separated: `turn:turn.example.com:3478,turn:turn.example.com:3478?transport=tcp`. Added after the STUN servers, not instead of them. |
+| `TURN_USERNAME` | | The TURN server's username. |
+| `TURN_CREDENTIAL` | | Its password. |
+
+@@end
+@@ 113-113
+players — a small entry for each patch of ground explored — and a big one
+@@end
+@@ 115-126
+live on the 1 GB volume, which they will not fill for a long time.
+
+Add a [TURN server](#when-people-cannot-hear-each-other-turn) so voice works
+for everyone. The server is built to stay steady with a crowd: players far
+from you are sent less often once a world has more than 64 people,
+everybody's discoveries go out as one shared map rather than one per player,
+big maps are sent in paced parts so nobody's connection is overwhelmed, and
+a client that stops reading is let go before what waits for it piles up (see
+[Rate limits](#rate-limits)).
+
+---
+
+@@end
