@@ -1,0 +1,364 @@
+#!/usr/bin/env node
+/**
+ * The server, exercised over real sockets.
+ *
+ * Starts the actual server on a spare port with a throwaway data folder, and
+ * signs players in with Node's own WebSocket client — the same protocol, the
+ * same framing, the same handshake a browser uses. Everything a player can do
+ * to another player is driven end to end: seeing each other, chatting,
+ * teleport requests and their forty-second timeout, a sword fight to the death,
+ * and the moves the server has to refuse.
+ *
+ *   node tools/servertest.mjs
+ */
+
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { startServer } from '../server/server.mjs';
+import {
+  FLAG, MAX_HEALTH, PROTOCOL_VERSION, SWORD_SLOT, TPA_TIMEOUT_S, encodeState,
+} from '../src/net/protocol.js';
+
+let failures = 0;
+let passes = 0;
+function ok(label, condition, detail = '') {
+  if (condition) passes++;
+  else failures++;
+  console.log(`  ${condition ? 'ok  ' : 'FAIL'} ${label}${detail ? `  (${detail})` : ''}`);
+}
+
+const dir = mkdtempSync(join(tmpdir(), 'terraglide-server-'));
+const server = startServer({ port: 0, host: '127.0.0.1', dataDir: dir, serveGame: true, saveEveryS: 3600 });
+const address = await server.ready;
+const URL_WS = `ws://127.0.0.1:${address.port}/ws`;
+const BASE = `http://127.0.0.1:${address.port}`;
+
+/** A player, as the test drives one. */
+class Bot {
+  constructor(name) {
+    this.name = name;
+    this.inbox = [];
+    this.waiters = [];
+    this.seq = 0;
+  }
+
+  async open() {
+    this.ws = new WebSocket(URL_WS);
+    this.ws.onmessage = (event) => {
+      const m = JSON.parse(event.data);
+      this.inbox.push(m);
+      for (const w of [...this.waiters]) {
+        if (w.match(m)) {
+          this.waiters.splice(this.waiters.indexOf(w), 1);
+          w.resolve(m);
+        }
+      }
+    };
+    this.closed = new Promise((resolve) => { this.ws.onclose = (e) => resolve(e); });
+    await new Promise((resolve, reject) => { this.ws.onopen = resolve; this.ws.onerror = reject; });
+    this.send({ t: 'hello', v: PROTOCOL_VERSION, client: 'test' });
+    await this.next('welcome');
+    return this;
+  }
+
+  send(m) {
+    this.ws.send(JSON.stringify(m));
+  }
+
+  /** The next message of a type (optionally matching), from now or already queued since `from`. */
+  next(type, test = () => true, timeout = 3000) {
+    const match = (m) => m.t === type && test(m);
+    return new Promise((resolve, reject) => {
+      const waiter = { match, resolve };
+      this.waiters.push(waiter);
+      setTimeout(() => {
+        const i = this.waiters.indexOf(waiter);
+        if (i >= 0) {
+          this.waiters.splice(i, 1);
+          reject(new Error(`${this.name}: no ${type} within ${timeout} ms`));
+        }
+      }, timeout);
+    });
+  }
+
+
+  has(type, test = () => true) {
+    return this.inbox.some((m) => m.t === type && test(m));
+  }
+
+  clear() {
+    this.inbox.length = 0;
+  }
+
+  async signup(password = 'hunter22') {
+    this.send({ t: 'signup', name: this.name, password });
+    const auth = await this.next('auth');
+    this.auth = auth;
+    if (auth.ok) this.id = auth.you.id;
+    return auth;
+  }
+
+  /** Arrive where the server put us, then report a state there. */
+  async land(lat = this.auth.pos.lat, lon = this.auth.pos.lon, alt = 800) {
+    this.send({ t: 'arrived', tid: this.lastTid ?? 0 });
+    this.pos = { lat, lon, alt };
+    this.state({});
+  }
+
+  state({ lat = this.pos.lat, lon = this.pos.lon, alt = this.pos.alt, flags = FLAG.ground, item = 0, vel = [0, 0, 0] }) {
+    this.pos = { lat, lon, alt };
+    this.send(encodeState({ seq: ++this.seq, lat, lon, alt, agl: 2, vel, yaw: 0, pitch: 0, roll: 0, flags, item }));
+  }
+
+  close() {
+    this.ws.close();
+    return this.closed;
+  }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// A spot away from spawn, where fighting is allowed.
+const FIELD = { lat: 46.6, lon: 7.95 };
+const metresNorth = (m) => m / 111320;
+
+try {
+  console.log('\nthe web half serves the game, and only the game');
+  {
+    const index = await fetch(`${BASE}/`);
+    const html = await index.text();
+    ok('the page is served', index.status === 200 && /TerraGlide/.test(html));
+    ok('and tells the game it is on a server', /window\.__TERRAGLIDE_SERVER__ = true;/.test(html));
+    const status = await (await fetch(`${BASE}/api/status`)).json();
+    ok('the status answers with the server name', status.terraglide === true && typeof status.name === 'string');
+    const secret = await fetch(`${BASE}/server/data/accounts.json`);
+    ok('the data folder is never served', secret.status === 404);
+    const code = await fetch(`${BASE}/server/game.mjs`);
+    ok('nor the server code', code.status === 404);
+    const sneaky = await fetch(`${BASE}/src/../server/accounts.mjs`);
+    ok('nor anything reached by climbing out of a public folder', sneaky.status === 404);
+    const module = await fetch(`${BASE}/src/main.js`, { headers: { 'Accept-Encoding': 'gzip' } });
+    ok('the game modules are served', module.status === 200);
+  }
+
+  console.log('\nsigning up');
+  const alex = await new Bot('Alex').open();
+  const blake = await new Bot('Blake').open();
+  {
+    const bad = new Bot('x');
+    await bad.open();
+    const auth = await bad.signup();
+    ok('a two-letter name is refused', !auth.ok && /at least 3/.test(auth.error));
+    bad.close();
+    const a = await alex.signup();
+    ok('Alex gets an account', a.ok && a.you.name === 'Alex' && /^#[0-9a-f]{6}$/.test(a.you.colour));
+    ok('and a session token to come back with', typeof a.token === 'string' && a.token.length > 30);
+    ok('the first account on a fresh server is its admin', a.you.admin === true);
+    ok('arriving at the spawn', Math.abs(a.pos.lat - 46.5606) < 1e-6);
+    const b = await blake.signup();
+    ok('Blake gets one too, not an admin', b.ok && !b.you.admin);
+    ok('in a different colour', b.you.colour !== a.you.colour);
+    const dupe = await new Bot('alex').open();
+    const again = await dupe.signup();
+    ok('the same name in another case is taken', !again.ok && /taken/.test(again.error));
+    dupe.close();
+  }
+
+  console.log('\nseeing each other');
+  {
+    await alex.land(FIELD.lat, FIELD.lon, 900);
+    await blake.land(FIELD.lat + metresNorth(2), FIELD.lon, 900);
+    const snap = await blake.next('snap', (m) => m.p.some((row) => row[0] === alex.id));
+    const row = snap.p.find((r) => r[0] === alex.id);
+    ok('Blake receives Alex\'s position', Math.abs(row[1] - FIELD.lat) < 1e-6 && Math.abs(row[3] - 900) < 0.01);
+    ok('with Alex\'s health', row[12] === MAX_HEALTH);
+    ok('the roster knows both', alex.has('join', (m) => m.p.name === 'Blake') || blake.has('roster', (m) => m.players.length === 2));
+  }
+
+  console.log('\nchat');
+  {
+    alex.send({ t: 'chat', text: 'hello <b>world</b>' });
+    const line = await blake.next('chat', (m) => m.kind === 'chat');
+    ok('a line reaches everyone, as text', line.text === 'hello <b>world</b>' && line.from.name === 'Alex');
+    alex.send({ t: 'chat', text: '/msg Blake psst' });
+    const w = await blake.next('chat', (m) => m.kind === 'whisper');
+    ok('a whisper reaches its target', w.text === 'psst');
+    blake.send({ t: 'chat', text: '/r hi back' });
+    const r = await alex.next('chat', (m) => m.kind === 'whisper');
+    ok('and /r answers it', r.text === 'hi back' && r.from.name === 'Blake');
+    alex.send({ t: 'chat', text: '/nonsense' });
+    const err = await alex.next('chat', (m) => m.kind === 'error');
+    ok('an unknown command says so', /Unknown command/.test(err.text));
+  }
+
+  console.log('\nteleport requests');
+  {
+    alex.send({ t: 'chat', text: '/tpa blake' });
+    const req = await blake.next('tpreq');
+    ok('Blake is asked', req.kind === 'tpa' && req.from.name === 'Alex' && req.expiresIn === TPA_TIMEOUT_S);
+    blake.send({ t: 'chat', text: '/tpaccept' });
+    const tp = await alex.next('teleport');
+    ok('accepting sends Alex to Blake', Math.abs(tp.lat - (FIELD.lat + metresNorth(2))) < 0.001 && tp.reason === 'tpa');
+    ok('at Blake\'s height', Math.abs(tp.alt - 900) < 0.01);
+    alex.lastTid = tp.tid;
+    // A state before arriving is ignored; after arriving it is accepted.
+    alex.send({ t: 'arrived', tid: tp.tid });
+    alex.state({ lat: tp.lat, lon: tp.lon, alt: tp.alt });
+
+    blake.send({ t: 'chat', text: '/tpahere Alex' });
+    const here = await alex.next('tpreq');
+    ok('/tpahere asks the other way', here.kind === 'tpahere');
+    alex.send({ t: 'chat', text: '/tpdeny Blake' });
+    const end = await blake.next('tpreq-end');
+    ok('and /tpdeny ends it for both', end.reason === 'denied');
+
+    // The forty-second timeout, on the server's clock rather than the wall's.
+    const realNow = server.game.now;
+    let offset = 0;
+    server.game.now = () => realNow() + offset;
+    blake.send({ t: 'chat', text: '/tpa Alex' });
+    // Blake asked Alex less than five seconds ago? No: different direction, so allowed.
+    await alex.next('tpreq');
+    offset = (TPA_TIMEOUT_S - 1) * 1000;
+    server.game.tick();
+    ok('still waiting a second before the timeout', !blake.has('tpreq-end', (m) => m.reason === 'expired'));
+    offset = (TPA_TIMEOUT_S + 0.5) * 1000;
+    server.game.tick();
+    const expired = await blake.next('tpreq-end', (m) => m.reason === 'expired');
+    ok('a request runs out after forty seconds', expired.reason === 'expired');
+    server.game.now = realNow;
+  }
+
+  console.log('\nmoves the server will not accept');
+  {
+
+    alex.clear();
+    // Three hundred kilometres in a tenth of a second is not a rocket.
+    alex.state({ lat: alex.pos.lat + 3, lon: alex.pos.lon, alt: 900 });
+    const fix = await alex.next('correct');
+    ok('a teleport nobody granted is put back', Math.abs(fix.lat - alex.pos.lat + 3) < 0.01);
+    alex.pos = { lat: fix.lat, lon: fix.lon, alt: 900 };
+    await sleep(120);
+    alex.clear();
+    alex.state({ lat: alex.pos.lat + metresNorth(20), lon: alex.pos.lon, alt: 900 });
+    await sleep(150);
+    ok('an ordinary step is not', !alex.has('correct'));
+  }
+
+  console.log('\na sword fight');
+  {
+    // Face to face, two metres apart, away from spawn.
+    const where = { lat: FIELD.lat + 0.01, lon: FIELD.lon + 0.01 };
+    for (const [bot, dLat] of [[alex, 0], [blake, metresNorth(2)]]) {
+      bot.send({ t: 'chat', text: '/spawn' });
+    }
+    // Put both in the field through an admin teleport so the server agrees.
+    const game = server.game;
+    for (const [bot, dLat] of [[alex, 0], [blake, metresNorth(2)]]) {
+      const p = game.players.get(bot.id);
+      p.lastSpawnAt = -Infinity;
+      game.teleport(p, { lat: where.lat + dLat, lon: where.lon, alt: 500, flying: false }, 'test');
+      const tp = await bot.next('teleport', (m) => m.reason === 'test');
+      bot.send({ t: 'arrived', tid: tp.tid });
+      bot.state({ lat: tp.lat, lon: tp.lon, alt: 500, item: bot === alex ? SWORD_SLOT : 0 });
+    }
+    await sleep(150);
+    blake.clear();
+    alex.send({ t: 'attack', target: blake.id });
+    const hit = await blake.next('hit');
+    ok('a hit lands', hit.amount > 0 && hit.by.name === 'Alex' && hit.health < MAX_HEALTH, `took ${hit.amount}`);
+    ok('and knocks Blake back, away from Alex', Array.isArray(hit.kb) && hit.kb[2] > 0 && hit.kb[1] > 0);
+    const first = hit.amount;
+    alex.send({ t: 'attack', target: blake.id });
+    await sleep(120);
+    ok('a second swing inside the immunity does nothing', blake.inbox.filter((m) => m.t === 'hit').length === 1);
+    ok('the first hit was a fresh swing\'s worth', first >= 5);
+
+    // A fight to the death, with the cooldown respected.
+    let died = null;
+    for (let i = 0; i < 12 && !died; i++) {
+      await sleep(650);
+      alex.send({ t: 'attack', target: blake.id });
+      died = await blake.next('died', () => true, 700).catch(() => null);
+    }
+    ok('enough hits kill', !!died && died.by?.name === 'Alex', died?.message);
+    const notice = await alex.next('chat', (m) => m.kind === 'death');
+    ok('and everybody hears about it', /Blake was slain by Alex/.test(notice.text));
+    blake.send({ t: 'respawn' });
+    const back = await blake.next('teleport', (m) => m.reason === 'respawn');
+    const health = blake.inbox.find((m) => m.t === 'health');
+    ok('respawning sends Blake back to spawn with full hearts', Math.abs(back.lat - 46.5606) < 1e-4 && health?.health === MAX_HEALTH);
+
+    // Out of reach.
+    blake.send({ t: 'arrived', tid: back.tid });
+    blake.state({ lat: back.lat, lon: back.lon, alt: 600 });
+    await sleep(700);
+    blake.clear();
+    alex.send({ t: 'attack', target: blake.id });
+    await sleep(200);
+    ok('a swing at somebody kilometres away does nothing', !blake.has('hit'));
+  }
+
+  console.log('\nwhat other people have discovered');
+  {
+    alex.send({ t: 'watch', name: 'blake', explored: true, trail: true });
+    const explored = await alex.next('explored');
+    ok('switching on Blake\'s discoveries sends them', explored.name === 'blake' && explored.cells?.v === 2);
+    const trail = await alex.next('trail');
+    ok('and the trail', Array.isArray(trail.legs) && trail.legs.length >= 1);
+    alex.send({ t: 'atlas' });
+    const atlas = await alex.next('atlas');
+    ok('the atlas lists who has been here', atlas.players.some((p) => p.key === 'blake' && p.explored > 0));
+  }
+
+  console.log('\ntravelling to another world');
+  {
+
+    blake.send({ t: 'chat', text: '/travel the moon' });
+    const went = await blake.next('travelled');
+    ok('/travel moves you to the Moon', went.world === 'moon');
+    await blake.close();
+    const back = await new Bot('Blake').open();
+    back.send({ t: 'resume', token: blake.auth.token });
+    const auth = await back.next('auth');
+    ok('signing back in with the token puts you there', auth.ok && auth.world === 'moon');
+    ok('at Tranquility Base', Math.abs(auth.pos.lat - 0.67416) < 1e-4);
+    back.close();
+  }
+
+  console.log('\nsign-in');
+  {
+    const wrong = await new Bot('Alex').open();
+    wrong.send({ t: 'login', name: 'Alex', password: 'not it' });
+    const no = await wrong.next('auth');
+    ok('a wrong password is refused', !no.ok && /Wrong name or password/.test(no.error));
+    wrong.send({ t: 'login', name: 'alex', password: 'hunter22' });
+    const yes = await wrong.next('auth');
+    ok('the right one is not, whatever the case of the name', yes.ok && yes.you.name === 'Alex');
+    const kicked = await alex.next('kick');
+    ok('and the older connection is told it was replaced', /somewhere else/.test(kicked.reason));
+    wrong.close();
+  }
+
+  console.log('\nsaved to disk');
+  {
+    server.game.saveAll();
+    const { readFileSync } = await import('node:fs');
+    const accounts = JSON.parse(readFileSync(join(dir, 'accounts.json'), 'utf8'));
+    const alexAccount = accounts.accounts.alex;
+    ok('accounts are saved', !!alexAccount && alexAccount.name === 'Alex');
+    ok('with a scrypt hash and never the password', /^scrypt\$/.test(alexAccount.hash) && !JSON.stringify(accounts).includes('hunter22'));
+    const record = JSON.parse(readFileSync(join(dir, 'players/blake.json'), 'utf8'));
+    ok('Blake\'s record knows the Moon and the Earth', record.world === 'moon' && record.worlds.earth && record.worlds.moon);
+    ok('with explored ground on Earth', record.worlds.earth.explored?.v === 2);
+  }
+} catch (error) {
+  failures++;
+  console.log(`  FAIL ${error.message}`);
+} finally {
+  await server.stop();
+  rmSync(dir, { recursive: true, force: true });
+}
+
+console.log(`\n${passes} passed, ${failures} failed`);
+process.exit(failures ? 1 : 0);
