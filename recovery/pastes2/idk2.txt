@@ -1,0 +1,35 @@
+# Final review — findings ledger
+
+## server-security (ab0f562)
+- [x] S1 ws.mjs empty continuation frames unbounded → MAX_FRAGMENTS 64 (repro frag.mjs: closed)
+- [x] S2 half-closed sockets never destroyed → finish() destroys socket (repro leak_realtime: 0 conns)
+- [x] S3 join-code guessing unthrottled → failures limiter (repro joincode: locked after 8)
+
+## server-rules (a327e18)
+- [x] R1 vertical move on ground arrival kicks → horizontal-only speed check (t1 vertical: 0 corrects)
+- [x] R2 25 m slack per message flood → slack lent (budget ≥ -25) + 30 states/s cap (t1: flooder kicked)
+- [x] R3 claimed velocity reach/crit → measuredVelocity from history; history reset on teleport (t3: no hit both)
+- [x] R4 reconnect resets tag/cooldowns/death → carried map 10 min; remember() dead → respawn point (t2 ok; travel part: verify in servertest)
+
+## client-online (aedb44a)
+- [ ] C1 restart kick → never reconnects, dead sign-in form
+- [ ] C2 XSS info.online; ids unescaped in attributes
+- [ ] C3 ghosts after reconnect (roster never prunes)
+- [ ] C4 replaced tpa request: stale prompt accepts opposite; sent never expires
+
+## voice (a95c173)
+- [ ] V1 server relays bye anywhere, any size
+- [ ] V2 16-peer cap never swaps for nearer
+- [ ] V3 push-to-talk impossible on touch
+- [ ] V4 HUD live dot stale after release
+
+## modes-files (af1e932)
+- [ ] M1 clear explored/marks online doesn't clear server; Data tab text wrong online
+- [ ] M2 storage blocked → relaunch loses mode/world → loop
+- [ ] M3 online export importable locally
+- [ ] M4 invite link on a server page names wrong server
+- [ ] M5 README explored boundary text vs 2 km cap
+
+## worlds-sky-physics (ab8c79b) — pending
+## planet-tiles (a990db9) — pending
+## docs (a8a6e8a) — pending

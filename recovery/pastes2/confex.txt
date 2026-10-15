@@ -1,0 +1,142 @@
+$ date -u; git status --short | head -60; ls -la HOSTING.md Dockerfile fly.toml render.yaml .dockerignore server/config.example.json 2>&1; git diff --stat src/tiles src/ui/mapTiles.js tools/selftest.mjs | tail -3
+
+Mon Oct  5 05:23:49 UTC 2026
+ M README.md
+ M src/core/keybinds.js
+ M src/core/settings.js
+ M src/core/storage.js
+ M src/game.js
+ M src/geo/frame.js
+ M src/geo/mercator.js
+ M src/player/avatar.js
+ M src/player/controller.js
+ M src/player/elytra.js
+ M src/player/player.js
+ M src/tiles/elevation.js
+ M src/tiles/providers.js
+ M src/tiles/streamer.js
+ M src/tiles/tileJobs.js
+ M src/ui/cheatPanel.js
+ M src/ui/exploration.js
+ M src/ui/help.js
+ M src/ui/hud.js
+ M src/ui/mapRenderer.js
+ M src/ui/mapTiles.js
+ M src/ui/minimap.js
+ M src/ui/settingsPanel.js
+ M src/ui/waypoints.js
+ M src/ui/worldmap.js
+ M src/world/edgeWall.js
+ M src/world/shaders.js
+ M src/world/sky.js
+ M src/world/terrain.js
+ M styles/main.css
+ M tools/selftest.mjs
+ M tools/shots.mjs
+?? .dockerignore
+?? Dockerfile
+?? HOSTING.md
+?? fly.toml
+?? render.yaml
+?? server/
+?? shots/online/
+?? src/core/boot.js
+?? src/geo/bodies.js
+?? src/geo/ephemeris.js
+?? src/geo/gazetteer.js
+?? src/geo/gazetteerData.js
+?? src/net/
+?? src/player/combat.js
+?? src/tiles/planetary.js
+?? src/ui/chat.js
+?? src/ui/deathScreen.js
+?? src/ui/onlinePanel.js
+?? src/ui/playersPanel.js
+?? src/ui/teleportMenu.js
+?? src/ui/travelPanel.js
+?? src/world/lander.js
+?? src/world/starCatalogue.js
+?? src/world/stars.js
+?? tools/gazetteer.py
+?? tools/onlinecheck.mjs
+?? tools/servertest.mjs
+?? tools/stars.mjs
+-rw-r--r-- 1 root root  1021 Oct  3 21:47 .dockerignore
+-rw-r--r-- 1 root root  1950 Oct  3 21:47 Dockerfile
+-rw-r--r-- 1 root root 58935 Oct  3 21:56 HOSTING.md
+-rw-r--r-- 1 root root  1722 Oct  3 21:49 fly.toml
+-rw-r--r-- 1 root root  1941 Oct  3 21:49 render.yaml
+-rw-r--r-- 1 root root   592 Oct  3 21:46 server/config.example.json
+ src/ui/mapTiles.js     |  37 +++-
+ tools/selftest.mjs     | 520 ++++++++++++++++++++++++++++++++++++++++++++++++-
+ 6 files changed, 843 insertions(+), 14 deletions(-)$ cd /root/.claude/projects/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/workflows/scripts && python3 - <<'EOF'
+p='terraglide-build-planets-voice-docs-wf_ffdf8831-b57.js'
+s=open(p).read()
+start=s.index("  'planet-tiles': `RESUMING")
+end=s.index("  voice: `RESUMING")
+s=s[:start]+"""  'planet-tiles': `RESUMING AN INTERRUPTED RUN (third attempt). Two earlier attempts at exactly this task were cut off by
+a usage limit before they could report. Their work is ON DISK and is yours: src/tiles/planetary.js (~1,700 lines),
+and changes in src/tiles/providers.js (createBodySources, bodyProviders, new source kinds), tileJobs.js, elevation.js,
+streamer.js, src/ui/mapTiles.js, and a large new section in tools/selftest.mjs — see git diff. Do NOT start over: read
+what exists, review it critically against the brief below, finish whatever is missing, fix what is wrong, run the live
+verification and the full self-test, and then WRITE THE REPORT — the report is the deliverable the last two attempts
+never got to, so do not leave it to the very end of a long session: once the code is done and checked, report.
+Since then the lead has also edited (do not touch): src/geo/bodies.js (orbit/pole/spin/parent/landmark fields; the
+Moon spawn moved 25 m west of the LM site; Enceladus and Charon spawns moved to IAU feature centres), src/world/terrain.js
+(SEA_LEVEL is -Infinity off Earth, bedAt returns Infinity off Earth), shaders.js, sky.js, edgeWall.js, elytra.js,
+controller.js, hud.js, game.js, settingsPanel.js, cheatPanel.js, worldmap.js, and new src/geo/ephemeris.js,
+src/geo/gazetteer.js, src/geo/gazetteerData.js, src/world/stars.js, src/world/starCatalogue.js, src/world/lander.js,
+src/ui/teleportMenu.js, tools/stars.mjs, tools/gazetteer.py; the lead also added sections near the end of
+tools/selftest.mjs ("other worlds: ..." and "the teleport menu") — leave those alone.
+
+`,
+"""+s[end:]
+start=s.index("  'hosting-docs': `RESUMING")
+end=s.index("}\n\nphase('Build')")
+s=s[:start]+"""  'hosting-docs': `RESUMING AN INTERRUPTED RUN (third attempt). The previous attempt wrote all six files before a usage
+limit cut it off, so they are ON DISK and are yours: HOSTING.md (~59 KB), server/config.example.json, Dockerfile,
+.dockerignore, render.yaml, fly.toml. Do NOT start over: read them, check every command, key, number and claim against
+the code (the code is the truth and may have changed since: e.g. server/game.mjs maxSpeed now allows a world's fastest
+honest fall, random teleports off Earth land on IAU-named features, and the client has a teleport menu on J), finish
+anything missing, verify (run the server on a spare port and curl it; parse the JSON/YAML/TOML), fix what is wrong,
+and then WRITE THE REPORT — the report is the deliverable the last attempt never got to. Worth a line in the guide: a
+group sharing one public address (one home, one school) is limited to signupsPerHour new accounts per hour from it, and
+behind a tunnel or proxy every player looks like 127.0.0.1 unless trustProxy is on.
+
+`,
+"""+s[end:]
+open(p,'w').write(s)
+EOF
+grep -n "RESUMING" /root/.claude/projects/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/workflows/scripts/terraglide-build-planets-voice-docs-wf_ffdf8831-b57.js
+
+215:  'planet-tiles': `RESUMING AN INTERRUPTED RUN (third attempt). Two earlier attempts at exactly this task were cut off by
+231:  voice: `RESUMING AN INTERRUPTED RUN. A previous attempt at exactly this task was cut off by a usage limit before it
+238:  'hosting-docs': `RESUMING AN INTERRUPTED RUN (third attempt). The previous attempt wrote all six files before a usage
+Shell cwd was reset to /home/user/terraglide$ cd /tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party && ls server/; grep -n "class\|  read(\|  mark(\|  flush(\|playerFiles\|cache" server/store.mjs | head -30; grep -n "store.flush()\|saveEveryS\|lastSave" server/game.mjs | head; grep -n "this.game.record(\|game.record(" server/*.mjs | head -20
+
+accounts.mjs
+commands.mjs
+config.example.json
+config.mjs
+game.mjs
+records.mjs
+server.mjs
+social.mjs
+store.mjs
+ws.mjs
+24:export class Store {
+35:  read(name, fallback) {
+63:  mark(name, get) {
+67:  flush() {
+83:  playerFiles() {
+125:    this.lastSave = now();
+350:      if (m.t === 'signup') this.store.flush();
+536:    this.store.flush();
+1579:    if (now - this.lastSave > (this.config.saveEveryS ?? 30) * 1000) {
+1580:      this.lastSave = now;
+1583:      this.store.flush();
+1624:    return this.store.flush();
+server/social.mjs:52:    const record = this.game.record(key);
+server/social.mjs:65:    this.game.saveRecord(this.game.record(key));
+server/social.mjs:81:      world: online?.world ?? this.game.record(key).world,
+Shell cwd was reset to /home/user/terraglide
