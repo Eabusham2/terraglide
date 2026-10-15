@@ -23,6 +23,7 @@ const VERT = /* glsl */ `
   uniform vec3 uParentDir;
   uniform float uParentCos;
   uniform float uHorizonFade;
+  uniform float uHorizonDip;
   varying vec3 vColour;
   varying float vAlpha;
 
@@ -39,6 +40,10 @@ const VERT = /* glsl */ `
     alpha *= smoothstep(0.985, 0.94, dot(dir, uSunDir));
     alpha *= 1.0 - step(uParentCos, dot(dir, uParentDir));
     alpha *= mix(1.0, smoothstep(-0.02, 0.25, dir.y), uHorizonFade);
+    // And never below the horizon, which is the ground whether or not the
+    // ground there has been drawn yet: how far below level it lies is the
+    // dip, which grows as you climb.
+    alpha *= step(-uHorizonDip, dir.y);
     vColour = aColour;
     vAlpha = alpha;
     gl_PointSize = alpha > 0.004 ? size : 0.0;
@@ -123,13 +128,17 @@ export class Stars {
         uParentDir: { value: new THREE.Vector3(0, -1, 0) },
         uParentCos: { value: 2 },
         uHorizonFade: { value: 1 },
+        uHorizonDip: { value: 0 },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,
+      // Added on top of the dome. Not marked transparent: three.js draws every
+      // transparent thing after every opaque one whatever its render order,
+      // and that would put the stars in front of the ground.
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       depthTest: false,
-      transparent: true,
+      transparent: false,
       fog: false,
     });
     this.points = new THREE.Points(geometry, this.material);
@@ -142,7 +151,7 @@ export class Stars {
   /**
    * @param {number[]} toScene row-major 3x3, J2000 equatorial to scene axes
    * @param {object} view { visibility, sunDir, parentDir, parentRadius,
-   *                        horizonFade, pixelRatio }
+   *                        horizonFade, horizonDip, pixelRatio }
    */
   update(toScene, view) {
     const u = this.material.uniforms;
@@ -157,6 +166,7 @@ export class Stars {
       u.uParentCos.value = 2;
     }
     u.uHorizonFade.value = view.horizonFade;
+    u.uHorizonDip.value = view.horizonDip ?? 0;
     u.uPixelRatio.value = view.pixelRatio ?? 1;
     this.points.visible = view.visibility > 0.004;
   }

@@ -1,4 +1,3 @@
-
 /**
  * Where the server keeps what it knows, between restarts.
  *
