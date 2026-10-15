@@ -102,7 +102,7 @@ Changed tracked files (base = 2c7ee70):
 - [ ] src/game.js (2957)
 - [x] src/core/cheats.js (218: the commit + the ONLINE import and the unlock() refusal, seen Oct 11) · [x] src/core/keybinds.js (229, whole-file git diff, Oct 7–9) · [~] src/core/settings.js (600: 5 unseen lines left out) · [x] src/core/storage.js (96)
 - [x] src/geo/frame.js (104) · [x] src/geo/mercator.js (155)
-- [~] src/player/avatar.js (5137; only part of a diff pasted) · [x] src/player/controller.js (813) · [x] src/player/elytra.js (488) · [ ] src/player/player.js (755)
+- [~] src/player/avatar.js (5137; only part of a diff pasted) · [x] src/player/controller.js (813) · [x] src/player/elytra.js (488) · [x] src/player/player.js (755; +239 −42 from the commit = the Oct 9 stat exactly; filled from the commit and the import list, see Guessed)
 - [x] src/tiles/elevation.js (494) · [x] src/tiles/providers.js (1421, git diff of Oct 5) · [x] src/tiles/streamer.js (1167) · [~] src/tiles/tileJobs.js (574; one line changed to pass the layer, see Guessed planetary.js)
 - [x] src/ui/cheatPanel.js (282) · [x] src/ui/exploration.js (400) · [x] src/ui/help.js (158) · [~] src/ui/hud.js (747, every known line in place, +255 −9 from the commit = the Oct 9 stat's 264; see Guessed) · [x] src/ui/mapRenderer.js (667) · [~] src/ui/mapTiles.js (522; one line changed to pass the layer, see Guessed planetary.js) · [~] src/ui/minimap.js (198 = final; 13 changed from the commit = the Oct 9 stat; see Guessed) · [~] src/ui/settingsPanel.js (925 = final; 57 changed vs the Oct 9 stat's 59; see Guessed) · [~] src/ui/touch.js (351; the Oct 7 version is exact, 10913 bytes as the Oct 9 ls says; the Oct 9 F5/P1 changes are mine, see Guessed) · [x] src/ui/waypoints.js (100) · [ ] src/ui/worldmap.js (567)
 - [x] src/world/beacons.js (193; the 5 lines from the Oct 5 sed 36,66p; every line of the Oct 5 grep in place) · [x] src/world/edgeWall.js (228) · [x] src/world/shaders.js (1118) · [x] src/world/sky.js (465) · [x] src/world/terrain.js (1996)
@@ -196,6 +196,12 @@ Changed tracked files (base = 2c7ee70):
 
 - src/ui/deathScreen.js (87 lines, the Oct 11 count): no log ever showed it. The paste (69 lines, before Oct 7) plus my P2: update(how) (session.js calls deathScreen.update with {cause, by, message, stats}), a kills/deaths score line, the server's 'kill' and 'fled' causes, and 2 lines of class doc. recovery/guess/deathScreen_edits.py.
 - Re-downloaded the workflow-agent events (subagents=true) on Oct 15: the same 25,971 events, none on Oct 4 or Oct 8. No agent ran those days; what was done then was the main chat's, whose log before Oct 10 is gone.
+
+- src/player/player.js (755 lines; final count; +239 −42 = the Oct 9 stat's 281 exactly): the final's own views plus:
+  - imports 7–22: the bodies import (BODY is the only free name) and the 13 protocol names the body uses, sorted to fit the known lines;
+  - 23–29 and 139–179: the commit's text;
+  - 133–137, mine: a 5-line doc for the surge re-export.
+  - The donecheck's player.js:546 (authority) lands.
 
 ## Facts found while rebuilding (Oct 15)
 - frags.mjs now also reads a lone `cat -n FILE` inside a mixed command (the tab-numbered run from line 1). That found whole copies of gazetteer.js, stars.js, boot.js, storage.js, edgeWall.js, main.js, bundle.mjs, online.mjs and index.html; the last seven equal the repo. Look for more by hand: any `cat -n` in a chain of commands.
