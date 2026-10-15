@@ -36,6 +36,14 @@ const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
  * sending more is not a client this server was written for.
  */
 export const MAX_MESSAGE_BYTES = 64 * 1024;
+/**
+ * Pieces one fragmented message may arrive in. The byte limit alone does not
+ * bound it: an empty continuation frame adds no bytes but still has to be held,
+ * so a stream of them grew memory without limit — three million of them, from
+ * eighteen megabytes on the wire, took half a gigabyte. Nothing honest splits a
+ * chat line into more than a handful.
+ */
+export const MAX_FRAGMENTS = 64;
 
 /**
  * How much may be waiting to go out to one client before it is dropped.
@@ -45,8 +53,18 @@ export const MAX_MESSAGE_BYTES = 64 * 1024;
  * a ceiling those writes pile up in the socket's buffer for as long as the TCP
  * connection takes to notice — minutes — and one stalled player becomes the
  * server's whole heap. Two megabytes is a few seconds of everything at once.
+ *
+ * What it counts is what piles up: the small messages. A big one (see
+ * BIG_FRAME_BYTES) still on its way out is not counted - the socket reports it
+ * as waiting, whole, until its last byte has gone, so a page reading a five
+ * megabyte map down a slow line looked exactly like one that had stopped, and
+ * the next position sent to it cut it off. The game sends its big messages no
+ * faster than the connection takes them (sendPaced), so they cannot pile up.
  */
 export const MAX_BUFFERED_BYTES = 2 * 1024 * 1024;
+
+/** A frame this big is a message sent whole (a map, a path), not one of many piling up. */
+export const BIG_FRAME_BYTES = 64 * 1024;
 
 const OPCODES = { continuation: 0x0, text: 0x1, binary: 0x2, close: 0x8, ping: 0x9, pong: 0xa };
 
@@ -112,6 +130,8 @@ export class WebSocket extends EventEmitter {
     this.closeCode = 1006;
     this.closeReason = '';
     this.lastSeen = Date.now();
+    /** Bytes of big frames written and not yet all gone. See MAX_BUFFERED_BYTES. */
+    this.bigWaiting = 0;
 
     socket.setNoDelay?.(true);
     socket.on('data', (chunk) => this.receive(chunk));
@@ -119,7 +139,6 @@ export class WebSocket extends EventEmitter {
     socket.on('close', () => this.finish());
     socket.on('end', () => this.finish());
   }
-
 
   /** Bytes queued for this client that the network has not taken yet. */
   get bufferedAmount() {
@@ -212,6 +231,7 @@ export class WebSocket extends EventEmitter {
         break;
       case OPCODES.continuation:
         if (!this.fragments) throw protocolError(1002, 'continuation with nothing to continue');
+        if (this.fragments.parts.length >= MAX_FRAGMENTS) throw protocolError(1009, 'message in too many pieces');
         this.fragments.parts.push(payload);
         this.fragmentBytes += payload.length;
         if (fin) {
@@ -222,6 +242,14 @@ export class WebSocket extends EventEmitter {
         }
         break;
       case OPCODES.ping:
+        // Answered like any other small frame: written straight to the socket,
+        // a peer that pings and never reads piled pongs up where send()'s
+        // limit never looked, until the game's backlog check let it go at
+        // 24 MB - with no account needed, on as many connections as it liked.
+        if (this.bufferedAmount - this.bigWaiting > MAX_BUFFERED_BYTES) {
+          this.terminate();
+          return false;
+        }
         this.writeFrame(OPCODES.pong, payload);
         break;
       case OPCODES.pong:
@@ -278,7 +306,7 @@ export class WebSocket extends EventEmitter {
   /** Send a string (as text) or a Buffer (as binary). Returns false if dropped. */
   send(data) {
     if (this.state !== 'OPEN') return false;
-    if (this.bufferedAmount > MAX_BUFFERED_BYTES) {
+    if (this.bufferedAmount - this.bigWaiting > MAX_BUFFERED_BYTES) {
       // Not reading. Better to lose this one client than everybody's memory.
       this.terminate();
       return false;
@@ -328,6 +356,15 @@ export class WebSocket extends EventEmitter {
     if (this.state === 'CLOSED') return;
     this.state = 'CLOSED';
     clearTimeout(this.closeTimer);
+    // The socket goes with it. A peer that half-closes — sends its FIN and
+    // keeps reading — would otherwise hold the connection open for ever: the
+    // game forgets the client on 'close', so nothing would ever reap it, and
+    // enough of them run the process out of file descriptors.
+    try {
+      this.socket.destroy();
+    } catch {
+      /* already gone */
+    }
     this.emit('close', this.closeCode, this.closeReason);
   }
 
@@ -349,8 +386,11 @@ export class WebSocket extends EventEmitter {
     }
     // Server frames are never masked (RFC 6455 5.1), and are always whole.
     header[0] = 0x80 | opcode;
+    const frame = Buffer.concat([header, payload]);
     try {
-      return this.socket.write(Buffer.concat([header, payload]));
+      if (frame.length < BIG_FRAME_BYTES) return this.socket.write(frame);
+      this.bigWaiting += frame.length;
+      return this.socket.write(frame, () => { this.bigWaiting -= frame.length; });
     } catch {
       this.finish();
       return false;
