@@ -98,13 +98,13 @@ New files:
 
 Changed tracked files (base = 2c7ee70):
 - [x] .github/workflows/deploy-gh-pages.yml · [x] .gitignore
-- [ ] README.md (696) · [x] assets/manifest.json (swordNote and sword, from the Oct 9 15:04 print; +2 as the Oct 9 stat says) · [ ] styles/main.css
+- [ ] README.md (696) · [x] assets/manifest.json (swordNote and sword, from the Oct 9 15:04 print; +2 as the Oct 9 stat says) · [~] styles/main.css (3063; +1318 −6 = the stat's 1324, which stopped changing after Oct 9 16:16; the 362 unseen lines of the Oct 5 version and the Oct 6–9 tail are mine, see Guessed)
 - [~] src/game.js (2957 = final; every logged line in place; 914 changed against the Oct 9 stat's 918; the Oct 9 gaps rebuilt from the ledger, see Guessed)
 - [x] src/core/cheats.js (218: the commit + the ONLINE import and the unlock() refusal, seen Oct 11) · [x] src/core/keybinds.js (229, whole-file git diff, Oct 7–9) · [x] src/core/settings.js (605 = final: the 5 lines were SettingsStore's doc comment, left above RANGES when RANGES and settingValue went in between; text from the Oct 5 view, place from the Oct 11 grep's line 484) · [x] src/core/storage.js (96)
 - [x] src/geo/frame.js (104) · [x] src/geo/mercator.js (155)
 - [x] src/player/avatar.js (5137 = final; +353 −5 from the commit, consistent with the Oct 9 stat 318 plus the later sword swing; every known line in place; see Guessed) · [x] src/player/controller.js (813) · [x] src/player/elytra.js (488) · [x] src/player/player.js (755; +239 −42 from the commit = the Oct 9 stat exactly; filled from the commit and the import list, see Guessed)
 - [x] src/tiles/elevation.js (494) · [x] src/tiles/providers.js (1421, git diff of Oct 5) · [x] src/tiles/streamer.js (1167) · [~] src/tiles/tileJobs.js (574; one line changed to pass the layer, see Guessed planetary.js)
-- [x] src/ui/cheatPanel.js (282) · [x] src/ui/exploration.js (400) · [x] src/ui/help.js (158) · [~] src/ui/hud.js (747, every known line in place, +255 −9 from the commit = the Oct 9 stat's 264; see Guessed) · [x] src/ui/mapRenderer.js (667) · [~] src/ui/mapTiles.js (522; one line changed to pass the layer, see Guessed planetary.js) · [~] src/ui/minimap.js (198 = final; 13 changed from the commit = the Oct 9 stat; see Guessed) · [~] src/ui/settingsPanel.js (925 = final; 57 changed vs the Oct 9 stat's 59; see Guessed) · [~] src/ui/touch.js (351; the Oct 7 version is exact, 10913 bytes as the Oct 9 ls says; the Oct 9 F5/P1 changes are mine, see Guessed) · [x] src/ui/waypoints.js (100) · [ ] src/ui/worldmap.js (567)
+- [x] src/ui/cheatPanel.js (282) · [x] src/ui/exploration.js (400) · [x] src/ui/help.js (158) · [~] src/ui/hud.js (747, every known line in place, +255 −9 from the commit = the Oct 9 stat's 264; see Guessed) · [x] src/ui/mapRenderer.js (667) · [~] src/ui/mapTiles.js (522; one line changed to pass the layer, see Guessed planetary.js) · [~] src/ui/minimap.js (198 = final; 13 changed from the commit = the Oct 9 stat; see Guessed) · [~] src/ui/settingsPanel.js (925 = final; 57 changed vs the Oct 9 stat's 59; see Guessed) · [~] src/ui/touch.js (351; the Oct 7 version is exact, 10913 bytes as the Oct 9 ls says; the Oct 9 F5/P1 changes are mine, see Guessed) · [x] src/ui/waypoints.js (100) · [~] src/ui/worldmap.js (567 = final; 30 changed = the Oct 9 stat; see Guessed)
 - [x] src/world/beacons.js (193; the 5 lines from the Oct 5 sed 36,66p; every line of the Oct 5 grep in place) · [x] src/world/edgeWall.js (228) · [x] src/world/shaders.js (1118) · [x] src/world/sky.js (465) · [x] src/world/terrain.js (1996)
 - [ ] tools/selftest.mjs (11622) · [ ] tools/shots.mjs (389)
 
@@ -239,6 +239,21 @@ Changed tracked files (base = 2c7ee70):
   - The invite's `from` carries the inviter's world, as the rejoin re-send does.
   - PA4: a 2-line comment where together.add was.
   - PA7: setTogether calls saveServer().
+
+- styles/main.css (3063 lines): built by recovery/guess/main_build.py over the pooled Oct 5–7 version (recovery/guess/main.V2.pooled.css.txt).
+  - Its first 1751 lines are the commit's. No edit of it was ever logged, and its 1,127 viewed lines (Oct 5 → Oct 12) never disagree, so it grew only at the end.
+  - The count follows from the stats. 1324 lines changed, the same from Oct 9 16:16 to Oct 11. git's bar (+32 −1) gives 1–41 deletions, so the final is 3075 − 2d lines; d = 6 gives 3063.
+  - Line 2900 is `.tp-prompt.party {`, as on Oct 6 21:59.
+  - WRITTEN BY ME:
+    - the 362 lines of the Oct 5 version nobody saw: the online panel's server/tabs/form/recent/error/actions/you dot, the chat form and hint, the players body, dots, buttons and ticks, the request prompts, the rest of the death screen, and the travel panel;
+    - the tail, 2826–3063: party and friends sections, the public-server box, the password form, the party-voice note, travel people and tie names, white/gold rings for party/friend on the compass and locator, touch placement of vitals and chat, the landscape credit line, the compass below the minimap on phones;
+    - 6 commit lines changed for Oct 9 P1: the touch band follows --touch-rows, slots follow --slots, and `body.touch-active:not(.sword-out) .hud-crosshair`.
+  - Checked:
+    - both selftest CSS regexes pass;
+    - braces balance;
+    - every view agrees, except the 3 commit lines changed after they were seen;
+    - the Oct 7 greps differ only by the Oct 9 lines;
+    - the travel, Play online and death screens render cleanly in Chromium.
 
 ## Facts found while rebuilding (Oct 15)
 - Grep output is a source in three more shapes. Context lines `NN-text` (from -A/-B/-C). Multi-file `path:NN:text`, which frags already reads. And complete greps: a grep not cut by `head` lists every line with its pattern, so the rest of the file has none. recovery/tools/grepcheck.mjs re-runs every logged grep on a rebuilt file, in a mirror of the repo, and compares the output. Run it on every rebuilt file.
