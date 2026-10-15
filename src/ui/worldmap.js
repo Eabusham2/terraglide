@@ -4,6 +4,9 @@ import { clamp } from '../core/math.js';
 import { settings } from '../core/settings.js';
 import { formatArea, formatDistance, formatLatLon } from '../core/units.js';
 import { geocoder } from '../geo/geocode.js';
+import { BODY, ON_EARTH } from '../geo/bodies.js';
+import { ONLINE } from '../core/boot.js';
+import { searchFeatures } from '../geo/gazetteer.js';
 import { haversine } from '../geo/mercator.js';
 import { drawMap, metresPerPixel, project, unproject, worldPixelSize } from './mapRenderer.js';
 
@@ -24,7 +27,8 @@ const WAYPOINT_GRAB_PX = 9;
  */
 
 export class WorldMap {
-  constructor(root, { tiles, street, exploration, waypointStore, trail }) {
+  constructor(root, { tiles, street, exploration, waypointStore, trail, others = null }) {
+    this.others = others;
     this.tiles = tiles;
     this.street = street;
     this.exploration = exploration;
@@ -70,6 +74,7 @@ export class WorldMap {
           <div class="worldmap-actions">
             <button type="button" data-action="rtp">Random teleport</button>
             <button type="button" data-action="waypoint">Waypoint at centre</button>
+            ${ONLINE ? '<button type="button" data-action="party-waypoint" title="A waypoint everyone in your party sees">Party waypoint at centre</button>' : ''}
             <button type="button" data-action="copy">Copy centre</button>
             <button type="button" data-action="teleport" data-directed hidden>Travel to centre</button>
           </div>
@@ -78,9 +83,9 @@ export class WorldMap {
           <div class="worldmap-stats"></div>
           <h3>Waypoints</h3>
           <ul class="worldmap-list" data-list="waypoints"></ul>
-          <div class="worldmap-danger">
+          ${ONLINE ? '' : `<div class="worldmap-danger">
             <button type="button" data-action="clear-explored">Clear explored areas</button>
-          </div>
+          </div>`}
         </aside>
       </div>
     `;
@@ -288,7 +293,9 @@ export class WorldMap {
     this.resultList.hidden = false;
     this.resultList.innerHTML = '<li class="muted">Searching…</li>';
     try {
-      const results = await geocoder.search(query);
+      // Off Earth the IAU's names are the addresses, and they are all here
+      // already: no service to ask.
+      const results = ON_EARTH ? await geocoder.search(query) : searchFeatures(BODY.id, query);
       if (results.length === 0) {
         this.resultList.innerHTML = '<li class="muted">Nothing found</li>';
         return;
@@ -495,6 +502,7 @@ export class WorldMap {
         exploration: this.exploration,
         waypointStore: this.waypointStore,
         trail: this.trail,
+        others: this.others,
         player,
         options: {
           fog: settings.get('minimapFog'),

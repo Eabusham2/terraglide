@@ -43,7 +43,6 @@ export function nameProblem(name) {
   return null;
 }
 
-
 /** Names are unique without regard to case: Alex and alex are one account. */
 export function nameKey(name) {
   return String(name).toLowerCase();
@@ -123,7 +122,7 @@ export const REACH_M = 3;
  * The two players were measured at different moments — each by their own
  * machine, a round trip apart — and at glide speeds a round trip is metres.
  * The server rewinds the target to when the attacker saw them (see
- * server/world.mjs), and this is the error that is left after that.
+ * server/game.mjs), and this is the error that is left after that.
  */
 export const REACH_SLACK_M = 2.5;
 /** A falling hit lands half again as hard. */
@@ -155,6 +154,56 @@ export const SWORD_SLOT = 5;
 /**
  * What a player is doing, as bits, so a snapshot carries it in one number.
  */
+/**
+ * Surge: what it is worth, how long it runs, and how long it takes back.
+ *
+ * It was called "speed mode", which is a label for a checkbox rather than a
+ * name for a thing you spend. Surge is what it does — you get it, it runs out,
+ * you wait.
+ *
+ * All three numbers moved together, because they only make sense together: a
+ * fifth again on the boost and a fifth again on the burn, and a third off the
+ * wait so it is something you use rather than something you hoard.
+ *
+ *   worth      2.0x  ->  2.4x
+ *   runs for   10 s  ->  12 s
+ *   recharges  45 s  ->  30 s
+ */
+export const SURGE_FACTOR = 2.4;
+export const SPEED_MODE_SECONDS = 12;
+export const SPEED_MODE_COOLDOWN_S = 30;
+/**
+ * How fast a surge's extra fades once it is over, per second, at the slowest:
+ * with a firework still burning. See Player.tickTimers.
+ */
+export const SURGE_BLEED_PER_S = 0.25;
+
+/** What drowning or an empty oxygen tank costs, half-hearts a second. */
+export const SUFFOCATION_PER_S = 2;
+
+/**
+ * The suit's oxygen, seconds, everywhere you cannot breathe.
+ *
+ * Five minutes: long enough to fly somewhere worth seeing and back, short
+ * enough that the lander is a place you have to keep in mind. It refills at
+ * the lander or the base — within REFILL_M of either, on the ground — far
+ * faster than it drains, so stopping by is a few seconds rather than a wait.
+ * On a server the server counts it. A surge burns it twice as fast, for the same
+ * reason it burns your breath faster underwater: four times the ground on the
+ * same tank has to cost something.
+ */
+export const OXYGEN_SECONDS = 300;
+export const OXYGEN_REFILL_PER_S = 40;
+/** Rockets carried of each kind, and seconds for one to come back. See Player. */
+export const ROCKET_STACK = 64;
+export const ROCKET_REFILL_S = 4;
+/** How often a lander can be moved, seconds. */
+export const LANDER_EVERY_S = 30;
+/** How close to your lander or the base the suit refills, metres, on the ground. */
+export const REFILL_M = 40;
+/** "On the ground" for refilling: within this many metres of it. */
+export const REFILL_AGL_M = 30;
+
 export const FLAG = {
   ground: 1,
   elytra: 2,
@@ -207,7 +256,6 @@ export function encodeState(s) {
  * false with everything, and come out the other side as a player standing
  * everywhere at once.
  */
-
 export function decodeState(m) {
   if (!m || !Array.isArray(m.p) || !Array.isArray(m.v) || !Array.isArray(m.o)) return null;
   const [lat, lon, alt] = m.p.map(Number);
@@ -307,6 +355,58 @@ export function pickColour(taken = [], rng = Math.random) {
   return hslToHex(hue, 0.78, 0.6);
 }
 
+/**
+ * How different two colours look, as a person sees them: red-weighted RGB
+ * distance ("redmean"), 0 for the same colour and about 765 for black and
+ * white. Plain RGB distance calls two greens far apart that nobody can tell.
+ */
+export function colourDistance(a, b) {
+  const p = hexToRgb(a);
+  const q = hexToRgb(b);
+  if (!p || !q) return Infinity;
+  const r = (p[0] + q[0]) / 2;
+  const dr = p[0] - q[0];
+  const dg = p[1] - q[1];
+  const db = p[2] - q[2];
+  return Math.sqrt((2 + r / 256) * dr * dr + 4 * dg * dg + (2 + (255 - r) / 256) * db * db);
+}
+
+/** Closer than this, two players' colours are twins: one dot looks like the other. */
+export const TWIN_DISTANCE = 70;
+
+/**
+ * A colour as unlike every colour in `taken` as any on offer: hues every five
+ * degrees at three lightnesses, the one whose nearest neighbour is farthest,
+ * with a little randomness so two people joining at once differ. Where there
+ * are few colours yet, the plain random pick is just as good.
+ */
+export function distinctColour(taken = [], rng = Math.random) {
+  if (taken.length === 0) return pickColour([], rng);
+  let best = null;
+  let bestScore = -Infinity;
+  const offset = rng() * 5;
+  for (let i = 0; i < 72; i++) {
+    for (const l of [0.6, 0.72, 0.5]) {
+      const hex = hslToHex((i * 5 + offset) % 360, l === 0.72 ? 0.7 : 0.78, l);
+      let near = Infinity;
+      for (const c of taken) near = Math.min(near, colourDistance(hex, c));
+      const score = near + rng() * 4;
+      if (score > bestScore) {
+        bestScore = score;
+        best = hex;
+      }
+    }
+  }
+  return best;
+}
+
+function hexToRgb(hex) {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(hex));
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
 export function hslToHex(h, s, l) {
   const k = (n) => (n + h / 30) % 12;
   const a = s * Math.min(l, 1 - l);
@@ -348,26 +448,29 @@ export function isColour(value) {
 export const COMMANDS = [
   { name: 'help', args: '', help: 'List the commands' },
   { name: 'tpa', args: '<player>', help: 'Ask to teleport to a player', player: true },
-  { name: 'tpahere', args: '<player>', help: 'Ask a player to teleport to you', player: true },
+  { name: 'tpahere', args: '<player>', help: 'Ask a player to teleport to you', player: true, aliases: ['tphere'] },
   { name: 'tpaccept', args: '[player]', help: 'Accept a teleport request', player: true },
   { name: 'tpdeny', args: '[player]', help: 'Refuse a teleport request', player: true },
   { name: 'tpacancel', args: '[player]', help: 'Take back a request you sent', player: true },
   { name: 'tp', args: '<player>', help: 'Same as /tpa (admins: go straight there)', player: true },
   { name: 'msg', args: '<player> <message>', help: 'Whisper to one player', player: true, aliases: ['w', 'tell'] },
   { name: 'r', args: '<message>', help: 'Reply to the last whisper' },
-  { name: 'near', args: '<message>', help: `Say something to players within ${NEAR_CHAT_M / 1000} km`, aliases: ['l', 'local'] },
+  { name: 'near', args: '<message>', help: 'Say something only to the players near you, not the whole server', aliases: ['l', 'local'] },
   { name: 'me', args: '<action>', help: 'Describe what you are doing' },
   { name: 'list', args: '', help: 'Who is online, and where' },
-  { name: 'spawn', args: '', help: 'Go back to this world’s spawn' },
+  { name: 'spawn', args: '', help: "Go back to this world's spawn" },
   { name: 'rtp', args: '', help: 'Random teleport (has a cooldown)' },
   { name: 'travel', args: '<world>', help: 'Travel to another world — /travel moon', aliases: ['planet', 'world'] },
   { name: 'kill', args: '', help: 'Give up and respawn' },
   { name: 'password', args: '<old> <new>', help: 'Change your password' },
+  { name: 'friend', args: 'add|accept|deny|remove|list [player]', help: 'Friends: /friend add Alex, /friend accept, /friend list', aliases: ['friends', 'f'] },
+  { name: 'party', args: 'invite|accept|deny|leave|kick|leader|list|gather|together|mark|unmark [player]', help: 'Parties: /party invite Alex, /party accept, /party leave', aliases: ['p'] },
+  { name: 'pc', args: '<message>', help: 'Say something to your party', aliases: ['partychat'] },
   { name: 'kick', args: '<player> [reason]', help: 'Admin: disconnect a player', player: true, admin: true },
   { name: 'ban', args: '<player> [reason]', help: 'Admin: ban a player', player: true, admin: true },
   { name: 'unban', args: '<player>', help: 'Admin: lift a ban', admin: true },
   { name: 'heal', args: '[player]', help: 'Admin: restore health', player: true, admin: true },
-  { name: 'setspawn', args: '', help: 'Admin: make where you stand this world’s spawn', admin: true },
+  { name: 'setspawn', args: '', help: "Admin: make where you stand this world's spawn", admin: true },
   { name: 'say', args: '<message>', help: 'Admin: announce to everyone', admin: true },
 ];
 

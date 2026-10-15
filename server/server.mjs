@@ -20,6 +20,7 @@ import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, sep } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { Accounts } from './accounts.mjs';
 import { ROOT, loadConfig } from './config.mjs';
 import { Game } from './game.mjs';
@@ -79,16 +80,28 @@ function compressed(file, mtime) {
  * serves should join it. See core/boot.js.
  */
 function indexPage(file) {
-
   const html = readFileSync(file, 'utf8');
   return html.replace('<script>', '<script>window.__TERRAGLIDE_SERVER__ = true;</script>\n    <script>');
 }
 
-function clientAddress(req, config) {
+/**
+ * Who is on the other end, for rate limits and bans.
+ *
+ * Behind a proxy every connection comes from the proxy, so with trustProxy on
+ * the proxy's own report is used instead — and only the part the proxy wrote.
+ * X-Forwarded-For is a list anyone can start: a visitor sends their own, and
+ * each proxy on the way appends the address it saw. The first entry is
+ * whatever the visitor typed; the last is what our proxy saw, so that one.
+ * A proxy that names the visitor in a header of its own (Cloudflare's
+ * CF-Connecting-IP) can be named in proxyHeader, which then wins — but only
+ * set that behind that proxy, or anyone can send the header themselves.
+ */
+export function clientAddress(req, config) {
   if (config.trustProxy) {
-    const forwarded = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim();
-    if (forwarded) return forwarded;
-    if (req.headers['cf-connecting-ip']) return String(req.headers['cf-connecting-ip']);
+    const named = config.proxyHeader ? req.headers[String(config.proxyHeader).toLowerCase()] : null;
+    if (named) return String(named).split(',')[0].trim();
+    const chain = String(req.headers['x-forwarded-for'] ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    if (chain.length) return chain[chain.length - 1];
   }
   return req.socket.remoteAddress ?? 'unknown';
 }
@@ -100,13 +113,23 @@ function originAllowed(origin, config) {
   return list.map((s) => s.trim()).includes(String(origin ?? 'null'));
 }
 
-/** Build the bundle if this checkout does not have one — it is a build output. */
+/**
+ * Build what this checkout does not have - both are build outputs: the
+ * bundle the page loads, and the online single file the guide says the
+ * server hands out (`npm run build` makes both).
+ */
 function ensureBundle() {
   const bundle = join(ROOT, 'terraglide.bundle.js');
-  if (existsSync(bundle)) return;
-  console.log('Building the game bundle (first run only)…');
-  const result = spawnSync(process.execPath, [join(ROOT, 'tools/bundle.mjs')], { cwd: ROOT, stdio: 'inherit' });
-  if (result.status !== 0) console.warn('Could not build the bundle; the game will load module by module instead.');
+  if (!existsSync(bundle)) {
+    console.log('Building the game bundle (first run only)…');
+    const result = spawnSync(process.execPath, [join(ROOT, 'tools/bundle.mjs')], { cwd: ROOT, stdio: 'inherit' });
+    if (result.status !== 0) console.warn('Could not build the bundle; the game will load module by module instead.');
+  }
+  if (!existsSync(join(ROOT, 'terraglide-online.html'))) {
+    console.log('Building the online single file (first run only)…');
+    const result = spawnSync(process.execPath, [join(ROOT, 'tools/online.mjs')], { cwd: ROOT, stdio: 'inherit' });
+    if (result.status !== 0) console.warn('Could not build terraglide-online.html; everything else works without it.');
+  }
 }
 
 export function startServer(overrides = {}) {
@@ -195,7 +218,15 @@ export function startServer(overrides = {}) {
     if (ws) game.connect(ws, clientAddress(req, config));
   });
 
-  const timer = setInterval(() => game.tick(), 100);
+  // A tick that throws is logged and the next one runs: one bad record must
+  // not take the whole server, and everybody on it, down with it.
+  const timer = setInterval(() => {
+    try {
+      game.tick();
+    } catch (error) {
+      console.error('[game] tick failed:', error);
+    }
+  }, 100);
   timer.unref?.();
 
   const ready = new Promise((resolve, reject) => {
@@ -205,12 +236,25 @@ export function startServer(overrides = {}) {
 
   const stop = async () => {
     clearInterval(timer);
+    // Nobody is fleeing a fight because the server went away.
+    game.stopping = true;
     for (const client of game.clients) {
-      game.send(client, { t: 'kick', reason: 'The server is restarting' });
+      // Not a kick that should stick: pages reconnect when it is back.
+      game.send(client, { t: 'kick', reason: 'The server is restarting', restart: true });
       client.ws.close(1001, 'server stopping');
     }
     const saved = game.saveAll();
-    await new Promise((resolve) => http.close(resolve));
+    await new Promise((resolve) => {
+      http.close(resolve);
+      // Everything is on disk by now. A connection that never finishes
+      // closing must not hold the process up with it: once, a stop waited
+      // on one for minutes.
+      const late = setTimeout(() => {
+        http.closeAllConnections?.();
+        resolve();
+      }, 5000);
+      late.unref?.();
+    });
     return saved;
   };
 
@@ -243,7 +287,7 @@ async function cli(argv) {
   return null;
 }
 
-const isMain = process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href;
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
   const code = await cli(process.argv.slice(2));
   if (code !== null) process.exit(code);
