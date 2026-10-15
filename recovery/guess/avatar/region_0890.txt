@@ -1,0 +1,12 @@
+  R: [0.87, 0.33, 0.9, -1.29, 0.02, 0.74],
+  L: [0.87, 0.33, 0.9, -1.29, 0.02, 0.74],
+};
+/** Scratch for placing that cut. */
+/**
+ * A swing of the sword, seconds: wound back, then brought down through, the
+ * length of a Minecraft arm swing. And how far it carries the blade and the
+ * arm, radians, and the share of it spent winding back.
+ */
+const SWING_S = 0.3;
+const SWING_BLADE = 1.35;
+const SWING_ARM = 1.15;

@@ -171,6 +171,30 @@ export function fragments(rows, rel, { copies = false } = {}) {
         }
       }
     }
+    // Case 1d: `grep -n A FILE | grep -n B` (one file, the second grep numbering the first's matches): each output
+    // line is index:fileLine:text. The run of indexes starting at 1 belongs to this part of the command, so
+    // only parts whose first grep names this one file are read, and only when the command holds one such part.
+    if (process.env.NO_GREPGREP !== '1') {
+      // Split a part at its top-level pipes, quotes respected.
+      const pipes = (p) => { const out = []; let cur = '', q = null; for (let i = 0; i < p.length; i++) { const ch = p[i]; if (q) { cur += ch; if (ch === q) q = null; else if (ch === '\\' && q === '"') cur += p[++i] ?? ''; continue; } if (ch === "'" || ch === '"') { q = ch; cur += ch; continue; } if (ch === '|') { out.push(cur.trim()); cur = ''; continue; } cur += ch; } out.push(cur.trim()); return out; };
+      const lastWord = (p) => { const w = p.match(/(?:'[^']*'|"(?:[^"\\]|\\.)*"|\S)+/g) ?? []; return w.at(-1); };
+      const gg = cmds.filter(({ p }) => { const ps = pipes(p); return ps.length >= 2 && /^grep\s/.test(ps[0]) && /(^|\s)-\w*n/.test(ps[0]) && /^grep\s/.test(ps[1]) && /(^|\s)-\w*n/.test(ps[1]); });
+      if (gg.length === 1) {
+        const first = pipes(gg[0].p)[0];
+        const m0 = [null, lastWord(first)];
+        if (m0[1] && isFile(m0[1], gg[0].inRepo)) {
+          const m = new Map(); let lastI = 0, lastN = 0;
+          for (const line of r.result.split('\n')) {
+            const x = /^(\d+):(\d+):(.*)$/s.exec(line);
+            if (!x) continue;
+            const i = Number(x[1]), n = Number(x[2]);
+            if (i <= lastI || n <= lastN) break; // both counts only ever go up
+            m.set(n, x[3]); lastI = i; lastN = n;
+          }
+          if (m.size) out.push({ t: r.t, agent: r.agent, src: 'grep -n | grep -n', lines: m });
+        }
+      }
+    }
     // Case 2: grep -n / cat -n on just this file: lines carry their numbers.
     for (const { p, inRepo } of cmds) {
       const g = /^(grep|rg)\s.*-n.*\s(\S+)(\s*\|\s*head\s+-?\d+)?$/.exec(p);
