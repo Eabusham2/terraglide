@@ -8,12 +8,15 @@ import {
   IMAGERY_PROVIDERS,
   PANORAMA_PROVIDERS,
   AUTO_PROVIDER,
+  BODY_ATTRIBUTION,
   findProvider,
   providerLabel,
   resolveAuto,
   testProviders,
 } from '../tiles/providers.js';
 import { escapeHtml } from './worldmap.js';
+import { BODY, ON_EARTH } from '../geo/bodies.js';
+import { VOICE_FULL_M, VOICE_RANGE_M } from '../net/protocol.js';
 
 /**
  * Settings.
@@ -77,8 +80,9 @@ const SECTIONS = [
   {
     id: 'providers',
     label: 'Providers',
-    intro:
-      'TerraGlide ships with no map data and no keys. Pick a provider and, where one is needed, paste your own key — the requests go straight from your browser to them, on your quota and under their terms.',
+    intro: ON_EARTH
+      ? 'TerraGlide ships with no map data and no keys. Pick a provider and, where one is needed, paste your own key — the requests go straight from your browser to them, on your quota and under their terms.'
+      : `On ${BODY.name} there is one map of the whole world and no key to find: ${BODY_ATTRIBUTION[BODY.id] ?? 'NASA and the USGS'}. The choices below are for Earth, and wait for you there.`,
     fields: [
       {
         key: 'imageryProvider',
@@ -176,7 +180,7 @@ const SECTIONS = [
       { key: 'maxarConnectId', label: 'Maxar SecureWatch connect ID', type: 'secret', help: 'Maxar\'s own imagery service. An enterprise credential \u2014 Esri, Bing and Google all serve Maxar scenes without one.' },
       { key: 'addressLookup', label: 'Look up addresses', type: 'toggle', help: 'Reverse geocodes your position for the readout. Rate limited.' },
       { key: 'buildings', label: 'OpenStreetMap buildings', type: 'toggle', help: 'Extrudes real footprints near the ground to their surveyed height. Solid \u2014 there is no invented inside.' },
-      { key: 'detailedRocketModel', label: 'Scanned firework', type: 'toggle', help: 'Puts a generated mesh of a firework in your hand in place of the five boxes it is built from. Off by default: side by side at the size it is actually seen, the built one reads as a tube with a nose and the scan reads as a dark smudge, because it carries a photograph with its own lighting baked in. Judge it yourself. The scanned character always holds this one.' },
+      { key: 'detailedRocketModel', label: 'Scanned firework and sword', type: 'toggle', help: 'Puts generated meshes of a firework and a sword in your hand in place of the boxes they are built from. Off by default: side by side at the size it is actually seen, the built firework reads as a tube with a nose and the scan reads as a dark smudge, because it carries a photograph with its own lighting baked in. Judge it yourself. The scanned character always holds these.' },
       { key: 'seasonalSnow', label: 'Seasonal snow', type: 'toggle', help: 'Tints ground above the seasonal snow line white, up to 45%, fading in over a kilometre of height and shedding off any real slope. Satellite mosaics are stitched from cloud-free days, which are usually summer, so a January alp photographs green - this is the one seasonal thing the picture cannot say for itself. Turn it off and the ground is the photograph and the daylight, nothing else.' },
       { key: 'woodlandRelief', label: 'Woodland canopy relief', type: 'toggle', help: 'Stands the crowns of a wood up out of the photograph, so a forest reads as a canopy instead of green paint. The crowns are read off the imagery itself — nothing is invented, and nothing changes where the photograph has no wood in it. Shading only: the ground you walk on does not move.' },
       { key: 'streetLevel', label: 'Blend street-level photos', type: 'toggle', help: 'Fades ground photography in when you stand still. Needs a key.' },
@@ -256,9 +260,9 @@ const SECTIONS = [
       },
       {
         key: 'detailedPlayerModel',
-        label: 'Detailed player model (does not animate)',
+        label: 'Detailed player model',
         type: 'toggle',
-        help: 'A generated character mesh instead of the built one. It arrived as one fused surface with no skeleton, so it is given the joints the built figure has, at load: it walks, glides and holds a firework the way the built one does. It came with its own feathered wings, which it wears instead of the elytra rather than as well as it. Not used in first person, and the face is a bake rather than a face. Not in the single-file build.',
+        help: 'A generated character mesh instead of the built one. It arrived as one fused surface with no skeleton, so it is given the joints the built figure has, at load: it walks, glides, swings and holds a firework or the generated sword the way the built one does. It came with its own feathered wings, which it wears instead of the elytra rather than as well as it. In first person you see its hands. Online, the players nearest you are drawn with it too. The face is a bake rather than a face. Not in the single-file build.',
       },
       { key: 'showBody', label: 'Show your body in first person', type: 'toggle', help: 'Your legs and boots below you when you look down. Your arms and the rocket in your hand are drawn either way.' },
       {
@@ -389,6 +393,38 @@ const SECTIONS = [
       { key: 'hudVisible', label: 'Show HUD', type: 'toggle' },
       { key: 'showCompass', label: 'Show compass', type: 'toggle' },
       { key: 'showCrosshair', label: 'Show crosshair', type: 'toggle' },
+    ],
+  },
+  {
+    id: 'online',
+    label: 'Online',
+    fields: [
+      { key: 'othersDiscoveries', label: "Everyone's discoveries", type: 'toggle', help: 'The ground other players on this server have uncovered, on both maps. Each player can still be switched on or off in Players (Tab).' },
+      { key: 'othersTrails', label: "Everyone's paths", type: 'toggle', help: "Every other player's path on both maps, each in that player's colour. Each player can still be switched on or off in Players (Tab)." },
+      { key: 'friendNotices', label: 'Friend notifications', type: 'toggle', help: 'A note in the corner when a friend comes online, goes offline, asks to be friends or accepts, and a line in chat when they come and go. Requests and answers still reach chat with this off. The server keeps this with your account.' },
+      { key: 'friendsAutoTpa', label: 'Accept teleports from friends', type: 'toggle', help: 'A friend\'s /tpa or /tpahere is accepted at once, without the prompt: they can come to you, or pull you to them. With "Accept friend requests automatically" on too, anybody can. The server keeps this with your account.' },
+      { key: 'friendsAutoParty', label: 'Accept party invites from friends', type: 'toggle', help: 'A friend\'s party invite is accepted at once. With "Accept friend requests automatically" on too, anybody can put you in their party. The server keeps this with your account.' },
+      { key: 'friendsAutoAccept', label: 'Accept friend requests automatically', type: 'toggle', help: 'Anyone who asks to be your friend is one at once, and you are told who; switching it on answers whoever is waiting. With the two above on as well, that means anybody can teleport to you, pull you to them and put you in their party. The server keeps this with your account.' },
+      { key: 'partyVoice', label: 'Party voice', type: 'toggle', help: 'With voice on, hear your party wherever they are — on another world too. Near you they sound from where they stand; far off, like a radio.' },
+      { key: 'showLocatorBar', label: 'Locator bar', type: 'toggle', help: 'The strip above your hearts, over the hotbar, with a mark for every player on this world in their colour: bigger the closer they are, with a notch when they are above or below you, and a ring round your party (white) and friends (gold). Minecraft has one; so does this.' },
+      { key: 'showNametags', label: 'Name tags over players', type: 'toggle', help: 'Names and hearts above other players out to a kilometre and a half.' },
+      {
+        key: 'voiceMode',
+        label: 'Proximity voice',
+        type: 'select',
+        options: () => [
+          { value: 'off', label: 'Off' },
+          { value: 'push', label: 'Push to talk' },
+          { value: 'open', label: 'Always on' },
+        ],
+        help: (value) => {
+          const units = settings.get('units');
+          const reach = `full volume within ${formatDistance(VOICE_FULL_M, units, 0)}, fading to nothing at ${formatDistance(VOICE_RANGE_M, units, 0)}`;
+          if (value === 'off') return `You neither hear nor are heard. Switched on, players near you on a server are heard from where they are — ${reach}.`;
+          return `Players near you on a server, heard from where they are: ${reach}. ${value === 'push' ? `Hold ${keybinds.labelFor('pushToTalk')} to talk.` : 'Your microphone is live whenever anyone is near.'} The sound goes straight between browsers; the server only introduces you. Refuse the microphone and you still hear everyone. A microphone needs https or localhost: on a plain http address you can listen but not talk. Headphones stop people hearing themselves back.`;
+        },
+      },
+      { key: 'voiceVolume', label: 'Voice volume', type: 'range', min: 0, max: 1, step: 0.05, format: (v) => `${Math.round(v * 100)}%`, showWhen: () => settings.get('voiceMode') !== 'off' },
     ],
   },
 ];
@@ -844,6 +880,14 @@ export class SettingsPanel {
 
   renderData() {
     return `
+      ${ONLINE ? `
+      <p class="settings-intro">On a server, your explored ground, path and waypoints are the server's: it keeps them under your name and shows them to you wherever you sign in. Settings and key bindings stay in this browser. A save file exported here brings only its settings back.</p>
+      <div class="settings-actions">
+        <button type="button" data-export>Export save file</button>
+        <label class="file-button">Import settings<input type="file" accept="application/json" hidden data-import /></label>
+        <button type="button" data-reset-settings>Reset all settings</button>
+        <button type="button" data-clear-marks class="danger">Delete waypoints</button>
+      </div>` : `
       <p class="settings-intro">Everything is stored in this browser only — settings, key bindings, explored ground, waypoints and paths. Nothing is uploaded anywhere.</p>
       <div class="settings-actions">
         <button type="button" data-export>Export save file</button>
@@ -851,7 +895,7 @@ export class SettingsPanel {
         <button type="button" data-reset-settings>Reset all settings</button>
         <button type="button" data-clear-explored class="danger">Clear explored areas</button>
         <button type="button" data-clear-marks class="danger">Delete waypoints and paths</button>
-      </div>
+      </div>`}
       <h3>About</h3>
       <p class="settings-intro">
         TerraGlide renders third-party map data live; it never bulk downloads or re-publishes it.

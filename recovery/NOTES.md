@@ -95,9 +95,9 @@ Changed tracked files (base = 2c7ee70):
 - [x] .github/workflows/deploy-gh-pages.yml · [x] .gitignore
 - [ ] README.md (696) · [ ] assets/manifest.json · [ ] styles/main.css
 - [ ] src/game.js (2957)
-- [x] src/core/cheats.js (218: the commit + the ONLINE import and the unlock() refusal, seen Oct 11) · [x] src/core/keybinds.js (229, whole-file git diff, Oct 7–9) · [ ] src/core/settings.js (605) · [x] src/core/storage.js (96)
+- [x] src/core/cheats.js (218: the commit + the ONLINE import and the unlock() refusal, seen Oct 11) · [x] src/core/keybinds.js (229, whole-file git diff, Oct 7–9) · [~] src/core/settings.js (600: 5 unseen lines left out) · [x] src/core/storage.js (96)
 - [x] src/geo/frame.js (104) · [x] src/geo/mercator.js (155)
-- [~] src/player/avatar.js (5137; only part of a diff pasted) · [x] src/player/controller.js (813) · [ ] src/player/elytra.js (488) · [ ] src/player/player.js (755)
+- [~] src/player/avatar.js (5137; only part of a diff pasted) · [x] src/player/controller.js (813) · [x] src/player/elytra.js (488) · [ ] src/player/player.js (755)
 - [x] src/tiles/elevation.js (494) · [x] src/tiles/providers.js (1421, git diff of Oct 5) · [x] src/tiles/streamer.js (1167) · [x] src/tiles/tileJobs.js (574)
 - [x] src/ui/cheatPanel.js (282) · [x] src/ui/exploration.js (400) · [x] src/ui/help.js (158) · [~] src/ui/hud.js (747; paste is early) · [x] src/ui/mapRenderer.js (667) · [x] src/ui/mapTiles.js (522) · [ ] src/ui/minimap.js (198) · [ ] src/ui/settingsPanel.js (925) · [~] src/ui/touch.js (the Oct 7 version, 331, is complete; an Oct 9 change added at least 15 lines that were never shown: +2 before line 66, +13 in the three-finger hold) · [x] src/ui/waypoints.js (100) · [ ] src/ui/worldmap.js (567)
 - [ ] src/world/beacons.js · [x] src/world/edgeWall.js (228) · [x] src/world/shaders.js (1118) · [x] src/world/sky.js (465) · [x] src/world/terrain.js (1996)
@@ -114,6 +114,15 @@ Changed tracked files (base = 2c7ee70):
 8. Anything guessed rather than recovered is listed under "Guessed" below, so it can be reviewed.
 
 ## Guessed (not recovered exactly)
+- src/core/settings.js: 5 lines after `const STORAGE_KEY` (final 481-485) never shown and not referenced: left out (file is 600 lines, not 605).
+- src/player/elytra.js: exact (the Oct 7-9 version is complete and the final adds exactly FLIGHT_GRAVITY_MPS2 + a blank after line 26).
+- src/net/protocol.js: pickColour's body from the early paste (exact for that version); colourDistance (redmean distance), its doc comment and the doc comments for TWIN_DISTANCE and distinctColour WRITTEN BY ME (never shown). recovery/guess/src_net_protocol.js.txt.
+- server/server.mjs: last 18 lines filled with the Oct 9 02:14 tail (13 lines); the 5 lines added between Oct 9 02:14 and 15:02 were never shown (not in the startup printout; likely shutdown handling).
+- server_server.mjs: APPROXIMATE regions filled with the older text between the same two lines: at 304 13 lines for a 18-line gap (from cat (whole file) 2026-10-09T02:14)
+- src_ui_minimap.js: APPROXIMATE regions filled with the older text between the same two lines: at 1 20 lines for a 21-line gap (from git diff (whole file) 2026-10-06T16:26); at 23 139 lines for a 143-line gap (from git diff (whole file) 2026-10-06T16:26); at 163 29 lines for a 31-line gap (from git diff (whole file) 2026-10-06T16:26)
+- src_ui_settingsPanel.js: APPROXIMATE regions filled with the older text between the same two lines: at 1 29 lines for a 30-line gap (from git diff (whole file) 2026-10-05T13:53)
+- src_ui_travelPanel.js: APPROXIMATE regions filled with the older text between the same two lines: at 69 40 lines for a 105-line gap (from paste upload3/more/5.txt 2026-10-03)
+- src_ui_worldmap.js: APPROXIMATE regions filled with the older text between the same two lines: at 154 232 lines for a 236-line gap (from git diff (whole file) 2026-10-06T16:26); at 387 16 lines for a 16-line gap (from sed 317,420 2026-10-06T16:31); at 404 5 lines for a 5-line gap (from sed 317,420 2026-10-06T16:31)
 - src/net/voice.js: the Oct 9 change (RADIO_GAIN 0.8→0.35, a new RADIO_FROM_M, `near` uses it) added 8 lines; the 7 lines of doc comment around them were never shown.
 - server/game.mjs, V5 lines 2049–2073 (V2 1924–1948): the end of findPlayer, then playersStarting(wanted) and nobodyCalled(name). No log shows their bodies, only their signatures and line numbers (Oct 12 03:24 grep: 2054, 2063) and the message "bla could be Blake, Blakely — type more of the name" (servertest, Oct 11). The real lines are 52 bytes longer than mine.
   - Known: md5 V4 = be15e13a474136e264f00af190a6b7f3 (122374 bytes); V5 = 12921b34a06c8d0e8a08997cbfe1924c; V2 = 116623 bytes (md5 probably d3a93f0caac4d19a23ef94e4aaf8dba, the oldws copy); V0 = 116179 bytes.

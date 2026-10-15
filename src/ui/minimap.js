@@ -18,7 +18,8 @@ import { drawMap, metresPerPixel } from './mapRenderer.js';
 const REDRAW_INTERVAL = 1 / 20;
 
 export class Minimap {
-  constructor(root, { tiles, street, exploration, waypointStore, trail }) {
+  constructor(root, { tiles, street, exploration, waypointStore, trail, others = null }) {
+    this.others = others;
     this.tiles = tiles;
     this.street = street;
     this.exploration = exploration;
@@ -158,6 +159,7 @@ export class Minimap {
         exploration: this.exploration,
         waypointStore: this.waypointStore,
         trail: this.trail,
+        others: this.others,
         player: { lat: player.lat, lon: player.lon, heading: player.heading },
         options: {
           fog: settings.get('minimapFog'),

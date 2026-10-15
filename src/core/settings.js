@@ -246,6 +246,37 @@ export const DEFAULT_SETTINGS = {
   showTemperature: true,
   showCompass: true,
   showCrosshair: true,
+  /** Minecraft's locator bar: everyone else as a dot in their colour. Online. */
+  showLocatorBar: true,
+  /** Names over other players' heads. Online. */
+  showNametags: true,
+  /**
+   * Everybody else's discovered ground on your maps, online. On from the
+   * start: seeing what everyone has found is half the point of a server.
+   */
+  othersDiscoveries: true,
+  /** Everybody else's paths, in their colours, online. Off until you want them. */
+  othersTrails: false,
+  /** A note when a friend comes online or goes, or asks to be friends. */
+  friendNotices: true,
+  /** Teleport requests from friends are accepted without asking. Kept by the server. */
+  friendsAutoTpa: false,
+  /** Party invites from friends are accepted without asking. Kept by the server. */
+  friendsAutoParty: false,
+  /** Friend requests from anyone are accepted without asking. Kept by the server. */
+  friendsAutoAccept: false,
+  /** Your party on voice wherever its members are, as a radio when they are far off. */
+  partyVoice: true,
+
+  /* online */
+  /**
+   * Proximity voice: 'off', 'push' (hold the key to talk) or 'open' (your
+   * microphone is live while you are near anyone). Off until you choose,
+   * because a browser asks for the microphone the moment this is on.
+   */
+  voiceMode: 'off',
+  /** How loud other people are, 0 to 1. */
+  voiceVolume: 0.9,
 };
 
 /**
@@ -449,18 +480,35 @@ export const GRAPHICS_PRESETS = {
 const STORAGE_KEY = 'settings';
 
 /**
- * The store itself, exported so a reload can be exercised: constructing a
- * second one reads the same storage back, which is the only way to check that
- * a pasted key actually survives closing the tab.
+ * The settings that change how you play rather than how it looks, held to
+ * the range the panel offers. A save file, or a hand-edited store, is not
+ * the panel: imported with a forty-metre standing height you walked up the
+ * walls of buildings and never drowned.
  */
+const RANGES = {
+  playerHeightM: [1.2, 2.4],
+};
+
+/** A value fit for a setting, or undefined: a known key, the right type, in range. */
+export function settingValue(key, value) {
+  if (!Object.hasOwn(DEFAULT_SETTINGS, key) || value === undefined) return undefined;
+  if (typeof value !== typeof DEFAULT_SETTINGS[key]) return undefined;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return undefined;
+    const range = RANGES[key];
+    if (range) return Math.min(range[1], Math.max(range[0], value));
+  }
+  return value;
+}
+
 export class SettingsStore extends Emitter {
   constructor() {
     super();
     const saved = readJSON(STORAGE_KEY, {});
     this.values = { ...DEFAULT_SETTINGS };
     for (const key of Object.keys(DEFAULT_SETTINGS)) {
-      const v = saved[key];
-      if (v !== undefined && typeof v === typeof DEFAULT_SETTINGS[key]) this.values[key] = v;
+      const v = settingValue(key, saved?.[key]);
+      if (v !== undefined) this.values[key] = v;
     }
     /** Which keys came from storage rather than from the defaults above. */
     this.stored = new Set(Object.keys(saved ?? {}));
@@ -476,6 +524,7 @@ export class SettingsStore extends Emitter {
   }
 
   set(key, value) {
+    if (RANGES[key] && typeof value === 'number') value = settingValue(key, value) ?? this.values[key];
     this.stored.add(key);
     if (this.values[key] === value) return;
     this.values[key] = value;
@@ -513,8 +562,9 @@ export class SettingsStore extends Emitter {
 
   patch(partial) {
     let changed = false;
-    for (const key of Object.keys(partial)) {
-      const value = partial[key];
+    for (const key of Object.keys(partial ?? {})) {
+      // Only what the panel itself could have set: see settingValue.
+      const value = settingValue(key, partial[key]);
       if (value === undefined || this.values[key] === value) continue;
       this.values[key] = value;
       changed = true;

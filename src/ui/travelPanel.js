@@ -1,8 +1,9 @@
 import { BOOT, ONLINE, relaunch } from '../core/boot.js';
 import { settings } from '../core/settings.js';
-import { formatTemperature } from '../core/units.js';
+import { formatDistance, formatTemperature } from '../core/units.js';
 import { BODIES, BODY, aeroFactor, gravityRatio } from '../geo/bodies.js';
 import { escapeHtml } from './worldmap.js';
+import { BODIES_WITH_ELEVATION, PARTIAL_ELEVATION, PLANETARY_SOURCES } from '../tiles/providers.js';
 
 /**
  * Other worlds.
@@ -85,7 +86,6 @@ export class TravelPanel {
             <span>${escapeHtml(body.spawn.label)}</span></div>
           <p>${escapeHtml(body.blurb)}</p>
           <dl>
-
             <dt>Gravity</dt><dd>${g >= 0.1 ? `${g.toFixed(2)}g` : `${(g * 100).toFixed(1)}% g`}</dd>
             <dt>Air</dt><dd>${airText}</dd>
             <dt>Surface</dt><dd>${escapeHtml(temp)}</dd>

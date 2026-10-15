@@ -1,0 +1,6 @@
+@@ 481-489
+
+/**
+ * The settings that change how you play rather than how it looks, held to
+ * the range the panel offers. A save file, or a hand-edited store, is not
+@@end
