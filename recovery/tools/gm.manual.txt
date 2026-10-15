@@ -1,0 +1,37 @@
+2049	    if (exact) return exact;
+2050	    const matches = this.playersStarting(wanted);
+2051	    return matches.length === 1 ? matches[0] : null;
+2052	  }
+2053	
+2054	  playersStarting(wanted) {
+2055	    const matches = [];
+2056	    for (const player of this.players.values()) {
+2057	      if (player.key.startsWith(wanted)) matches.push(player);
+2058	    }
+2059	    matches.sort((a, b) => a.name.localeCompare(b.name));
+2060	    return matches;
+2061	  }
+2062	
+2063	  nobodyCalled(name) {
+2064	    const typed = String(name ?? '').slice(0, 32);
+2065	    const wanted = nameKey(typed);
+2066	    const matches = wanted ? this.playersStarting(wanted) : [];
+2067	    if (matches.length > 1) {
+2068	      const names = matches.slice(0, 5).map((p) => p.name).join(', ');
+2069	      return `${typed} could be ${names}${matches.length > 5 ? ', …' : ''} — type more of the name`;
+2070	    }
+2071	    return `Nobody called ${typed} is online`;
+2072	  }
+2073	
+2074	  kick(player, reason) {
+2075	    this.send(player.client, { t: 'kick', reason });
+2076	    player.client.ws.close(4000, reason.slice(0, 100));
+2077	    this.disconnect(player.client, { quiet: true });
+2078	    this.announce(`${player.name} was disconnected: ${reason}`, { kind: 'leave' });
+2079	  }
+2080	
+2081	  /* ------------------------------------------------------- map overlays */
+2082	
+2083	  /**
+2084	   * Somebody switched on another player's discoveries or trail on their map.
+2685	}

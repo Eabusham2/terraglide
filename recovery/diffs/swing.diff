@@ -1,0 +1,40 @@
+--- a/server/game.mjs
++++ b/server/game.mjs
+@@ -530,7 +530,6 @@
+       case 's': return this.onState(player, m);
+       case 'chat': return this.onChat(player, m.text);
+       case 'attack': return this.onAttack(player, m);
+-      case 'swing': return this.onSwing(player);
+       case 'damage': return this.onSelfDamage(player, m);
+       case 'respawn': return this.respawn(player);
+       case 'travel': return this.travel(player, m.world);
+@@ -1484,12 +1483,6 @@
+       < (this.config.spawnProtectionM ?? 0);
+   }
+ 
+-  /** A swing on its own, as the swing bit in a state is (see accept): it resets the blade too. */
+-  onSwing(player) {
+-    player.prevSwingAt = player.lastSwingAt;
+-    player.lastSwingAt = this.now();
+-  }
+-
+   /**
+    * A swing landed, according to the page. Checked here before it counts:
+    * the sword is in hand, both of you are alive and on the same world, the
+--- a/tools/servertest.mjs
++++ b/tools/servertest.mjs
+@@ -1024,6 +1024,14 @@
+     ivo.send({ t: 'attack', target: jun.id });
+     await sleep(150);
+     ok('a hit with no swing to go with it does not count', !jun.has('hit'));
++    // Nor with a swing sent on its own: the swing is the bit in the state
++    // everybody else is sent, so a blade nobody saw move does not land.
++    await sleep(1100);
++    jun.clear();
++    ivo.send({ t: 'swing' });
++    ivo.send({ t: 'attack', target: jun.id });
++    await sleep(150);
++    ok('nor one with a swing nobody else was shown', !jun.has('hit'));
+ 
+     // How far back a hit is judged comes from the server's own pings.
+     ip.client.pings ??= new Map();

@@ -1,0 +1,56 @@
+--- a/server/ws.mjs
++++ b/server/ws.mjs
+@@ -242,6 +242,14 @@
+         }
+         break;
+       case OPCODES.ping:
++        // Answered like any other small frame: written straight to the socket,
++        // a peer that pings and never reads piled pongs up where send()'s
++        // limit never looked, until the game's backlog check let it go at
++        // 24 MB - with no account needed, on as many connections as it liked.
++        if (this.bufferedAmount - this.bigWaiting > MAX_BUFFERED_BYTES) {
++          this.terminate();
++          return false;
++        }
+         this.writeFrame(OPCODES.pong, payload);
+         break;
+       case OPCODES.pong:
+--- a/tools/servertest.mjs
++++ b/tools/servertest.mjs
+@@ -710,6 +710,21 @@
+     ok('positions piling up past the limit behind it still drop a page that stopped reading',
+       !stalled.near.open && sent * 1004 > MAX_BUFFERED_BYTES && sent * 1004 < MAX_BUFFERED_BYTES * 1.2, `after ${sent} positions`);
+     stalled.far.destroy();
++    // Nor one that only pings: each ping is answered with a pong written
++    // straight to the socket, and a peer that never read them piled them up
++    // where the limit above never looked - until the game's backlog check let
++    // it go at 24 MB, with no account needed.
++    const pinger = await pair();
++    pinger.near.send('m'.repeat(BIG));
++    const ping = Buffer.from([0x89, 0x80 | 125, 1, 2, 3, 4, ...new Array(125).fill(0)]);
++    let pings = 0;
++    while (pinger.near.open && pings < 40000) {
++      pinger.near.receive(ping);
++      pings += 1;
++    }
++    ok('a peer that pings and never reads is dropped past the same limit',
++      !pinger.near.open && pings * 127 > MAX_BUFFERED_BYTES && pings * 127 < MAX_BUFFERED_BYTES * 1.2, `after ${pings} pings`);
++    pinger.far.destroy();
+   }
+ 
+   console.log('\nguessing a join code');
+--- a/HOSTING.md
++++ b/HOSTING.md
+@@ -1222,9 +1222,9 @@
+   server sent it, and must arrive within 400 m of where it was sent. A page
+   that never says it has arrived is put there anyway after 20 seconds, so
+   "still on the way" is not a way to be untouchable. Nobody is sent to
+-  somebody still arriving — by `/tpa`, a party gather or an admin's `/tp`
+-  (*"… has not landed yet"*): the height they were sent to is not yet one
+-  the server has seen them at.
++  somebody still arriving — by `/tpa` or an admin's `/tp` (*"… has not
++  landed yet"*), or gathered by a party leader who is (*"Land first"*): the
++  height they were sent to is not yet one the server has seen them at.
+ - **Hits need a swing.** A hit counts only with the swing that made it, which
+   every other player sees. How far back the target is rewound comes from the
+   server's own measurement of the connection (WebSocket pings it sends and
