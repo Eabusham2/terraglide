@@ -922,6 +922,15 @@ const _swingAxis = new THREE.Vector3(1, 0, 0);
 const SWORD_REST = new THREE.Vector3(0, 0, -1);
 const _swordNose = new THREE.Vector3();
 const _swordAim = new THREE.Quaternion();
+/**
+ * Where the generated sword points on screen in first person, at rest: where
+ * the built sword in the box fist points (measured in the camera's frame) -
+ * up, a little toward the middle, and into the scene. The scanned fist holds
+ * it along the firework, off toward the right edge.
+ */
+const SWORD_VIEW_AIM = new THREE.Vector3(-0.333, 0.886, -0.323).normalize();
+const _swordView = new THREE.Quaternion();
+const _swordWant = new THREE.Vector3();
 const _swingArm = new THREE.Quaternion();
 const _swingView = new THREE.Quaternion();
 const _swingLevel = new THREE.Vector3();
@@ -4829,7 +4838,20 @@ export class Avatar {
       // beside you rather than straight at your eye.
       Math.max(cut, 0) * 0.6 + Math.min(cut, 0) * 0.8 - (scanFist ? HAND_SWORD_LEAN : 0),
     );
-    if (scanFist) {
+    if (scanFist && this.swordModelShown) {
+      // The generated sword: the firework's grip, turned from where its nose
+      // goes to SWORD_VIEW_AIM in the hand's frame, then the same swing about
+      // the screen's level, without the lean (it is aimed, not upright).
+      this.handSword.position.copy(this.handRocket.position);
+      _swordView.copy(this.viewModel.quaternion).multiply(this.handR.quaternion).invert();
+      _swordAim.setFromUnitVectors(
+        _swordNose.copy(ROCKET_AXIS).applyQuaternion(this.handRocket.quaternion),
+        _swordWant.copy(SWORD_VIEW_AIM).applyQuaternion(_swordView),
+      );
+      _swingTurn.setFromAxisAngle(_swingLevel, Math.max(cut, 0) * 0.6 + Math.min(cut, 0) * 0.8);
+      this.handSword.quaternion.copy(_swingTurn).multiply(_swordAim).multiply(this.handRocket.quaternion);
+      this.handSword.scale.copy(this.handRocket.scale);
+    } else if (scanFist) {
       this.handSword.position.copy(this.handRocket.position);
       this.handSword.quaternion.copy(_swingTurn).multiply(this.handRocket.quaternion);
       if (this.swordModelShown) this.handSword.scale.copy(this.handRocket.scale);
