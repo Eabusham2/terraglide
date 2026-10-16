@@ -53,6 +53,10 @@ Found and fixed (all now agree with every later sighting; stats/counts re-checke
   'held to what the game can do' moves do; the bans section signs Alex back in by token (sign-in replaced the
   connection); the fight auto-accept check uses /tpahere with Hugo in the fight (a /tpa is refused outright while the
   asker is in one) and clears Gina's inbox. 210/210 passed (the Oct 12 total).
+- Last `wc -l` is not always the final count (flightcheck grew after it). recovery/tools/beyond.py lists every file
+  with a numbered sighting past its last logged count, or a count that differs: all are explained (later edits on
+  record: HOSTING, game.mjs, servertest, touch, beacons, main.css, the workflow, .gitignore, cheats, mercator) except
+  selftest and shots, still to do. frame.js "line 109" is mercator.js grep output in the same command.
 Checked and fine (false alarms explained): bodies.js reach (seen Oct 7/9 greps), HOSTING round-6 lines, the friend
 choices and loadModel split (Oct 9 20:53 / Oct 10 03:48), session.js "two lots" (Oct 11 05:10 edit), game.mjs round 6,
 game.js line 83 orphan comment (Oct 7 16:58 grep), protocol.js tphere/near (Oct 9/11), help.js (Oct 6), config maxSpeed
@@ -138,7 +142,7 @@ New files:
 - [~] src/tiles/planetary.js (1947, every known line in place; the Oct 5 review's fixes rebuilt, see Guessed)
 - [~] src/ui/chat.js (237, every known line in place; Oct 6 text + ledger F2/F9/P4/P8, see Guessed) · [~] src/ui/deathScreen.js (87 = the Oct 11 count; written to P2 and session.js's update(how) call, see Guessed) · [~] src/ui/onlinePanel.js (387 = final, every known line in place; F9 Change password form, see Guessed) · [~] src/ui/playersPanel.js (463 = final, every known line in place; see Guessed) · [~] src/ui/teleportMenu.js (377 = final, every known line in place; F7, see Guessed) · [~] src/ui/travelPanel.js (173 = final; lines 69-173 rebuilt for P3, see Guessed) · [x] src/ui/trail.js (140)
 - [x] src/world/lander.js (184) · [x] src/world/stars.js (173, the whole file from an Oct 5 13:49 `cat -n` inside a mixed command; one version to the end) · [x] src/world/starCatalogue.js (regenerated: 2887 stars, 25302 bytes, the same size the Oct 5 wc -c gave)
-- [~] tools/flightcheck.mjs (387) · [x] tools/onlinecheck.mjs (596 = the Oct 11 count; recovery/guess/onlinecheck_build.py; 42/43 here, the one failure is the scanned sword, which needs assets/sword.glb; see Guessed) · [~] tools/servertest.mjs (1749 = final, 210/210; recovery/guess/servertest_build.py; sections marked mine in it) · [~] tools/stars.mjs (96) · [~] tools/gazetteer.py (the paste, plus 3 lines of mine that turn U+2019/U+2018 into ' so today's USGS names pass the Latin-1 selftest) · [ ] tools/glb-unplate.py
+- [x] tools/flightcheck.mjs (396 = final, 16312 bytes = the Oct 10 03:29 ls; recovery/guess/flightcheck_build.py; 15/15 with every world's speed as logged; one line mine, see Guessed) · [x] tools/onlinecheck.mjs (596 = the Oct 11 count; recovery/guess/onlinecheck_build.py; 42/43 here, the one failure is the scanned sword, which needs assets/sword.glb; see Guessed) · [~] tools/servertest.mjs (1749 = final, 210/210; recovery/guess/servertest_build.py; sections marked mine in it) · [~] tools/stars.mjs (96) · [~] tools/gazetteer.py (the paste, plus 3 lines of mine that turn U+2019/U+2018 into ' so today's USGS names pass the Latin-1 selftest) · [ ] tools/glb-unplate.py
 - [ ] assets/sword.glb (binary: regenerate) · [ ] shots/online/*.png (regenerate with the shots tools) · [ ] terraglide-online.html (build: node tools/online.mjs)
 
 Changed tracked files (base = 2c7ee70):
@@ -314,6 +318,10 @@ Changed tracked files (base = 2c7ee70):
   - 547-566, "played locally there is no teleport menu and no button for one": WRITTEN BY ME to its label and detail (`.hud [data-action="teleport"]`, since the world map has a hidden button of the same name).
   - 522-545 and 568-596 are the Oct 5 21:48 text, exact.
   - Run here (Oct 16): 42 passed, 1 failed. The failure is "with the scanned body on, Bruno is drawn as it too, the generated sword in hand" (sword: false), because assets/sword.glb is not rebuilt yet. Every new check passes and prints what the Oct 10 run printed.
+
+- tools/flightcheck.mjs (396; recovery/guess/flightcheck_build.py): the Oct 9 20:09 cat (348 lines) for 1-223 and the Oct 12 03:30 `sed -n 225,420p` for 225-396. The earlier draft stopped at 387, the last `wc -l` (Oct 9 20:50); the Oct 10 03:29 change (round 4 F1: the stall-then-surge part of the hiccup leg, 9 lines) came after it, and the Oct 12 views reach line 396 (rmSync at 389 in the 03:29 grep).
+  - The one line in 162-224 that no view shows: the Oct 9 V1 fix stopped trusting a teleport's height as the arrival ceiling, so `sendTo` passes `ceiling: alt` (without it the 30 km 'high' leg is put back on the Moon x3 and Mercury x4). The comment above it is WRITTEN BY ME, to the 73 bytes the file's logged size (16312) leaves.
+  - Run here (Oct 16): 15 of 15, and every world's fastest honest speed equals every logged run since Oct 9 20:51 (Venus 597, Titan 604, Moon 1205, Charon 659...).
 
 ## Facts found while rebuilding (Oct 15)
 - Grep output is a source in three more shapes. Context lines `NN-text` (from -A/-B/-C). Multi-file `path:NN:text`, which frags already reads. And complete greps: a grep not cut by `head` lists every line with its pattern, so the rest of the file has none. recovery/tools/grepcheck.mjs re-runs every logged grep on a rebuilt file, in a mirror of the repo, and compares the output. Run it on every rebuilt file.
