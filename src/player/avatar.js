@@ -901,6 +901,17 @@ const SWING_BLADE = 1.4;
 const SWING_ARM = 1.15;
 const _swingTurn = new THREE.Quaternion();
 const _swingAxis = new THREE.Vector3(1, 0, 0);
+/**
+ * Where the generated sword points out of the fist, in the arm's own frame -
+ * the body's, when the arm hangs: straight out in front, level, the way a
+ * blade is carried, so the swing winds it up over the shoulder. The firework
+ * the fist is shaped round lies outboard, along the fingers, and the generated
+ * blade carried along it sticks out sideways. The built sword keeps the
+ * firework's line.
+ */
+const SWORD_REST = new THREE.Vector3(0, 0, -1);
+const _swordNose = new THREE.Vector3();
+const _swordAim = new THREE.Quaternion();
 const _swingArm = new THREE.Quaternion();
 const _swingView = new THREE.Quaternion();
 const _swingLevel = new THREE.Vector3();
@@ -4748,7 +4759,14 @@ export class Avatar {
     const holder = this.rocket.parent ?? this.armR.pivot;
     if (this.sword.parent !== holder) holder.add(this.sword);
     this.sword.position.copy(this.rocket.position);
-    this.sword.quaternion.copy(_swingTurn).multiply(this.rocket.quaternion);
+    if (this.swordModelShown) {
+      // The generated sword: the firework's grip, turned from where its nose
+      // goes to where a blade goes (SWORD_REST), then the swing on that.
+      _swordAim.setFromUnitVectors(_swordNose.copy(ROCKET_AXIS).applyQuaternion(this.rocket.quaternion), SWORD_REST);
+      this.sword.quaternion.copy(_swingTurn).multiply(_swordAim).multiply(this.rocket.quaternion);
+    } else {
+      this.sword.quaternion.copy(_swingTurn).multiply(this.rocket.quaternion);
+    }
     // Sized to the fist it is in, the way the firework is. The built sword is
     // boxes drawn for the built fist, and grows evenly with the firework in a
     // scanned one. The scanned sword takes the firework's own fit - girth to
