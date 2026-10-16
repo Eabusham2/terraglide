@@ -1,5 +1,5 @@
 # playersPanel.js: the Oct 6 version (433 lines, exact) plus 30 lines placed by the final's known lines: F6b (the panel
-# keeps the keyboard), the leader's own row without the together tick (known 302), a party-voice note and its button
+# keeps the keyboard), the leader's own row without the together tick (known 302), a party-voice note and its button (data-action="voice-on": the Oct 11 selftest tests that name)
 # (known 172-173, 325), askMarkName (known, appended) used by "Mark here for the party".
 import sys
 s = open(sys.argv[1]).read()
@@ -28,7 +28,7 @@ rep("""        return this.session.partyMark('', here.lat, here.lon);
       }
 """, """        return this.session.partyMark(askMarkName(), here.lat, here.lon);
       }
-      case 'party-voice':
+      case 'voice-on':
         // Push to talk, and the party's own channel: whichever of the two the
         // note under the party said was off.
         settings.set('voiceMode', 'push');
@@ -44,7 +44,7 @@ rep("""      <ul class="players-list party">${members}${invited}</ul>
       ${settings.get('voiceMode') === 'off' || !settings.get('partyVoice')
         ? `<p class="players-note">A party talks over the radio: you hear each other anywhere, on any world.
           ${settings.get('voiceMode') === 'off' ? 'Your voice is off.' : 'Party voice is off.'}
-          <button type="button" class="mini" data-action="party-voice">Turn it on</button></p>`
+          <button type="button" class="mini" data-action="voice-on">Turn it on</button></p>`
         : ''}
 """)
 s = s.rstrip('\n') + '''

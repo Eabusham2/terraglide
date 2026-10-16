@@ -897,7 +897,7 @@ const SCAN_HAND_DIVE = {
  * arm, radians, and the share of it spent winding back.
  */
 const SWING_S = 0.3;
-const SWING_BLADE = 1.35;
+const SWING_BLADE = 1.4;
 const SWING_ARM = 1.15;
 const _swingTurn = new THREE.Quaternion();
 const _swingAxis = new THREE.Vector3(1, 0, 0);
@@ -909,7 +909,7 @@ const _swingLevel = new THREE.Vector3();
  * brought down through until SWING_STRIKE, and back to rest by the end.
  */
 const SWING_WIND = 0.35;
-const SWING_STRIKE = 0.7;
+const SWING_STRIKE = 0.65;
 /**
  * Where a swing is at `t`, 0 as it starts to 1 when it is over: how far the
  * arm is raised, 0 to 1, and how far the blade is turned about the arm's
