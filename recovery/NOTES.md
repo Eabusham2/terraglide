@@ -138,7 +138,7 @@ New files:
 - [~] src/tiles/planetary.js (1947, every known line in place; the Oct 5 review's fixes rebuilt, see Guessed)
 - [~] src/ui/chat.js (237, every known line in place; Oct 6 text + ledger F2/F9/P4/P8, see Guessed) · [~] src/ui/deathScreen.js (87 = the Oct 11 count; written to P2 and session.js's update(how) call, see Guessed) · [~] src/ui/onlinePanel.js (387 = final, every known line in place; F9 Change password form, see Guessed) · [~] src/ui/playersPanel.js (463 = final, every known line in place; see Guessed) · [~] src/ui/teleportMenu.js (377 = final, every known line in place; F7, see Guessed) · [~] src/ui/travelPanel.js (173 = final; lines 69-173 rebuilt for P3, see Guessed) · [x] src/ui/trail.js (140)
 - [x] src/world/lander.js (184) · [x] src/world/stars.js (173, the whole file from an Oct 5 13:49 `cat -n` inside a mixed command; one version to the end) · [x] src/world/starCatalogue.js (regenerated: 2887 stars, 25302 bytes, the same size the Oct 5 wc -c gave)
-- [~] tools/flightcheck.mjs (387) · [~] tools/onlinecheck.mjs (596) · [~] tools/servertest.mjs (1749 = final, 210/210; recovery/guess/servertest_build.py; sections marked mine in it) · [~] tools/stars.mjs (96) · [~] tools/gazetteer.py (the paste, plus 3 lines of mine that turn U+2019/U+2018 into ' so today's USGS names pass the Latin-1 selftest) · [ ] tools/glb-unplate.py
+- [~] tools/flightcheck.mjs (387) · [x] tools/onlinecheck.mjs (596 = the Oct 11 count; recovery/guess/onlinecheck_build.py; 42/43 here, the one failure is the scanned sword, which needs assets/sword.glb; see Guessed) · [~] tools/servertest.mjs (1749 = final, 210/210; recovery/guess/servertest_build.py; sections marked mine in it) · [~] tools/stars.mjs (96) · [~] tools/gazetteer.py (the paste, plus 3 lines of mine that turn U+2019/U+2018 into ' so today's USGS names pass the Latin-1 selftest) · [ ] tools/glb-unplate.py
 - [ ] assets/sword.glb (binary: regenerate) · [ ] shots/online/*.png (regenerate with the shots tools) · [ ] terraglide-online.html (build: node tools/online.mjs)
 
 Changed tracked files (base = 2c7ee70):
@@ -308,6 +308,12 @@ Changed tracked files (base = 2c7ee70):
   - Data layout (+3): `index.json`, the small index H4 added beside the records.
   - Publishing (+1): where to ask about what the licence does not cover.
   - The final's greps (949, 976, 1113, 1114) now land. The Oct 11 05:07 and Oct 12 08:12 edits are in.
+
+- tools/onlinecheck.mjs (596, the Oct 11 05:42 count; recovery/guess/onlinecheck_build.py over the pooled draft, 460 known lines):
+  - 346 and 348-414, the F8 key checks ("keys stay with an open panel", and the Tab cycling in the chat box): WRITTEN BY ME to the labels and details the Oct 10 03:44 run printed. The world point is clicked on the canvas (a click in the middle hit Bruno's row in the menu, which sends and closes it); the refused TPA comes from a lastRequestAt set on the server.
+  - 547-566, "played locally there is no teleport menu and no button for one": WRITTEN BY ME to its label and detail (`.hud [data-action="teleport"]`, since the world map has a hidden button of the same name).
+  - 522-545 and 568-596 are the Oct 5 21:48 text, exact.
+  - Run here (Oct 16): 42 passed, 1 failed. The failure is "with the scanned body on, Bruno is drawn as it too, the generated sword in hand" (sword: false), because assets/sword.glb is not rebuilt yet. Every new check passes and prints what the Oct 10 run printed.
 
 ## Facts found while rebuilding (Oct 15)
 - Grep output is a source in three more shapes. Context lines `NN-text` (from -A/-B/-C). Multi-file `path:NN:text`, which frags already reads. And complete greps: a grep not cut by `head` lists every line with its pattern, so the rest of the file has none. recovery/tools/grepcheck.mjs re-runs every logged grep on a rebuilt file, in a mirror of the repo, and compares the output. Run it on every rebuilt file.
