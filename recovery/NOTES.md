@@ -3,10 +3,35 @@
 > Branch: `claude/main-recovery`, made from main (2c7ee70) with only the final recovered files on it. The early snapshots the recovery worked from (`recovery/partial/`, `recovery/pastes2/`, `recovery/pastes3/`, `PARTIAL.md`, `avatar.partial-diff.txt`) are superseded and are not on this branch. They are kept on the old branch `claude/world-exploration-game-962wpo`, and the pastes are also in the user's zips (`~/.claude/uploads`).
 
 ## OUTLINE (keep current: newest at the top of each list)
-### Where I am right now (Oct 16, afternoon)
+### Last check (Oct 16, evening): the recovery is finished; nothing more can be recovered
+- Recovered state = commit bbd6276 on `claude/main-recovery`. Everything after it on that branch is the owner's own requests
+  (sword and firework holds, the startup screen, the coverage figures, lobby status, ping and counts), each listed under
+  Guessed as "after the recovery" with what it changed. `git diff --stat bbd6276 HEAD` lists those 23 files; nothing else moved.
+- Sources re-checked for anything that could replace a guess, all exhausted:
+  - GitHub: every branch and PR head (online-singlefile, firework-grip-wip, singlefiles, gh-pages, PR #1/#2 are all from
+    Aug 14 – Oct 2 and hold no online file; gh-pages and singlefiles were built from main 2c7ee70 on Oct 2); the last
+    Actions run is Oct 2 (main), so nothing from Oct 2–12 was ever built or published.
+  - The old branches: claude/terraglide-recovery equals bbd6276 for all 92 recovered files; claude/world-exploration-game-962wpo
+    differs only in avatar.js's measureSwordGrip, where bbd6276 has the newer (Oct 16 turnover) version.
+  - Sessions: list_sessions shows no other session ever on terraglide.
+  - Stored events: this session's main-chat events now begin at Oct 16 19:50 (the latest compaction; after_compaction,
+    include_compacted and order change nothing). Oct 10–16 survive only in the archive here (/home/user/recovery,
+    /root/recovery-copy); before Oct 10, nowhere.
+- Re-run on a checkout of bbd6276 (scratchpad/reccheck, tools copied with their root pointed there): finalcount.py and
+  newest.py give exactly the Oct 16 results (every flagged line a documented GUESS or a later logged edit); STATUS.md's
+  "in repo now" column equals all 81 files' line counts there.
+- Suites on the branch tip (03b1791): check 101 modules ok, selftest 1748/1748, servertest 215/215 (210 + 5 new for the
+  friend count), onlinecheck 43/43, flightcheck 15/15, voice 50/50.
+- What stays guessed (listed under Guessed): the regions no source ever showed, and 5 selftest checks (1748 of 1753).
+  The only place left that could hold more is the owner's own device: `claude --teleport session_01AbPj1ecgWZX5NRERgq23EA`
+  might carry the main chat from before Oct 10.
+- sword.glb stays the Oct 16 generation (70,232 triangles): the owner locked the sword, so the regeneration check-in
+  for Oct 17 06:32 was turned off.
+
+### Where I was on Oct 16, afternoon
 - The checklist is finished: every file is in the repo at its final count, and the WHAT TO VERIFY pass has been run (results under WHAT TO VERIFY).
 - Done today, each committed: selftest.mjs (11622), shots.mjs (389, exact), sword.glb (regenerated) + tools/glb-unplate.py, shots/online (all 9), config.mjs (now the logged 6388 bytes too), stars.mjs (exact by size), and the voice harness rebuilt into recovery/harness/voice.
-- Still open, and why: 5 selftest checks (1748 here, 1753 then) that no log shows; sword.glb is bigger than the swordNote says (the ZeroGPU quota ran out; a check-in on Oct 17 06:32 UTC regenerates it at ~60000).
+- Still open, and why: 5 selftest checks (1748 here, 1753 then) that no log shows; sword.glb is bigger than the swordNote says (the ZeroGPU quota ran out). The Oct 17 06:32 regeneration check-in was turned off when the owner locked the sword.
 
 ### Where I was on Oct 15, afternoon
 - Done since the last compaction, each committed: social.mjs (866), HOSTING.md (1533), voice.js (1553, exact count), planetary.js (1947, exact count), chat.js (237), touch.js (351), beacons.js (exact), manifest.json (exact), the workflow (exact), gazetteerData.js + starCatalogue.js (regenerated).
@@ -124,11 +149,11 @@ game.js line 83 orphan comment (Oct 7 16:58 grep), protocol.js tphere/near (Oct 
 - Keep this outline current: add to it and correct it as I go (what each file holds, where it is, what's missing and why).
 - Tell them what to Ctrl+F in the app chat log. Done: "File created successfully", "has been updated successfully", "cat > ", "python3 - <<'EOF'", plus the missing file names.
 
-### To check (open)
-- [ ] game.mjs: see "Where I am right now".
-- [ ] More history? The main chat before Oct 10 is NOT downloaded. internal-events (main) starts at the last compaction; `after_compaction=false` did nothing; the client `/events` endpoint returns 401 with the session token. Ideas: other query parameters in the CLI binary, or the user's own `claude --teleport session_01AbPj1ecgWZX5NRERgq23EA` (steps in the chat, Oct 14 23:51).
-- [ ] Background-task outputs: /tmp/claude-0/.../tasks now holds only post-reset tasks; the old ones were wiped. Their contents survive only where agents `cat` them (in calls.jsonl).
-- [ ] Missing whole files:
+### To check (all closed Oct 16 evening; see "Last check")
+- [x] game.mjs: rebuilt (2720, V5 + round 6).
+- [x] More history? Re-checked Oct 16 evening: none reachable. The main chat before Oct 10 is NOT downloaded. internal-events (main) starts at the last compaction; `after_compaction=false` did nothing; the client `/events` endpoint returns 401 with the session token. Ideas: other query parameters in the CLI binary, or the user's own `claude --teleport session_01AbPj1ecgWZX5NRERgq23EA` (steps in the chat, Oct 14 23:51).
+- [x] Background-task outputs (none survive outside calls.jsonl): /tmp/claude-0/.../tasks now holds only post-reset tasks; the old ones were wiped. Their contents survive only where agents `cat` them (in calls.jsonl).
+- [x] Missing whole files (all rebuilt or regenerated):
   - voice.js: full Read of 1401 lines on Oct 5 05:24, plus 8 later changes; target 1553 on Oct 11.
   - planetary.js: full Read of 1462 lines on Oct 3 21:20, plus later changes; target 1947 on Oct 7.
   - HOSTING.md: full Read of 1158 lines on Oct 7, plus 22 changes; target 1539.
@@ -138,8 +163,8 @@ game.js line 83 orphan comment (Oct 7 16:58 grep), protocol.js tphere/near (Oct 
   - terraglide-online.html: a build output (tools/online.mjs).
   - trail.js: 140 lines.
   - Other files with full Reads in the logs (scratchpad/recover/lastfull.mjs): commands (Oct 6, 228), records (Oct 6, 145), social (Oct 7, 642), session (Oct 6, 548), chat, playersPanel, teleportMenu, exploration and mapRenderer (Oct 6), keybinds.
-- [ ] Changed tracked files (38): need the final diffs, src/game.js first. Look for `git diff` outputs in calls.jsonl.
-- [ ] The logs are archived only on this machine (/home/user/recovery and /root/recovery-copy), which a reset can wipe. Creating a private GitHub repo was refused (403). Google Drive is a possible safe place, but ask the user first.
+- [x] Changed tracked files (38): all rebuilt to their final counts. Look for `git diff` outputs in calls.jsonl.
+- [ ] (still true) The logs are archived only on this machine (/home/user/recovery and /root/recovery-copy), which a reset can wipe. Creating a private GitHub repo was refused (403). Google Drive is a possible safe place, but ask the user first.
 
 ### Checked (done)
 - [x] Deploy files RECOVERED from complete `cat -n` / `cat` outputs of Oct 7 16:30–22:00 (agents aed3f8, a79119, abefe6), checked against every later sighting: Dockerfile (66), .dockerignore (31, 1021 bytes = the Oct 5 size), fly.toml (60), render.yaml (47), server/config.example.json (27; maxSpeed 420→180 per round 4, seen Oct 9), src/net/publicServer.js (11), .github/workflows/deploy-gh-pages.yml (120), .gitignore (20). package.json is unchanged from 2c7ee70. Risk: an unlogged main-chat edit between Oct 7 22:00 and Oct 10 03:33.

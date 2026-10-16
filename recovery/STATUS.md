@@ -1,3 +1,5 @@
+"in repo now" is the recovered state, commit bbd6276 (checked Oct 16 evening: all 81 counts match it). Later commits on `claude/main-recovery` are the owner's own requests and change 23 of these files; `git diff --stat bbd6276 HEAD` lists them, and NOTES.md (Guessed, "after the recovery") says what each changed.
+
 | file | target lines (when) | at 2c7ee70 | in repo now | last full copy in logs | sightings after it | pastes |
 |---|---|---|---|---|---|---|
 | .dockerignore | ? | 0 | 31 | Write 31 (10-03T21:47) | 0 |  |
