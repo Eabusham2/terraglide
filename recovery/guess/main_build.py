@@ -448,7 +448,10 @@ change(1508, '    bottom: 234px;', '    bottom: max(234px, calc(var(--touch-rows
 change(1523, '  bottom: 234px;', '  bottom: max(234px, calc(var(--touch-rows, 2) * 60px + 82px));')
 change(1526, 'body.touch-active .hud-crosshair {', 'body.touch-active:not(.sword-out) .hud-crosshair {')
 change(1685, '    padding-bottom: 234px;', '    padding-bottom: max(234px, calc(var(--touch-rows, 2) * 60px + 82px));')
-D = 6
+# --- Oct 9, PA5: the world map keeps its buttons on a narrow screen. The commit hid the whole side panel below
+# 900 px; now only what is not the actions row goes (the Oct 11 selftest checks this rule).
+change(1404, '  .worldmap-side {', '  .worldmap-side > :not(.worldmap-actions) {')
+D = 7
 
 # --- the tail: the Oct 6 parties and friends (to `.tp-prompt.party`, line 2900), then Oct 7 and Oct 9.
 TAIL = block('''
@@ -594,8 +597,7 @@ TAIL = block('''
   margin-left: 6px;
 }
 
-/* Focusable, so it keeps the keyboard after one of its buttons is clicked
-   (see playersPanel.js). That focus is the panel's business, not a ring. */
+/* Focusable to keep the keyboard (see playersPanel.js); no ring for that. */
 .players-panel:focus {
   outline: none;
 }
@@ -670,8 +672,7 @@ body.touch-active .chat {
   width: min(440px, calc(100vw - 24px));
 }
 
-/* A phone on its side: the credit line goes up beside the location panel,
-   off the sixth slot it used to sit on. */
+/* A phone on its side: the credit line moves off the sixth slot. */
 @media (max-height: 460px) {
   body.touch-active .hud-bottomright {
     bottom: auto;

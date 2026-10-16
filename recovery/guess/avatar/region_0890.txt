@@ -8,5 +8,5 @@
  * arm, radians, and the share of it spent winding back.
  */
 const SWING_S = 0.3;
-const SWING_BLADE = 1.35;
+const SWING_BLADE = 1.4;
 const SWING_ARM = 1.15;

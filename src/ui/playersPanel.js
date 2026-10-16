@@ -166,7 +166,7 @@ export class PlayersPanel {
         const here = this.where();
         return this.session.partyMark(askMarkName(), here.lat, here.lon);
       }
-      case 'party-voice':
+      case 'voice-on':
         // Push to talk, and the party's own channel: whichever of the two the
         // note under the party said was off.
         settings.set('voiceMode', 'push');
@@ -325,7 +325,7 @@ export class PlayersPanel {
       ${settings.get('voiceMode') === 'off' || !settings.get('partyVoice')
         ? `<p class="players-note">A party talks over the radio: you hear each other anywhere, on any world.
           ${settings.get('voiceMode') === 'off' ? 'Your voice is off.' : 'Party voice is off.'}
-          <button type="button" class="mini" data-action="party-voice">Turn it on</button></p>`
+          <button type="button" class="mini" data-action="voice-on">Turn it on</button></p>`
         : ''}
       <div class="players-actions">
         ${leading ? '<button type="button" class="mini" data-action="party-gather" title="Bring everyone who ticked \'teleport with the party\' to you">Gather the party</button>' : ''}

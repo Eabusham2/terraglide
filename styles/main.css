@@ -1401,7 +1401,7 @@ input[type='checkbox'] {
     grid-template-columns: 1fr;
   }
 
-  .worldmap-side {
+  .worldmap-side > :not(.worldmap-actions) {
     display: none;
   }
 
@@ -2965,8 +2965,7 @@ body.touch-active:not(.sword-out) .hud-crosshair {
   margin-left: 6px;
 }
 
-/* Focusable, so it keeps the keyboard after one of its buttons is clicked
-   (see playersPanel.js). That focus is the panel's business, not a ring. */
+/* Focusable to keep the keyboard (see playersPanel.js); no ring for that. */
 .players-panel:focus {
   outline: none;
 }
@@ -3041,8 +3040,7 @@ body.touch-active .chat {
   width: min(440px, calc(100vw - 24px));
 }
 
-/* A phone on its side: the credit line goes up beside the location panel,
-   off the sixth slot it used to sit on. */
+/* A phone on its side: the credit line moves off the sixth slot. */
 @media (max-height: 460px) {
   body.touch-active .hud-bottomright {
     bottom: auto;

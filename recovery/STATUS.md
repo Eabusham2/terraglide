@@ -78,7 +78,7 @@
 | terraglide-online.html | 279 (10-11T05:43) | 0 | - | - | 0 |  |
 | tools/flightcheck.mjs | 396 (10-12T03:30 sed 225,420p ends at 396; the last wc, 387 at 10-09T20:50, is before the Oct 10 03:29 change) | 0 | 396 | - | 5 | upload/30.txt upload3/more/1.txt |
 | tools/onlinecheck.mjs | 596 (10-11T05:42) | 0 | 197 | - | 24 | upload/32.txt |
-| tools/selftest.mjs | 11622 (10-11T05:43) | 10711 | 10711 | - | 86 |  |
+| tools/selftest.mjs | 11622 (10-11T05:43) | 10711 | 11622 | - | 86 |  |
 | tools/servertest.mjs | 1719 (10-12T03:24) | 0 | 363 | - | 56 | upload/33.txt upload3/more/13.txt |
-| tools/shots.mjs | 389 (10-09T15:02) | 358 | 358 | - | 3 |  |
+| tools/shots.mjs | 389 (10-09T15:02) | 358 | 389 | - | 3 |  |
 | tools/stars.mjs | 96 (10-09T15:02) | 0 | 95 | - | 0 | upload/34.txt |

@@ -13,6 +13,24 @@
 - NEXT: the client UI (hud 412 missing, onlinePanel 226, playersPanel 146, teleportMenu 145, travelPanel short 65, minimap, worldmap, settingsPanel), then game.js (562 missing after aligning V4), player.js, avatar.js, main.css, README, then the tests, then sword.glb and the verify pass.
   - game.js done (see Guessed). Next: styles/main.css, README.md, then the tests, then sword.glb and the verify pass.
 
+### selftest.mjs rebuild (Oct 16, in progress) — what the logs settle
+- Base v7 = the commit + every logged edit replayed (scratchpad/recover/stpool.py + stedits.json: a46d0e35's Oct 3 planetary
+  section (Write + 2 python fixes + insert + \u escapes + 21:54 Mars edit), aee77e2c's 2 Edits and a54442e4's Edit/python/Edit
+  of Oct 5): 11135 lines, every view up to Oct 5 05:53 agrees except one line (stepGlide ..., this.env, Oct 5 05:39 view).
+- Lost main-chat additions = 11622 - 11135 - 4 (the exact Oct 11 05:11 edit) = 483 lines: 148 before Oct 5 05:24, 307 from
+  Oct 5 05:53 to Oct 9 15:02 (wc 11590), 28 from Oct 9 15:04 to Oct 10.
+- Where (offset profile, stprofile.py): +5 in "your own legs" (v7 1180-1186; shape fixed by the Oct 9 15:04 `grep sword`);
+  +2 at v7 ~5215 (Coming back...: the two checks that fail now); +2 at v7 ~6758 (airborne hold); +3 at v7 ~6910-6919
+  (scanned world / photograph); the touch hotbar (v7 3326-3329: six slots, crosshair with the sword); the block of new sections
+  between "your own legs" and "wings that hold the body up" (final 1195: sword swing (Oct 9 view) + 1 line for
+  loadSwordModelNow; 1280 shared map; 1298 parties and friends (Oct 11 views); then a host sets the server from its
+  environment; arriving on another world, and its air (final 1388 nearAir); a panel with the keyboard keeps it);
+  and the tail block = Oct 7 lines 11118-11357 shifted +235 (other worlds x4, the teleport menu, the last review, the prompt
+  check), before "every module still parses" (final 11593; final ends 11622 = Oct 6 view +240).
+- Final anchors: v7 7621 -> final 7868 (+247), so the block + touch = 234 lines. Labels of every check in the block's first
+  part and the whole tail: the Oct 11 05:44 run (final7/regress/selftest.out lines 193-264, 726-767, 2066-2140).
+- Checks: v7 runs 1643; final 1753 (4 of them are sword.glb's closed/normals/image checks, data-driven).
+
 ### Verification pass (Oct 16): is every recovered file the LATEST version? (user asked)
 Sources checked, all of them: the 149 workflow agents' events and the main chat (calls.jsonl = subagents.jsonl +
 main.jsonl, byte-identical to the archived .gz copies), this session's local transcript (same 176 pre-wipe tool calls as
@@ -142,12 +160,12 @@ New files:
 - [~] src/tiles/planetary.js (1947, every known line in place; the Oct 5 review's fixes rebuilt, see Guessed)
 - [~] src/ui/chat.js (237, every known line in place; Oct 6 text + ledger F2/F9/P4/P8, see Guessed) · [~] src/ui/deathScreen.js (87 = the Oct 11 count; written to P2 and session.js's update(how) call, see Guessed) · [~] src/ui/onlinePanel.js (387 = final, every known line in place; F9 Change password form, see Guessed) · [~] src/ui/playersPanel.js (463 = final, every known line in place; see Guessed) · [~] src/ui/teleportMenu.js (377 = final, every known line in place; F7, see Guessed) · [~] src/ui/travelPanel.js (173 = final; lines 69-173 rebuilt for P3, see Guessed) · [x] src/ui/trail.js (140)
 - [x] src/world/lander.js (184) · [x] src/world/stars.js (173, the whole file from an Oct 5 13:49 `cat -n` inside a mixed command; one version to the end) · [x] src/world/starCatalogue.js (regenerated: 2887 stars, 25302 bytes, the same size the Oct 5 wc -c gave)
-- [x] tools/flightcheck.mjs (396 = final, 16312 bytes = the Oct 10 03:29 ls; recovery/guess/flightcheck_build.py; 15/15 with every world's speed as logged; one line mine, see Guessed) · [x] tools/onlinecheck.mjs (596 = the Oct 11 count; recovery/guess/onlinecheck_build.py; 42/43 here, the one failure is the scanned sword, which needs assets/sword.glb; see Guessed) · [~] tools/servertest.mjs (1749 = final, 210/210; recovery/guess/servertest_build.py; sections marked mine in it) · [~] tools/stars.mjs (96) · [~] tools/gazetteer.py (the paste, plus 3 lines of mine that turn U+2019/U+2018 into ' so today's USGS names pass the Latin-1 selftest) · [ ] tools/glb-unplate.py
-- [ ] assets/sword.glb (binary: regenerate) · [ ] shots/online/*.png (regenerate with the shots tools) · [ ] terraglide-online.html (build: node tools/online.mjs)
+- [x] tools/flightcheck.mjs (396 = final, 16312 bytes = the Oct 10 03:29 ls; recovery/guess/flightcheck_build.py; 15/15 with every world's speed as logged; one line mine, see Guessed) · [x] tools/onlinecheck.mjs (596 = the Oct 11 count; recovery/guess/onlinecheck_build.py; 43/43 here on Oct 16, with the regenerated assets/sword.glb; see Guessed) · [~] tools/servertest.mjs (1749 = final, 210/210; recovery/guess/servertest_build.py; sections marked mine in it) · [~] tools/stars.mjs (96) · [~] tools/gazetteer.py (the paste, plus 3 lines of mine that turn U+2019/U+2018 into ' so today's USGS names pass the Latin-1 selftest) · [x] tools/glb-unplate.py (WRITTEN BY ME to the manifest's swordNote)
+- [x] assets/sword.glb (regenerated Oct 16 by the swordNote recipe; 70,232 triangles and 3.5 MB, not 8,722 and 0.57 MB: see Guessed)  · [x] shots/online/*.png (all 9 rewritten by tools/onlinecheck.mjs on Oct 16, the 43/43 run) · [x] terraglide-online.html (built; gitignored, like the bundles)
 
 Changed tracked files (base = 2c7ee70):
 - [x] .github/workflows/deploy-gh-pages.yml · [x] .gitignore
-- [x] README.md (696 = final; +134 −10 = the stat's 144; 49 unseen lines filled from the commit's own text, see Guessed) · [x] assets/manifest.json (swordNote and sword, from the Oct 9 15:04 print; +2 as the Oct 9 stat says) · [~] styles/main.css (3063; +1318 −6 = the stat's 1324, which stopped changing after Oct 9 16:16; the 362 unseen lines of the Oct 5 version and the Oct 6–9 tail are mine, see Guessed)
+- [x] README.md (696 = final; +134 −10 = the stat's 144; 49 unseen lines filled from the commit's own text, see Guessed) · [x] assets/manifest.json (swordNote and sword, from the Oct 9 15:04 print; +2 as the Oct 9 stat says) · [~] styles/main.css (3061; +1318 −6 = the stat's 1324, which stopped changing after Oct 9 16:16; the 362 unseen lines of the Oct 5 version and the Oct 6–9 tail are mine, see Guessed)
 - [~] src/game.js (2957 = final; every logged line in place; +864 −72 = the final stat 936 (Oct 12); the Oct 9 gaps rebuilt from the ledger, see Guessed)
 - [x] src/core/cheats.js (218: the commit + the ONLINE import and the unlock() refusal, seen Oct 11) · [x] src/core/keybinds.js (229, whole-file git diff, Oct 7–9) · [x] src/core/settings.js (605 = final: the 5 lines were SettingsStore's doc comment, left above RANGES when RANGES and settingValue went in between; text from the Oct 5 view, place from the Oct 11 grep's line 484) · [x] src/core/storage.js (96)
 - [x] src/geo/frame.js (104) · [x] src/geo/mercator.js (155)
@@ -155,7 +173,7 @@ Changed tracked files (base = 2c7ee70):
 - [x] src/tiles/elevation.js (494) · [x] src/tiles/providers.js (1421, git diff of Oct 5) · [x] src/tiles/streamer.js (1167) · [~] src/tiles/tileJobs.js (574; one line changed to pass the layer, see Guessed planetary.js)
 - [x] src/ui/cheatPanel.js (282) · [x] src/ui/exploration.js (400) · [x] src/ui/help.js (158) · [~] src/ui/hud.js (747, every known line in place, +255 −9 from the commit = the Oct 9 stat's 264; see Guessed) · [x] src/ui/mapRenderer.js (667) · [~] src/ui/mapTiles.js (522; one line changed to pass the layer, see Guessed planetary.js) · [~] src/ui/minimap.js (198 = final; 13 changed from the commit = the Oct 9 stat; see Guessed) · [~] src/ui/settingsPanel.js (925 = final; 57 changed vs the Oct 9 stat's 59; see Guessed) · [~] src/ui/touch.js (351; the Oct 7 version is exact, 10913 bytes as the Oct 9 ls says; the Oct 9 F5/P1 changes are mine, see Guessed) · [x] src/ui/waypoints.js (100) · [~] src/ui/worldmap.js (567 = final; 30 changed = the Oct 9 stat; see Guessed)
 - [x] src/world/beacons.js (193; the 5 lines from the Oct 5 sed 36,66p; every line of the Oct 5 grep in place) · [x] src/world/edgeWall.js (228) · [x] src/world/shaders.js (1118) · [x] src/world/sky.js (465) · [x] src/world/terrain.js (1996)
-- [ ] tools/selftest.mjs (11622) · [ ] tools/shots.mjs (389)
+- [x] tools/selftest.mjs (11622 = final; recovery/guess/selftest_build.py; 1748/1748 here, the final printed 1753: 5 checks no log shows, see Guessed) · [x] tools/shots.mjs (389 = final; lines 1-300 from the Oct 5 13:53 and Oct 7 21:37 `sed -n` views, which agree where they overlap; 301-389 are the commit's 270-358. Against the commit that is +33 −2, the `35 +-` every stat from Oct 5 05:36 to Oct 9 15:03 shows, so nothing past line 300 changed. The edit itself is in no log: it was made between Oct 5 05:24 (stat `10 +-`) and 05:36 by an agent whose events are missing)
 
 ## WHAT TO VERIFY (when the checklist is done)
 1. Line counts match recovery/STATUS.md (`wc -l`), and the md5s recorded in the logs where there are any (game.mjs on Oct 12 02:05).
@@ -322,6 +340,43 @@ Changed tracked files (base = 2c7ee70):
 - tools/flightcheck.mjs (396; recovery/guess/flightcheck_build.py): the Oct 9 20:09 cat (348 lines) for 1-223 and the Oct 12 03:30 `sed -n 225,420p` for 225-396. The earlier draft stopped at 387, the last `wc -l` (Oct 9 20:50); the Oct 10 03:29 change (round 4 F1: the stall-then-surge part of the hiccup leg, 9 lines) came after it, and the Oct 12 views reach line 396 (rmSync at 389 in the 03:29 grep).
   - The one line in 162-224 that no view shows: the Oct 9 V1 fix stopped trusting a teleport's height as the arrival ceiling, so `sendTo` passes `ceiling: alt` (without it the 30 km 'high' leg is put back on the Moon x3 and Mercury x4). The comment above it is WRITTEN BY ME, to the 73 bytes the file's logged size (16312) leaves.
   - Run here (Oct 16): 15 of 15, and every world's fastest honest speed equals every logged run since Oct 9 20:51 (Venus 597, Titan 604, Moon 1205, Charon 659...).
+
+- tools/selftest.mjs (11622, the final count; recovery/guess/selftest_build.py from the commit with selftest/edits.json,
+  views.json, block_fills.py, tail_fills.py; selftest/greps_check.py re-runs every grep the logs ran on the final):
+  - Exact: the commit; every logged edit of Oct 3-5 replayed (11135 lines; every view up to Oct 5 05:53 agrees but one
+    line, taken from the Oct 5 05:39 view); the Oct 9 15:04 view of 1190-1278, the Oct 11 05:11 view of 1270-1330
+    and that hour's edit; the tail views of Oct 6, 7 and 11; single lines from the final's greps (1330, 1338, 1360,
+    1388, the Oct 9 password line now at 1410).
+  - WRITTEN BY ME: every other line of the block after "your own legs" (the end of parties and friends, a host sets
+    the server from its environment, arriving on another world, a panel with the keyboard keeps it), 121 lines of the
+    tail (other worlds x4 and the last review), "your own legs" +5, the touch hotbar +6, slots A +2, B +2, C +3, X +5.
+    Every check carries the label the final printed; the tail's output (63 lines, numbers included) and the first
+    slice (193-264) are byte for byte the Oct 11 05:44 run's, and so are 726-767 with sword.glb in place.
+  - Checked against: 11622 lines; the final's anchors (1229, 1280, 1298, 1418, 2671-3069, 7868-7882, 11558-11622);
+    the final's `git diff | grep -n` (all 14 diff-line positions); every final-era grep (backlog, near/locator/compass,
+    /near, two lots, quoted swing, file writes); the complete Oct 7 and Oct 9 greps; check counts by period.
+  - Not recovered: 5 checks. The final printed 1753; this prints 1748. They are between output 768 and 2065 (base
+    4150-11104), where the line count is already the final's, so they came from same-length edits nobody logged.
+  - The shape of slots A/B (Oct 3: no new checks, the count stayed 1575) and of the touch hunk come from the logs;
+    what they say is mine.
+- Fixed in other files by what the final selftest tests (all were guesses of mine):
+  - src/player/avatar.js: SWING_STRIKE 0.65 (was 0.7) and SWING_BLADE 1.4 (was 1.35, the Oct 5 value before the
+    Oct 9 redesign). The final's printed blade numbers solve to exactly these (2.55 rad wound, -0.94 struck), and with
+    them all six swing checks print what the final printed, to the last digit. recovery/guess/avatar regions updated.
+  - src/ui/playersPanel.js: the party voice button is data-action="voice-on" (the Oct 11 selftest's regex), not
+    "party-voice". playersPanel_edits.py updated.
+  - styles/main.css: PA5's narrow world map, `.worldmap-side > :not(.worldmap-actions)` in the commit's 900 px block
+    in place of `.worldmap-side` (one more changed commit line, d = 7), two comment lines of mine shortened to keep
+    the Oct 9 stat: +1317 -7 = 1324. 3061 lines now (the count was always derived, never logged). main_build.py.
+- assets/sword.glb (Oct 16): the swordNote recipe on prithivMLmods/TRELLIS.2-Text-to-3D - the Space's text-to-image
+  with the note's prompt, its preprocess, generate_3d at 1024 with a 1024 atlas, seed 7, then tools/glb-unplate.py and
+  tools/glb-prune.py --drop-metal-rough. This generation had no plate and seven inner shells (all dropped): 141,407 ->
+  70,232 triangles, 3.5 MB, closed, every normal unit, one PNG atlas. The note's 56,624 -> 8,722 and 0.57 MB came
+  from a coarser generation; a rerun at decimation_target 60000 hit the ZeroGPU quota (both connectors) - TODO when it
+  resets. The sword checks pass either way (closed, normals, images, manifest, grip measured).
+- tools/glb-unplate.py: WRITTEN BY ME to the swordNote (weld by position on the self-test's grid, connected pieces,
+  drop a piece thinner than height/50 and wider than half the span, or inside another piece's box); its I/O is
+  glb-unfloor.py's.
 
 ## Facts found while rebuilding (Oct 15)
 - Grep output is a source in three more shapes. Context lines `NN-text` (from -A/-B/-C). Multi-file `path:NN:text`, which frags already reads. And complete greps: a grep not cut by `head` lists every line with its pattern, so the rest of the file has none. recovery/tools/grepcheck.mjs re-runs every logged grep on a rebuilt file, in a mirror of the repo, and compares the output. Run it on every rebuilt file.
