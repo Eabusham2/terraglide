@@ -1,0 +1,421 @@
+--- a/HOSTING.md
++++ b/HOSTING.md
+@@ -1256,7 +1256,11 @@
+ spot it was sent to (or up to 300 m above it) into the deepest ground. That is one fall's worth of
+ speed, more than any single spot really offers since the server cannot see
+ which spot it is — but one an arrival, however often it bounces, and it
+-fades away unless it is actually being flown. How many rockets you have left
++fades away unless it is actually being flown. Except over a pause: a page in
++a background tab stops the game and sends nothing, so a gap with nothing
++arriving behind it, from a page not otherwise sending slowly, is left out —
++and a page that only ever sends once a second keeps that speed for as long
++as it likes. How many rockets you have left
+ is counted by the page, but
+ however many you light the speed limit still holds. Players whose names
+ look alike (`Alex` and `AIex`) are different accounts — check the colour.
+--- a/server/game.mjs
++++ b/server/game.mjs
+@@ -669,13 +669,20 @@
+       airborneAt: -Infinity,
+       /** Until when a hit does not count, after a burst of speed. See onState. */
+       blinkUntil: 0,
+-      /** Travel a quiet socket held back, lent for a moment. See onState. */
++      /** Travel a quiet socket held back, lent for a moment; the last gap, and a hold's allowance. See onState. */
+       catchUp: 0,
+       catchUpUntil: 0,
++      lastGap: null,
++      heldUntil: 0,
+       /** Speed squared a fall has given, and the height it may count from. See fallReserve. */
+       reserve: 0,
+       surgeKept: 0,
+       ceiling: -Infinity,
++      /** Time not yet judged for an unused reserve, and the pauses left out. See fadeReserve. */
++      fadePool: 0,
++      fadeBunch: null,
++      fadeBack: null,
++      pausedMs: 0,
+       /** When the page was last put back, and the burst it is in. See onState. */
+       correctedAt: -Infinity,
+       burst: null,
+@@ -913,19 +920,32 @@
+       surge.on = true;
+       surge.prevEndedAt = surge.endedAt;
+       surge.rockets = 0;
+-      // Seen first on the state that ends a gap, or in the burst behind one,
++      // Seen first on the state that ends a gap, or in the backlog behind it,
+       // it began as far as anyone can tell when the gap did - and its twelve
+       // seconds are counted from there. Counted from here, a page that went
+       // quiet for ten seconds around each surge was lent the quiet at five
+       // and a half times the limit, and a surge lasted half a minute.
+-      // In the burst means in its backlog - the states arriving with it - not
+-      // a live state a second later: dating that one back took up to a stall
+-      // and two seconds off an honest surge. And never into the recharge it
+-      // waited out.
+-      const inBurst = player.burst && now - player.burst.at < BURST_SETTLE_MS;
+-      const gapFrom = inBurst ? player.burst.from : player.lastStateAt;
+-      const backdate = inBurst || now - player.lastStateAt >= BURST_GAP_S * 1000;
+-      surge.since = backdate ? Math.max(gapFrom, surge.readyAt) : now;
++      // But no earlier than the page could have started it. The backlog is
++      // the states arriving in the same moment as the one before them, as
++      // onState counts it, and the page sent every one of them without the
++      // flag: a surge first seen behind them began after the last of them
++      // was sent, and dated back to the start of a nine-second stall it
++      // ended seven seconds before the page's did. It may still have been
++      // held - a socket can let its backlog go in more than one piece, the
++      // rest a moment later or a fifth of a second after - so one seen first
++      // a moment after the backlog, or in a later piece of it, is dated back
++      // by no more than the grace a surge's end has, which never costs an
++      // honest surge its last seconds. One a second later is the page's own
++      // from there. And never into the recharge it waited out.
++      const gapMs = now - player.lastStateAt;
++      const burst = player.burst;
++      const inBurst = burst && now <= burst.until;
++      const sameMoment = gapMs < BACKLOG_GAP_S * 1000;
++      let from = now;
++      if (gapMs >= BURST_GAP_S * 1000) from = player.lastStateAt;
++      else if (inBurst && sameMoment && now - burst.at < BURST_SETTLE_MS) from = burst.from;
++      else if (inBurst && (sameMoment || now - burst.at < BURST_SETTLE_MS)) from = Math.max(burst.from, now - SURGE_GRACE_S * 1000);
++      surge.since = Math.max(from, surge.readyAt);
+       surge.states = 0;
+     }
+     if (surge.on) {
+@@ -1039,21 +1059,71 @@
+    * climbing (paid for in onState) and landing (which clears it) - so a page
+    * keeping a reserve while it dawdles never had it: one hovering below the
+    * ground after a fall it only claimed kept 560 m/s on the Moon for as long
+-   * as it liked. Measured over the last second, against half of what the
+-   * reserve would allow - though not just after a stall, whose first state is
+-   * a tenth of a second of travel that arrives seconds late and reads as
+-   * standing still (`steady`).
++   * as it liked. Measured over a second or more, against half of what the
++   * reserve would allow.
++   *
++   * Measured to the right state, though. A socket that holds states back
++   * delivers the first of them seconds late, carrying a quarter of a second of
++   * travel, with the rest in the same millisecond behind it: judged on that
++   * first one, an honest pilot sending four states a second read as standing
++   * still and lost a third of a dive's speed at every hold. So time is judged
++   * a bunch at a time - a state and the backlog behind it - once the bunch is
++   * over, to its last state, the freshest the socket let go. A page cannot
++   * keep time from being judged by when it sends: every second goes in
++   * (`fadePool`) and is judged with whatever comes next.
++   *
++   * Except a pause: a gap with nothing behind it, in a page that is not
++   * sending slowly - fewer than three gaps in two seconds. Nothing was sent in
++   * it because nothing happened - the page was asleep in a background tab,
++   * where the game stops - and the flight goes on afterwards at the speed it
++   * had. Its time is not judged, and is left out of the time a later second is
++   * measured over (`live`), so that second reads the speed actually flown. A
++   * page that is slow is judged across all its gaps: taking out every gap
++   * of a second or more let one hovering on a rhythm of long and short gaps
++   * keep some of what only the short ones were judged on.
++   * Sending once a second keeps a reserve for as long as you like, as a tab in
++   * the background does; see HOSTING.md, "What it cannot check".
++   *
++   * @param {boolean} backlog this state arrived in the same moment as the one before, behind a gap
+    */
+-  fadeReserve(player, body, s, dt, steady, now) {
++  fadeReserve(player, body, dt, backlog, now) {
+     const air = aeroFactor(body);
+     let fade = air > 0 ? Math.exp((-dt * air) / RESERVE_FADE_S) : 1;
+-    const back = steady ? before(player.history, now - 1000) : null;
+-    if (back && player.reserve + player.surgeKept > 0) {
+-      const span = Math.max(1, (now - back.t) / 1000);
+-      const across = separation({ lat: back.lat, lon: back.lon, alt: s.alt }, s, radiusOf(player.world));
+-      const going = Math.hypot(across, s.alt - back.alt) / span;
+-      const allowed = Math.sqrt(this.maxSpeed(player.world) ** 2 + RESERVE_MARGIN * (player.reserve + player.surgeKept));
+-      if (going < allowed * UNUSED_FRACTION) fade *= Math.exp(-dt / UNUSED_FADE_S);
++    const bunch = player.fadeBunch;
++    if (backlog) {
++      if (bunch) bunch.lone = false;
++      player.fadePool += dt;
++    } else {
++      // The bunch before this state is over. A pause is taken out first.
++      const end = player.history.at(-1);
++      if (bunch?.lone && bunch.pause) {
++        player.fadePool = Math.max(0, player.fadePool - bunch.dt);
++        player.pausedMs += bunch.gapMs;
++        if (end?.t === bunch.at) end.live -= bunch.gapMs;
++      }
++      // From a second before it - or, where the history no longer reaches
++      // that far back, from the end of the bunch judged before it: the
++      // history keeps a second and a half, so a page sending a state every
++      // nine tenths of a second never had one a second old to be judged by,
++      // and kept a fall's speed hovering, and a bunch after a long hold has
++      // nothing in it but itself.
++      const back = end && (before(player.history, end.t - 1000) ?? player.fadeBack);
++      if (back && back !== end) {
++        if (player.reserve + player.surgeKept > 0) {
++          const span = Math.max(0.1, (end.live - back.live) / 1000);
++          const across = separation({ lat: back.lat, lon: back.lon, alt: end.alt }, end, radiusOf(player.world));
++          const going = Math.hypot(across, end.alt - back.alt) / span;
++          const allowed = Math.sqrt(this.maxSpeed(player.world) ** 2 + RESERVE_MARGIN * (player.reserve + player.surgeKept));
++          if (going < allowed * UNUSED_FRACTION) fade *= Math.exp(-player.fadePool / UNUSED_FADE_S);
++        }
++        player.fadePool = 0;
++      }
++      if (end) player.fadeBack = end;
++      // With nothing to judge it by yet - just after arriving - it waits.
++      player.fadePool = Math.min(CATCH_UP_MAX_S, player.fadePool + dt);
++      const gapMs = now - player.lastStateAt;
++      const pause = gapMs >= BURST_GAP_S * 1000 && player.gapTimes.length < 3;
++      player.fadeBunch = { at: now, dt, gapMs, lone: true, pause };
+     }
+     player.reserve *= fade;
+     player.surgeKept = (player.surgeKept ?? 0) * fade;
+@@ -1115,25 +1185,25 @@
+       const moved = Math.hypot(ground, climb);
+       // On your feet you are held to walking pace, a little after landing:
+       // a glide is still sliding to a stop for a moment once it touches down.
++      // Counted from the first state on the ground, not the last one in the
++      // air: after a socket held states back, the one it touched down on
++      // arrives seconds behind the last one flying - its move flown at the
++      // speed of the dive - and was judged at walking pace.
+       const onFoot = (s.flags & (FLAG.ground | FLAG.swim)) && !(s.flags & FLAG.elytra);
+-      if (!onFoot) player.airborneAt = now;
++      const wasOnFoot = (last.flags & (FLAG.ground | FLAG.swim)) && !(last.flags & FLAG.elytra);
++      if (!onFoot || !wasOnFoot) player.airborneAt = now;
+       const walking = onFoot && now - player.airborneAt > LANDING_GRACE_S * 1000;
+       const factor = this.surgeFactor(player, s.flags, now);
+       // What a fall has given you to spend. See fallReserve. The fade is
+       // time's and stands; the fall is kept only if the move is: a refused
+       // one is put back, and so is what it claimed to fall.
+-      // A state is steady unless it is the first after a gap or just behind
+-      // one in the same burst - and a page whose every state comes a quarter
+-      // of a second apart or more is not bursting, it is slow.
+-      // Its backlog is the states arriving with it, a few milliseconds apart -
+-      // not a live state a tenth of a second later, which alternating long
+-      // and short gaps used to keep the check from ever seeing. And three
+-      // gaps in two seconds is a page that is slow, not one catching up.
++      // A gap's backlog is the states arriving with it, a few milliseconds
++      // apart - not a live state a tenth of a second later. And three gaps in
++      // two seconds is a page that is slow, not one pausing now and then.
+       player.gapTimes = (player.gapTimes ?? []).filter((t) => now - t < 2000);
+       if (gap >= BURST_GAP_S) player.gapTimes.push(now);
+       const backlog = player.burst && now - player.burst.at < BURST_SETTLE_MS && gap < BACKLOG_GAP_S;
+-      const steady = (gap < BURST_GAP_S && !backlog) || player.gapTimes.length >= 3;
+-      this.fadeReserve(player, body, s, Math.min(CATCH_UP_MAX_S, gap), steady, now);
++      this.fadeReserve(player, body, Math.min(CATCH_UP_MAX_S, gap), backlog, now);
+       const account = [player.reserve, player.surgeKept, player.ceiling];
+       const reserve = this.fallReserve(player, body, last, s, settled, now);
+       // A surge stretches every tick 2.4 times, a fall's speed with the rest;
+@@ -1155,7 +1225,35 @@
+       // tenth of a second of travel each. The allowance fills at the speed
+       // limit and a burst can spend what has built up; a cheat has to hold
+       // the speed, and nothing legitimate does.
+-      player.budget = Math.min(limit * 1.5, player.budget + gapLimit * dt);
++      // Capped at a second and a half saved, as a leaky bucket is. But a
++      // hold close behind another - or a page sending a state a second
++      // through one - is lent its time as it ends while part of that time's
++      // travel comes with the next bunch, and capped there the page lost
++      // what the gap before had lent it: a stall just after a hold, or a
++      // surge begun inside a two-second one, was put back. So a gap of more
++      // than a second and a half that began within two seconds of another
++      // ending - one the catch-up covers, not ten seconds' quiet - keeps
++      // what was saved on top of its own allowance, and until its backlog
++      // has had time to arrive, what that leaves over the cap waits for the
++      // bunches still to come: a gap in between adds its own time to it, and
++      // only a live state, sent once the socket let go, is held to the cap
++      // again. A single gap after a page sending ten a second keeps no more
++      // than it ever did. A state in the backlog brings nothing new, and caps
++      // nothing either: it is the gap's travel arriving.
++      const cap = limit * 1.5;
++      const over = now <= player.heldUntil && player.budget > cap;
++      if (gap >= BURST_GAP_S) {
++        const close = player.lastGap && player.lastGap.at >= prevAt - CATCH_UP_MS && player.lastGap.gap < CATCH_UP_MAX_S;
++        if (gap > CATCH_UP_AFTER_S && close) {
++          player.budget = Math.min(cap, player.budget) + gapLimit * CATCH_UP_AFTER_S;
++          player.heldUntil = now + CATCH_UP_MS;
++        } else {
++          player.budget = over ? player.budget + gapLimit * dt : Math.min(cap, player.budget + gapLimit * dt);
++        }
++        player.lastGap = { at: now, gap };
++      } else if (!backlog) {
++        player.budget = Math.min(cap, player.budget + gapLimit * dt);
++      }
+       // A socket that went quiet for seconds and then delivers everything it
+       // held at once: the first of them comes after the whole gap and the rest
+       // in the same millisecond, carrying the gap's travel between them. The
+@@ -1296,6 +1394,8 @@
+     // Wherever it was in a hurry to before, it is somewhere new now and was sent.
+     player.blinkUntil = 0;
+     player.catchUp = 0;
++    player.lastGap = null;
++    player.heldUntil = 0;
+     player.burst = null;
+     // Nothing fallen yet, and the highest it may fall from is where it was
+     // sent - no higher than was earned there - or, sent to the ground with no
+@@ -1315,6 +1415,9 @@
+     player.graceRise = 0;
+     player.reserve = 0;
+     player.surgeKept = 0;
++    player.fadePool = 0;
++    player.fadeBunch = null;
++    player.fadeBack = null;
+     this.accept(player, s, now, { leg: true });
+   }
+ 
+@@ -1331,7 +1434,8 @@
+     // arrived, or the jump would read as a few thousand metres a second — to
+     // the sword's reach allowance, and to the hit rewind.
+     if (leg) player.history.length = 0;
+-    player.history.push({ t: now, lat: s.lat, lon: s.lon, alt: s.alt });
++    // `live` is the time with the pauses taken out (fadeReserve).
++    player.history.push({ t: now, live: now - player.pausedMs, lat: s.lat, lon: s.lon, alt: s.alt });
+     while (player.history.length && now - player.history[0].t > HISTORY_S * 1000) player.history.shift();
+ 
+     const live = player.record.on(player.world);
+--- a/tools/servertest.mjs
++++ b/tools/servertest.mjs
+@@ -1010,6 +1010,8 @@
+     ip.arrivedAt = Date.now();
+     ok('and just after arriving the ground standing you up is not judged', await move(ivo, ip, { up: 1500, flags: FLAG.elytra }));
+     ip.arrivedAt = long;
++    // Standing first: a landing is timed from the first state on the ground.
++    await move(ivo, ip, {});
+     ip.airborneAt = long;
+     const violations = ip.violations;
+     ok('on foot, the ground loading in finer under you stands, but is counted',
+@@ -1233,15 +1235,20 @@
+ 
+     // Out of a surge with no air, the speed stays; Earth's air takes it away.
+     const { BODIES } = await import('../src/geo/bodies.js');
+-    const pilot = (world) => ({ surge: { on: false, since: 0, endedAt: -Infinity, readyAt: 0 }, reserve: 0, surgeKept: 0, ceiling: 0, history: [], world });
++    const pilot = (world) => ({
++      surge: { on: false, since: 0, endedAt: -Infinity, readyAt: 0 }, reserve: 0, surgeKept: 0, ceiling: 0,
++      history: [], gapTimes: [], fadePool: 0, fadeBunch: null, pausedMs: 0, world,
++    });
+     const kept = {};
+     for (const world of ['moon', 'earth']) {
+       const fake = pilot(world);
+       fake.lastStateAt = 1e9 - 100;
+       g.surgeFactor(fake, FLAG.surge | FLAG.rocket, 1e9);
+       g.surgeFactor(fake, 0, 1e9 + 12000);
+-      const flat = { alt: 0 };
+-      for (let i = 0; i < 600; i++) g.fadeReserve(fake, BODIES[world], flat, 0.1, true, 1e9 + 12000 + i * 100);
++      for (let i = 0; i < 600; i++) {
++        fake.lastStateAt = 1e9 + 12000 + i * 100 - 100;
++        g.fadeReserve(fake, BODIES[world], 0.1, false, 1e9 + 12000 + i * 100);
++      }
+       kept[world] = Math.sqrt(g.maxSpeed(world) ** 2 + 1.25 * fake.surgeKept);
+     }
+     ok(`a minute after a surge on the Moon you may still go as fast as one left you  (${kept.moon.toFixed(0)} m/s)`,
+@@ -1285,6 +1292,118 @@
+     g.surgeFactor(quiet, FLAG.surge | FLAG.rocket, 1e9);
+     ok('a surge first seen after ten quiet seconds is counted from the start of them',
+       quiet.surge.since === 1e9 - 10000 && g.factorAt(quiet.surge, 1e9 + 5000) < SURGE_ALLOWANCE);
++    // Seen first in a bunch the socket let go a moment after the backlog, it
++    // may have begun while held - but is dated back no further than the
++    // grace a surge's end has.
++    const bunched = pilot('moon');
++    bunched.burst = { at: 1e9 - 200, from: 1e9 - 5200, until: 1e9 + 1800 };
++    bunched.lastStateAt = 1e9 - 5;
++    g.surgeFactor(bunched, FLAG.surge | FLAG.rocket, 1e9);
++    ok('a surge first seen in a second bunch of a backlog is dated back two seconds at most', bunched.surge.since === 1e9 - 2000);
++
++    // Flown on a clock of the test's own that stands still in between: a
++    // player sent to the Moon, ten kilometres up, and states handed to the
++    // server one at a time, each when a socket would let it go. Metres north.
++    const { radiusOf } = await import('../server/records.mjs');
++    const onClock = async (name, plan) => {
++      server.accounts.signups.hits.clear();
++      const bot = await new Bot(name).open();
++      await bot.signup();
++      const p = g.byKey.get(name.toLowerCase());
++      const realNow = g.now;
++      let clock = Date.now();
++      g.now = () => clock;
++      let result;
++      try {
++        g.moveWorld(p, 'moon');
++        p.pending.arrived = true;
++        let at = { lat: p.pending.lat, lon: p.pending.lon, alt: 10000 };
++        let seq = 0;
++        const send = (ms, metres, { flags = FLAG.elytra, alt = at.alt } = {}) => {
++          clock += ms;
++          at = { lat: at.lat + (metres / radiusOf('moon')) * (180 / Math.PI), lon: at.lon, alt };
++          g.onState(p, encodeState({ seq: ++seq, ...at, agl: 100, vel: [0, 0, 0], yaw: 0, pitch: 0, roll: 0, flags, item: 0 }));
++        };
++        send(0, 0);
++        result = plan(send, p);
++      } finally {
++        g.now = realNow;
++      }
++      await sleep(150);
++      const putBack = bot.inbox.filter((m) => m.t === 'correct').length;
++      await bot.close();
++      return { ...result, putBack };
++    };
++    // A slow page whose socket holds: four states a second, flying on the
++    // speed a dive gave it, and every four seconds the socket holds a second
++    // and a half of them and lets them go at once. The first of a held bunch
++    // is a quarter second of travel arriving a second and a half late: judged
++    // on it, the page read as standing still and lost a third of its speed at
++    // every hold, and was put back within half a minute.
++    const holds = (metres) => (send, p) => {
++      for (let i = 1; i <= 20; i++) send(250, 0, { alt: 10000 - i * 400 });
++      const fell = p.reserve;
++      for (let cycle = 0; cycle < 10; cycle++) {
++        for (let i = 0; i < 10; i++) send(250, metres);
++        send(1500, metres);
++        for (let i = 1; i < 6; i++) send(0, metres);
++      }
++      return { fell, kept: p.reserve };
++    };
++    const slowPage = await onClock('Uma', holds(57));
++    ok(`a page sending four states a second keeps a dive's speed through its socket's holds  (${Math.round(slowPage.kept)} of ${Math.round(slowPage.fell)} kept)`,
++      slowPage.putBack === 0 && slowPage.kept > slowPage.fell * 0.95, `${slowPage.putBack} put back`);
++    const slowHover = await onClock('Vic', holds(0));
++    ok(`and one hovering at the same rhythm, holds and all, still loses it  (${Math.round(slowHover.kept)} of ${Math.round(slowHover.fell)} kept)`,
++      slowHover.kept < slowHover.fell * 0.01);
++    // A surge the page starts as a nine-second stall ends: the socket lets
++    // the stall's ninety states go at once, none of them surging, and the
++    // surge is on the live state behind them. Dated back to the start of the
++    // stall, it ended five seconds in.
++    const stallSurge = await onClock('Wes', (send, p) => {
++      for (let i = 0; i < 50; i++) send(100, 10);
++      send(9000, 10);
++      for (let i = 1; i < 90; i++) send(0, 10);
++      for (let i = 0; i < 115; i++) send(100, 60, { flags: FLAG.elytra | FLAG.surge | FLAG.rocket });
++      return { on: p.surge.on };
++    });
++    ok('a surge started as a nine-second stall ends runs its twelve seconds', stallSurge.on && stallSurge.putBack === 0,
++      `${stallSurge.putBack} put back`);
++    // A landing whose touchdown the socket held: the slide arrives two and a
++    // half seconds after the last state in the air, and was judged at
++    // walking pace from that one.
++    const heldLanding = await onClock('Xan', (send) => {
++      for (let i = 1; i <= 20; i++) send(250, 20, { alt: 10000 - i * 500 });
++      send(2500, 20, { flags: FLAG.ground, alt: 0 });
++      for (let i = 1; i < 10; i++) send(0, 20 - i * 2, { flags: FLAG.ground, alt: 0 });
++      for (let i = 0; i < 12; i++) send(250, 1, { flags: FLAG.ground, alt: 0 });
++      return {};
++    });
++    ok('a touchdown the socket held back is judged from the touchdown, not from the last state in the air',
++      heldLanding.putBack === 0, `${heldLanding.putBack} put back`);
++    // A stall just after a hold: the hold's bunch is a third of a second of
++    // travel lent a second and seven tenths, and the stall's, a moment later,
++    // three seconds of it lent a second and six. Capped between them, the
++    // page lost what the first had lent it and was put back.
++    const twoHolds = await onClock('Yul', (send) => {
++      for (let i = 0; i < 50; i++) send(100, 11);
++      send(1700, 11);
++      for (let i = 1; i < 3; i++) send(0, 11);
++      send(1600, 11);
++      for (let i = 1; i < 30; i++) send(0, 11);
++      for (let i = 0; i < 20; i++) send(100, 11);
++      return {};
++    });
++    ok('a stall close behind a hold keeps what the hold lent', twoHolds.putBack === 0, `${twoHolds.putBack} put back`);
++    // But one quiet spell, after a page sending ten a second, still lends no
++    // more than its own time: ten seconds at the limit, and nothing saved
++    // before it on top.
++    const oneQuiet = await onClock('Zia', (send) => {
++      for (let i = 0; i < 50; i++) send(100, 0);
++      send(10000, 10 * g.maxSpeed('moon') + 200);
++      return {};
++    });
++    ok('a single quiet spell lends its own time and no saving on top', oneQuiet.putBack === 1, `${oneQuiet.putBack} put back`);
+ 
+     // Who you were fighting survives a second tab of your own.
+     const mia = await new Bot('Mia').open();

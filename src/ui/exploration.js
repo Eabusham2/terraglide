@@ -1,8 +1,9 @@
 import { cheats } from '../core/cheats.js';
 import { Emitter } from '../core/events.js';
 import { readJSON, writeJSON } from '../core/storage.js';
+import { isLandTile, landShareOfPlanet } from '../geo/land.js';
 import { settings } from '../core/settings.js';
-import { EARTH_CIRCUMFERENCE, latToNormY, lonToNormX, tileKey } from '../geo/mercator.js';
+import { WORLD_CIRCUMFERENCE, latToNormY, lonToNormX, tileKey } from '../geo/mercator.js';
 
 /**
  * Which parts of the world you have actually been to.
@@ -18,15 +19,16 @@ import { EARTH_CIRCUMFERENCE, latToNormY, lonToNormX, tileKey } from '../geo/mer
  * The zooms visited ground is recorded at.
  *
  * Sixteen is here so the edge of the fog is the shape you actually flew rather
- * than a staircase of two-kilometre squares. It cannot record a wide circle —
- * `reach` is capped at four tiles either way, which at level 16 is about two
- * and a half kilometres — and that cap is the point rather than a limitation:
- * you only ever saw the ground in that much detail when you were near it. High
- * over a coastline you uncover a broad, coarse circle; walking a valley you
- * uncover a narrow, sharp one, and the map shows the difference.
+ * than a staircase of two-kilometre squares. Every level records the same
+ * disc — what you saw, never more than MAX_REVEAL_M — so the patch is the same
+ * size whichever zoom the map is at. High over a coastline you uncover a broad
+ * circle; walking a valley you uncover a narrow one, and the map shows the
+ * difference.
  */
 const LEVELS = [8, 10, 12, 14, 16];
 const DETAIL_LEVEL = 14;
+/** What a visit that uncovered nothing reports. Shared, so it is never mutated. */
+const NONE = Object.freeze([]);
 const STORAGE_KEY = 'explored';
 /**
  * How many squares the record holds before the oldest fine detail is let go.
@@ -47,25 +49,145 @@ const STORAGE_KEY = 'explored';
  */
 const MAX_ENTRIES = 2000000;
 
+/**
+ * The widest circle one visit can uncover, in metres: two kilometres.
+ *
+ * It was the horizon itself, up to sixty kilometres, which is honest about
+ * what you can see from a cloud base and makes the map a poor record of where
+ * you have *been*. From two thousand metres up the whole of a county is
+ * "explored" by one pass, and on a server, where the map shows everybody's
+ * discoveries side by side, one high flight painted a region nobody had set
+ * foot in. Two kilometres either side of your track is still a broad swath
+ * from the air — wider than the minimap at its default zoom — and it means a
+ * place on the map was somewhere you were actually near.
+ */
+export const MAX_REVEAL_M = 2000;
+
+/**
+ * The level coverage is measured at: the finest one recorded, so the figure is
+ * the ground actually uncovered and not the coarse squares around it (the
+ * square you stand in always counts, so the coarse levels claim more).
+ */
+const COVERAGE_LEVEL = LEVELS[LEVELS.length - 1];
+/** What one square of each row at COVERAGE_LEVEL is of the whole planet. See rowShare. */
+let rowShares = null;
+
+/**
+ * How much of the planet one square in row `y` covers, as a fraction of the
+ * whole surface.
+ *
+ * Squares are all one size on a mercator map and nothing like one size on the
+ * ground: one on the equator covers about forty times the ground of one at 81
+ * degrees north, so counting squares would make a flight over Svalbard worth a
+ * flight over the Congo forty times over. Each square counts for its ground on
+ * the sphere instead. A band from latitude a down to b, 1/n of the way round, is
+ * (sin a - sin b) / 2n of the surface, and on a mercator map the sine of a row's
+ * latitude is tanh(pi (1 - 2y/n)). The shares are of the whole planet, poles and
+ * all: the map stops at 85.05 degrees either way, so everything on it is 99.63%
+ * and the caps past it are the rest, which nobody can reach.
+ */
+function rowShare(y) {
+  if (!rowShares) {
+    const n = 2 ** COVERAGE_LEVEL;
+    const whole = 2 * n;
+    rowShares = new Float64Array(n);
+    for (let row = 0; row < n; row++) {
+      rowShares[row] = (Math.tanh(Math.PI * (1 - (2 * row) / n)) - Math.tanh(Math.PI * (1 - (2 * (row + 1)) / n))) / whole;
+    }
+  }
+  return rowShares[y] ?? 0;
+}
+
+/** The column and row of a "level/x/y" key. */
+function cellOf(key) {
+  const second = key.lastIndexOf('/');
+  return [Number(key.slice(key.indexOf('/') + 1, second)), Number(key.slice(second + 1))];
+}
+
 export class Exploration extends Emitter {
-  constructor() {
+  /**
+   * @param {object} [options]
+   * @param {number} [options.circumference] the world's, in metres. The server
+   *   keeps one of these for every player on every world, so it cannot read
+   *   the page's own world the way the game does.
+   * @param {boolean} [options.stored] read and write the browser save. Off for
+   *   the server, and for records made in tests.
+   */
+  constructor({ circumference = WORLD_CIRCUMFERENCE, stored = true } = {}) {
     super();
-    this.cells = new Set(decodeCells(readJSON(STORAGE_KEY, [])));
+    this.circumference = circumference;
+    this.stored = stored;
+    this.cells = new Set(stored ? decodeCells(readJSON(STORAGE_KEY, [])) : []);
     this.dirty = false;
     this.saveTimer = 0;
     this.lastVisit = null;
     this.detailCount = this.countAt(DETAIL_LEVEL);
     /** Coverage folded up to zooms coarser than we record. See `coarse()`. */
     this.coarseCache = new Map();
+    /** What coverage() and landCoverage() add up, once each has been asked; null until then. */
+    this.covered = null;
+    this.landCovered = null;
   }
 
   get count() {
     return this.detailCount;
   }
 
+  /**
+   * How much of this world's map is explored, from 0 to 1, by the ground the
+   * squares cover (see rowShare). Added up in full the first time it is asked
+   * and kept up to date square by square after that, so the world map can show
+   * it changing as you fly. The server keeps a record for every player and
+   * never asks, so it never pays for it.
+   */
+  coverage() {
+    if (this.covered === null) {
+      let sum = 0;
+      const prefix = `${COVERAGE_LEVEL}/`;
+      for (const key of this.cells) if (key.startsWith(prefix)) sum += rowShare(cellOf(key)[1]);
+      this.covered = sum;
+    }
+    return Math.min(1, this.covered);
+  }
+
+  /**
+   * How much of Earth's land is explored, from 0 to 1: the squares whose
+   * middle is on land (geo/land.js), by their ground, out of all the land
+   * there is. Earth's only; on another world it means nothing, and nothing
+   * asks. Kept up the same way as coverage().
+   */
+  landCoverage() {
+    if (this.landCovered === null) {
+      let sum = 0;
+      const prefix = `${COVERAGE_LEVEL}/`;
+      for (const key of this.cells) {
+        if (!key.startsWith(prefix)) continue;
+        const [x, y] = cellOf(key);
+        if (isLandTile(COVERAGE_LEVEL, x, y)) sum += rowShare(y);
+      }
+      this.landCovered = sum;
+    }
+    const land = landShareOfPlanet();
+    return land > 0 ? Math.min(1, this.landCovered / land) : 0;
+  }
+
+  /** A square of COVERAGE_LEVEL newly recorded, onto whichever sums are being kept. */
+  countSquare(x, y) {
+    if (this.covered !== null) this.covered += rowShare(y);
+    if (this.landCovered !== null && isLandTile(COVERAGE_LEVEL, x, y)) this.landCovered += rowShare(y);
+  }
+
+  /** After `cells` was changed directly, rather than through visit or merge. */
+  recount() {
+    this.detailCount = this.countAt(DETAIL_LEVEL);
+    this.coarseCache.clear();
+    this.covered = null;
+    this.landCovered = null;
+  }
+
   /** Approximate ground area explored, in square kilometres. */
   areaKm2(lat = 0) {
-    const tileMetres = (EARTH_CIRCUMFERENCE * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, DETAIL_LEVEL);
+    const tileMetres = (this.circumference * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, DETAIL_LEVEL);
     return (this.detailCount * tileMetres * tileMetres) / 1e6;
   }
 
@@ -87,8 +209,8 @@ export class Exploration extends Emitter {
    */
   visit(lat, lon, altitudeAboveGround, seenRadius) {
     const radius = Number.isFinite(seenRadius) && seenRadius > 0
-      ? Math.min(60000, Math.max(220, seenRadius))
-      : Math.min(6000, Math.max(220, altitudeAboveGround * 0.45 + 220));
+      ? Math.min(MAX_REVEAL_M, Math.max(220, seenRadius))
+      : Math.min(MAX_REVEAL_M, Math.max(220, altitudeAboveGround * 0.45 + 220));
     const nx = lonToNormX(lon);
     const ny = latToNormY(lat);
     // Tile space is mercator, which stretches away from the equator, so the
@@ -98,33 +220,30 @@ export class Exploration extends Emitter {
 
     // Only re-run the flood when we have actually moved somewhere new.
     if (this.lastVisit) {
-      const dx = (nx - this.lastVisit.nx) * EARTH_CIRCUMFERENCE;
-      const dy = (ny - this.lastVisit.ny) * EARTH_CIRCUMFERENCE;
+      const dx = (nx - this.lastVisit.nx) * this.circumference;
+      const dy = (ny - this.lastVisit.ny) * this.circumference;
       if (Math.hypot(dx, dy) < radius * 0.35 && Math.abs(radius - this.lastVisit.radius) < radius * 0.4) {
-        return;
+        return NONE;
       }
     }
     this.lastVisit = { nx, ny, radius };
 
     let added = 0;
+    // What this visit newly uncovered, for anyone keeping a copy of the record
+    // elsewhere — the server sends exactly these to the people watching you.
+    const fresh = [];
     for (const level of LEVELS) {
       const n = Math.pow(2, level);
-      const tileMetres = EARTH_CIRCUMFERENCE / n;
-      const reach = Math.min(4, Math.ceil(mercatorRadius / tileMetres));
-      // What you uncover is a circle, and it has to stay one when the reach cap
-      // bites.
-      //
-      // The cap is deliberate — fine detail only near you — but the circle test
-      // below was measured against the full seen radius, and once that radius
-      // is bigger than four tiles every cell in the nine-by-nine block passes
-      // it. The test stopped doing anything and what got recorded was a square.
-      // At level 16 that is any time you can see more than about two and a half
-      // kilometres, which is any time you are off the ground: the patch on the
-      // map was a square with soft corners, from a horizon that is a circle.
-      //
-      // So the radius is capped to what the reach can actually cover, and the
-      // test is made against that. Each level records a disc; the coarse levels
-      // record bigger ones, and their union is the stepped circle you flew.
+      const tileMetres = this.circumference / n;
+      // As many tiles as the disc needs. It was four at most, which at level
+      // sixteen is two and a half kilometres of mercator — 1.7 km of ground at
+      // the Alps, 0.8 km at 70 degrees north, and on the Moon, whose tiles are
+      // smaller, 670 m. So the patch on the map shrank as you zoomed in to it,
+      // and was nowhere near the two kilometres it was meant to be.
+      const reach = Math.ceil(mercatorRadius / tileMetres);
+      // What you uncover is a circle: every cell in the block is tested
+      // against the radius, so the record is a disc at each level, not the
+      // square block around you. Their union is the stepped circle you flew.
       const levelRadius = Math.min(mercatorRadius, reach * tileMetres);
       // Exact tile position, not the rounded one: the circle is measured from
       // where you actually are to the middle of each tile, in metres. Comparing
@@ -146,11 +265,14 @@ export class Exploration extends Emitter {
           const here = dx === 0 && dy === 0;
           const distance = Math.hypot(cx + dx + 0.5 - px, ty + 0.5 - py) * tileMetres;
           if (!here && distance > Math.max(levelRadius, tileMetres * 0.5)) continue;
-          const key = tileKey(level, ((cx + dx) % n + n) % n, ty);
+          const tx = ((cx + dx) % n + n) % n;
+          const key = tileKey(level, tx, ty);
           if (this.cells.has(key)) continue;
           this.cells.add(key);
+          fresh.push(key);
           added++;
           if (level === DETAIL_LEVEL) this.detailCount++;
+          if (level === COVERAGE_LEVEL) this.countSquare(tx, ty);
         }
       }
     }
@@ -160,6 +282,31 @@ export class Exploration extends Emitter {
       this.coarseCache.clear();
       this.emit('change', this.detailCount);
     }
+    return fresh;
+  }
+
+  /**
+   * Take in squares somebody else recorded — the server's copy of your own
+   * record when you sign in, or the squares it reports as you fly.
+   */
+  merge(keys) {
+    let added = 0;
+    for (const key of keys) {
+      if (typeof key !== 'string' || this.cells.has(key)) continue;
+      this.cells.add(key);
+      added++;
+      if (key.startsWith(`${DETAIL_LEVEL}/`)) this.detailCount++;
+      if ((this.covered !== null || this.landCovered !== null) && key.startsWith(`${COVERAGE_LEVEL}/`)) {
+        const [x, y] = cellOf(key);
+        this.countSquare(x, y);
+      }
+    }
+    if (added > 0) {
+      this.dirty = true;
+      this.coarseCache.clear();
+      this.emit('change', this.detailCount);
+    }
+    return added;
   }
 
   /** Is this tile explored? Falls back to the nearest recorded level. */
@@ -252,7 +399,7 @@ export class Exploration extends Emitter {
   }
 
   save() {
-    if (!this.dirty) return;
+    if (!this.dirty || !this.stored) return;
     let list = [...this.cells];
     if (list.length > MAX_ENTRIES) {
       // Over the ceiling, the oldest fine detail is let go — deterministically,
@@ -277,6 +424,8 @@ export class Exploration extends Emitter {
     this.cells.clear();
     this.coarseCache.clear();
     this.detailCount = 0;
+    this.covered = 0;
+    this.landCovered = 0;
     this.lastVisit = null;
     this.dirty = true;
     this.save();
@@ -353,4 +502,15 @@ export function decodeCells(raw) {
 }
 
 export const exploration = new Exploration();
-export { DETAIL_LEVEL, LEVELS };
+export { COVERAGE_LEVEL, DETAIL_LEVEL, LEVELS };
+
+/**
+ * A coverage fraction as the world map shows it: a percentage to seven
+ * decimal places, the last of which is about one square of COVERAGE_LEVEL on
+ * the equator - so it moves while you fly rather than sitting on 0.00% for the
+ * first thousand hours.
+ */
+export function formatCoverage(fraction) {
+  const percent = Math.max(0, Math.min(100, (Number(fraction) || 0) * 100));
+  return `${percent.toFixed(7)}%`;
+}

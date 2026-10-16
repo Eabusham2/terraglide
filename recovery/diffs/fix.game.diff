@@ -1,0 +1,79 @@
+--- a/server/game.mjs
++++ b/server/game.mjs
+@@ -117,6 +117,15 @@
+  */
+ const UNUSED_FRACTION = 0.5;
+ const UNUSED_FADE_S = 4;
++/**
++ * How much of the time it was away a page flies in its first frame back from
++ * a background tab - all of a shorter gap - and so how much of a pause was
++ * flown and is judged like any other time (MAX_FRAME_S in src/core/perf.js).
++ * See fadeReserve.
++ */
++const PAGE_CATCH_UP_S = 1.5;
++/** A pause this long after the last one is a page woken once, not one pausing on a rhythm. */
++const PAUSE_APART_S = 5;
+ /** A gap before a state this long, seconds, starts a burst. See onState. */
+ const BURST_GAP_S = 0.25;
+ /** How long a burst's states keep arriving, ms, and how close together they come, s. */
+@@ -683,6 +692,7 @@
+       fadeBunch: null,
+       fadeBack: null,
+       pausedMs: 0,
++      lastPauseAt: -Infinity,
+       /** When the page was last put back, and the burst it is in. See onState. */
+       correctedAt: -Infinity,
+       burst: null,
+@@ -1077,7 +1087,16 @@
+    * it because nothing happened - the page was asleep in a background tab,
+    * where the game stops - and the flight goes on afterwards at the speed it
+    * had. Its time is not judged, and is left out of the time a later second is
+-   * measured over (`live`), so that second reads the speed actually flown. A
++   * measured over (`live`), so that second reads the speed actually flown.
++   * But only what the page slept through: waking, the game flies up to a
++   * second and a half of the time it was away in its first frame, and all of
++   * a shorter gap (PAGE_CATCH_UP_S). Left out whole, a pause every second
++   * between a few states sent at ten a second was time nobody judged, and
++   * what was flown in it read as flown in the tenths around it: a page
++   * crawling at a sixth of what keeps a dive's speed kept all of it. So a
++   * pause is left out whole when it is the first in five seconds - a page
++   * woken once - or the page is sending once a second anyway; any other
++   * only for what was longer than the game flies on waking. A
+    * page that is slow is judged across all its gaps: taking out every gap
+    * of a second or more let one hovering on a rhythm of long and short gaps
+    * keep some of what only the short ones were judged on.
+@@ -1094,12 +1113,19 @@
+       if (bunch) bunch.lone = false;
+       player.fadePool += dt;
+     } else {
+-      // The bunch before this state is over. A pause is taken out first.
++      // The bunch before this state is over. A pause is taken out first:
++      // all of it from a page sending once a second, or one waking up after
++      // five seconds without a pause; from any other, only what was longer
++      // than the game flies on waking.
+       const end = player.history.at(-1);
+       if (bunch?.lone && bunch.pause) {
+-        player.fadePool = Math.max(0, player.fadePool - bunch.dt);
+-        player.pausedMs += bunch.gapMs;
+-        if (end?.t === bunch.at) end.live -= bunch.gapMs;
++        const whole = bunch.slow || bunch.at - (player.lastPauseAt ?? -Infinity) >= PAUSE_APART_S * 1000;
++        const flown = whole ? 0 : PAGE_CATCH_UP_S;
++        const slept = Math.max(0, bunch.gapMs - flown * 1000);
++        player.fadePool = Math.max(0, player.fadePool - Math.max(0, bunch.dt - flown));
++        player.pausedMs += slept;
++        if (end?.t === bunch.at) end.live -= slept;
++        player.lastPauseAt = bunch.at;
+       }
+       // From a second before it - or, where the history no longer reaches
+       // that far back, from the end of the bunch judged before it: the
+@@ -1123,7 +1149,9 @@
+       player.fadePool = Math.min(CATCH_UP_MAX_S, player.fadePool + dt);
+       const gapMs = now - player.lastStateAt;
+       const pause = gapMs >= BURST_GAP_S * 1000 && player.gapTimes.length < 3;
+-      player.fadeBunch = { at: now, dt, gapMs, lone: true, pause };
++      // Sending once a second: the state before came after a pause too.
++      const slow = pause && !!(bunch?.lone && bunch.pause);
++      player.fadeBunch = { at: now, dt, gapMs, lone: true, pause, slow };
+     }
+     player.reserve *= fade;
+     player.surgeKept = (player.surgeKept ?? 0) * fade;
