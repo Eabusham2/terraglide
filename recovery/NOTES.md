@@ -291,6 +291,7 @@ Results, Oct 16 afternoon (after the last rebuilds):
   - 1479–1482: a 4-line comment on the hand sword;
   - 1841–1854: the commit's 12-line model doc (kept), then the loadSwordModel doc start;
   - 5096–5105: a 4-line comment and the swing's effect on the right arm (lift and cut).
+  - Oct 16: measureSwordGrip (983–1023, all mine but 991 and 997) now takes the hilt as the short side of the guard and turns a sword that stands on its point over (half a turn about X) before measuring. The regenerated sword.glb stands point down (tip at slice 0, guard at 29–30 of 40), so the old version put the grip mid-blade and the blade hung down out of the fist. Same line count; 991, 997 and 1025–1029 still land.
   - Checked: freevars clean; all 19 lines of the Oct 11 05:46 grep in place; the hand sword shows and swingTime runs to 1.
 
 - src/game.js (2957 lines; final count): built by recovery/guess/game_v4fill.py (the Oct 6 21:57 version, V4, completed) and recovery/guess/game_build.py over the pooled draft (recovery/guess/game/game.a2.js.txt). Only 298 lines of the final were seen after Oct 10 03:48; the rest are carried from older views, so a same-count edit there would not show.
