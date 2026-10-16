@@ -12,7 +12,7 @@
 | server/cells.mjs | 146 (10-12T03:24) | 0 | 146 | - | 0 | upload3/more/2.txt upload2/cells.txt |
 | server/commands.mjs | 244 (10-12T03:24) | 0 | 183 | Read 228 (10-06T21:57) | 17 | upload/2.txt |
 | server/config.example.json | 27 (10-07T16:52) | 0 | - | Write 26 (10-03T21:47) | 0 |  |
-| server/config.mjs | 146 (10-12T03:24) | 0 | 100 | - | 4 | upload/3.txt upload3/more/17.txt |
+| server/config.mjs | 146 (10-12T03:24) | 0 | 146 | - | 4 | upload/3.txt upload3/more/17.txt |
 | server/game.mjs | 2685 (10-12T03:24) | 0 | 1127 | - | 237 | upload/4.txt upload3/more/14.txt |
 | server/records.mjs | 148 (10-12T03:24) | 0 | 144 | Read 145 (10-06T16:26) | 1 | upload/5.txt upload3/more/18.txt |
 | server/server.mjs | 321 (10-12T03:24) | 0 | 271 | - | 21 | upload/6.txt |
@@ -81,4 +81,4 @@
 | tools/selftest.mjs | 11622 (10-11T05:43) | 10711 | 11622 | - | 86 |  |
 | tools/servertest.mjs | 1719 (10-12T03:24) | 0 | 363 | - | 56 | upload/33.txt upload3/more/13.txt |
 | tools/shots.mjs | 389 (10-09T15:02) | 358 | 389 | - | 3 |  |
-| tools/stars.mjs | 96 (10-09T15:02) | 0 | 95 | - | 0 | upload/34.txt |
+| tools/stars.mjs | 96 (10-09T15:02) | 0 | 96 | - | 0 | upload/34.txt |
