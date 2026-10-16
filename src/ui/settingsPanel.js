@@ -388,7 +388,7 @@ const SECTIONS = [
       { key: 'minimapSize', label: 'Size', type: 'range', min: 140, max: 420, step: 10, unit: ' px' },
       { key: 'minimapZoom', label: 'Zoom', type: 'range', min: 3, max: 19, step: 1, format: (v) => `z${v}` },
       { key: 'minimapRotates', label: 'Rotate with heading', type: 'toggle' },
-      { key: 'minimapFog', label: 'Hide ground you have not explored', type: 'toggle', help: 'The map fills in as you travel. Turn off to see the whole world at once.' },
+      { key: 'minimapFog', label: 'Hide ground you have not explored', type: 'toggle', help: 'The map fills in as you travel. Turn off to see the whole world at once — playing locally; on a server the map is always yours to uncover.' },
       { key: 'showTrail', label: 'Show your trail', type: 'toggle' },
       { key: 'minimapShowWaypoints', label: 'Show waypoints', type: 'toggle' },
       { key: 'hudVisible', label: 'Show HUD', type: 'toggle' },

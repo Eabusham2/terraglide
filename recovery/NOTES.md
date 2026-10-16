@@ -13,6 +13,51 @@
 - NEXT: the client UI (hud 412 missing, onlinePanel 226, playersPanel 146, teleportMenu 145, travelPanel short 65, minimap, worldmap, settingsPanel), then game.js (562 missing after aligning V4), player.js, avatar.js, main.css, README, then the tests, then sword.glb and the verify pass.
   - game.js done (see Guessed). Next: styles/main.css, README.md, then the tests, then sword.glb and the verify pass.
 
+### Verification pass (Oct 16): is every recovered file the LATEST version? (user asked)
+Sources checked, all of them: the 149 workflow agents' events and the main chat (calls.jsonl = subagents.jsonl +
+main.jsonl, byte-identical to the archived .gz copies), this session's local transcript (same 176 pre-wipe tool calls as
+main.jsonl, nothing extra), the agents' own text and thinking (texts.jsonl, 474 blocks), every zip the user sent (all 6 in
+~/.claude/uploads are unpacked: upload, upload2, upload3/more, reup), background-task outputs (only where an agent printed
+or read them; they are in calls.jsonl), the ledgers and the notes. list_sessions: no other session ever worked on terraglide.
+Tools (scratchpad/recover, copied to recovery/tools): latestcheck.mjs (every line any source ever showed, uploads included,
+against the file now; a line gone needs a later edit, command or view that took it out), latestview.mjs, dumpsights.mjs +
+newest.py (diff-aligns every numbered sighting; per line, the NEWEST sighting decides; OLD = the text now was seen before a
+newer sighting showed other text), rawalign.py (raw outputs, no parsing), greplines.py and finalcount.py (once a file's line
+count is final, every later numbered sighting is in the final numbering and must match exactly), findtext.py.
+Found and fixed (all now agree with every later sighting; stats/counts re-checked):
+- src/net/session.js:685 partyCommand chatted `/party ...` (last seen Oct 9 02:15); since Oct 9 15:03 it sends
+  `{ t: 'social', cmd: 'party', ... }` (PA10). Same count.
+- src/ui/settingsPanel.js:391 minimapFog help lacked "— playing locally; on a server the map is always yours to uncover."
+  (Oct 9 15:15 grep, 20:10 git diff). Now 52+7 = 59 = the Oct 9 stat exactly (was 57).
+- src/ui/worldmap.js:55 search placeholder was the commit's text (a carried-over line); Oct 5–6 views all show
+  `${ON_EARTH ? 'Search a place' : `Search ${BODY.name}'s named features`}`. My guessed `&& !ONLINE` on the map's
+  'teleport' action reverted to the Oct 9 02:14 view (game.js's onTeleport already refuses online). Still 30 = the stat.
+- src/game.js:1556/1560 `surveyed && !photoreal` (Oct 5 13:56 – Oct 6 16:45 views); the commit's text had been carried
+  over. Now +864 −72 = 936, the final stat exactly (was 2 short).
+- server/social.mjs: imports TPA_COOLDOWN_S and MAX_WAYPOINTS (Oct 9 16:17/20:09/20:50 views of lines 1-400); the two
+  party notices are `{ text, kind: 'party' }` objects (Oct 10 03:04 grep), the duplicate check compares `.text`; PA1's
+  invite cooldown rewritten to the red team's own fix (Oct 7 21:53: "a per-target cooldown ... like TPA_COOLDOWN_S"), kept
+  with the inviter (`player.lastInviteAt`) so leaving and inviting again no longer resets it, and forgotten when the
+  invite is taken up (the Oct 7 parties test re-invites at once after an accepted one and passed on Oct 11);
+  keepWaypoints caps a record's list at MAX_WAYPOINTS. Every view since Oct 10 03:48 (final count) agrees.
+- server/server.mjs: 316 → 321 (the count from Oct 9 15:02 to the end). The 5 lines are a last-resort
+  `process.on('unhandledRejection')` that logs and carries on, in the startup block: the Oct 9 02:32 red team found one
+  malformed sign-in crashed the server and recommended exactly that; ledger F10 is done; no log shows the tail after
+  02:14 (GUESS, see Guessed).
+- src/player/avatar.js: line 1854 is "Load the scanned body, once:" (Oct 9 20:53 view; my build had a guess there).
+  Lines 903–948 rebuilt to the Oct 11 05:46 grep of the final: `const _swingPose = { lift: 0, cut: 0 };` at 919,
+  `function swingPose(t)` (not exported) at 920, three eased parts writing into _swingPose (wound back 0→1, struck to
+  lift 0.4 / cut −1, back to rest), `return _swingPose;` at 938, measureSwordGrip at 991, loadSwordModel at 4117 — all
+  19 lines of that grep now match (11 did not). The phase bounds (SWING_WIND 0.35, SWING_STRIKE 0.7) and `ease` are mine.
+- tools/servertest.mjs (build script recovery/guess/servertest_build.py): the dash checks reset correctedAt as the
+  'held to what the game can do' moves do; the bans section signs Alex back in by token (sign-in replaced the
+  connection); the fight auto-accept check uses /tpahere with Hugo in the fight (a /tpa is refused outright while the
+  asker is in one) and clears Gina's inbox. 210/210 passed (the Oct 12 total).
+Checked and fine (false alarms explained): bodies.js reach (seen Oct 7/9 greps), HOSTING round-6 lines, the friend
+choices and loadModel split (Oct 9 20:53 / Oct 10 03:48), session.js "two lots" (Oct 11 05:10 edit), game.mjs round 6,
+game.js line 83 orphan comment (Oct 7 16:58 grep), protocol.js tphere/near (Oct 9/11), help.js (Oct 6), config maxSpeed
+180 (Oct 9 20:24), tileJobs/mapTiles `layer` (planetary's signature has `layer = {}` in the Oct 7 17:00 grep).
+
 ### Where I was when the work was lost (Oct 12)
 - Round 6 of the anti-cheat was done and verified: Mars surge limit (surgedSpeed), thin-air fall cap (GLIDE_ROOM), drop-strike blink rule. Suites: servertest 210/210, selftest 1753/1753, flightcheck 15/15, onlinecheck 43/43, voice 50/50.
 - I was relaunching the round-6b review and attack when the weekly limit stopped them. Then I found the Oct 12 20:03 reset had wiped everything uncommitted.
@@ -84,7 +129,7 @@ New files:
 - [x] Dockerfile · [x] .dockerignore · [x] fly.toml · [x] render.yaml · [x] server/config.example.json · [x] src/net/publicServer.js
 - [x] server/ws.mjs (405) · [x] server/cells.mjs (146) · [x] server/store.mjs (90; the paste had a stray leading blank line, removed; all 62 logged lines then match)
 - [x] server/game.mjs FINAL (2720 lines, 126238 bytes) = V5 + round 6 (recovery/diffs/atk6.game.diff, then r6_copy2_edit1.py and r6_copy2_edit2.py, replayed exactly). Its line numbers match my Oct 12 07:56 grep of the copy (GLIDE_ROOM at 104, 915, 1079). Caveat: 25 guessed lines (see Guessed), about 52 bytes short; everything else is from the logs.
-- [x] server/accounts.mjs (319) · [x] server/commands.mjs (244) · [~] server/config.mjs (146; lines 100-135 rebuilt, see Guessed) · [x] server/records.mjs (148) · [~] server/server.mjs (321) · [~] server/social.mjs (876 = final; every view and grep since Oct 10 03:48 agrees; the party fixes in the three Oct 9 fills are mine, see Guessed)
+- [x] server/accounts.mjs (319) · [x] server/commands.mjs (244) · [~] server/config.mjs (146; lines 100-135 rebuilt, see Guessed) · [x] server/records.mjs (148) · [~] server/server.mjs (321 = final; 5 lines guessed: the unhandledRejection handler, see Verification pass) · [~] server/social.mjs (876 = final; every view and grep since Oct 10 03:48 agrees; the party fixes in the three Oct 9 fills are mine, see Guessed)
 - [~] HOSTING.md (1544 = final; every line the final's greps place lands there; the 11 lines the Oct 7 fills lacked are mine, see Guessed)
 - [x] src/core/boot.js (256, whole cat of Oct 7 16:54; count matches Oct 11)
 - [x] src/geo/bodies.js (395) · [x] src/geo/ephemeris.js (231) · [x] src/geo/gazetteer.js (151, the whole file from an Oct 5 13:56 `cat -n` inside a mixed command; one version to the end) · [x] src/geo/gazetteerData.js (regenerated Oct 15 after the apostrophe fix: 8147 features, 254409 bytes; no older size was logged)
@@ -93,13 +138,13 @@ New files:
 - [~] src/tiles/planetary.js (1947, every known line in place; the Oct 5 review's fixes rebuilt, see Guessed)
 - [~] src/ui/chat.js (237, every known line in place; Oct 6 text + ledger F2/F9/P4/P8, see Guessed) · [~] src/ui/deathScreen.js (87 = the Oct 11 count; written to P2 and session.js's update(how) call, see Guessed) · [~] src/ui/onlinePanel.js (387 = final, every known line in place; F9 Change password form, see Guessed) · [~] src/ui/playersPanel.js (463 = final, every known line in place; see Guessed) · [~] src/ui/teleportMenu.js (377 = final, every known line in place; F7, see Guessed) · [~] src/ui/travelPanel.js (173 = final; lines 69-173 rebuilt for P3, see Guessed) · [x] src/ui/trail.js (140)
 - [x] src/world/lander.js (184) · [x] src/world/stars.js (173, the whole file from an Oct 5 13:49 `cat -n` inside a mixed command; one version to the end) · [x] src/world/starCatalogue.js (regenerated: 2887 stars, 25302 bytes, the same size the Oct 5 wc -c gave)
-- [~] tools/flightcheck.mjs (387) · [~] tools/onlinecheck.mjs (596) · [~] tools/servertest.mjs (1719) · [~] tools/stars.mjs (96) · [~] tools/gazetteer.py (the paste, plus 3 lines of mine that turn U+2019/U+2018 into ' so today's USGS names pass the Latin-1 selftest) · [ ] tools/glb-unplate.py
+- [~] tools/flightcheck.mjs (387) · [~] tools/onlinecheck.mjs (596) · [~] tools/servertest.mjs (1749 = final, 210/210; recovery/guess/servertest_build.py; sections marked mine in it) · [~] tools/stars.mjs (96) · [~] tools/gazetteer.py (the paste, plus 3 lines of mine that turn U+2019/U+2018 into ' so today's USGS names pass the Latin-1 selftest) · [ ] tools/glb-unplate.py
 - [ ] assets/sword.glb (binary: regenerate) · [ ] shots/online/*.png (regenerate with the shots tools) · [ ] terraglide-online.html (build: node tools/online.mjs)
 
 Changed tracked files (base = 2c7ee70):
 - [x] .github/workflows/deploy-gh-pages.yml · [x] .gitignore
 - [x] README.md (696 = final; +134 −10 = the stat's 144; 49 unseen lines filled from the commit's own text, see Guessed) · [x] assets/manifest.json (swordNote and sword, from the Oct 9 15:04 print; +2 as the Oct 9 stat says) · [~] styles/main.css (3063; +1318 −6 = the stat's 1324, which stopped changing after Oct 9 16:16; the 362 unseen lines of the Oct 5 version and the Oct 6–9 tail are mine, see Guessed)
-- [~] src/game.js (2957 = final; every logged line in place; 914 changed against the Oct 9 stat's 918; the Oct 9 gaps rebuilt from the ledger, see Guessed)
+- [~] src/game.js (2957 = final; every logged line in place; +864 −72 = the final stat 936 (Oct 12); the Oct 9 gaps rebuilt from the ledger, see Guessed)
 - [x] src/core/cheats.js (218: the commit + the ONLINE import and the unlock() refusal, seen Oct 11) · [x] src/core/keybinds.js (229, whole-file git diff, Oct 7–9) · [x] src/core/settings.js (605 = final: the 5 lines were SettingsStore's doc comment, left above RANGES when RANGES and settingValue went in between; text from the Oct 5 view, place from the Oct 11 grep's line 484) · [x] src/core/storage.js (96)
 - [x] src/geo/frame.js (104) · [x] src/geo/mercator.js (155)
 - [x] src/player/avatar.js (5137 = final; +353 −5 from the commit, consistent with the Oct 9 stat 318 plus the later sword swing; every known line in place; see Guessed) · [x] src/player/controller.js (813) · [x] src/player/elytra.js (488) · [x] src/player/player.js (755; +239 −42 from the commit = the Oct 9 stat exactly; filled from the commit and the import list, see Guessed)
@@ -123,7 +168,7 @@ Changed tracked files (base = 2c7ee70):
 - src/core/settings.js: (resolved Oct 15) the 5 lines after `const STORAGE_KEY` are SettingsStore's doc comment, exact from Oct 5, placed by the Oct 11 05:23 grep (484 = its second line). Every view and grep since Oct 11 05:15 now agrees.
 - src/player/elytra.js: exact (the Oct 7-9 version is complete and the final adds exactly FLIGHT_GRAVITY_MPS2 + a blank after line 26).
 - src/net/protocol.js: pickColour's body from the early paste (exact for that version); colourDistance (redmean distance), its doc comment and the doc comments for TWIN_DISTANCE and distinctColour WRITTEN BY ME (never shown). recovery/guess/src_net_protocol.js.txt.
-- server/server.mjs: last 18 lines filled with the Oct 9 02:14 tail (13 lines); the 5 lines added between Oct 9 02:14 and 15:02 were never shown (not in the startup printout; likely shutdown handling).
+- server/server.mjs: last 18 lines filled with the Oct 9 02:14 tail (13 lines); the 5 lines added between Oct 9 02:14 and 15:02 were never shown (not in the startup printout). Oct 16: WRITTEN BY ME as a `process.on('unhandledRejection')` that logs and carries on, placed before `let stopping` in the startup block — the Oct 9 02:32 red-team fix for the one-message crash recommends exactly that (ledger F10).
 - server_server.mjs: APPROXIMATE regions filled with the older text between the same two lines: at 304 13 lines for a 18-line gap (from cat (whole file) 2026-10-09T02:14)
 - src_ui_minimap.js: (superseded Oct 15: rebuilt from the complete older version, see below) APPROXIMATE regions filled with the older text between the same two lines: at 1 20 lines for a 21-line gap (from git diff (whole file) 2026-10-06T16:26); at 23 139 lines for a 143-line gap (from git diff (whole file) 2026-10-06T16:26); at 163 29 lines for a 31-line gap (from git diff (whole file) 2026-10-06T16:26)
 - src_ui_settingsPanel.js: (superseded Oct 15: rebuilt from the complete older version, see below) APPROXIMATE regions filled with the older text between the same two lines: at 1 29 lines for a 30-line gap (from git diff (whole file) 2026-10-05T13:53)
@@ -172,8 +217,8 @@ Changed tracked files (base = 2c7ee70):
   - `import { ONLINE }`;
   - P9's `--minimap-top-right` (4 lines in applySettings);
   - `fog: ONLINE || settings.get('minimapFog')` with a 2-line comment.
-- src/ui/worldmap.js (567 lines; final count): the Oct 7 version (exact) plus the red team's fixes, WRITTEN BY ME to fit the donecheck (fog at 512) and the stat (30 = mine, +21 −9): no double-click or travel-to-centre teleport online (1 comment line), applyPermissions hides directed teleports online, fog forced online. The best store's line 512 (old fog text) was an equal-spacing carry-over, not a view: a carried-over "known" line can be stale where an edit kept the line count.
-- src/ui/settingsPanel.js (925 lines; final count): the top 30 lines (never seen after Oct 5) are the Oct 5 top plus `import { ONLINE } from '../core/boot.js';` (the body uses ONLINE; found with recovery/tools/freevars.mjs). The repo's previous copy had no such import (a ReferenceError). Everything else is the best store (views to Oct 11). It is +51 −6 = 57 changed against the Oct 9 stat's 59, so one commit line changed in a stretch nobody viewed after Oct 7 is still the old text.
+- src/ui/worldmap.js (567 lines; final count): the Oct 7 version (exact) plus the red team's fixes, WRITTEN BY ME to fit the donecheck (fog at 512) and the stat (30 = mine, +21 −9): no double-click teleport online (1 comment line), applyPermissions hides directed teleports online, fog forced online (the fog line itself is in the Oct 9 15:15 grep). Oct 16: line 55's placeholder is the Oct 5–6 `${ON_EARTH ? ...}` one (the commit's text had been carried over), and the travel-to-centre `&& !ONLINE` I had added is gone again (the Oct 9 02:14 view has none; game.js's onTeleport refuses online). The best store's line 512 (old fog text) was an equal-spacing carry-over, not a view: a carried-over "known" line can be stale where an edit kept the line count.
+- src/ui/settingsPanel.js (925 lines; final count): the top 30 lines (never seen after Oct 5) are the Oct 5 top plus `import { ONLINE } from '../core/boot.js';` (the body uses ONLINE; found with recovery/tools/freevars.mjs). The repo's previous copy had no such import (a ReferenceError). Everything else is the best store (views to Oct 11). Oct 16: the missing changed line was minimapFog's help (391), now the Oct 9 15:15 text: +52 −7 = 59, the stat exactly.
 - recovery/tools/freevars.mjs FILE... lists names a module uses but never declares or imports (acorn from /opt/node-tools). Run it on every rebuilt file.
 
 - src/ui/travelPanel.js (173 lines; final count): lines 1–68 known, then go()'s end and render() rebuilt for ledger P3 (players per world, party/friend names, a party line). Oct 5 = Oct 6 = Oct 7 on lines 1–50, so the pooled Oct 7 version (124) is sound. WRITTEN BY ME: whoIsWhere() and partyLine() (the leader brings whoever ticked "together" — server social.follow on travel), a "N online here — names" line on each card. New CSS classes for main.css: travel-people, travel-party, tie-party, tie-friend.
@@ -205,11 +250,11 @@ Changed tracked files (base = 2c7ee70):
 
 - src/player/avatar.js (5137 lines; final count; +353 −5 from the commit; the Oct 9 16:16 stat was 318 = +315 −3, then the Oct 10 sword swing added about 38): built by recovery/guess/avatar_build.py from the commit's top, V1 (Oct 9 views) and the final's known lines. WRITTEN BY ME (recovery/guess/avatar/):
   - 890–901: the end of the hand pose table, then SWING_S/SWING_BLADE/SWING_ARM and their doc;
-  - 903–1028: the swing scratch objects, SWING_WIND, swingPose(t) (wind back for 35% of the swing, then cut down through), SWORD_LEN, HAND_SWORD_SIZE/AT/LEAN, GRIP_SLICES, makeSword(mat) (a steel blade, brass guard and pommel, leather grip, built of boxes and cones) and measureSwordGrip(root). The known lines 997 (points.push), 1025–1029 and 1093 land; the commit's clip constants stay where they were;
+  - 903–1028 (903–948 redone Oct 16 to the Oct 11 05:46 grep: _swingPose at 919, function swingPose at 920, three eased parts, return at 938; SWING_WIND 0.35 / SWING_STRIKE 0.7 / ease are mine): the swing scratch objects, swingPose(t), SWORD_LEN, HAND_SWORD_SIZE/AT/LEAN, GRIP_SLICES, makeSword(mat) (a steel blade, brass guard and pommel, leather grip, built of boxes and cones) and measureSwordGrip(root). The known lines 997 (points.push), 1025–1029 and 1093 land; the commit's clip constants stay where they were;
   - 1479–1482: a 4-line comment on the hand sword;
   - 1841–1854: the commit's 12-line model doc (kept), then the loadSwordModel doc start;
   - 5096–5105: a 4-line comment and the swing's effect on the right arm (lift and cut).
-  - Checked: freevars clean; swingPose(0.35) = lift 1, cut 1; swingPose(0.75) = 0.57/−0.88; the hand sword shows and swingTime runs to 1.
+  - Checked: freevars clean; all 19 lines of the Oct 11 05:46 grep in place; the hand sword shows and swingTime runs to 1.
 
 - src/game.js (2957 lines; final count): built by recovery/guess/game_v4fill.py (the Oct 6 21:57 version, V4, completed) and recovery/guess/game_build.py over the pooled draft (recovery/guess/game/game.a2.js.txt). Only 298 lines of the final were seen after Oct 10 03:48; the rest are carried from older views, so a same-count edit there would not show.
   - Exact: the providers import (an Oct 5 `grep -B6`), lines 438–458 (the Oct 9 15:15 view, +18 lines later).
@@ -234,7 +279,7 @@ Changed tracked files (base = 2c7ee70):
     - Without the Oct 10 block it is 2939 lines, the Oct 9 15:02 count, and +844 −70 against the commit, where the Oct 9 16:16 stat says 918 = +846 −72. So 2 commit lines the real file changed are still the commit's text, somewhere unseen.
 
 - server/social.mjs (876, final count; was 866): an Oct 11 05:47 grep of the final (`gather\|together`, complete) showed `party.together.add(player.key)` in accept() is gone (PA4: not ticked on join). It also showed how many lines each of the three Oct 9 02:14 fills lacks: +8 before 492, +1 by 535, +1 by 672. WRITTEN BY ME (recovery/guess/social_pa_edits.py):
-  - PA1: a party invite to the same person once a minute (`party.invitedAt`).
+  - PA1 (rewritten Oct 16): a party invite to the same person once per TPA_COOLDOWN_S, kept with the inviter (`player.lastInviteAt`, so leaving and inviting again does not reset it) and forgotten in accept() when the invite is taken up. TPA_COOLDOWN_S and MAX_WAYPOINTS are imported as the Oct 9 views show; MAX_WAYPOINTS caps keepWaypoints' copy into a record.
   - F1: an unknown name answers with game.nobodyCalled(name).
   - The invite's `from` carries the inviter's world, as the rejoin re-send does.
   - PA4: a 2-line comment where together.add was.

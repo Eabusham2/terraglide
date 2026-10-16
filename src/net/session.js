@@ -682,7 +682,7 @@ export class OnlineSession extends Emitter {
   }
 
   partyCommand(sub, name = '') {
-    return this.chat(`/party ${sub}${name ? ` ${name}` : ''}`);
+    return this.net.send({ t: 'social', cmd: 'party', op: String(sub), name: String(name ?? '') });
   }
 
   /** Answer a party invitation by its party's id. */

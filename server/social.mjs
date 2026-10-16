@@ -18,8 +18,8 @@
  */
 
 import { BODIES } from '../src/geo/bodies.js';
-import { FLAG, nameKey } from '../src/net/protocol.js';
-import { radiusOf } from './records.mjs';
+import { FLAG, TPA_COOLDOWN_S, nameKey } from '../src/net/protocol.js';
+import { MAX_WAYPOINTS, radiusOf } from './records.mjs';
 
 export const MAX_FRIENDS = 100;
 const MAX_PENDING = 50;
@@ -471,14 +471,14 @@ export class Social {
       return this.game.tell(player, `A party is ${MAX_PARTY} at most`, 'error');
     }
     if (!party) party = this.create(player);
-    // Once a minute per person: an invitation sent as fast as the button could
-    // be pressed was a box on somebody's screen they could not get rid of.
+    // Per person, as a teleport request is, and kept with whoever asks rather than the
+    // party: leaving and inviting again was a box on their screen. One taken up is forgotten.
     const now = this.game.now();
-    const last = party.invitedAt?.get(to.key) ?? -Infinity;
-    if (now - last < PARTY_INVITE_S * 1000) {
-      return this.game.tell(player, `${to.name} was asked a moment ago — wait for their answer`, 'error');
+    const last = player.lastInviteAt?.get(to.key) ?? -Infinity;
+    if (now - last < TPA_COOLDOWN_S * 1000) {
+      return this.game.tell(player, `Wait ${Math.ceil(TPA_COOLDOWN_S - (now - last) / 1000)} s before inviting ${to.name} again`, 'error');
     }
-    (party.invitedAt ??= new Map()).set(to.key, now);
+    (player.lastInviteAt ??= new Map()).set(to.key, now);
     party.invites.set(to.key, { by: player.key, expires: now + PARTY_INVITE_S * 1000 });
     this.game.send(to.client, {
       t: 'partyInvite',
@@ -508,8 +508,9 @@ export class Social {
   accept(player, name) {
     const found = this.findInvite(player.key, name);
     if (!found) return this.game.tell(player, name ? `No party invite from ${String(name).slice(0, 32)}` : 'No party invites', 'error');
-    const [, party] = found;
+    const [by, party] = found;
     party.invites.delete(player.key);
+    this.game.byKey.get(by)?.lastInviteAt?.delete(player.key);
     if (party.members.length >= MAX_PARTY) {
       this.sendParty(party);
       return this.game.tell(player, 'That party is full now', 'error');
@@ -517,8 +518,7 @@ export class Social {
     const old = this.partyFor(player.key);
     if (old && old !== party) this.leave(player, { quiet: true });
     party.members.push(player.key);
-    // Not ticked to come along when the leader teleports: joining a party is
-    // not agreeing to be pulled across the world. The tick is theirs to set.
+    // Not ticked to come along: joining is not agreeing to be pulled across the world.
     party.joined = true;
     party.idleSince = null;
     this.partyOf.set(player.key, party.id);
@@ -577,7 +577,7 @@ export class Social {
       this.game.tell(gone, `${player.name} removed you from the party`, 'party');
     } else {
       // Told when they are next on, rather than finding the party simply gone.
-      this.social(key).notices.push(`${player.name} removed you from the party while you were away`);
+      this.social(key).notices.push({ text: `${player.name} removed you from the party while you were away`, kind: 'party' });
       this.social(key).notices = this.social(key).notices.slice(-MAX_NOTICES);
       this.save(key);
     }
@@ -802,15 +802,15 @@ export class Social {
       const record = this.game.record(key);
       for (const w of party.waypoints) {
         const live = record.on(w.world);
-        if (live.waypoints.some((o) => Math.abs(o.lat - w.lat) < 1e-6 && Math.abs(o.lon - w.lon) < 1e-6)) continue;
+        if (live.waypoints.length >= MAX_WAYPOINTS || live.waypoints.some((o) => Math.abs(o.lat - w.lat) < 1e-6 && Math.abs(o.lon - w.lon) < 1e-6)) continue;
         live.waypoints.push({ id: w.at ?? 0, name: w.name, lat: w.lat, lon: w.lon, altitude: 0, colour: w.colour ?? '#c8b98f', createdAt: w.at ?? 0 });
       }
       this.game.saveRecord(record);
       if (!member) {
         const n = party.waypoints.length;
         const said = `The party ended — its ${n === 1 ? 'waypoint is' : `${n} waypoints are`} among yours now`;
-        if (this.social(key).notices.includes(said)) continue;
-        this.social(key).notices.push(said);
+        if (this.social(key).notices.some((n) => n.text === said)) continue;
+        this.social(key).notices.push({ text: said, kind: 'party' });
         this.social(key).notices = this.social(key).notices.slice(-MAX_NOTICES);
         this.save(key);
       }

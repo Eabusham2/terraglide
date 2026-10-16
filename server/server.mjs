@@ -303,6 +303,11 @@ if (isMain) {
   console.log(`  Others connect:   ws://<this machine's address>:${port}/ws  (wss:// behind HTTPS)`);
   console.log(`  Data is saved in: ${server.config.dataDir}`);
   console.log('Press Ctrl+C to stop.');
+  // The last resort: a promise nobody caught is logged and the server carries
+  // on. One bad message must not take everybody's game down with it.
+  process.on('unhandledRejection', (error) => {
+    console.error('Unhandled rejection (the server carries on):', error);
+  });
   let stopping = false;
   for (const signal of ['SIGINT', 'SIGTERM']) {
     process.on(signal, async () => {
