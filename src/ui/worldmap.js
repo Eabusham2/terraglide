@@ -63,8 +63,18 @@ export class WorldMap {
           <canvas></canvas>
           <div class="worldmap-coverage" title="How much of ${escapeHtml(BODY.name)} has been explored, by area">
             <span class="worldmap-coverage-label">${escapeHtml(BODY.name)} explored</span>
-            <strong class="worldmap-coverage-value">${formatCoverage(0)}</strong>
-            <span class="worldmap-coverage-you" hidden></span>
+            <div class="worldmap-coverage-figures">
+              <div class="worldmap-coverage-figure" data-figure="whole">
+                <span>Whole ${escapeHtml(BODY.name)}</span>
+                <strong>${formatCoverage(0)}</strong>
+                <em hidden></em>
+              </div>
+              ${ON_EARTH ? `<div class="worldmap-coverage-figure" data-figure="land">
+                <span>Land</span>
+                <strong>${formatCoverage(0)}</strong>
+                <em hidden></em>
+              </div>` : ''}
+            </div>
           </div>
           <div class="worldmap-hud">
             <span class="worldmap-centre">—</span>
@@ -104,8 +114,11 @@ export class WorldMap {
     this.scaleBar = this.element.querySelector('.worldmap-scale i');
     this.statsBox = this.element.querySelector('.worldmap-stats');
     this.coverageLabel = this.element.querySelector('.worldmap-coverage-label');
-    this.coverageValue = this.element.querySelector('.worldmap-coverage-value');
-    this.coverageYou = this.element.querySelector('.worldmap-coverage-you');
+    this.coverageFigures = [...this.element.querySelectorAll('.worldmap-coverage-figure')].map((element) => ({
+      land: element.dataset.figure === 'land',
+      value: element.querySelector('strong'),
+      you: element.querySelector('em'),
+    }));
     this.searchInput = this.element.querySelector('.worldmap-search input');
     this.resultList = this.element.querySelector('.worldmap-results');
 
@@ -551,19 +564,23 @@ export class WorldMap {
   }
 
   /**
-   * How much of the world is explored, at the top of the map: on a server,
-   * what everybody there has explored between them, with your own share
-   * beside it; playing alone, yours.
+   * How much of the world is explored, at the top of the map: of the whole
+   * planet, and on Earth of its land as well. On a server, what everybody
+   * there has explored between them, with your own share under each; playing
+   * alone, yours.
    */
   updateCoverage() {
     const everyone = ONLINE ? this.others?.everyone?.() ?? null : null;
     const label = everyone ? `${BODY.name} explored by everyone` : `${BODY.name} explored`;
-    const value = formatCoverage((everyone ?? this.exploration).coverage());
-    const you = everyone ? `you ${formatCoverage(this.exploration.coverage())}` : '';
     if (this.coverageLabel.textContent !== label) this.coverageLabel.textContent = label;
-    if (this.coverageValue.textContent !== value) this.coverageValue.textContent = value;
-    if (this.coverageYou.textContent !== you) this.coverageYou.textContent = you;
-    this.coverageYou.hidden = !you;
+    const share = (record, land) => formatCoverage(land ? record.landCoverage() : record.coverage());
+    for (const figure of this.coverageFigures) {
+      const value = share(everyone ?? this.exploration, figure.land);
+      const you = everyone ? `you ${share(this.exploration, figure.land)}` : '';
+      if (figure.value.textContent !== value) figure.value.textContent = value;
+      if (figure.you.textContent !== you) figure.you.textContent = you;
+      figure.you.hidden = !you;
+    }
   }
 
   renderLists() {

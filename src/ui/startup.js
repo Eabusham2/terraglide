@@ -93,8 +93,8 @@ function introCards() {
       title: 'Exploring',
       body: `
         <p>Everywhere you go is uncovered on your map. Open the world map${touch ? '' : ` with ${key('worldMap')}`}
-          and the top of it says how much of the world has been explored, to seven decimal places,
-          so you can watch it climb as you fly.</p>`,
+          and the top of it says how much of the whole Earth, and of its land, has been explored,
+          to seven decimal places, so you can watch them climb as you fly.</p>`,
     },
     {
       title: 'Alone or together',

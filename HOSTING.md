@@ -74,7 +74,8 @@ with everyone*, and online goes straight there. The Online panel offers it
 first too, as one button — *Play on the public server* — and everything
 anybody explores there is uncovered on everybody's map, kept on the server's
 disk for good (`shared-<world>.json` in its data folder), with the share of the
-world explored between everybody counted live at the top of the world map.
+whole Earth and of its land explored between everybody counted live at the top
+of the world map.
 Until step 3 below is done the startup screen says the main lobby is not open
 yet, and only *Play locally* works from it. A server's own page (its address
 in a browser) is always that server's lobby. Private

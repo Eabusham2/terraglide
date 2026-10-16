@@ -1302,7 +1302,7 @@ input[type='checkbox'] {
   display: flex;
   flex-direction: column;
   align-items: center;
-  max-width: calc(100% - 80px);
+  max-width: calc(100% - 72px);
   padding: 4px 12px 5px;
   background: var(--panel-solid);
   border: 1px solid var(--line-strong);
@@ -1318,7 +1318,26 @@ input[type='checkbox'] {
   color: var(--text-dim);
 }
 
-.worldmap-coverage-value {
+/* The whole planet and, on Earth, its land: side by side, each with yours
+   under it on a server. */
+.worldmap-coverage-figures {
+  display: flex;
+  gap: 18px;
+  margin-top: 2px;
+}
+
+.worldmap-coverage-figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.worldmap-coverage-figure span {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.worldmap-coverage-figure strong {
   font-family: var(--mono);
   font-size: 18px;
   font-weight: 600;
@@ -1326,11 +1345,30 @@ input[type='checkbox'] {
   font-variant-numeric: tabular-nums;
 }
 
-.worldmap-coverage-you {
+.worldmap-coverage-figure em {
   font-family: var(--mono);
   font-size: 11px;
+  font-style: normal;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 560px) {
+  .worldmap-coverage {
+    padding: 3px 8px 4px;
+  }
+
+  .worldmap-coverage-figures {
+    gap: 10px;
+  }
+
+  .worldmap-coverage-figure strong {
+    font-size: 13px;
+  }
+
+  .worldmap-coverage-figure em {
+    font-size: 10px;
+  }
 }
 
 .worldmap-scale {

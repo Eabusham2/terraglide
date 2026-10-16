@@ -1,6 +1,7 @@
 import { cheats } from '../core/cheats.js';
 import { Emitter } from '../core/events.js';
 import { readJSON, writeJSON } from '../core/storage.js';
+import { isLandTile, landShareOfPlanet } from '../geo/land.js';
 import { settings } from '../core/settings.js';
 import { WORLD_CIRCUMFERENCE, latToNormY, lonToNormX, tileKey } from '../geo/mercator.js';
 
@@ -68,11 +69,12 @@ export const MAX_REVEAL_M = 2000;
  * square you stand in always counts, so the coarse levels claim more).
  */
 const COVERAGE_LEVEL = LEVELS[LEVELS.length - 1];
-/** What one square of each row at COVERAGE_LEVEL is of the whole map. See rowShare. */
+/** What one square of each row at COVERAGE_LEVEL is of the whole planet. See rowShare. */
 let rowShares = null;
 
 /**
- * How much of the map one square in row `y` covers, as a fraction of the map.
+ * How much of the planet one square in row `y` covers, as a fraction of the
+ * whole surface.
  *
  * Squares are all one size on a mercator map and nothing like one size on the
  * ground: one on the equator covers about forty times the ground of one at 81
@@ -80,13 +82,14 @@ let rowShares = null;
  * flight over the Congo forty times over. Each square counts for its ground on
  * the sphere instead. A band from latitude a down to b, 1/n of the way round, is
  * (sin a - sin b) / 2n of the surface, and on a mercator map the sine of a row's
- * latitude is tanh(pi (1 - 2y/n)). The map stops at 85.05 degrees either way, so
- * the shares are of the map (99.6% of the planet), and the whole map is 100%.
+ * latitude is tanh(pi (1 - 2y/n)). The shares are of the whole planet, poles and
+ * all: the map stops at 85.05 degrees either way, so everything on it is 99.63%
+ * and the caps past it are the rest, which nobody can reach.
  */
 function rowShare(y) {
   if (!rowShares) {
     const n = 2 ** COVERAGE_LEVEL;
-    const whole = 2 * n * Math.tanh(Math.PI);
+    const whole = 2 * n;
     rowShares = new Float64Array(n);
     for (let row = 0; row < n; row++) {
       rowShares[row] = (Math.tanh(Math.PI * (1 - (2 * row) / n)) - Math.tanh(Math.PI * (1 - (2 * (row + 1)) / n))) / whole;
@@ -95,9 +98,10 @@ function rowShare(y) {
   return rowShares[y] ?? 0;
 }
 
-/** The row of a "level/x/y" key, as rowShare wants it. */
-function shareOfKey(key) {
-  return rowShare(Number(key.slice(key.lastIndexOf('/') + 1)));
+/** The column and row of a "level/x/y" key. */
+function cellOf(key) {
+  const second = key.lastIndexOf('/');
+  return [Number(key.slice(key.indexOf('/') + 1, second)), Number(key.slice(second + 1))];
 }
 
 export class Exploration extends Emitter {
@@ -120,8 +124,9 @@ export class Exploration extends Emitter {
     this.detailCount = this.countAt(DETAIL_LEVEL);
     /** Coverage folded up to zooms coarser than we record. See `coarse()`. */
     this.coarseCache = new Map();
-    /** What coverage() answers, once it has been asked; null until then. */
+    /** What coverage() and landCoverage() add up, once each has been asked; null until then. */
     this.covered = null;
+    this.landCovered = null;
   }
 
   get count() {
@@ -139,10 +144,37 @@ export class Exploration extends Emitter {
     if (this.covered === null) {
       let sum = 0;
       const prefix = `${COVERAGE_LEVEL}/`;
-      for (const key of this.cells) if (key.startsWith(prefix)) sum += shareOfKey(key);
+      for (const key of this.cells) if (key.startsWith(prefix)) sum += rowShare(cellOf(key)[1]);
       this.covered = sum;
     }
     return Math.min(1, this.covered);
+  }
+
+  /**
+   * How much of Earth's land is explored, from 0 to 1: the squares whose
+   * middle is on land (geo/land.js), by their ground, out of all the land
+   * there is. Earth's only; on another world it means nothing, and nothing
+   * asks. Kept up the same way as coverage().
+   */
+  landCoverage() {
+    if (this.landCovered === null) {
+      let sum = 0;
+      const prefix = `${COVERAGE_LEVEL}/`;
+      for (const key of this.cells) {
+        if (!key.startsWith(prefix)) continue;
+        const [x, y] = cellOf(key);
+        if (isLandTile(COVERAGE_LEVEL, x, y)) sum += rowShare(y);
+      }
+      this.landCovered = sum;
+    }
+    const land = landShareOfPlanet();
+    return land > 0 ? Math.min(1, this.landCovered / land) : 0;
+  }
+
+  /** A square of COVERAGE_LEVEL newly recorded, onto whichever sums are being kept. */
+  countSquare(x, y) {
+    if (this.covered !== null) this.covered += rowShare(y);
+    if (this.landCovered !== null && isLandTile(COVERAGE_LEVEL, x, y)) this.landCovered += rowShare(y);
   }
 
   /** After `cells` was changed directly, rather than through visit or merge. */
@@ -150,6 +182,7 @@ export class Exploration extends Emitter {
     this.detailCount = this.countAt(DETAIL_LEVEL);
     this.coarseCache.clear();
     this.covered = null;
+    this.landCovered = null;
   }
 
   /** Approximate ground area explored, in square kilometres. */
@@ -232,13 +265,14 @@ export class Exploration extends Emitter {
           const here = dx === 0 && dy === 0;
           const distance = Math.hypot(cx + dx + 0.5 - px, ty + 0.5 - py) * tileMetres;
           if (!here && distance > Math.max(levelRadius, tileMetres * 0.5)) continue;
-          const key = tileKey(level, ((cx + dx) % n + n) % n, ty);
+          const tx = ((cx + dx) % n + n) % n;
+          const key = tileKey(level, tx, ty);
           if (this.cells.has(key)) continue;
           this.cells.add(key);
           fresh.push(key);
           added++;
           if (level === DETAIL_LEVEL) this.detailCount++;
-          if (level === COVERAGE_LEVEL && this.covered !== null) this.covered += rowShare(ty);
+          if (level === COVERAGE_LEVEL) this.countSquare(tx, ty);
         }
       }
     }
@@ -262,7 +296,10 @@ export class Exploration extends Emitter {
       this.cells.add(key);
       added++;
       if (key.startsWith(`${DETAIL_LEVEL}/`)) this.detailCount++;
-      if (this.covered !== null && key.startsWith(`${COVERAGE_LEVEL}/`)) this.covered += shareOfKey(key);
+      if ((this.covered !== null || this.landCovered !== null) && key.startsWith(`${COVERAGE_LEVEL}/`)) {
+        const [x, y] = cellOf(key);
+        this.countSquare(x, y);
+      }
     }
     if (added > 0) {
       this.dirty = true;
@@ -388,6 +425,7 @@ export class Exploration extends Emitter {
     this.coarseCache.clear();
     this.detailCount = 0;
     this.covered = 0;
+    this.landCovered = 0;
     this.lastVisit = null;
     this.dirty = true;
     this.save();
@@ -468,8 +506,9 @@ export { COVERAGE_LEVEL, DETAIL_LEVEL, LEVELS };
 
 /**
  * A coverage fraction as the world map shows it: a percentage to seven
- * decimal places, which is about one square of COVERAGE_LEVEL - so it moves
- * while you fly rather than sitting on 0.00% for the first thousand hours.
+ * decimal places, the last of which is about one square of COVERAGE_LEVEL on
+ * the equator - so it moves while you fly rather than sitting on 0.00% for the
+ * first thousand hours.
  */
 export function formatCoverage(fraction) {
   const percent = Math.max(0, Math.min(100, (Number(fraction) || 0) * 100));

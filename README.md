@@ -198,9 +198,12 @@ firework burning while it does holds it up longer.
   travel. Zoom with `=`/`-` or the wheel, click it to open the big map.
 - **World map** (`G`): the same thing at any zoom, plus search, your waypoints,
   your drawn paths, and how much of the world you have covered. Drag to pan,
-  wheel to zoom. At the top it shows the share of the world explored, by area,
-  as a percentage to seven decimal places, which moves while you fly: yours
-  when you play alone, everybody's together on a server, with yours under it.
+  wheel to zoom. At the top it shows how much of the world is explored, by
+  area, as percentages to seven decimal places that move while you fly: of the
+  **whole Earth** (poles and oceans included), and of its **land** on its own
+  (lakes count as water; from a seven-kilometre grid of Natural Earth's
+  coastlines). Yours when you play alone; everybody's together on a server,
+  with yours under each.
 - **Your trail**: a thin line of everywhere you have been, recorded as you go
   and drawn on both maps. A teleport starts a new leg, so it never draws a line
   across an ocean you did not cross.
@@ -677,7 +680,7 @@ src/
 server/             the multiplayer server (Node, no dependencies) — see HOSTING.md
 assets/             optional generated textures — player kit only (+ manifest)
 tools/              check.mjs, selftest.mjs, servertest.mjs, onlinecheck.mjs, flightcheck.mjs, and
-                    the generators for the star catalogue and the place names
+                    the generators for the star catalogue, the place names and the land grid
 vendor/three/       three.js (MIT), vendored so there is nothing to install
 ```
 

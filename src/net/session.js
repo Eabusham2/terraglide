@@ -2,7 +2,7 @@ import { Emitter } from '../core/events.js';
 import { settings } from '../core/settings.js';
 import { BOOT, relaunch, serverId } from '../core/boot.js';
 import { readJSON, writeJSON } from '../core/storage.js';
-import { BODIES, BODY } from '../geo/bodies.js';
+import { BODIES, BODY, ON_EARTH } from '../geo/bodies.js';
 import { WORLD_CIRCUMFERENCE } from '../geo/mercator.js';
 import { Exploration, decodeCells } from '../ui/exploration.js';
 import { exploration } from '../ui/exploration.js';
@@ -321,6 +321,8 @@ export class OnlineSession extends Emitter {
         // the first time the world map is opened - which on a server a lot of
         // people have flown over is millions of squares in one go.
         this.shared.covered = 0;
+        // Its land too, on Earth, the only world the land figure is for.
+        if (ON_EARTH) this.shared.landCovered = 0;
       }
       this.shared.merge(decodeCells(m.cells));
       this.emit('overlays');
@@ -616,6 +618,7 @@ export class OnlineSession extends Emitter {
     exploration.lastVisit = null;
     exploration.coarseCache.clear();
     exploration.covered = null;
+    exploration.landCovered = null;
     exploration.merge(decodeCells(m.explored ?? []));
     trail.legs = Array.isArray(m.trail) ? m.trail.map((leg) => leg.map(([lat, lon]) => ({ lat, lon }))) : [];
     trail.last = null;
