@@ -1,0 +1,91 @@
+{
+ "rel": "server/game.mjs",
+ "versions": [
+  {
+   "name": "V0",
+   "from": "2026-10-10T03:33:00",
+   "to": "2026-10-11T04:56:38",
+   "count": 2552
+  },
+  {
+   "name": "V1",
+   "from": "2026-10-11T04:56:39",
+   "to": "2026-10-11T05:04:41",
+   "count": 2558
+  },
+  {
+   "name": "V2",
+   "from": "2026-10-11T05:04:42",
+   "to": "2026-10-11T21:03:02",
+   "count": 2560
+  },
+  {
+   "name": "V3",
+   "from": "2026-10-11T21:03:02",
+   "to": "2026-10-12T02:02:30",
+   "count": 2553
+  },
+  {
+   "name": "V4",
+   "from": "2026-10-12T02:02:30",
+   "to": "2026-10-12T03:06:48",
+   "count": 2657
+  },
+  {
+   "name": "V5",
+   "from": "2026-10-12T03:06:48",
+   "to": "2026-10-12T08:08:20",
+   "count": 2685
+  }
+ ],
+ "diffs": [
+  {
+   "from": "V2",
+   "to": "V3",
+   "file": "diffs/swing.game.diff"
+  },
+  {
+   "from": "V3",
+   "to": "V4",
+   "file": "diffs/x7.game.diff"
+  },
+  {
+   "from": "V4",
+   "to": "V5",
+   "file": "diffs/fix.game.diff"
+  }
+ ],
+ "replaces": [
+  {
+   "from": "V0",
+   "to": "V1",
+   "edits": [
+    {
+     "path": "server/game.mjs",
+     "old": "/** Cells per message of a shared map sent whole. */\n/** Runs to a part when the shared map is sent or saved in pieces. */",
+     "new": "/** New cells to a message when new ground on a shared map is sent. See flushShared. */\nconst SHARED_NEW_PER_MESSAGE = 20000;\n/** Runs to a part when the shared map is sent or saved in pieces. */",
+     "count": 1
+    },
+    {
+     "path": "server/game.mjs",
+     "old": "      if (!shared.pending.size) continue;\n      const text = JSON.stringify({ t: 'shared+', world, keys: [...shared.pending] });\n      shared.pending.clear();\n      // To everyone holding the map, shown or not: a page that switched it off\n      // and on again then has it whole without being sent it again.\n      for (const viewer of this.players.values()) {\n        if (viewer.world === world && viewer.sharedSentWorld === world) this.sendPaced(viewer.client, text);\n      }",
+     "new": "      if (!shared.pending.size) continue;\n      const keys = [...shared.pending];\n      shared.pending.clear();\n      // In pieces: a busy half second can be hundreds of thousands of cells,\n      // megabytes in one message for every page to take and parse at once.\n      for (let from = 0; from < keys.length; from += SHARED_NEW_PER_MESSAGE) {\n        const text = JSON.stringify({ t: 'shared+', world, keys: keys.slice(from, from + SHARED_NEW_PER_MESSAGE) });\n        // To everyone holding the map, shown or not: a page that switched it off\n        // and on again then has it whole without being sent it again.\n        for (const viewer of this.players.values()) {\n          if (viewer.world === world && viewer.sharedSentWorld === world) this.sendPaced(viewer.client, text);\n        }\n      }",
+     "count": 1
+    }
+   ]
+  },
+  {
+   "from": "V1",
+   "to": "V2",
+   "edits": [
+    {
+     "path": "server/game.mjs",
+     "old": "    if (!host.state || host.pending) return `${host.name} has not landed yet \u2014 try again in a moment`;",
+     "new": "    if (!host.state || host.pending) {\n      return `${host === player ? 'You have' : `${host.name} has`} not landed yet \u2014 try again in a moment`;\n    }",
+     "count": 1
+    }
+   ]
+  }
+ ],
+ "manual": "gm.manual.txt"
+}

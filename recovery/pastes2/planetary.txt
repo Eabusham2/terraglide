@@ -1,0 +1,151 @@
+{"findings":[{"title":"Charon's real relief is replaced by flat datum ground (0 m) wherever it goes past bodies.js reach: 14 km plateaus in the deepest depression and 6 km pits on the highest peaks. Venus's Maxwell Montes summit is also cut off","file":"src/tiles/planetary.js","line":1642,"severity":"high","scenario":"A player travels to Charon and flies to about 70°N 142°W (the deepest depression), or to the peaks at about 29°N 32.5°E, 22°N 16°E, 49°N 82°W or 71°N 17°W. In the DEM these are smooth, continuous terrain: around -14.1 km in the depression and +6.0 to +6.6 km on the peaks. bodies.js:325 gives Charon reach [-13500, 6000]. applyHeightTransform (planetary.js:1399) marks every cell outside that range invalid. tiffRowsHeights then always fills invalid cells to the datum (planetary.js:1642, fillInvalid(..., 'datum')), so those cells become exactly 0 m. The depression floor draws as a flat plateau 13.5-14 km above the ground around it, with vertical walls, and each peak above 6 km draws as a flat-bottomed pit about 6 km deep. All of these latitudes are below 85°, so players can reach them. The ArcGIS path has the same range check and fills from neighbours, so the effect is smaller there but still real. On Venus, Magellan reads up to 11,613 m at Maxwell Montes and reach is [-3000, 11000] (bodies.js:131), so the summit is planed off to about 11.0 km.","evidence":"I read every 37th row of the live Charon GeoTIFF: 281 samples fall outside reach, min -13790 and max 6442, in contiguous runs (e.g. row 703: -13447,-13472,-13493,-13510,-13531,...; row 2146: 5835,5923,5999,6054,6125,...). Then I ran the real pipeline end to end (tiffRowsPlan + fetchTiffRowsHeights with the body's offset and reach) against the live file and compared it with the same tile run with reach:null. At 70.05°N 142.4°W, z8, the game grid reads '0 0 0 0 0 0 0' where the raw values are '-14129 -14131 -14132 -14132 -14131 -14129 -14125' (change of 14,132 m; z6 behaves the same). At 29.13°N 32.5°E, z8, the game reads 0 where the raw value is 6572 (z6: 0 where raw is 6590). Venus through fetchArcgisHeights: tile z6 x32 y16 has raw max 11613 and game max 10999, with 186 cells changed by up to 1,104 m. At z7 x65 y33: raw 11167, game 10999, 432 cells changed.","fix":"Widen the reaches to what the bodies' own DEMs contain, with margin: Charon to about [-15000, 7500], since the sampling was sparse and found -14132 and 6590; Venus's top to about 12000. Separately, in tiffRowsHeights keep true noData (-32768) apart from out-of-range rejects. Fill only noData to the datum, and fill rejects from their row neighbours (the 'neighbours' path in fillInvalid), so a single bad cell can never become a 0 m needle in the middle of real ground."},{"title":"In a browser, CTX gaps and Magellan left-look holes come back as CORS errors, not 404s, so each gap is retried as a transient fault and the whole tile is held up by about 2 s","file":"src/tiles/planetary.js","line":1766,"severity":"low","scenario":"On Mars at zoom 9 and deeper (the comment says about a tenth of zoom-9 tiles have CTX gaps), and on Venus over left-look holes, the optional layer's server sends its 404 with no Access-Control-Allow-Origin header. A browser fetch in 'cors' mode rejects that as a TypeError. request() (planetary.js:1763-1767) marks it transient, and withRetries (1730-1738) asks again after 400 ms and again after 1500 ms. composeEqImage waits for every layer (1181-1206), so the Viking or C3-MDIR picture that is already loaded is not drawn until all three tries have failed. The tile ends up correct (the optional layer is dropped), but each gap tile costs three wasted requests, about 2 s of extra delay and console CORS errors. The comment at 278-281 describes these as plain 404s, which is true in Node but not in a browser. The standalone 'mars-ctx' standby is not optional, so the same gap fails it as transient and the square is re-queued every 4 s instead of being written off.","evidence":"curl -H 'Origin: https://x.com' https://astro.arcgis.com/arcgis/rest/services/OnMars/CTX/MapServer/tile/9/511/300 returns 'HTTP/1.1 404 Not Found, Content-Type: text/html' with no Access-Control-Allow-Origin header, while 200 tiles from the same server carry 'access-control-allow-origin: *'. The Trek left-look hole .../Venus_Magellan_LeftLook_mosaic_global_75m/.../10/0/0.png is also a 404 with no ACAO header. The source's own comment at planetary.js:23-27 already notes that a browser reports these as CORS failures for past-the-last-level requests; in-range gaps behave the same way.","fix":"Do not retry transport failures for a layer marked optional: fetch it once and treat a TypeError as 'no imagery here'. Alternatively, pass a flag into fetchPlanetaryImage so a network error on an optional layer is final, so the base layer is drawn as soon as it arrives."}]}
+
+AUDIT: "Add moon tp diff gravity and make him have a like oxygen system and other planets mainly moon and mars then then everything else"
+
+I ran everything below myself. I did not run bundle.mjs or the full selftest, because the bundle step rewrites terraglide.html and terraglide.bundle.js in the repo. The repo is unchanged (git status still shows the same 64 entries).
+
+What I ran:
+- node tools/check.mjs: 96 modules, no problems.
+- node tools/servertest.mjs: 114/114.
+- My own server bot test oxy2.mjs (startServer on port 0, temp data dir, real 100 ms ticks): 17/17.
+- Node fetches of every world's imagery and elevation at its spawn, using the game's own planetary.js plans.
+- Headless Chromium runs: worlds.mjs and trace.mjs (Moon and Mars, local mode).
+
+Scripts, logs and PNGs are in /tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/final/
+
+---------------------------------------------------------------
+ITEM 1 — "moon tp": getting to the Moon, locally and online
+STATUS: works, with one real gap. You arrive in free fall about 1.9 km above the landing site.
+
+EVIDENCE:
+- Local:
+  - Worlds panel: key U (src/core/keybinds.js:43,101), also on the wheel and touch (src/game.js:448).
+  - TravelPanel.go (src/ui/travelPanel.js:62-71) calls relaunch() (src/core/boot.js:205-245).
+  - A ?world=moon link works too (boot.js:134-138).
+  - Ran it: clicking the panel's Mars "Travel" button reloaded the page with BODY.id === 'mars'.
+- Online:
+  - The panel calls session.travel (src/net/session.js:648) and /travel <world> (server/commands.mjs:112-117, with tab completion at src/ui/chat.js:128).
+  - Server side: travel (server/game.mjs:778-788) checks combat, death and a 10 s cooldown, then moveWorld (game.mjs:756-776) sends 'travelled'.
+  - The page relaunches (session.js:156-160) and signs back in on the new world (session.js:411-417).
+  - servertest: "/travel moves you to the Moon" and "at Tranquility Base". My bot: Earth→Moon→Mars→Earth→Mars all landed correctly.
+
+GAP: every arrival on foot off Earth starts at the datum, not the ground, and then free-falls.
+- Measured with the help panel closed (the normal arrival from Travel), sampled every 3 s:
+  - Moon: y = 1.2 while the measured ground is at −1926. Falls for about 30 s, reaching 128 m/s, and lands at t ≈ 33 s.
+  - Mars: falls 2.6 km for about 20 s, reaching 210 m/s. The HUD reads "Falling … 4,267 ft AGL".
+  - The same thing happened after a plain reload on the Moon.
+- Causes:
+  - (a) src/game.js:2020 const ground = Math.max(0, this.elevation.sampleLatLon(lat, lon)) clamps arrivals to sea level. That is Earth-only: the Moon's site is at −1926 m, Mars −2564, Io −2643, Charon −1952, Pluto −835.
+  - (b) The hold height follows the ground only upward: "rise with the ground, never sink" (game.js:1910-1913).
+  - (c) Once 2.6 s have passed, settling turns false on the very frame groundIsReal turns true (game.js:1802-1808). The loop's else-branch then calls releaseSettle (game.js:1313), which hands over the stale _holdY (game.js:1857) without re-running updateHoldHeight's "ground is real → ground+1.2" branch (game.js:1916-1922).
+- Who it hits: the first visit to a world, every reload standing up, every respawn at the base or lander, and online too (session.js:450-455 uses the same teleportTo/settle path).
+- It is harmless only because there is no fall damage.
+- Separately, on a first-ever run the help panel pauses the game (game.js:1230-1235). The hold ends while paused, so the fall happens as soon as help is closed.
+
+FIX:
+- In releaseSettle, when !this.holdInAir && this.groundIsReal, set _holdY = terrain.heightAt(x, z) + 1.2 before handing over (or call updateHoldHeight(0)).
+- And at game.js:2020, only clamp to 0 when ON_EARTH.
+
+---------------------------------------------------------------
+ITEM 2 — "diff gravity"
+STATUS: done.
+
+EVIDENCE:
+- Real per-body surface gravity and air density are defined in src/geo/bodies.js:47-305. gravityRatio, aeroFactor and terminalSpeed are at bodies.js:350-383.
+- The controller env is built at src/player/controller.js:94-111, and gravity is applied at:
+  - walking and falling: controller.js:433-438
+  - glide: src/player/elytra.js stepGlide (gravity * (-1 + level*0.75*wings), drag scaled by air)
+  - bank: controller.js:309
+  - terminal cap: controller.js:256-275
+- Measured in the browser:
+  - Moon env {gravity 0.1652, air 0}: a jump at 8.4 m/s peaked at 6.37 m (Earth 1.10 m), with over 6 s in the air.
+  - Mars env {gravity 0.3794, air 0.0163, glideLimit 377.95 m/s}.
+- The travel panel lists 1.00g / 0.17g / 0.38g and so on.
+- The server's horizontal speed cap is scaled per world (game.mjs:577-582); servertest covers Mars > 415 m/s.
+
+GAP (cross-reference for the anti-cheat group, not mine to rule on): gravity is enforced only on the page. The server never judges vertical motion (game.mjs:644-650, "Over the ground only"), so a modified page can hover or ignore gravity on any world.
+
+FIX (if wanted): a server check that a player who is neither grounded nor rocketing loses altitude at no less than the body's gravity allows.
+
+---------------------------------------------------------------
+ITEM 3 — "oxygen system": drain, warn, refill, suffocation; server-side online; kept across reload
+STATUS: done, with minor gaps.
+
+EVIDENCE:
+- Constants: 300 s tank, 40/s refill, 2 half-hearts/s suffocation (src/net/protocol.js:181-205).
+- Server is authoritative:
+  - tickOxygen runs every 100 ms tick (server/game.mjs:1400-1424, 1464-1466). nearAir means within 40 m of the base or lander, on the ground, AGL < 30 (game.mjs:1427-1436).
+  - The value is saved in the record (game.mjs:403, 559; server/records.mjs:99, 146) and sent on auth (game.mjs:460), with an 'oxygen' push about once a second.
+  - The page only mirrors it (session.js:165-167, 443) and does not suffocate itself when authority is 'server' (src/player/player.js:710).
+- My bot test, all passing:
+  - full tank at Tranquility Base
+  - drains 5.0 s in 5.0 s, about 200 m away
+  - 5 'oxygen' messages in 5 s
+  - hovering at AGL 20 over the base does NOT refill
+  - on the ground at the base it refills from 284 to 300
+  - reload keeps the tank (293.0 → 292.9, not refilled), and the position too
+  - a server restart keeps it (291.3 → 291.2)
+  - empty tank: 10 suffocation hits and death in 11.5 s, announced as "Oxman ran out of oxygen"
+  - respawn at the base with a full tank, or at your lander once one is set
+  - the lander goes down where you stand and refills you
+  - Earth refills the tank
+- The servertest covers surge 2× drain and the lander's on-ground rule and 30 s cooldown.
+- A page that never sends 'arrived' freezes its own tank (game.mjs:1401), but the server also ignores all its movement (game.mjs:614-617). That is not exploitable.
+- Local, in the browser:
+  - drained 300 → 279.4
+  - HUD O2 bar (src/ui/hud.js:484-492) turned state 'low' and red at 0:37
+  - after a reload, 123 → 116.9
+  - at 0 the hearts emptied and the death screen said "Your oxygen ran out"
+  - local saves: game.js:2172-2184 and restore game.js:1090-1092
+
+GAPS (minor):
+- (a) The warning is visual only. The 120-px bar (styles/main.css:2443) turns red under 20%, and nothing else happens: no toast, sound or vignette at 60/30/10 s or when empty.
+  - FIX: toast plus a sound at those thresholds, and a red edge while suffocating.
+- (b) The local refill rule doesn't match the server's.
+  - src/game.js:1607-1614 has no on-ground check, despite the comment at 1374-1375. The server requires FLAG.ground (game.mjs:1429).
+  - Online, flying low over the base the HUD shows "refilling" and counts up locally, while the server drains and corrects it every second, so the gauge jumps back and forth.
+  - FIX: add player.onGround && in nearAir.
+- (c) Online the tank is one number across all worlds; locally each world keeps its own (the 'last-position' key per world).
+  - Measured: leave the Moon with 25 s and you arrive on Mars with 25 s. If you have been to Mars before, you land at your last Mars spot (300 m from the base in my run).
+  - FIX: refill on travel, or keep the tank per world in record.on(world).
+
+- (d) Local only: reload while dead and you come back alive at the death spot with an empty tank.
+  - The save at game.js:2183 includes oxygen 0; health is skipped when 0 (game.js:1091), so you suffocate again about 10 s later. The server handles this case (game.mjs:551-559).
+  - FIX: when dead, savePosition should store the respawn point and a full tank.
+
+---------------------------------------------------------------
+ITEM 4 — "other planets mainly moon and mars" (Mars)
+STATUS: done, with the arrival-fall gap from item 1.
+
+EVIDENCE:
+- Mars body: 3.721 m/s² (0.38g), air 0.02 kg/m³ (1.6% of Earth's), −63 °C, spawn at "Jezero crater, Perseverance" (bodies.js:79-95).
+- Imagery: CTX over Viking colour. At z12 at Jezero, three tiles all returned HTTP 200 (60–84 KB), with CORS *.
+- Relief: MOLA/HRSC ArcGIS F32. At the Jezero spawn tile the centre reads −2587 m (range −2712 to −2052), which matches Jezero's real floor of about −2.6 km.
+- Sky: the 'mars' palette, a butterscotch haze in mars-sky.png.
+- Moon: Kaguya over LRO WAC imagery, 200 at z11. LOLA relief centre −1857 m at z10 and −1926 m in the game's field. Black starry sky (moon-lowO2.png). Earth hangs in the sky via the parent uniforms (src/world/sky.js:387-395). Eagle's descent stage is drawn at the landmark (src/world/lander.js:144-183).
+
+GAP: the same arrival fall as item 1 (2.6 km on Mars).
+
+---------------------------------------------------------------
+ITEM 5 — "then everything else"
+STATUS: done.
+
+EVIDENCE:
+- 13 more bodies: Mercury, Venus, Ceres, Vesta, Io, Europa, Ganymede, Callisto, Titan, Enceladus, Pluto, Charon (bodies.js:97-339; WORLD_IDS in boot.js:44-47).
+- All 15 appear as Travel cards with gravity, air, temperature, map detail and whether relief is measured.
+- Imagery: the first imagery source at each spawn returned HTTP 200 for all 15 (NASA Trek, or USGS WMS for Pluto and Charon).
+- Relief at spawn came back real for 11 bodies:
+  - Mercury +204, Venus +5900, Ceres +6198, Vesta +5398, Io −2643, Titan +153, Enceladus +61, Pluto −835, Charon −1952 (plus the Moon and Mars above).
+  - Europa, Ganymede and Callisto have no relief and are honestly labelled "never measured, so flat". Pluto and Charon are labelled partial (46% / 45%).
+- Skies: vacuum, mars, venus and titan palettes (sky.js:73-149, 237), plus parent planets such as Jupiter and Saturn with rings.
+- Random teleport off Earth goes to IAU-named features (game.mjs:803-806; servertest covers the Moon).
+
+NOTE: Io and Titan imagery is coarse (about 1–2 miles per pixel). The panel says so honestly, so this is not a gap.
+
+---------------------------------------------------------------
+CROSS-CUTTING: single-file and gh-pages builds
+- The existing terraglide.html and terraglide.bundle.js contain the worlds code (grep hits for TravelPanel, tickOxygen and "Tranquility Base").
+- The deploy workflow rebuilds both (.github/workflows/deploy-gh-pages.yml:43-44). check.mjs is clean.
+
+PRIORITY: fix item 1's arrival fall first. It is the one thing a player sees on every Moon or Mars arrival, local or online. Everything else is minor.
+

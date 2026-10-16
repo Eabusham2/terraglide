@@ -1,6 +1,7 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { clamp, damp, dampAngle, wrapAngle } from '../core/math.js';
 import { ASSET_BASE } from '../core/paths.js';
+import { SWORD_SLOT } from '../net/protocol.js';
 
 /**
  * The built firework's tube and cone together, in metres, and how far up it the
@@ -890,6 +891,137 @@ const SCAN_HAND_DIVE = {
   L: [0.87, 0.33, 0.9, -1.29, 0.02, 0.74],
 };
 /** Scratch for placing that cut. */
+/**
+ * A swing of the sword, seconds: wound back, then brought down through, the
+ * length of a Minecraft arm swing. And how far it carries the blade and the
+ * arm, radians, and the share of it spent winding back.
+ */
+const SWING_S = 0.3;
+const SWING_BLADE = 1.4;
+const SWING_ARM = 1.15;
+const _swingTurn = new THREE.Quaternion();
+const _swingAxis = new THREE.Vector3(1, 0, 0);
+const _swingArm = new THREE.Quaternion();
+const _swingView = new THREE.Quaternion();
+const _swingLevel = new THREE.Vector3();
+/**
+ * The parts of a swing, as shares of it: wound back until SWING_WIND,
+ * brought down through until SWING_STRIKE, and back to rest by the end.
+ */
+const SWING_WIND = 0.35;
+const SWING_STRIKE = 0.65;
+/**
+ * Where a swing is at `t`, 0 as it starts to 1 when it is over: how far the
+ * arm is raised, 0 to 1, and how far the blade is turned about the arm's
+ * hinge - positive wound back over the shoulder, negative brought through.
+ * Each part eased, so it never jumps. One object, read at once by the caller.
+ */
+const _swingPose = { lift: 0, cut: 0 };
+function swingPose(t) {
+  const ease = (a, b, u) => a + ((b - a) * (1 - Math.cos(Math.PI * u))) / 2;
+  if (!(t < 1)) {
+    _swingPose.lift = 0;
+    _swingPose.cut = 0;
+  } else if (t < SWING_WIND) {
+    const u = Math.max(0, t) / SWING_WIND;
+    _swingPose.lift = ease(0, 1, u);
+    _swingPose.cut = ease(0, 1, u);
+  } else if (t < SWING_STRIKE) {
+    const u = (t - SWING_WIND) / (SWING_STRIKE - SWING_WIND);
+    _swingPose.lift = ease(1, 0.4, u);
+    _swingPose.cut = ease(1, -1, u);
+  } else {
+    const u = (t - SWING_STRIKE) / (1 - SWING_STRIKE);
+    _swingPose.lift = ease(0.4, 0, u);
+    _swingPose.cut = ease(-1, 0, u);
+  }
+  return _swingPose;
+}
+
+/** The built sword, pommel to point, in body units: a scanned one is scaled to it. */
+const SWORD_LEN = 0.45;
+/** The view model's sword in the box fist: bigger than life, and up out of it. */
+const HAND_SWORD_SIZE = 1.45;
+const HAND_SWORD_AT = 0.035;
+/** How far that sword leans back in the scanned fist, which holds it bolt upright. */
+const HAND_SWORD_LEAN = 0.45;
+
+/**
+ * The sword: blade, guard, grip and pommel, in body units (the figure is one
+ * unit tall). Built about the middle of its grip, which is the same point
+ * the firework stands on, so a sword can be held exactly where and how the
+ * firework is: every pose that holds one holds the other. The blade is 0.3
+ * and the whole of it 0.45 from pommel to point, about a third of the
+ * figure, which is an arming sword at the hip of a
+ * six-foot figure, which is a sword and not a dagger or a greatsword.
+ */
+function makeSword(mat) {
+  const sword = new THREE.Group();
+  sword.name = 'sword';
+  const steel = mat(0xb9c1c9);
+  const edge = mat(0x7d8790);
+  const brass = mat(0xb08a3c);
+  const leather = mat(0x3a2618);
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.3, 0.006), steel);
+  blade.position.y = 0.2035;
+  const fuller = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.26, 0.0075), edge);
+  fuller.position.y = 0.1935;
+  const tip = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.022, 0.0055), steel);
+  tip.position.y = 0.3645;
+  const point = new THREE.Mesh(new THREE.BoxGeometry(0.005, 0.012, 0.005), steel);
+  point.position.y = 0.3815;
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.016, 0.022), brass);
+  guard.position.y = 0.0455;
+  const grip = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.075, 0.018), leather);
+  grip.position.y = 0;
+  const pommel = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.022, 0.03), brass);
+  pommel.position.y = -0.0485;
+  sword.add(blade, fuller, tip, point, guard, grip, pommel);
+  return sword;
+}
+
+/**
+ * Where a scanned sword is held, in its own units, and how long it is.
+ * Sliced up its height - it stands point up, as it was generated - a sword
+ * is widest at the crossguard and nothing else on it comes close; the pommel
+ * is its bottom, and the grip is half way between the two. That point goes
+ * at the origin of the group that holds it, which is the grip of the built
+ * sword too. See loadSwordModel.
+ */
+function measureSwordGrip(root) {
+  const points = [];
+  const v = new THREE.Vector3();
+  root.traverse((child) => {
+    const position = child.isMesh ? child.geometry?.attributes?.position : null;
+    if (!position) return;
+    for (let i = 0; i < position.count; i++) points.push(v.fromBufferAttribute(position, i).applyMatrix4(child.matrixWorld).clone());
+  });
+  if (!points.length) return { x: 0, y: 0, z: 0, length: 1 };
+  // Reduced rather than spread: a scan has tens of thousands of points.
+  const lo = points.reduce((m, p) => Math.min(m, p.y), Infinity);
+  const length = points.reduce((m, p) => Math.max(m, p.y), -Infinity) - lo || 1;
+  // Which of forty slices up its height a point is in: enough to find a guard.
+  const slice = (y) => Math.min(39, Math.max(0, Math.floor(((y - lo) / length) * 40)));
+  const slices = Array.from({ length: 40 }, () => ({ x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity }));
+  for (const p of points) {
+    const s = slices[slice(p.y)];
+    s.x0 = Math.min(s.x0, p.x);
+    s.x1 = Math.max(s.x1, p.x);
+    s.z0 = Math.min(s.z0, p.z);
+    s.z1 = Math.max(s.z1, p.z);
+  }
+  // The widest slice, across either way, is the crossguard; the grip is half
+  // way from the pommel to it.
+  const width = (s) => Math.max(s.x1 - s.x0, s.z1 - s.z0);
+  const guard = slices.reduce((best, s, i) => (width(s) > width(slices[best]) ? i : best), 0);
+  const y = lo + (((guard + 0.5) / 40) * length) / 2;
+  // Across, the middle of the slice the grip is in.
+  const g = slices[slice(y)];
+  const x = Number.isFinite(g.x0) ? (g.x0 + g.x1) / 2 : 0;
+  const z = Number.isFinite(g.z0) ? (g.z0 + g.z1) / 2 : 0;
+  return { x, y, z, length };
+}
+
 const _clipAt = new THREE.Vector3();
 const _clipDown = new THREE.Vector3();
 const _clipNone = new THREE.Vector3(0, 1, 0);
@@ -1306,6 +1438,15 @@ export class Avatar {
     this.builtGrip = this.rocket.position.clone();
     this.cloth.rocket = [rocketMat];
     this.rocketColour = -1;
+    // And the sword, held where the firework is held: see holdSword().
+    this.sword = makeSword(mat);
+    this.sword.visible = false;
+    // At the grip from the start, so it never stands up out of the shoulder
+    // before the first frame has put it in the hand.
+    this.sword.position.copy(this.rocket.position);
+    this.armR.pivot.add(this.sword);
+    this.swingTime = 1;
+    this.lastSwings = 0;
 
     // The view model: your arms and the firework in one of them, drawn in view
     // space instead of world space.
@@ -1335,6 +1476,15 @@ export class Avatar {
     // are meant to be able to read the colour off.
     this.handRocket.position.set(0, 0.155, 0);
     this.handR.add(this.handRocket);
+    // The view model's sword shares the world one's geometry and materials.
+    // A little bigger than life, as every first-person sword is: what is in
+    // your hand is the thing you are looking at. HAND_SWORD_SIZE and
+    // HAND_SWORD_AT, because holdSword puts it back there after a swing.
+    this.handSword = this.sword.clone();
+    this.handSword.scale.setScalar(HAND_SWORD_SIZE);
+    this.handSword.position.set(0, HAND_SWORD_AT, 0);
+    this.handSword.visible = false;
+    this.handR.add(this.handSword);
     this.viewModel.add(this.handR, this.handL);
     /** Look-lag and the shove a firework gives the arm. */
     this.handSway = { yaw: 0, pitch: 0, lastYaw: 0, lastPitch: 0 };
@@ -1700,7 +1850,19 @@ export class Avatar {
    * worse at everything else. That is a real trade, so it is offered as one
    * rather than chosen for you.
    */
-  async loadModel(base = ASSET_BASE) {
+  /**
+   * Load the scanned body, once: a second call while the first is still loading gets
+   * the same answer rather than starting another. Switching the setting on,
+   * off and on again inside a load started a second one, and what it loaded -
+   * attached, but never `this.model` - stayed drawn with the setting off.
+   */
+  loadModel(base = ASSET_BASE) {
+    if (this.model) return Promise.resolve(true);
+    this.loadingModel ??= this.loadModelNow(base).finally(() => { this.loadingModel = null; });
+    return this.loadingModel;
+  }
+
+  async loadModelNow(base = ASSET_BASE) {
     if (globalThis.__TERRAGLIDE_INLINE_WORKER__) return false;
     if (!settings.get('detailedPlayerModel')) return false;
     if (this.model) return true;
@@ -3860,7 +4022,19 @@ export class Avatar {
    * instead, because a photograph of red and white paper has no separate nose
    * to recolour.
    */
-  async loadRocketModel(base = ASSET_BASE) {
+  /**
+   * Load the scanned firework, once: a second call while the first is still loading gets
+   * the same answer rather than starting another. Switching the setting on,
+   * off and on again inside a load started a second one, and what it loaded -
+   * attached, but never `this.rocketModel` - stayed drawn with the setting off.
+   */
+  loadRocketModel(base = ASSET_BASE) {
+    if (this.rocketModel) return Promise.resolve(true);
+    this.loadingRocket ??= this.loadRocketModelNow(base).finally(() => { this.loadingRocket = null; });
+    return this.loadingRocket;
+  }
+
+  async loadRocketModelNow(base = ASSET_BASE) {
     if (globalThis.__TERRAGLIDE_INLINE_WORKER__) return false;
     if (!scannedRocketWanted()) return false;
     if (this.rocketModel) return true;
@@ -3919,6 +4093,80 @@ export class Avatar {
       // failing quietly means nobody can tell a missing file from a broken one.
       console.warn('TerraGlide: scanned firework not loaded —', err?.message ?? err);
       return false;
+    }
+  }
+
+  /**
+   * The scanned sword, for the scanned body — generated the way the firework
+   * was, from a reference picture, and held the way the built sword is: in
+   * the same fist, at the same grip, swung by the same arm.
+   *
+   * Where the hand goes is measured off the mesh rather than guessed. Cut
+   * into slices up its length, a sword is narrowest at the grip and widest at
+   * the crossguard, and nothing else on it comes close: the guard is the
+   * widest slice, the pommel is the bottom, and the grip is the middle of the
+   * two. That point goes at the group's origin, which is the grip of the
+   * built sword too, so every pose that holds one holds the other.
+   */
+  /**
+   * Load the generated sword, once: a second call while the first is still loading gets
+   * the same answer rather than starting another. Switching the setting on,
+   * off and on again inside a load started a second one, and what it loaded -
+   * attached, but never `this.swordModel` - stayed drawn with the setting off.
+   */
+  loadSwordModel(base = ASSET_BASE) {
+    if (this.swordModel) return Promise.resolve(true);
+    this.loadingSword ??= this.loadSwordModelNow(base).finally(() => { this.loadingSword = null; });
+    return this.loadingSword;
+  }
+
+  async loadSwordModelNow(base = ASSET_BASE) {
+    if (globalThis.__TERRAGLIDE_INLINE_WORKER__) return false;
+    if (!scannedRocketWanted()) return false;
+    if (this.swordModel) return true;
+    try {
+      const inline = globalThis.__TERRAGLIDE_REQUIRE__;
+      const { GLTFLoader } = inline
+        ? inline('vendor/three/loaders/GLTFLoader.js')
+        : await import('../../vendor/three/loaders/GLTFLoader.js');
+      const gltf = await new Promise((resolve, reject) =>
+        new GLTFLoader().load(`${base}sword.glb`, resolve, undefined, reject),
+      );
+      const mesh = gltf.scene;
+      mesh.updateMatrixWorld(true);
+      const grip = measureSwordGrip(mesh);
+      const scale = SWORD_LEN / Math.max(grip.length, 1e-6);
+      mesh.scale.setScalar(scale);
+      mesh.position.set(-grip.x * scale, -grip.y * scale, -grip.z * scale);
+      mesh.traverse((child) => {
+        if (!child.isMesh) return;
+        // A sword is metal, but a baked photograph already carries its
+        // highlights; a little metalness keeps the steel from going flat.
+        child.material.metalness = 0.2;
+        child.material.roughness = 0.45;
+        child.castShadow = false;
+      });
+      const held = new THREE.Group();
+      held.name = 'scanned-sword';
+      held.add(mesh);
+      this.swordModel = held;
+      this.sword.add(held);
+      this.handSword?.add(held.clone(true));
+      this.applySwordModel();
+      return true;
+    } catch (err) {
+      console.warn('TerraGlide: scanned sword not loaded —', err?.message ?? err);
+      return false;
+    }
+  }
+
+  /** The scanned sword or the built one, never both. */
+  applySwordModel() {
+    const useModel = !!this.swordModel && scannedRocketWanted();
+    this.swordModelShown = useModel;
+    for (const holder of [this.sword, this.handSword]) {
+      if (!holder) continue;
+      for (const child of holder.children) child.visible = child.isGroup ? useModel : !useModel;
     }
   }
 
@@ -4423,9 +4671,14 @@ export class Avatar {
     // rather than inherited from a skeleton. So the glide gets those, the
     // world arms come off with them so there is never a second pair, and the
     // world firework comes off too because the view model carries its own.
-    this.armL.pivot.visible = !prone;
-    this.armR.pivot.visible = !prone;
-    this.viewModel.visible = prone;
+    // And on foot with the sword out, in first person: Minecraft always draws
+    // the held sword in the corner of the screen and swings it across, and a
+    // fight where you never see your own blade does not read as a fight.
+    const sworded = this.firstPerson && player.selectedSlot === SWORD_SLOT && !player.dead;
+    const handed = prone || sworded;
+    this.armL.pivot.visible = !handed;
+    this.armR.pivot.visible = !handed;
+    this.viewModel.visible = handed;
 
     // The view model is placed in the frame rather than in the world, so it is
     // posed here rather than by the body pose above — and before aimRocket,
@@ -4466,6 +4719,91 @@ export class Avatar {
     this.aimRocket(player);
     // Last, because it measures against where the camera actually is.
     this.hideWhatIsInYourEye(camera);
+    this.holdSword(player, dt);
+  }
+
+  /**
+   * The sword, when it is the slot you are on, in place of the firework — in
+   * the same fist, at the same grip, so every pose the arm already has for
+   * holding something holds it. A swing is an arc of the arm and the blade
+   * together, started whenever the player's swing count moves on: yours from
+   * a click, anybody else's from the flag the server relays.
+   */
+  holdSword(player, dt) {
+    const held = player.selectedSlot === SWORD_SLOT;
+    if ((player.swings ?? 0) !== this.lastSwings) {
+      this.lastSwings = player.swings ?? 0;
+      this.swingTime = 0;
+    }
+    this.swingTime = Math.min(1, this.swingTime + dt / SWING_S);
+    const { lift, cut } = swingPose(this.swingTime);
+    // About the arm's own hinge, the axis the arm swings on - not the
+    // sword's. The sword lies in the fist turned however the grip turned it
+    // (the scanned fist spins it most of a right angle), and a turn about its
+    // own axis then throws the blade sideways or down instead of up. A turn
+    // about +X lifts what points forward: the arm out in front, the blade up
+    // and back over the shoulder.
+    _swingTurn.setFromAxisAngle(_swingAxis, cut * SWING_BLADE);
+
+    const holder = this.rocket.parent ?? this.armR.pivot;
+    if (this.sword.parent !== holder) holder.add(this.sword);
+    this.sword.position.copy(this.rocket.position);
+    this.sword.quaternion.copy(_swingTurn).multiply(this.rocket.quaternion);
+    // Sized to the fist it is in, the way the firework is. The built sword is
+    // boxes drawn for the built fist, and grows evenly with the firework in a
+    // scanned one. The scanned sword takes the firework's own fit - girth to
+    // the fist, length by its square root - since at its life size its grip
+    // was a quarter the bore that big fist closes round: a knitting needle
+    // poking out of a boxing glove.
+    if (this.swordModelShown) this.sword.scale.copy(this.rocket.scale);
+    else this.sword.scale.setScalar(this.rocket.scale.x || 1);
+    this.sword.visible = held && this.rocket.visible;
+    if (held) this.rocket.visible = false;
+    // The arm goes with the blade: up, over and down — on the built body, and
+    // on the scanned one, whose arm copied the built arm's pose before this
+    // and would otherwise stand still while the blade swung in its fist.
+    if (lift > 0 && held) {
+      if (this.armR.pivot.visible) this.armR.pivot.rotation.x += lift * SWING_ARM;
+      const bone = this.scanBones?.armR;
+      if (bone && this.model?.visible) bone.quaternion.multiply(_swingArm.setFromAxisAngle(_swingAxis, lift * SWING_ARM));
+    }
+
+    this.handSword.visible = held && this.viewModel.visible;
+    if (held) this.handRocket.visible = false;
+    else this.handRocket.visible = true;
+    // In the scan's own fist the sword lies where the firework does - in the
+    // channel the fingers close round, at the firework's size for that fist -
+    // and swings from there. The box fist holds it upright, a little big.
+    // In first person the blade goes back toward you and then down and
+    // away, a little less far each way than the world one: the hand already
+    // travels across the frame with it (see updateHand). About the screen's
+    // own level, carried into the hand: the hands are turned every which way
+    // to sit in the corner, and the scanned one's own X is nearer the line
+    // of sight than across it - a turn about that lays the blade on its side.
+    const scanFist = !!this.scanHands?.R?.visible;
+    _swingView.copy(this.handR.quaternion).invert();
+    _swingTurn.setFromAxisAngle(
+      _swingLevel.copy(_swingAxis).applyQuaternion(_swingView),
+      // The scan's fist holds it bolt upright, where the box fist leans it
+      // into the scene; leaned the same way, so winding back draws it up
+      // beside you rather than straight at your eye.
+      Math.max(cut, 0) * 0.6 + Math.min(cut, 0) * 0.8 - (scanFist ? HAND_SWORD_LEAN : 0),
+    );
+    if (scanFist) {
+      this.handSword.position.copy(this.handRocket.position);
+      this.handSword.quaternion.copy(_swingTurn).multiply(this.handRocket.quaternion);
+      if (this.swordModelShown) this.handSword.scale.copy(this.handRocket.scale);
+      else this.handSword.scale.setScalar(this.handRocket.scale.x);
+    } else {
+      this.handSword.position.set(0, HAND_SWORD_AT, 0);
+      this.handSword.quaternion.copy(_swingTurn);
+      this.handSword.scale.setScalar(HAND_SWORD_SIZE);
+    }
+  }
+
+  /** Swing now. The game calls this for your own sword; others swing by count. */
+  swing() {
+    this.swingTime = 0;
   }
 
   /**
@@ -4755,6 +5093,16 @@ export class Avatar {
       hand.position.set(side * half * aspect * pose[0], -half * pose[1], -pose[2]);
       hand.rotation.set(pose[3], side * pose[4], side * pose[5]);
     };
+    // A swing carries the hand across the frame with the blade: in toward the
+    // middle and up as it winds back, then down and out past its corner as it
+    // comes through - Minecraft's arc, from the hand's own corner. The turn of
+    // the blade itself is holdSword's.
+    const { lift, cut } = swingPose(this.swingTime);
+    if (lift > 0 && player.selectedSlot === SWORD_SLOT) {
+      right = right.slice();
+      right[0] -= lift * 0.35;
+      right[1] -= Math.max(cut, 0) * 0.25 - Math.min(cut, 0) * 0.2;
+    }
     place(this.handR, right, 1);
     place(this.handL, left, -1);
     this.handL.visible = glide > 0.02;

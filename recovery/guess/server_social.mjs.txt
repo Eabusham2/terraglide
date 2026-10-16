@@ -1,0 +1,168 @@
+@@ 547-554
+    if (party.members.length === 1 && party.invites.size === 0) this.disband(party, { quiet: !party.joined });
+    else this.sendParty(party);
+  }
+
+  leave(player, { quiet = false } = {}) {
+    const party = this.partyFor(player.key);
+    if (!party) {
+      // A party the page still shows, one that ended or was wound up while it was
+@@end
+@@ 556-579
+      if (!quiet) this.game.send(player.client, { t: 'party', party: null });
+      return quiet ? null : this.game.tell(player, 'You are not in a party', 'error');
+    }
+    this.removeMember(party, player.key);
+    this.game.send(player.client, { t: 'party', party: null });
+    if (!quiet) this.game.tell(player, 'You left the party', 'party');
+    if (this.parties.has(party.id)) this.tellParty(party, `${player.name} left the party`);
+    this.game.saveServer();
+  }
+
+  kick(player, name) {
+    const party = this.partyFor(player.key);
+    if (!party) return this.game.tell(player, 'You are not in a party', 'error');
+    if (party.leader !== player.key) return this.game.tell(player, 'Only the party leader can remove people', 'error');
+    const wanted = nameKey(String(name ?? ''));
+    const key = party.members.find((k) => k === wanted) ?? party.members.find((k) => k.startsWith(wanted) && wanted);
+    if (!key || key === player.key) return this.game.tell(player, `${String(name ?? '').slice(0, 32)} is not in your party`, 'error');
+    this.removeMember(party, key);
+    const gone = this.game.byKey.get(key);
+    if (gone) {
+      this.game.send(gone.client, { t: 'party', party: null });
+      this.game.tell(gone, `${player.name} removed you from the party`, 'party');
+    } else {
+      // Told when they are next on, rather than finding the party simply gone.
+@@end
+@@ 581-594
+      this.social(key).notices = this.social(key).notices.slice(-MAX_NOTICES);
+      this.save(key);
+    }
+    if (this.parties.has(party.id)) this.tellParty(party, `${this.who(key).name} was removed from the party`);
+    this.game.saveServer();
+  }
+
+  promote(player, name) {
+    const party = this.partyFor(player.key);
+    if (!party) return this.game.tell(player, 'You are not in a party', 'error');
+    const wanted = nameKey(String(name ?? ''));
+    const key = party.members.find((k) => k === wanted) ?? party.members.find((k) => k.startsWith(wanted) && wanted);
+    // The leader hands it over — or anybody, while the leader is away: a party
+    // whose leader went offline for the evening could not invite,
+@@end
+@@ 596-605
+    if (party.leader !== player.key && this.game.byKey.has(party.leader)) return this.game.tell(player, 'Only the party leader can hand it over', 'error');
+    if (!key || key === party.leader) return this.game.tell(player, `${String(name ?? '').slice(0, 32)} is not in your party`, 'error');
+    party.leader = key;
+    this.tellParty(party, `${this.who(key).name} leads the party now`);
+    this.sendParty(party);
+    this.game.saveServer();
+  }
+
+  removeMember(party, key) {
+    party.members = party.members.filter((k) => k !== key);
+@@end
+@@ 607-618
+    this.partyOf.delete(key);
+    if (party.members.length <= 1 && party.invites.size === 0) return this.disband(party);
+    if (party.members.length === 0) return this.disband(party);
+    if (party.leader === key) {
+      // The longest-standing member who is online, or simply the next.
+      party.leader = party.members.find((k) => this.game.byKey.has(k)) ?? party.members[0];
+      this.tellParty(party, `${this.who(party.leader).name} leads the party now`);
+    }
+    this.sendParty(party);
+  }
+
+  disband(party, { quiet = false } = {}) {
+@@end
+@@ 620-642
+    // it keeps them, among their own waypoints on the world each was made on:
+    // a long evening's marks are not lost because the party wound up.
+    this.keepWaypoints(party);
+    for (const key of party.members) {
+      this.partyOf.delete(key);
+      const member = this.game.byKey.get(key);
+      if (member) {
+        this.game.send(member.client, { t: 'party', party: null });
+        if (!quiet) this.game.tell(member, 'The party is over', 'party');
+      }
+    }
+    for (const key of party.invites.keys()) {
+      const invitee = this.game.byKey.get(key);
+      if (invitee) this.game.send(invitee.client, { t: 'partyInviteEnd', party: party.id, reason: 'over' });
+    }
+    this.parties.delete(party.id);
+    this.game.saveServer();
+  }
+
+  /** Whether you come along when the party leader teleports: the tick in the panel. */
+  setTogether(player, on) {
+    const party = this.partyFor(player.key);
+    if (!party) return this.game.tell(player, 'You are not in a party', 'error');
+@@end
+@@ 791-812
+   */
+  keepWaypoints(party) {
+    if (!party.waypoints.length) return;
+    for (const key of party.members) {
+      const member = this.game.byKey.get(key);
+      if (member) {
+        const here = party.waypoints.filter((w) => w.world === member.world);
+        if (here.length) this.game.send(member.client, { t: 'partyKept', waypoints: here });
+      }
+      // And into the record on every world: the list a page there is handed at
+      // sign-in, and all that a member who is away will have.
+      const record = this.game.record(key);
+      for (const w of party.waypoints) {
+        const live = record.on(w.world);
+        if (live.waypoints.some((o) => Math.abs(o.lat - w.lat) < 1e-6 && Math.abs(o.lon - w.lon) < 1e-6)) continue;
+        live.waypoints.push({ id: w.at ?? 0, name: w.name, lat: w.lat, lon: w.lon, altitude: 0, colour: w.colour ?? '#c8b98f', createdAt: w.at ?? 0 });
+      }
+      this.game.saveRecord(record);
+      if (!member) {
+        const n = party.waypoints.length;
+        const said = `The party ended — its ${n === 1 ? 'waypoint is' : `${n} waypoints are`} among yours now`;
+        if (this.social(key).notices.includes(said)) continue;
+@@end
+@@ 814-827
+        this.social(key).notices = this.social(key).notices.slice(-MAX_NOTICES);
+        this.save(key);
+      }
+    }
+  }
+
+  /* ------------------------------------------------------------- upkeep */
+  tick(now) {
+    for (const party of [...this.parties.values()]) {
+      for (const [key, invite] of [...party.invites]) {
+        if (now >= invite.expires) this.endInvite(invite.by, key, 'expired', party);
+      }
+      if (!this.parties.has(party.id)) continue;
+      // A leader away a while hands the party to the longest-standing member who
+@@end
+@@ 829-833
+      if (party.leaderAwaySince != null && now - party.leaderAwaySince > LEADER_AWAY_MS && !this.game.byKey.has(party.leader)) {
+        const next = party.members.find((k) => this.game.byKey.has(k));
+        if (next) {
+          party.leader = next;
+          party.leaderAwaySince = null;
+@@end
+@@ 835-850
+          this.sendParty(party);
+        }
+      }
+      const anyone = party.members.some((k) => this.game.byKey.has(k));
+      if (anyone) party.idleSince = null;
+      else if (party.idleSince == null) party.idleSince = now;
+      else if (now - party.idleSince > PARTY_IDLE_MS) this.disband(party);
+    }
+  }
+
+  /** What is kept in server.json. Invitations are not: they last a minute. */
+  toJSON() {
+    return [...this.parties.values()].map((p) => ({
+      id: p.id,
+      leader: p.leader,
+      members: p.members,
+@@end

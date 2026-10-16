@@ -1,0 +1,208 @@
+import { keybinds } from '../core/keybinds.js';
+import { COMMANDS, findCommand } from '../net/protocol.js';
+import { BODIES } from '../geo/bodies.js';
+import { escapeHtml } from './worldmap.js';
+
+/**
+ * Chat, the way Minecraft does it.
+ *
+ * Bottom left. Lines fade a few seconds after they arrive, so a quiet server
+ * leaves the view clear; opening the box brings the whole recent history back.
+ * T opens it, / opens it with the slash already typed, Enter sends, Escape
+ * closes, the arrows walk back through what you have sent, and Tab finishes a
+ * command or a player's name.
+ *
+ * Everything that starts with a slash goes to the server as a command — the
+ * same commands the players panel's buttons send, so typing /tpa Alex and
+ * pressing the button next to Alex are one thing.
+ */
+
+const FADE_MS = 10000;
+const KEEP = 120;
+
+export class ChatBox {
+  /**
+   * @param {HTMLElement} root
+   * @param {import('../net/session.js').OnlineSession} session
+   */
+  constructor(root, session) {
+    this.session = session;
+    this.open = false;
+    this.history = [];
+    this.historyIndex = -1;
+    this.element = document.createElement('div');
+    this.element.className = 'chat';
+    this.element.innerHTML = `
+      <div class="chat-log" aria-live="polite"></div>
+      <form class="chat-form" hidden>
+        <input type="text" maxlength="256" autocomplete="off" spellcheck="false" placeholder="Say something, or /help" />
+        <span class="chat-hint"></span>
+      </form>`;
+    root.appendChild(this.element);
+    this.log = this.element.querySelector('.chat-log');
+    this.form = this.element.querySelector('.chat-form');
+    this.input = this.element.querySelector('input');
+    this.hint = this.element.querySelector('.chat-hint');
+
+    this.form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      this.send();
+    });
+    this.input.addEventListener('keydown', (event) => this.onKey(event));
+    this.input.addEventListener('input', () => this.updateHint());
+    this.input.addEventListener('blur', () => {
+      // Clicking away closes it, unless what was clicked is inside the chat.
+      setTimeout(() => {
+        if (this.open && !this.element.contains(document.activeElement)) this.close();
+      }, 0);
+    });
+
+    session.on('chat', (m) => this.receive(m));
+    setInterval(() => this.fade(), 1000);
+  }
+
+  show(prefill = '') {
+    this.open = true;
+    this.form.hidden = false;
+    this.element.classList.add('open');
+    this.input.value = prefill;
+    this.historyIndex = -1;
+    this.updateHint();
+    // After the key that opened it has finished, or the T lands in the box.
+    setTimeout(() => {
+      this.input.focus();
+      this.input.setSelectionRange(this.input.value.length, this.input.value.length);
+    }, 0);
+  }
+
+  close() {
+    this.open = false;
+    this.form.hidden = true;
+    this.element.classList.remove('open');
+    this.input.blur();
+    this.fade();
+  }
+
+  send() {
+    const text = this.input.value.trim();
+    if (text) {
+      this.history.unshift(text);
+      if (this.history.length > 50) this.history.pop();
+      this.session.chat(text);
+    }
+    this.close();
+  }
+
+  onKey(event) {
+    event.stopPropagation();
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      this.close();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (this.historyIndex < this.history.length - 1) this.historyIndex += 1;
+      this.input.value = this.history[this.historyIndex] ?? this.input.value;
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      if (this.historyIndex > 0) this.historyIndex -= 1;
+      else this.historyIndex = -1;
+      this.input.value = this.historyIndex >= 0 ? this.history[this.historyIndex] : '';
+    } else if (event.key === 'Tab') {
+      event.preventDefault();
+      this.complete();
+    }
+  }
+
+  /** Finish the word under the cursor: a command after a slash, otherwise a name. */
+  complete() {
+    const value = this.input.value;
+    const words = value.split(' ');
+    const last = words[words.length - 1];
+    let options;
+    if (words.length === 1 && last.startsWith('/')) {
+      const typed = last.slice(1).toLowerCase();
+      options = COMMANDS.filter((c) => !c.admin || this.session.you?.admin)
+        .map((c) => `/${c.name}`).filter((c) => c.slice(1).startsWith(typed));
+    } else {
+      const command = words[0].startsWith('/') ? findCommand(words[0].slice(1)) : null;
+      if (command?.name === 'travel') {
+        options = Object.keys(BODIES).filter((w) => w.startsWith(last.toLowerCase()));
+      } else {
+        options = this.session.players().map((p) => p.name)
+          .filter((n) => n.toLowerCase().startsWith(last.toLowerCase()));
+      }
+    }
+    if (!options.length) return;
+    // Cycle through matches on repeated Tabs.
+    if (this.completing && this.completing.stem === words.slice(0, -1).join(' ')) {
+      this.completing.index = (this.completing.index + 1) % this.completing.options.length;
+    } else {
+      this.completing = { stem: words.slice(0, -1).join(' '), options, index: 0 };
+    }
+    words[words.length - 1] = this.completing.options[this.completing.index];
+    this.input.value = `${words.join(' ')} `;
+    this.updateHint();
+  }
+
+  updateHint() {
+    const value = this.input.value;
+    if (!value.startsWith('/')) {
+      this.completing = null;
+      this.hint.textContent = '';
+      return;
+    }
+    const word = value.slice(1).split(' ')[0];
+    const command = findCommand(word);
+    this.hint.textContent = command ? `/${command.name} ${command.args} — ${command.help}` : '';
+  }
+
+  receive(m) {
+    const line = document.createElement('div');
+    line.className = `chat-line chat-${m.kind ?? 'chat'}`;
+    line.dataset.at = String(performance.now());
+    const name = (who) => `<b style="--player:${escapeHtml(who.colour ?? '#ccc')}">${escapeHtml(who.name)}</b>`;
+    const text = escapeHtml(m.text ?? '').replace(/\n/g, '<br>');
+    switch (m.kind) {
+      case 'chat':
+        line.innerHTML = `${name(m.from)} ${worldTag(m.from)}${text}`;
+        break;
+      case 'near':
+        line.innerHTML = `<em>nearby</em> ${name(m.from)} ${text}`;
+        break;
+      case 'whisper':
+        line.innerHTML = `<em>${escapeHtml(m.from.name)} whispers</em> ${text}`;
+        break;
+      case 'whisperSent':
+        line.innerHTML = `<em>to ${escapeHtml(m.to.name)}</em> ${text}`;
+        break;
+      case 'me':
+        line.innerHTML = `* ${name(m.from)} ${text}`;
+        break;
+      default:
+        line.innerHTML = text;
+    }
+    this.log.appendChild(line);
+    while (this.log.children.length > KEEP) this.log.removeChild(this.log.firstChild);
+    this.log.scrollTop = this.log.scrollHeight;
+    this.fade();
+  }
+
+  /** Lines older than a few seconds go quiet unless the box is open. */
+  fade() {
+    const now = performance.now();
+    for (const line of this.log.children) {
+      const old = now - Number(line.dataset.at) > FADE_MS;
+      line.classList.toggle('faded', old && !this.open);
+    }
+  }
+
+  /** The keys that open it, for the hint on the HUD. */
+  static keys() {
+    return `${keybinds.labelFor('chat')} chat · ${keybinds.labelFor('command')} command`;
+  }
+}
+
+function worldTag(from) {
+  if (!from?.world || from.world === 'earth') return '';
+  return `<em class="chat-world">${escapeHtml(BODIES[from.world]?.name ?? from.world)}</em> `;
+}

@@ -1,0 +1,47 @@
+# Render Blueprint for the TerraGlide server. See HOSTING.md, "Render".
+#
+# In the Render dashboard: New -> Blueprint -> pick your copy of this
+# repository. Render reads this file, builds the game bundle, starts the
+# server and gives it an https://<name>.onrender.com address; WebSockets work
+# on it as they are, so that address is both the game and the server.
+#
+# THE FREE PLAN FORGETS EVERYTHING. A free web service sleeps after fifteen
+# minutes without traffic and its disk is wiped whenever it sleeps, restarts or
+# redeploys, so accounts and players are lost each time. That is fine for
+# trying it out. To keep them, change `plan` to a paid one (starter is the
+# smallest) and uncomment the `disk` block and the DATA_DIR variable below:
+# Render only attaches persistent disks to paid services.
+
+services:
+  - type: web
+    name: terraglide
+    runtime: node
+    plan: free
+    # No `npm install`: the server has no dependencies. This builds the two
+    # single-file pages the server hands out.
+    buildCommand: node tools/bundle.mjs && node tools/online.mjs
+    # Not `npm start`, which is the old static-only server.
+    startCommand: node server/server.mjs
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Render's proxy sits in front of every request, so the address a
+      # connection comes from is the proxy's. This makes the server read the
+      # player's real address from the header Cloudflare (in front of Render)
+      # sets, which the per-address rate limits and bans need. Not
+      # X-Forwarded-For: Render adds its own hops after the player's.
+      - key: TERRAGLIDE_TRUST_PROXY
+        value: "1"
+      - key: TERRAGLIDE_PROXY_HEADER
+        value: cf-connecting-ip
+      - key: TERRAGLIDE_NAME
+        value: TerraGlide server
+      # Render sets PORT itself; the server reads it. Add a join code, admins
+      # and TURN settings in the dashboard (Environment), not in this file.
+      # - key: DATA_DIR
+      #   value: /var/data
+    # disk:
+    #   name: terraglide-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
