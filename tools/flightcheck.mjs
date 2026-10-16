@@ -89,6 +89,7 @@ async function flyOne(world) {
   const { Accounts } = await import('../server/accounts.mjs');
   const { loadConfig } = await import('../server/config.mjs');
   const { radiusOf } = await import('../server/records.mjs');
+  const { decodeState: decodeStateForDebug } = await import('../src/net/protocol.js');
 
   const dir = mkdtempSync(join(tmpdir(), 'terraglide-flight-'));
   let clock = 1_000_000;
@@ -108,6 +109,19 @@ async function flyOne(world) {
     close() {}, terminate() {}, ping() {},
   };
   game.connect(ws, '127.0.0.1');
+  if (process.env.FLIGHT_DEBUG) {
+    const original = game.onState.bind(game);
+    game.onState = (player, m) => {
+      const before = { budget: player.budget, catchUp: player.catchUp, reserve: player.reserve, ceiling: player.ceiling, last: player.state && { ...player.state }, at: player.lastStateAt };
+      const sent = inbox.length;
+      original(player, m);
+      if (inbox.slice(sent).some((x) => x.t === 'correct')) {
+        const s = decodeStateForDebug(m);
+        const L = player.state;
+        console.error(JSON.stringify({ t: clock, gap: clock - before.at, budget: Math.round(before.budget), catchUp: Math.round(before.catchUp), reserve: Math.round(before.reserve), ceiling: Math.round(before.ceiling), lastAlt: Math.round(before.last?.alt), alt: Math.round(s.alt), flags: s.flags, dLat: ((s.lat - before.last.lat) * 111320 * radiusOf(world) / 6371008.8).toFixed(1), dLon: ((s.lon - before.last.lon) * 111320 * Math.cos(s.lat * Math.PI / 180) * radiusOf(world) / 6371008.8).toFixed(1), surge: player.surge, arrivedAgo: clock - player.arrivedAt, airborneAgo: clock - player.airborneAt }));
+      }
+    };
+  }
   const say = (m) => handlers.message(JSON.stringify(m), false);
   const take = (type) => {
     const i = inbox.findIndex((m) => m.t === type);
@@ -167,8 +181,8 @@ async function flyOne(world) {
   // Messages on their way: delivered at `at` on the server's clock.
   const wire = [];
   let stallUntil = -1;
+  let lastAt = -1;
   const deliverDue = () => {
-    wire.sort((a, b) => a.at - b.at);
     while (wire.length && wire[0].at <= clock) say(wire.shift().m);
   };
   const serverStep = (ms) => {
@@ -202,7 +216,8 @@ async function flyOne(world) {
 
   // Sent somewhere by the server, the way anyone is, and arrived.
   const sendTo = (alt, flying) => {
-    game.teleport(me, { lat: lat0, lon: lon0, alt, flying }, 'test');
+    // Its ceiling is that height, as a /tpa to someone flying there has.
+    game.teleport(me, { lat: lat0, lon: lon0, alt, flying, ceiling: alt }, 'test');
     readInbox();
     const tp = teleported;
     teleported = null;
@@ -211,9 +226,11 @@ async function flyOne(world) {
     p.onGround = !flying;
     p.elytraDeployed = flying;
     p.stopRockets();
-    say({ t: 'arrived', tid: tp.tid });
-    say(state(seq++));
-    serverStep(100);
+    // Behind whatever the page sent before it was moved: one socket, in order.
+    const at = Math.max(clock, lastAt);
+    wire.push({ at, m: { t: 'arrived', tid: tp.tid } }, { at, m: state(seq++) });
+    lastAt = at;
+    serverStep(100 + Math.max(0, at - clock));
     readInbox();
   };
 
@@ -224,13 +241,19 @@ async function flyOne(world) {
     t += 1 / 20;
     peak = Math.max(peak, Math.hypot(p.velocity.x, Math.max(0, p.velocity.y), p.velocity.z) * p.speedMultiplier);
     if (Math.round(t * 20) % 2 === 0) {
-      // Most arrive in about the same time; some are held up and bunch.
+      // Most arrive in about the same time; some are held up, and everything
+      // behind one waits for it - a socket delivers in order - and bunches.
       const late = random() < 0.12 ? 100 + random() * 250 : random() * 20;
-      const at = Math.max(clock + late, stallUntil);
+      const at = Math.max(clock + late, stallUntil, lastAt);
+      lastAt = at;
       wire.push({ at, m: state(seq++) });
     }
     serverStep(50);
     readInbox();
+    if (process.env.FLIGHT_TRACE && Math.round(t * 20) % 10 === 0) {
+      const [from, to] = process.env.FLIGHT_TRACE.split(',').map(Number);
+      if (t >= from && t <= to) console.error(JSON.stringify({ t: +t.toFixed(1), alt: Math.round(p.position.y), v: Math.round(p.velocity.length()), vy: Math.round(p.velocity.y), reserve: Math.round(me.reserve), ceiling: Math.round(me.ceiling), allowed: Math.round(Math.sqrt(180 ** 2 + 1.25 * (me.reserve + me.surgeKept))) }));
+    }
   };
   const stall = (seconds) => { stallUntil = clock + seconds * 1000; };
   const fire = () => { p.selectSlot(ROCKET_V); p.fireRocket(); };
@@ -304,7 +327,50 @@ async function flyOne(world) {
       step();
     });
   });
-  // 6. Down fast onto the ground and on at a run, with a jump and a knock.
+  // 6. Level on rockets through a surge and long after it, holding height:
+  //    with no air the surge's speed is kept for good. Then a surge started
+  //    while the socket is holding states back, and one inside a nine-second
+  //    stall, and a minute of a connection that keeps hiccuping.
+  const hold = (alt) => Math.max(-0.6, Math.min(0.6, (alt - p.position.y) * 0.004 - p.velocity.y * 0.01));
+  leg('cruise', () => {
+    sendTo(3000, true);
+    seconds(31, (i) => { p.pitch = hold(3000); if (i % 20 === 0) fire(); step(); });
+    p.startSpeedMode();
+    seconds(90, (i) => { p.pitch = hold(3000); if (i % 20 === 0) fire(); step(); });
+  });
+  leg('hiccup', () => {
+    seconds(43, (i) => {
+      p.pitch = hold(3000);
+      if (i % 20 === 0) fire();
+      if (i === 4) stall(1.2);
+      if (i === 8) p.startSpeedMode();
+      step();
+    });
+    seconds(43, (i) => {
+      p.pitch = hold(3000);
+      if (i % 20 === 0) fire();
+      if (i === 4) stall(9);
+      if (i === 8) p.startSpeedMode();
+      step();
+    });
+    seconds(60, (i) => {
+      p.pitch = hold(3000);
+      if (i % 20 === 0) fire();
+      if (i % 90 === 0) stall(1 + random());
+      if (i === 30 * 20) p.startSpeedMode();
+      step();
+    });
+    // A surge started a second and a half after a six-second stall has
+    // delivered its backlog: its own, not dated back into the stall.
+    seconds(45, (i) => {
+      p.pitch = hold(3000);
+      if (i % 20 === 0) fire();
+      if (i === 4) stall(6);
+      if (i === (6 + 1.5) * 20) p.startSpeedMode();
+      step();
+    });
+  });
+  // 7. Down fast onto the ground and on at a run, with a jump and a knock.
   leg('land', () => {
     seconds(60, (i) => {
       if (!p.onGround) {
