@@ -22,6 +22,14 @@
   "in repo now" column equals all 81 files' line counts there.
 - Suites on the branch tip (03b1791): check 101 modules ok, selftest 1748/1748, servertest 215/215 (210 + 5 new for the
   friend count), onlinecheck 43/43, flightcheck 15/15, voice 50/50.
+- Agent logs (cloud): re-downloaded with subagents=true and compared event by event with the Oct 14 archive: the same
+  25,971 events from the same 149 agents, Oct 2 19:36 to Oct 12 08:13, every archived event still there and none new.
+  No agent transcript from before the reset is on disk (the projects folder was recreated at 20:03 Oct 12).
+- The owner's uploads: 6 zips = 3 distinct (each sent twice, byte-identical by md5), 63 files, all unpacked and read by
+  the tools; 4 images = 3 distinct screenshots (sword and rocket feedback), no code. latestcheck.mjs (every line any
+  source showed, uploads included) on bbd6276: every line it flags is older text a later view or logged edit replaced
+  (e.g. the selftest's Oct 11 05:11 python edit, held exactly), the shell-log upload matched to HOSTING.md by mistake,
+  or a documented guess. Nothing in the uploads is newer than the repo.
 - What stays guessed (listed under Guessed): the regions no source ever showed, and 5 selftest checks (1748 of 1753).
   The only place left that could hold more is the owner's own device: `claude --teleport session_01AbPj1ecgWZX5NRERgq23EA`
   might carry the main chat from before Oct 10.
