@@ -1,0 +1,68 @@
+2026-10-05T06:02 ok('and tells the game it is on a server', /window\.__TERRAGLIDE_SERVER__ = true;/.test(html));
+2026-10-05T13:49 server/game.mjs:1000:      colour: /^#[0-9a-f]{6}$/i.test(String(w?.colour)) ? w.colour : '#c8b98f',
+2026-10-05T13:50 ok('and the flat maps draw the same plan with the same code', /composeEqImage\(plan/.test(mapSrc));
+2026-10-05T13:56 !/geo\/bodies\.js|core\/boot\.js/.test(jobsSrc) && !/geo\/bodies\.js|core\/boot\.js/.test(planetSrc));
+2026-10-05T21:47 server/game.mjs:1124:      colour: /^#[0-9a-f]{6}$/i.test(String(w?.colour)) ? w.colour : '#c8b98f',
+2026-10-05T21:49 ok('a banked wing turns nothing in a vacuum', /const bite = Math\.min\(1, player\.horizontalSpeed \/ 28\) \* Math\.min\(1, this\.env\.air\);/.test(controllerSource));
+2026-10-05T21:57 .test(readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8')));
+2026-10-05T22:01 /randomTeleport\(\{ quiet: true, flying: false, reason: 'spawn' \}\)/.test(game));
+2026-10-05T22:01 /reason === 'spawn' \? flyingBefore/.test(game));
+2026-10-05T22:01 ok('and the spawn is told it', /reason: 'spawn', quiet: true, flying: wasFlying/.test(game));
+2026-10-05T22:03 ok('the game listens to the store', /settings\.on\('change'/.test(game));
+2026-10-05T22:03 ok('and not to the widget', !/settingsPanel\.onChange\s*=/.test(game));
+2026-10-05T22:03 ok('changes are coalesced into one pass', /applyPendingSettings\(\)/.test(game));
+2026-10-05T22:03 /key === 'autoTier'/.test(game));
+2026-10-05T22:17 /Math\.min\(60000, 2000 \* Math\.pow\(2, this\.handshakeFailures - 1\)\)/.test(providerSrc));
+2026-10-05T22:17 /this\.watchGround\(\);\n    let movement/.test(game));
+2026-10-05T22:29 /othersDiscoveries: true,/.test(settingsSource) && /othersTrails: false,/.test(settingsSource));
+2026-10-06T16:21 tools/selftest.mjs:7813:  ok('empty colour samples are counted', /this\.unpainted = \(this\.unpainted \?\? 0\) \+ 1/.test(src));
+2026-10-06T22:05 /get paused\(\)[\s\S]{0,900}settingsPanel\.open[\s\S]{0,200}cheatPanel\.open/.test(gameSource));
+2026-10-07T16:34 /tiles3d\.groundHeightAt = \(x, z\) => this\.terrain\.heightAt\(x, z\)/.test(game));
+2026-10-07T16:34 /this\.datum = 0;[\s\S]{0,120}this\.group\.position\.y = 0;/.test(src));
+2026-10-07T16:54 ok('and it is drawn', /\.compass-heading \{/.test(css));
+2026-10-07T16:54 ok('kept under the needle', /\.compass-heading[\s\S]{0,200}left: 150px/.test(css));
+2026-10-07T21:35 tools/selftest.mjs:11354:    /othersDiscoveries: true,/.test(settingsSource) && /othersTrails: false,/.test(settingsSource));
+2026-10-07T21:35 tools/selftest.mjs:1303:    /return this\.shared \? litLikeTheWorld\(made, this\.shared\) : made;/.test(avatar));
+2026-10-07T21:35 tools/selftest.mjs:10805:    /new SeaFloor\(this\.scene, this\.shared\)/.test(game)
+2026-10-09T15:04 /const handed = prone \|\| sworded;/.test(avatar)
+2026-10-09T15:04 /const sworded = this\.firstPerson && player\.selectedSlot === SWORD_SLOT && !player\.dead;/.test(avatar));
+2026-10-09T15:04 /async loadSwordModel\(base = ASSET_BASE\)/.test(src) && /`\$\{base\}sword\.glb`/.test(src)
+2026-10-09T15:04 && /this\.avatar\.loadSwordModel\(\);/.test(gameSrc)
+2026-10-09T15:04 && /this\.avatar\.loadSwordModel\(\)\.then\(\(\) => this\.avatar\.applySwordModel\(\)\)/.test(gameSrc));
+2026-10-09T15:04 /const grip = measureSwordGrip\(mesh\);/.test(src) && /function measureSwordGrip\(root\)/.test(src));
+2026-10-09T15:04 /if \(this\.swordModelShown\) this\.sword\.scale\.copy\(this\.rocket\.scale\);/.test(src)
+2026-10-09T15:04 && /if \(this\.swordModelShown\) this\.handSword\.scale\.copy\(this\.handRocket\.scale\);/.test(src));
+2026-10-09T15:04 ok('a /password line is not kept in the chat history', /if \(!\/\^\\\/password\\b\/i\.test\(text\)\)/.test(chatSrc));
+2026-10-09T15:04 /body\.touch-active:not\(\.sword-out\) \.hud-crosshair/.test(css));
+2026-10-09T15:04 /for \(const leg of \[this\.legL, this\.legR\]\)/.test(avatar));
+2026-10-09T15:04 /bone\.quaternion\.multiply\(_swingArm\.setFromAxisAngle\(_swingAxis, lift \* SWING_ARM\)\)/.test(src));
+2026-10-09T20:10 tools/selftest.mjs:1317:    /friendsAutoAccept: false/.test(settingsSrc) && /key: 'friendsAutoAccept'/.test(settingsPanelSrc)
+2026-10-09T20:10 tools/selftest.mjs:1318:    && /\['friendsAutoAccept', 'autoFriends'\]/.test(sessionSrc) && /autoFriends: !!settings\.get\('friendsAutoAccept'\)/.test(sessionSrc)
+2026-10-09T20:10 tools/selftest.mjs:1319:    && /SOCIAL_PREFS = \[[^\]]*'friendsAutoAccept'/.test(sessionSrc));
+2026-10-10T03:04 out('2 Fuller still waiting, and told nothing', [game.social.social('hana').incoming, chats(full).filter((c) => /Hana/.test(c))]);
+2026-10-11T05:11 /this\.partyBeacons = ONLINE \? new Beacons\(/.test(gameSrc) && /this\.partySites\.waypoints = \(this\.session\?\.partyWaypoints\(\)/.test(gameSrc));
+2026-10-11T05:11 /this\.session\.partyMark\(askMarkName\(\), here\.lat, here\.lon\)/.test(panelSrc) && /this\.session\.partyMark\(askMarkName\(\), lat, lon\)/.test(gameSrc));
+2026-10-11T05:11 ok('a party that ends leaves its waypoints with its members', /net\.on\('partyKept'/.test(sessionSrc));
+2026-10-11T05:11 /t: 'social', cmd: 'party'/.test(sessionSrc) && /t: 'social', cmd: 'friend'/.test(sessionSrc));
+2026-10-11T05:11 /for \(const key of Object\.keys\(unsent\)\) if \(accountValue\(key, m\.prefs\) === unsent\[key\]\) delete unsent\[key\];/.test(sessionSrc)
+2026-10-11T05:11 && /if \(key in unsent\) continue;/.test(sessionSrc)
+2026-10-11T05:11 && /if \(was\.account && was\.account !== this\.accountKey\) writeUnsent\(null, \{\}\);/.test(sessionSrc));
+2026-10-11T05:11 /this\.net\.send\(\{ t: 'socialPrefs', \.\.\.fields \}\)/.test(sessionSrc)
+2026-10-11T05:11 && /for \(const key of SOCIAL_PREFS\) if \(now\[key\] !== choices\[key\]\) markPrefUnsent\(key\);/.test(gameSrc)
+2026-10-11T05:11 && /if \(!account \|\| accountValue\(key, account\) !== prefValue\(key\)\)/.test(sessionSrc));
+2026-10-11T05:11 ok('party voice can be switched on from the party itself', /data-action="voice-on"/.test(panelSrc));
+2026-10-11T05:11 /friendsAutoAccept: false/.test(settingsSrc) && /key: 'friendsAutoAccept'/.test(settingsPanelSrc)
+2026-10-11T05:11 && /friendsAutoAccept: 'autoFriends'/.test(sessionSrc) && /export const SOCIAL_PREFS = Object\.keys\(PREF_OF\)/.test(sessionSrc));
+2026-10-11T05:11 /\.filter\(\(p\) => !p\.scanAsked && p\.avatar && p\.visible && p\.distance < SCAN_NEAR_M\)\s*\.sort\(\(a, b\) => a\.distance - b\.distance\)/.test(remoteSrc)
+2026-10-11T05:11 && /p\.distance > furthest\.distance \* SCAN_SWAP_SHARE - SCAN_SWAP_M\) break;/.test(remoteSrc)
+2026-10-11T05:11 && /p\.trail\?\.dispose\(\);\s*p\.trail = null;/.test(remoteSrc)
+2026-10-11T05:11 && /p\.avatar\.lastSwings = p\.pose\.swings \?\? 0;/.test(remoteSrc)
+2026-10-11T05:32 && /const before = shown;\s*shown = shownPrefs\(\);/.test(sessionSrc) && /if \(shown\[key\] === before\[key\]\) continue;/.test(sessionSrc)
+2026-10-11T05:32 /for \(const key of Object\.keys\(lot\)\) if \(accountValue\(key, m\.prefs\) === lot\[key\]\) delete lot\[key\];/.test(sessionSrc)
+2026-10-11T05:32 && /const prefs = \{ \.\.\.\(was\.account === this\.accountKey \? was\.prefs : \{\}\), \.\.\.was\.next \};/.test(sessionSrc)
+2026-10-11T05:32 && /if \(account\) \{\s*if \(was\.account !== account\) \{/.test(sessionSrc) && /\} else \{\s*was\.next\[key\] = prefValue\(key\);/.test(sessionSrc));
+2026-10-11T05:32 && !/if \(!account \|\| accountValue/.test(sessionSrc));
+2026-10-11T05:32 /body\.touch-active \.hud-hotbar \.slot \{[\s\S]{0,120}width: min\(74px, calc\(\(100vw - 28px\) \/ 5\)\)/.test(css));
+2026-10-11T05:32 /body\.touch-active \.hud-hotbar \.slot \{[\s\S]{0,120}width: min\(74px, calc\(\(100vw - 28px\) \/ var\(--slots, 6\)\)\)/.test(css)
+2026-10-11T05:32 && /host\.style\.setProperty\('--slots', String\(SLOTS\.length\)\)/.test(readFileSync(new URL('../src/ui/hud.js', import.meta.url), 'utf8')));
+2026-10-11T05:50 tools/selftest.mjs:1388:    /nearAir\(player\) \{[\s\S]{0,400}if \(!player\.onGround\) return false;/.test(gameSrc));

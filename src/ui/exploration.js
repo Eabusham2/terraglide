@@ -2,7 +2,7 @@ import { cheats } from '../core/cheats.js';
 import { Emitter } from '../core/events.js';
 import { readJSON, writeJSON } from '../core/storage.js';
 import { settings } from '../core/settings.js';
-import { EARTH_CIRCUMFERENCE, latToNormY, lonToNormX, tileKey } from '../geo/mercator.js';
+import { WORLD_CIRCUMFERENCE, latToNormY, lonToNormX, tileKey } from '../geo/mercator.js';
 
 /**
  * Which parts of the world you have actually been to.
@@ -18,15 +18,16 @@ import { EARTH_CIRCUMFERENCE, latToNormY, lonToNormX, tileKey } from '../geo/mer
  * The zooms visited ground is recorded at.
  *
  * Sixteen is here so the edge of the fog is the shape you actually flew rather
- * than a staircase of two-kilometre squares. It cannot record a wide circle —
- * `reach` is capped at four tiles either way, which at level 16 is about two
- * and a half kilometres — and that cap is the point rather than a limitation:
- * you only ever saw the ground in that much detail when you were near it. High
- * over a coastline you uncover a broad, coarse circle; walking a valley you
- * uncover a narrow, sharp one, and the map shows the difference.
+ * than a staircase of two-kilometre squares. Every level records the same
+ * disc — what you saw, never more than MAX_REVEAL_M — so the patch is the same
+ * size whichever zoom the map is at. High over a coastline you uncover a broad
+ * circle; walking a valley you uncover a narrow one, and the map shows the
+ * difference.
  */
 const LEVELS = [8, 10, 12, 14, 16];
 const DETAIL_LEVEL = 14;
+/** What a visit that uncovered nothing reports. Shared, so it is never mutated. */
+const NONE = Object.freeze([]);
 const STORAGE_KEY = 'explored';
 /**
  * How many squares the record holds before the oldest fine detail is let go.
@@ -47,10 +48,34 @@ const STORAGE_KEY = 'explored';
  */
 const MAX_ENTRIES = 2000000;
 
+/**
+ * The widest circle one visit can uncover, in metres: two kilometres.
+ *
+ * It was the horizon itself, up to sixty kilometres, which is honest about
+ * what you can see from a cloud base and makes the map a poor record of where
+ * you have *been*. From two thousand metres up the whole of a county is
+ * "explored" by one pass, and on a server, where the map shows everybody's
+ * discoveries side by side, one high flight painted a region nobody had set
+ * foot in. Two kilometres either side of your track is still a broad swath
+ * from the air — wider than the minimap at its default zoom — and it means a
+ * place on the map was somewhere you were actually near.
+ */
+export const MAX_REVEAL_M = 2000;
+
 export class Exploration extends Emitter {
-  constructor() {
+  /**
+   * @param {object} [options]
+   * @param {number} [options.circumference] the world's, in metres. The server
+   *   keeps one of these for every player on every world, so it cannot read
+   *   the page's own world the way the game does.
+   * @param {boolean} [options.stored] read and write the browser save. Off for
+   *   the server, and for records made in tests.
+   */
+  constructor({ circumference = WORLD_CIRCUMFERENCE, stored = true } = {}) {
     super();
-    this.cells = new Set(decodeCells(readJSON(STORAGE_KEY, [])));
+    this.circumference = circumference;
+    this.stored = stored;
+    this.cells = new Set(stored ? decodeCells(readJSON(STORAGE_KEY, [])) : []);
     this.dirty = false;
     this.saveTimer = 0;
     this.lastVisit = null;
@@ -65,7 +90,7 @@ export class Exploration extends Emitter {
 
   /** Approximate ground area explored, in square kilometres. */
   areaKm2(lat = 0) {
-    const tileMetres = (EARTH_CIRCUMFERENCE * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, DETAIL_LEVEL);
+    const tileMetres = (this.circumference * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, DETAIL_LEVEL);
     return (this.detailCount * tileMetres * tileMetres) / 1e6;
   }
 
@@ -87,8 +112,8 @@ export class Exploration extends Emitter {
    */
   visit(lat, lon, altitudeAboveGround, seenRadius) {
     const radius = Number.isFinite(seenRadius) && seenRadius > 0
-      ? Math.min(60000, Math.max(220, seenRadius))
-      : Math.min(6000, Math.max(220, altitudeAboveGround * 0.45 + 220));
+      ? Math.min(MAX_REVEAL_M, Math.max(220, seenRadius))
+      : Math.min(MAX_REVEAL_M, Math.max(220, altitudeAboveGround * 0.45 + 220));
     const nx = lonToNormX(lon);
     const ny = latToNormY(lat);
     // Tile space is mercator, which stretches away from the equator, so the
@@ -98,33 +123,30 @@ export class Exploration extends Emitter {
 
     // Only re-run the flood when we have actually moved somewhere new.
     if (this.lastVisit) {
-      const dx = (nx - this.lastVisit.nx) * EARTH_CIRCUMFERENCE;
-      const dy = (ny - this.lastVisit.ny) * EARTH_CIRCUMFERENCE;
+      const dx = (nx - this.lastVisit.nx) * this.circumference;
+      const dy = (ny - this.lastVisit.ny) * this.circumference;
       if (Math.hypot(dx, dy) < radius * 0.35 && Math.abs(radius - this.lastVisit.radius) < radius * 0.4) {
-        return;
+        return NONE;
       }
     }
     this.lastVisit = { nx, ny, radius };
 
     let added = 0;
+    // What this visit newly uncovered, for anyone keeping a copy of the record
+    // elsewhere — the server sends exactly these to the people watching you.
+    const fresh = [];
     for (const level of LEVELS) {
       const n = Math.pow(2, level);
-      const tileMetres = EARTH_CIRCUMFERENCE / n;
-      const reach = Math.min(4, Math.ceil(mercatorRadius / tileMetres));
-      // What you uncover is a circle, and it has to stay one when the reach cap
-      // bites.
-      //
-      // The cap is deliberate — fine detail only near you — but the circle test
-      // below was measured against the full seen radius, and once that radius
-      // is bigger than four tiles every cell in the nine-by-nine block passes
-      // it. The test stopped doing anything and what got recorded was a square.
-      // At level 16 that is any time you can see more than about two and a half
-      // kilometres, which is any time you are off the ground: the patch on the
-      // map was a square with soft corners, from a horizon that is a circle.
-      //
-      // So the radius is capped to what the reach can actually cover, and the
-      // test is made against that. Each level records a disc; the coarse levels
-      // record bigger ones, and their union is the stepped circle you flew.
+      const tileMetres = this.circumference / n;
+      // As many tiles as the disc needs. It was four at most, which at level
+      // sixteen is two and a half kilometres of mercator — 1.7 km of ground at
+      // the Alps, 0.8 km at 70 degrees north, and on the Moon, whose tiles are
+      // smaller, 670 m. So the patch on the map shrank as you zoomed in to it,
+      // and was nowhere near the two kilometres it was meant to be.
+      const reach = Math.ceil(mercatorRadius / tileMetres);
+      // What you uncover is a circle: every cell in the block is tested
+      // against the radius, so the record is a disc at each level, not the
+      // square block around you. Their union is the stepped circle you flew.
       const levelRadius = Math.min(mercatorRadius, reach * tileMetres);
       // Exact tile position, not the rounded one: the circle is measured from
       // where you actually are to the middle of each tile, in metres. Comparing
@@ -149,6 +171,7 @@ export class Exploration extends Emitter {
           const key = tileKey(level, ((cx + dx) % n + n) % n, ty);
           if (this.cells.has(key)) continue;
           this.cells.add(key);
+          fresh.push(key);
           added++;
           if (level === DETAIL_LEVEL) this.detailCount++;
         }
@@ -160,6 +183,27 @@ export class Exploration extends Emitter {
       this.coarseCache.clear();
       this.emit('change', this.detailCount);
     }
+    return fresh;
+  }
+
+  /**
+   * Take in squares somebody else recorded — the server's copy of your own
+   * record when you sign in, or the squares it reports as you fly.
+   */
+  merge(keys) {
+    let added = 0;
+    for (const key of keys) {
+      if (typeof key !== 'string' || this.cells.has(key)) continue;
+      this.cells.add(key);
+      added++;
+      if (key.startsWith(`${DETAIL_LEVEL}/`)) this.detailCount++;
+    }
+    if (added > 0) {
+      this.dirty = true;
+      this.coarseCache.clear();
+      this.emit('change', this.detailCount);
+    }
+    return added;
   }
 
   /** Is this tile explored? Falls back to the nearest recorded level. */
@@ -252,7 +296,7 @@ export class Exploration extends Emitter {
   }
 
   save() {
-    if (!this.dirty) return;
+    if (!this.dirty || !this.stored) return;
     let list = [...this.cells];
     if (list.length > MAX_ENTRIES) {
       // Over the ceiling, the oldest fine detail is let go — deterministically,

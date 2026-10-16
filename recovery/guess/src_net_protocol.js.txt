@@ -1,0 +1,49 @@
+@@ 341-362
+    hue = rng() * 360;
+  } else {
+    let bestStart = hues[hues.length - 1];
+    let bestGap = hues[0] + 360 - bestStart;
+    for (let i = 1; i < hues.length; i++) {
+      const gap = hues[i] - hues[i - 1];
+      if (gap > bestGap) {
+        bestGap = gap;
+        bestStart = hues[i - 1];
+      }
+    }
+    // Somewhere in the middle half of the widest gap.
+    hue = (bestStart + bestGap * (0.25 + rng() * 0.5)) % 360;
+  }
+  return hslToHex(hue, 0.78, 0.6);
+}
+
+/**
+ * How different two colours look, as a person sees them: red-weighted RGB
+ * distance ("redmean"), 0 for the same colour and about 765 for black and
+ * white. Plain RGB distance calls two greens far apart that nobody can tell.
+ */
+@@end
+@@ 364-374
+  const p = hexToRgb(a);
+  const q = hexToRgb(b);
+  if (!p || !q) return Infinity;
+  const r = (p[0] + q[0]) / 2;
+  const dr = p[0] - q[0];
+  const dg = p[1] - q[1];
+  const db = p[2] - q[2];
+  return Math.sqrt((2 + r / 256) * dr * dr + 4 * dg * dg + (2 + (255 - r) / 256) * db * db);
+}
+
+/** Closer than this, two players' colours are twins: one dot looks like the other. */
+@@end
+@@ 376-382
+
+/**
+ * A colour as unlike every colour in `taken` as any on offer: hues every five
+ * degrees at three lightnesses, the one whose nearest neighbour is farthest,
+ * with a little randomness so two people joining at once differ. Where there
+ * are few colours yet, the plain random pick is just as good.
+ */
+@@end
+@@ 409-409
+
+@@end

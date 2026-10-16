@@ -1,4 +1,6 @@
 import * as THREE from '../../vendor/three/three.module.js';
+import { BODY, ON_EARTH } from '../geo/bodies.js';
+import { WORLD_RADIUS } from '../geo/mercator.js';
 
 /**
  * Terrain shader.
@@ -11,6 +13,15 @@ import * as THREE from '../../vendor/three/three.module.js';
  *  - fog is blended toward the sky's horizon colour, so the render-distance
  *    edge reads as haze rather than as a cliff.
  */
+/**
+ * How fast the haze thins with height, in metres. On Earth it is the dust and
+ * water low in the air, which halves about every kilometre and a half. On
+ * Mars the dust is mixed up through the whole atmosphere, so it is the air's
+ * own scale height; Titan's and Venus's haze fill theirs. A vacuum has no
+ * haze, and the fog is off there anyway.
+ */
+const HAZE_SCALE_HEIGHT = { mars: 11000, titan: 21000, venus: 15900 }[BODY.sky] ?? 1400;
+
 /**
  * The cloud deck's own shadow, as a chunk both the ground and the player use.
  *
@@ -652,6 +663,9 @@ ${CLOUD_SHADOW_ONLY_GLSL}
     // elevation has not arrived reads as sea level too, and without the guard
     // an unmeasured continent would come up as an ocean.
     float wet = uMeasured * (1.0 - smoothstep(0.0, 2.0, vHeight));
+    // Only Earth has a sea. Everywhere else height nought is just the datum
+    // the maps are measured from, and plenty of Mars is below it, dry.
+    wet *= ${ON_EARTH ? '1.0' : '0.0'};
     if (wet > 0.001) {
       vec3 view = normalize(cameraPosition - vWorld);
       float facing = clamp(view.y, 0.0, 1.0);
@@ -702,7 +716,7 @@ ${CLOUD_SHADOW_ONLY_GLSL}
       //
       // This is the mean density along the ray, which is the exact integral of
       // exp(-h/H) between the two heights, and it costs two exponentials.
-      const float SCALE_HEIGHT = 1400.0;
+      const float SCALE_HEIGHT = ${HAZE_SCALE_HEIGHT.toFixed(1)};
       float lowH = max(0.0, min(cameraPosition.y, vHeight));
       float highH = max(0.0, max(cameraPosition.y, vHeight));
       float rise = highH - lowH;
@@ -784,7 +798,8 @@ export function createTerrainMaterial(shared) {
 /** Shared uniforms every terrain tile reads from, updated once per frame. */
 export function createSharedUniforms() {
   return {
-    uEarthRadius: { value: 6378137 },
+    // The world's radius, which is Earth's on Earth. Named for where it started.
+    uEarthRadius: { value: WORLD_RADIUS },
     uCurvature: { value: 1 },
     uSunDir: { value: new THREE.Vector3(0.4, 0.8, 0.3).normalize() },
     uSunColor: { value: new THREE.Color(1, 0.97, 0.92) },
@@ -796,6 +811,14 @@ export function createSharedUniforms() {
     uLatitude: { value: 0 },
     uHasRelief: { value: 0 },
     uNight: { value: 0 },
+    /**
+     * What the air does to light round the sun, for the sky and for the rim
+     * that has to match it: the colour it scatters toward and how strongly.
+     * On Earth that is the sun's own colour; on Mars it is blue, which is why
+     * a Martian sunset is blue; in a vacuum there is none.
+     */
+    uScatterColor: { value: new THREE.Color(1.6, 1.52, 1.36) },
+    uScatterStrength: { value: 1 },
     /**
      * Where the woods are, written by Woodland from the OpenStreetMap survey.
      * Zero everywhere it has not been told otherwise, which is the same as no
@@ -875,7 +898,116 @@ const SKY_FRAG = /* glsl */ `
   }
 `;
 
+/**
+ * The sky anywhere but Earth.
+ *
+ * The same air-mass gradient as Earth's, run with the body's own colours, and
+ * three things Earth's sky does not need:
+ *
+ *  - the sun at its real size for the distance, worked out from the angle to
+ *    it rather than its cosine so a sun a tenth of a degree across — Saturn's,
+ *    Pluto's — is still a clean dot;
+ *  - scattering toward a colour that is not the sun's. Mars's fine dust throws
+ *    blue light forward, so the sky round the sun is blue there all day and
+ *    the sunset is blue, while the rest of the sky is butterscotch;
+ *  - the planet a moon is locked to, hanging over the same spot for ever,
+ *    lit from the side the sun is really on — so it waxes and wanes as the
+ *    days go round — banded where it is banded, ringed where it is ringed.
+ *
+ * `uHaze` is how much of the sun's disc the air hides: none in a vacuum, all
+ * of it on Titan and Venus, where the light comes from the whole sky at once.
+ */
+const SPACE_SKY_FRAG = /* glsl */ `
+  precision highp float;
+  uniform vec3 uZenith;
+  uniform vec3 uHorizon;
+  uniform vec3 uGround;
+  uniform vec3 uSunDir;
+  uniform vec3 uSunColor;
+  uniform float uSunRadius;
+  uniform float uHaze;
+  uniform vec3 uScatterColor;
+  uniform float uScatterStrength;
+  uniform vec3 uParentDir;
+  uniform float uParentRadius;
+  uniform vec3 uParentColour;
+  uniform vec3 uParentBelts;
+  uniform vec3 uParentPolar;
+  uniform vec3 uParentPole;
+  uniform float uParentRings;
+  uniform float uParentVisible;
+  varying vec3 vDir;
+
+  // Jupiter's belts and Saturn's: dark bands at the latitudes they really sit
+  // at, softened, as a sine of the planet's own latitude.
+  float belts(float s) {
+    float b = 0.0;
+    b += smoothstep(0.05, 0.1, s) * (1.0 - smoothstep(0.26, 0.32, s));
+    b += smoothstep(-0.1, -0.06, -s) * (1.0 - smoothstep(0.3, 0.36, -s)) * 0.9;
+    b += smoothstep(0.42, 0.46, abs(s)) * (1.0 - smoothstep(0.52, 0.56, abs(s))) * 0.45;
+    b += smoothstep(0.66, 0.7, abs(s)) * (1.0 - smoothstep(0.76, 0.8, abs(s))) * 0.3;
+    return b;
+  }
+
+  void main() {
+    vec3 dir = normalize(vDir);
+    float up = dir.y;
+
+    float air = max(0.0, 1.0 / max(0.06, up + 0.12) - 0.893);
+    float thickness = clamp(1.0 - exp(-air * 0.38), 0.0, 1.0);
+    vec3 sky = mix(uZenith, uHorizon, thickness);
+
+    float cosAngle = dot(dir, uSunDir);
+    float toward = max(cosAngle, 0.0);
+    float scatter = pow(toward, 9.0) * 0.34 + pow(toward, 2.0) * 0.11;
+    sky = mix(sky, uScatterColor, clamp(scatter * uScatterStrength * (0.35 + 0.65 * thickness), 0.0, 0.62));
+    sky = mix(sky, uGround, smoothstep(0.0, -0.12, up));
+
+    // The planet overhead.
+    if (uParentVisible > 0.0) {
+      vec3 c = uParentDir;
+      float sinR = sin(uParentRadius);
+      vec3 across = dir - c * dot(dir, c);
+      float d = length(across) / sinR;
+      bool front = dot(dir, c) > 0.0;
+      if (front && d < 1.0) {
+        // The sphere's surface under this pixel, facing back at us.
+        vec3 normal = normalize(across / sinR - c * sqrt(max(0.0, 1.0 - d * d)));
+        float lat = dot(normal, uParentPole);
+        vec3 colour = mix(uParentColour, uParentBelts, belts(lat));
+        colour = mix(colour, uParentPolar, smoothstep(0.72, 0.9, abs(lat)) * step(0.001, dot(uParentPolar, vec3(1.0))));
+        float lit = smoothstep(-0.03, 0.12, dot(normal, uSunDir));
+        // Limb darkening, so it reads as a ball rather than a disc.
+        float limb = 0.55 + 0.45 * sqrt(max(0.0, 1.0 - d * d));
+        // The night side is not quite black: it is lit, faintly, by the moon
+        // you are standing on — earthshine run backwards — and that is what
+        // lets a thin crescent still read as a whole ball.
+        vec3 planet = colour * (0.07 + lit * limb);
+        float edge = 1.0 - smoothstep(0.985, 1.0, d);
+        sky = mix(sky, planet, edge * uParentVisible * smoothstep(-0.03, 0.0, up));
+      }
+      // Rings, for a moon that orbits in their plane: edge on, a hairline
+      // through the planet's equator that runs out past both limbs.
+      if (uParentRings > 0.5 && front) {
+        float offPlane = abs(dot(dir, uParentPole));
+        float ring = (1.0 - smoothstep(0.0012, 0.0024, offPlane)) * step(1.12, d) * (1.0 - smoothstep(2.15, 2.3, d));
+        sky = mix(sky, uParentColour * 1.1 * (0.25 + 0.75 * toward), ring * 0.85 * uParentVisible);
+      }
+    }
+
+    // The sun, at its true size for how far away it is.
+    float angle = length(dir - uSunDir);
+    float disc = 1.0 - smoothstep(uSunRadius * 0.9, uSunRadius * 1.1 + 0.0008, angle);
+    float glare = exp(-angle / (uSunRadius * 3.0 + 0.004)) * 0.35;
+    sky += uSunColor * (disc + glare) * (1.0 - uHaze);
+
+    gl_FragColor = vec4(clamp(sky, 0.0, 1.0), 1.0);
+    #include <colorspace_fragment>
+  }
+`;
+
 export function createSkyMaterial(shared) {
+  if (!ON_EARTH) return createSpaceSkyMaterial(shared);
   return new THREE.ShaderMaterial({
     uniforms: {
       uZenith: { value: new THREE.Color(0.19, 0.36, 0.66) },
@@ -887,6 +1019,36 @@ export function createSkyMaterial(shared) {
     },
     vertexShader: SKY_VERT,
     fragmentShader: SKY_FRAG,
+    side: THREE.BackSide,
+    depthWrite: false,
+    depthTest: false,
+    fog: false,
+  });
+}
+
+function createSpaceSkyMaterial(shared) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uZenith: { value: new THREE.Color(0, 0, 0) },
+      uHorizon: { value: new THREE.Color(0, 0, 0) },
+      uGround: { value: new THREE.Color(0, 0, 0) },
+      uSunDir: { value: new THREE.Vector3(0.4, 0.8, 0.3) },
+      uSunColor: { value: new THREE.Color(1, 1, 1) },
+      uSunRadius: { value: 0.03 },
+      uHaze: { value: 0 },
+      uScatterColor: shared.uScatterColor,
+      uScatterStrength: shared.uScatterStrength,
+      uParentDir: { value: new THREE.Vector3(0, 1, 0) },
+      uParentRadius: { value: 0.02 },
+      uParentColour: { value: new THREE.Color(1, 1, 1) },
+      uParentBelts: { value: new THREE.Color(1, 1, 1) },
+      uParentPolar: { value: new THREE.Color(0, 0, 0) },
+      uParentPole: { value: new THREE.Vector3(0, 1, 0) },
+      uParentRings: { value: 0 },
+      uParentVisible: { value: 0 },
+    },
+    vertexShader: SKY_VERT,
+    fragmentShader: SPACE_SKY_FRAG,
     side: THREE.BackSide,
     depthWrite: false,
     depthTest: false,

@@ -1,0 +1,276 @@
+import { Emitter } from '../core/events.js';
+import { BOOT, serverId } from '../core/boot.js';
+import { PROTOCOL_VERSION } from './protocol.js';
+
+/**
+ * The connection to a server: one WebSocket, kept open.
+ *
+ * It reconnects on its own when the connection drops — a phone changing
+ * networks, a laptop lid, a server restart — backing off so a server that is
+ * down is not hammered, and signs straight back in with the saved session so
+ * a drop costs a second rather than a password.
+ *
+ * It also keeps the two clocks in step. Everybody else's positions arrive
+ * stamped with the server's time, and drawing them smoothly means drawing
+ * them a fixed moment in the server's past; that needs to know how far this
+ * machine's clock is from the server's, which a ping every couple of seconds
+ * measures.
+ *
+ * Events: 'status' (connecting | open | signedIn | closed | failed),
+ * 'message' (every message), and each message type by name.
+ */
+
+const TOKEN_KEY = 'terraglide.session.';
+/** Backoff between reconnects: a second, doubling, never more than this. */
+const MAX_BACKOFF_MS = 15000;
+const PING_EVERY_MS = 2000;
+
+/** A server's description of itself, in exactly the shape the page uses. */
+function cleanInfo(info) {
+  if (!info || typeof info !== 'object') return null;
+  const text = (v, n) => (typeof v === 'string' ? v.slice(0, n) : '');
+  return {
+    name: text(info.name, 80),
+    motd: text(info.motd, 300),
+    online: Math.max(0, Math.floor(Number(info.online) || 0)),
+    max: Math.max(0, Math.floor(Number(info.max) || 0)),
+    signups: info.signups !== false,
+    joinCode: !!info.joinCode,
+    pvp: !!info.pvp,
+    worlds: Array.isArray(info.worlds) ? info.worlds.filter((w) => typeof w === 'string').slice(0, 32) : [],
+    lan: Array.isArray(info.lan) ? info.lan.filter((a) => typeof a === 'string' && /^\d{1,3}(\.\d{1,3}){3}$/.test(a)).slice(0, 8) : [],
+  };
+}
+
+export class NetClient extends Emitter {
+  constructor(server = BOOT.server) {
+    super();
+    this.server = server;
+    this.ws = null;
+    this.status = 'idle';
+    this.tries = 0;
+    this.signedIn = false;
+    this.wanted = true;
+    /** Server time minus local time, milliseconds. */
+    this.clockOffset = 0;
+    this.rtt = 150;
+    this.lastPong = 0;
+    this.info = null;
+    this.pending = [];
+  }
+
+  /** The saved session for this server, if this browser has one. */
+  get token() {
+    try {
+      return globalThis.localStorage?.getItem(TOKEN_KEY + serverId(this.server)) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  set token(value) {
+    try {
+      const key = TOKEN_KEY + serverId(this.server);
+      if (value) globalThis.localStorage?.setItem(key, value);
+      else globalThis.localStorage?.removeItem(key);
+    } catch {
+      /* private mode: you will be asked for the password next time */
+    }
+  }
+
+  /** Milliseconds on the server's clock, now. */
+  serverNow() {
+    return Date.now() + this.clockOffset;
+  }
+
+  setStatus(status, detail = '') {
+    this.status = status;
+    this.statusDetail = detail;
+    this.emit('status', { status, detail });
+  }
+
+  connect() {
+    this.wanted = true;
+    // Whatever ended the last connection, choosing to connect again starts
+    // afresh — or a kick from yesterday would end tomorrow's session too.
+    this.kicked = null;
+    if (this.ws && (this.ws.readyState === 0 || this.ws.readyState === 1)) return;
+    this.setStatus('connecting');
+    let ws;
+    try {
+      ws = new WebSocket(this.server);
+    } catch (error) {
+      this.setStatus('failed', explain(this.server, error));
+      this.retry();
+      return;
+    }
+    this.ws = ws;
+    ws.onopen = () => {
+      this.tries = 0;
+      this.setStatus('open');
+      this.send({ t: 'hello', v: PROTOCOL_VERSION, client: 'terraglide' });
+      this.ping();
+      clearInterval(this.pinger);
+      this.pinger = setInterval(() => this.ping(), PING_EVERY_MS);
+    };
+    ws.onmessage = (event) => {
+      let message;
+      try {
+        message = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+      this.handle(message);
+    };
+    ws.onclose = (event) => {
+      clearInterval(this.pinger);
+      const wasSignedIn = this.signedIn;
+      this.signedIn = false;
+      this.ws = null;
+      if (event.code === 4001 || this.kicked) {
+        this.setStatus('closed', this.kicked || 'Signed in somewhere else');
+        this.wanted = false;
+        return;
+      }
+      this.setStatus('closed', wasSignedIn ? 'Connection lost — reconnecting' : explain(this.server));
+      if (this.wanted) this.retry();
+    };
+    ws.onerror = () => {
+      /* onclose follows, and carries what there is to say */
+    };
+  }
+
+  retry() {
+    clearTimeout(this.retryTimer);
+    if (!this.wanted) return;
+    this.tries += 1;
+    const delay = Math.min(MAX_BACKOFF_MS, 1000 * 2 ** Math.min(4, this.tries - 1));
+    this.retryAt = Date.now() + delay;
+    this.retryTimer = setTimeout(() => this.connect(), delay);
+  }
+
+  disconnect() {
+    this.wanted = false;
+    clearTimeout(this.retryTimer);
+    clearInterval(this.pinger);
+    try {
+      this.ws?.close(1000, 'bye');
+    } catch {
+      /* already gone */
+    }
+  }
+
+  get open() {
+    return this.ws?.readyState === 1;
+  }
+
+  send(message) {
+    if (!this.open) return false;
+    this.ws.send(JSON.stringify(message));
+    return true;
+  }
+
+  ping() {
+    this.send({ t: 'ping', c: Date.now(), rtt: Math.round(this.rtt) });
+  }
+
+  handle(m) {
+    switch (m.t) {
+      case 'welcome':
+        // What the server says about itself, kept only in the shape it should
+        // have: a hostile server's "online" count was going straight into the
+        // page as markup.
+        this.info = cleanInfo(m.server);
+        this.emit('welcome', m);
+        if (this.queued) {
+          // A sign-in typed while the connection was down goes now.
+          this.send(this.queued);
+          this.queued = null;
+        } else if (this.token && !this.signedIn) this.send({ t: 'resume', token: this.token });
+        else this.emit('needsAuth', m);
+        break;
+      case 'pong': {
+        const now = Date.now();
+        const rtt = now - Number(m.c);
+        if (rtt >= 0 && rtt < 10000) {
+          // Smoothed, and the offset only from the faster replies, because a
+          // slow one is slow for reasons that skew the midpoint.
+          this.rtt = this.rtt * 0.7 + rtt * 0.3;
+          const offset = Number(m.s) - (Number(m.c) + rtt / 2);
+          if (!this.lastPong || rtt <= this.rtt * 1.3) {
+            this.clockOffset = this.lastPong ? this.clockOffset * 0.8 + offset * 0.2 : offset;
+          }
+          this.lastPong = now;
+        }
+        break;
+      }
+      case 'auth':
+        if (m.ok) {
+          this.signedIn = true;
+          if (m.token) this.token = m.token;
+          this.setStatus('signedIn');
+        } else if (m.expired) {
+          this.token = null;
+          this.emit('needsAuth', m);
+        }
+        break;
+      case 'kick':
+        // A restart is not the end: come back when the server does.
+        if (!m.restart) this.kicked = String(m.reason || 'Disconnected by the server').slice(0, 200);
+        break;
+      case 'loggedOut':
+        this.token = null;
+        break;
+      default:
+    }
+    this.emit('message', m);
+    this.emit(m.t, m);
+  }
+
+  signup(name, password, code) {
+    this.sendOrQueue({ t: 'signup', name, password, code });
+  }
+
+  login(name, password) {
+    this.sendOrQueue({ t: 'login', name, password });
+  }
+
+  /**
+   * Send a sign-in now, or — with the connection down — connect and send it
+   * the moment the server says hello. Dropping it was a button stuck on
+   * "One moment…" for ever.
+   */
+  sendOrQueue(message) {
+    if (this.send(message)) return;
+    this.queued = message;
+    this.connect();
+  }
+
+  logout() {
+    this.send({ t: 'logout' });
+    this.token = null;
+  }
+}
+
+/**
+ * Why a connection did not open, in words a player can act on.
+ *
+ * The browser will not say why a WebSocket failed — on purpose, so pages
+ * cannot probe networks with it — so this reasons from what it can see. The
+ * commonest cause by far is an https page asking for a ws:// server, which a
+ * browser refuses outright as mixed content; second is a server that is
+ * simply not running or not reachable from here.
+ */
+export function explain(server, error = null) {
+  try {
+    const url = new URL(server);
+    const page = globalThis.location?.protocol;
+    if (page === 'https:' && url.protocol === 'ws:') {
+      return "This page is https, so it can only reach wss:// servers. Use the server's https address, or open the server's own page instead.";
+    }
+    if (error) return `Could not open ${url.host}: ${error.message ?? error}`;
+    return `Could not reach ${url.host} — is the server running, and is the address right?`;
+  } catch {
+    return 'That is not a server address';
+  }
+}

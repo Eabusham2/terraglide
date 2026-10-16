@@ -1,0 +1,63 @@
+--- a/server/game.mjs
++++ b/server/game.mjs
+@@ -914,6 +914,20 @@
+   }
+ 
+   /**
++   * The limit in a surge worth `factor` (1 out of one). SURGE_ALLOWANCE is
++   * what a surge does to a rocket - every tick stretched and the push with
++   * it - so it multiplies the rockets' limit; a glide at a thin-air world's
++   * terminal speed is only stretched, by the page's own factor. Multiplying
++   * Mars's 490 by five and a half allowed 2,700 m/s in a surge where the
++   * fastest honest one, a long glide down and then the surge, made 1,170.
++   */
++  surgedSpeed(world, factor) {
++    const rockets = (this.config.maxSpeed ?? 180) * factor;
++    const stretch = 1 + ((factor - 1) * (SURGE_FACTOR - 1)) / (SURGE_ALLOWANCE - 1);
++    return Math.max(rockets, this.maxSpeed(world) * stretch);
++  }
++
++  /**
+    * How many times the limit a surge is worth right now.
+    *
+    * A surge multiplies how far each tick carries you and a rocket's push with
+@@ -1044,8 +1058,7 @@
+     let flown = settled;
+     if (!settled && rise > 0) {
+       const elapsed = Math.max(0, now - player.arrivedAt);
+-      const base = this.maxSpeed(player.world);
+-      const could = (this.averageLimit(player.surge, player.arrivedAt, now, (f) => base * f) * elapsed) / 1000;
++      const could = (this.averageLimit(player.surge, player.arrivedAt, now, (f) => this.surgedSpeed(player.world, f)) * elapsed) / 1000;
+       flown = (player.graceRise ?? 0) + rise <= could * GRACE_CLIMB_ROOM + SPEED_SLACK_M;
+       if (flown) player.graceRise = (player.graceRise ?? 0) + rise;
+     }
+@@ -1237,11 +1250,10 @@
+       // A surge stretches every tick 2.4 times, a fall's speed with the rest;
+       // SURGE_ALLOWANCE is that and a rocket's push stretched too, which a
+       // fall's speed is not. So the stretch on the reserve is the page's own.
+-      const base = this.maxSpeed(player.world);
+       const limitFor = (f) => {
+         if (walking) return GROUND_MAX_MPS * Math.min(f, SURGE_FACTOR);
+         const stretch = 1 + ((f - 1) * (SURGE_FACTOR - 1)) / (SURGE_ALLOWANCE - 1);
+-        return Math.sqrt((base * f) ** 2 + stretch * stretch * RESERVE_MARGIN * reserve);
++        return Math.sqrt(this.surgedSpeed(player.world, f) ** 2 + stretch * stretch * RESERVE_MARGIN * reserve);
+       };
+       const limit = limitFor(factor);
+       // What the gap before this state was worth: the limit over the time it
+@@ -1381,11 +1393,15 @@
+       // The allowance lets a page that stood still a moment spend it all at
+       // once - which honest play never does, and which is the reach a sword
+       // needs to land from across a field. Allowed as movement; not as a hit.
++      // Down as well as up, flying: a fall is free to make, but no fall is
++      // faster than the speed it gives you, which the limit has in it - and
++      // dropping five kilometres in one state onto somebody below was a
++      // critical hit out of a clear sky.
+       const back = before(player.history, now - 500);
+       if (back) {
+         const span = Math.max(0.5, (now - back.t) / 1000);
+         const across = separation({ lat: back.lat, lon: back.lon, alt: s.alt }, s, radius);
+-        const up = settled && !walking ? Math.max(0, s.alt - back.alt) : 0;
++        const up = settled && !walking ? Math.abs(s.alt - back.alt) : 0;
+         if (Math.hypot(across, up) > limit * span + BLINK_SLACK_M) player.blinkUntil = now + BLINK_GUARD_MS;
+       }
+     }

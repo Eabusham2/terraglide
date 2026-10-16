@@ -20,8 +20,12 @@ const BUTTONS = [
   // thing, and "where is speed mode on the touchscreen" was the result — it was
   // right there and did not say so.
   { id: 'speedMode', label: 'Surge' },
-  { id: 'rtp', label: 'Teleport' },
+  // "Random", not "Teleport": on a server the toolbar's Teleport opens the
+  // teleport menu, and two buttons of one name did two different things.
+  { id: 'rtp', label: 'Random' },
   { id: 'worldMap', label: 'Map' },
+  // Push-to-talk, on a server with voice set to push: held while you speak.
+  { id: 'talk', label: 'Talk', hold: true, voice: true },
   { id: 'cheats', label: '···', cheat: true },
 ];
 
@@ -30,6 +34,8 @@ export class TouchControls {
     this.enabled = false;
     this.onAction = null;
     this.onLook = null;
+    /** (id, down) for held buttons, as they go down and come up. */
+    this.onHold = null;
     this.move = { x: 0, y: 0 };
     this.held = new Set();
     this.stickTouch = null;
@@ -45,7 +51,7 @@ export class TouchControls {
           (b) =>
             `<button type="button" data-touch="${b.id}"${b.hold ? ' data-hold="1"' : ''}${
               b.cheat ? ' data-cheat="1" hidden' : ''
-            }>${b.label}</button>`,
+            }${b.voice ? ' data-voice="1" hidden' : ''}>${b.label}</button>`,
         ).join('')}
       </div>
     `;
@@ -63,10 +69,35 @@ export class TouchControls {
     this.showCheatButton(cheats.unlocked);
   }
 
+  showTalkButton(visible) {
+    const button = this.element.querySelector('[data-voice]');
+    if (button.hidden === !visible) return;
+    button.hidden = !visible;
+    this.layout();
+    // Hidden while held — voice switched off mid-sentence — lets go too.
+    if (!visible && this.held.has('talk')) {
+      this.held.delete('talk');
+      button.classList.remove('down');
+      this.onHold?.('talk', false);
+    }
+  }
+
   showCheatButton(visible) {
     this.element.querySelectorAll('[data-cheat]').forEach((button) => {
       button.hidden = !visible;
     });
+    this.layout();
+  }
+
+  /**
+   * How many rows of buttons there are, as --touch-rows on the page. Talk
+   * comes and goes with voice and the cheat button with the cheats, and
+   * either can start a row of its own: the hotbar, your hearts and the chat
+   * sit above the band however tall it is, not under your thumb.
+   */
+  layout() {
+    const shown = this.element.querySelectorAll('.touch-buttons button:not([hidden])').length;
+    document.documentElement.style.setProperty('--touch-rows', String(Math.max(1, Math.ceil(shown / 2))));
   }
 
   /**
@@ -144,6 +175,10 @@ export class TouchControls {
       // A key the game uses, not any key at all: a tablet's on-screen keyboard
       // sends Enter and Backspace while you type into the map's search box.
       if (event.type === 'keydown') {
+        // Typing into a box - a name in the teleport menu, a line of chat - is
+        // the on-screen keyboard at work, not a return to the real one: the
+        // controls stay where they are.
+        if (event.target?.closest?.('input, textarea, [contenteditable="true"]')) return;
         if (event.metaKey || event.ctrlKey || event.altKey) return;
         if (event.key.length > 1 && !/^Arrow|^Shift$|^Control$/.test(event.key)) return;
       } else if (event.pointerType !== 'mouse') {
@@ -162,6 +197,7 @@ export class TouchControls {
     this.enabled = enabled;
     this.element.hidden = !enabled;
     document.body.classList.toggle('touch-active', enabled);
+    if (enabled) this.layout();
   }
 
   bindStick() {
@@ -231,14 +267,16 @@ export class TouchControls {
         (event) => {
           event.preventDefault();
           button.classList.add('down');
-          if (hold) this.held.add(id);
-          else if (this.onAction) this.onAction(id);
+          if (hold) {
+            this.held.add(id);
+            this.onHold?.(id, true);
+          } else if (this.onAction) this.onAction(id);
         },
         { passive: false },
       );
       const up = () => {
         button.classList.remove('down');
-        this.held.delete(id);
+        if (this.held.delete(id)) this.onHold?.(id, false);
       };
       button.addEventListener('touchend', up);
       button.addEventListener('touchcancel', up);

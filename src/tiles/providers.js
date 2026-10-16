@@ -3,6 +3,20 @@ import { localeRegion } from '../core/units.js';
 import { isNoDataCard } from './noData.js';
 import { imageryAt } from '../geo/imageryAge.js';
 import { BING_SIDE, GOOGLE_SIDE, encodePolyline, googleSamplePoints, tileBounds } from './elevationGrid.js';
+import { BODIES } from '../geo/bodies.js';
+import {
+  BODIES_WITH_ELEVATION,
+  BODY_ATTRIBUTION,
+  PARTIAL_ELEVATION,
+  PLANETARY_SOURCES,
+  arcgisExpectedBytes,
+  arcgisGridPlan,
+  eqImageryPlan,
+  heightOffset,
+  tiffRowsPlan,
+} from './planetary.js';
+
+export { BODIES_WITH_ELEVATION, BODY_ATTRIBUTION, PARTIAL_ELEVATION, PLANETARY_SOURCES };
 
 /**
  * Provider registry. TerraGlide ships with every key slot empty; a provider is
@@ -473,9 +487,23 @@ function fillTemplate(template, tile, key) {
  * metadata) do it once, lazily, and cache the result.
  */
 export class TileSource {
-  constructor(descriptor, keys) {
+  /**
+   * @param {object} descriptor one entry of a provider list
+   * @param {object} keys the settings store's values, for the key slots
+   * @param {{ id: string, radius: number, reach: number[] } | null} [world]
+   *   the body this source draws, for the kinds whose numbers depend on it —
+   *   a DEM stored as distance from the centre needs the radius taken off, and
+   *   the body's own height range is what tells a fault from a cliff. Worked
+   *   out here on the page and posted with every job, because the tile worker
+   *   must not decide for itself which world it is on: in the hosted builds it
+   *   is a separate realm that would read Earth.
+   */
+  constructor(descriptor, keys, world = null) {
     this.descriptor = descriptor;
     this.keys = keys;
+    this.world = world;
+    /** The last plan worked out, since urlFor and jobFor ask for the same tile in turn. */
+    this.lastPlan = null;
     /** Set when this provider is standing in for one that had no key. */
     this.substitutedFor = null;
     this.bingTemplate = null;
@@ -745,9 +773,71 @@ export class TileSource {
     return best;
   }
 
+  /**
+   * How to draw one tile of a planetary picture: which equirectangular tiles
+   * or map-server box to fetch and how to move their rows into mercator. Null
+   * for every other kind, and for a tile this source cannot serve.
+   * See tiles/planetary.js.
+   */
+  eqPlan(tile) {
+    const kind = this.descriptor.kind;
+    if (kind !== 'eq' && kind !== 'wms') return null;
+    return this.planFor(tile, () => eqImageryPlan(this.descriptor, tile));
+  }
+
+  /**
+   * How to read one tile of planetary relief: the box or the rows to fetch,
+   * the datum offset and the body's height range to judge them by. Null for
+   * every other kind.
+   */
+  gridPlan(tile, size = 65) {
+    const d = this.descriptor;
+    if (d.kind !== 'arcgis-f32' && d.kind !== 'tiff-rows') return null;
+    const transform = {
+      offset: heightOffset(d, this.world?.radius ?? 0),
+      reach: Array.isArray(this.world?.reach) ? [...this.world.reach] : null,
+    };
+    return this.planFor(tile, () => (d.kind === 'arcgis-f32'
+      ? arcgisGridPlan(d, tile, size, transform)
+      : tiffRowsPlan(d, tile, size, transform)), size);
+  }
+
+  /** One-entry memo: urlFor and jobFor ask about the same tile back to back. */
+  planFor(tile, make, size = 0) {
+    const key = `${tile.z}/${tile.x}/${tile.y}/${size}`;
+    if (this.lastPlan?.key === key) return this.lastPlan.plan;
+    const plan = make();
+    this.lastPlan = { key, plan };
+    return plan;
+  }
+
+  /**
+   * Whatever a worker job for this tile needs beyond its URL, or null.
+   *
+   * Planetary pictures carry their plan and say that canopy is not a question
+   * worth asking of them — the canopy measure reads green as woodland, and
+   * there is no woodland anywhere these sources draw. Planetary relief carries
+   * its plan, which includes the datum offset and the body's range.
+   */
+  jobFor(tile, size = 65) {
+    const eq = this.eqPlan(tile);
+    if (eq) return { eq, canopy: false, checkBlank: false };
+    const grid = this.gridPlan(tile, size);
+    if (grid) return { grid };
+    return null;
+  }
+
   /** URL for a tile, or null when this source cannot serve that tile. */
   urlFor(tile) {
     const d = this.descriptor;
+    // Planetary kinds: the plan's first request, so every caller that only
+    // wants to know "can this be served" gets a real answer. The worker and
+    // the flat maps read the whole plan.
+    if (d.kind === 'eq' || d.kind === 'wms') {
+      return this.eqPlan(tile)?.layers?.[0]?.sources?.[0]?.url ?? null;
+    }
+    if (d.kind === 'arcgis-f32') return this.gridPlan(tile)?.url ?? null;
+    if (d.kind === 'tiff-rows') return this.gridPlan(tile) ? d.url : null;
     if (d.kind === 'bing') {
       if (!this.bingTemplate) return null;
       const subs = this.bingSubdomains ?? [''];
@@ -804,10 +894,15 @@ export class TileSource {
       kind === 'terrain-rgb' ||
       kind === 'terrarium' ||
       kind === 'bing-elevation' ||
-      kind === 'google-elevation'
+      kind === 'google-elevation' ||
+      kind === 'arcgis-f32' ||
+      kind === 'tiff-rows'
     ) {
       return kind;
     }
+    // A planetary picture: still a picture, but assembled from a plan rather
+    // than fetched as one image. See tiles/planetary.js.
+    if (kind === 'eq' || kind === 'wms') return 'eq';
     // Geometry rather than a picture: the caller draws it. Only the flat maps
     // know how, so this provider is not offered as flight imagery.
     if (kind === 'openmaptiles') return 'vector';
@@ -916,6 +1011,72 @@ export function createElevationSource(settingsValues) {
   );
   const descriptor = findProvider(ELEVATION_PROVIDERS, chosen);
   return withKeylessFallback(ELEVATION_PROVIDERS, descriptor, settingsValues);
+}
+
+/**
+ * Everything the game needs to draw a world other than Earth, as TileSources
+ * ready to hand to the streamer, the elevation field and the flat maps.
+ *
+ *   imagery        what to fly over: the body's best global picture
+ *   standbys       the body's other pictures, best first, for the streamer's
+ *                  fall-through and nothing else
+ *   elevation      its measured relief, or null — flat ground, because no
+ *                  mission measured any and nothing here is invented
+ *   mapFallback    a second picture for the minimap and world map, from a
+ *                  different layer (on most bodies a different server), or null
+ *   streetFallback always null: nobody has drawn a street map of the Moon
+ *
+ * The provider settings are not consulted beyond one thing. They are Earth's —
+ * `imageryProvider` holds an Earth id, and the settings store is not kept per
+ * world — so a choice made on the Moon must not be written there, and an Earth
+ * choice means nothing here. If it *does* name one of this body's own
+ * pictures, that one goes first; otherwise the body's best does.
+ *
+ * Every source carries the body's radius and height range (see TileSource),
+ * so the worker is told them with each job and never has to ask which world
+ * it is on.
+ *
+ * @param {string} bodyId an id in geo/bodies.js, other than 'earth'
+ * @param {object} [settingsValues] the settings store's values
+ * @returns {null | { body: string, imagery: TileSource, standbys: TileSource[],
+ *   elevation: TileSource | null, mapFallback: TileSource | null,
+ *   streetFallback: null, attribution: string, partialElevation: number | null }}
+ */
+export function createBodySources(bodyId, settingsValues = {}) {
+  const entry = PLANETARY_SOURCES[bodyId];
+  if (!entry) return null;
+  const body = BODIES[bodyId];
+  const world = {
+    id: bodyId,
+    radius: body?.radius ?? 0,
+    reach: Array.isArray(body?.reach) ? [...body.reach] : null,
+  };
+  const values = settingsValues ?? {};
+  const make = (descriptor) => new TileSource(descriptor, values, world);
+  const pictures = entry.imagery;
+  const chosen = pictures.find((d) => d.id === values.imageryProvider) ?? pictures[0];
+  const rest = pictures.filter((d) => d !== chosen);
+  return {
+    body: bodyId,
+    imagery: make(chosen),
+    standbys: rest.map(make),
+    elevation: entry.elevation ? make(entry.elevation) : null,
+    // Its own instance, so the maps' one-entry plan memo and the streamer's
+    // never take turns overwriting each other.
+    mapFallback: rest.length > 0 ? make(rest[0]) : null,
+    streetFallback: null,
+    attribution: entry.credit,
+    partialElevation: PARTIAL_ELEVATION[bodyId] ?? null,
+  };
+}
+
+/** The descriptors offered for a body, for a settings menu. Empty for Earth. */
+export function bodyProviders(bodyId) {
+  const entry = PLANETARY_SOURCES[bodyId];
+  return {
+    imagery: entry ? [...entry.imagery] : [],
+    elevation: entry?.elevation ? [entry.elevation] : [],
+  };
 }
 
 /**
@@ -1112,12 +1273,36 @@ async function tileAnswers(source, tile, signal) {
   const url = source.urlFor(tile);
   if (!url) return null;
   try {
+    const kind = source.decode;
+    // A GeoTIFF read by rows: its URL is the whole file, six hundred
+    // megabytes for Pluto, so the probe reads one row of the tile and no more.
+    if (kind === 'tiff-rows') {
+      const plan = source.gridPlan(tile);
+      const range = plan?.ranges?.[0];
+      if (!range) return null;
+      const res = await fetch(url, {
+        cache: 'no-store', signal, headers: { Range: `bytes=${range[0]}-${range[1]}` },
+      });
+      if (res.status !== 206) {
+        try { await res.body?.cancel?.(); } catch { /* already closed */ }
+        return null;
+      }
+      const length = (await res.arrayBuffer()).byteLength;
+      return length === range[1] - range[0] + 1 ? { pixels: plan.sampleRows.length } : null;
+    }
     const res = await fetch(url, { cache: 'no-store', signal });
     if (!res.ok) return null;
     const bytes = new Uint8Array(await res.arrayBuffer());
     if (bytes.length < 100) return null;
     if (isNoDataCard(bytes)) return null;
-    const kind = source.decode;
+    // Raw floats, judged on their length: an error page is never exactly the
+    // grid's size. See decodeArcgisF32.
+    if (kind === 'arcgis-f32') {
+      const plan = source.gridPlan(tile);
+      return plan && bytes.length === arcgisExpectedBytes(plan.width, plan.height)
+        ? { pixels: plan.width }
+        : null;
+    }
     if (kind === 'bing-elevation' || kind === 'google-elevation') {
       const body = JSON.parse(new TextDecoder().decode(bytes));
       const heights = kind === 'bing-elevation'
@@ -1186,7 +1371,16 @@ export async function testProviders(list, values, tile, onResult) {
       if (source.state === 'error') throw new Error(source.error);
       const url = source.urlFor(asked);
       if (url === null) throw new Error('no URL for this tile');
-      const response = await fetch(url, { cache: 'no-store' });
+      // A GeoTIFF read by rows is one file for the whole body; one row of
+      // the tile is the test, never the file. See tileAnswers.
+      const range = source.decode === 'tiff-rows' ? source.gridPlan(asked)?.ranges?.[0] : null;
+      const response = await fetch(url, range
+        ? { cache: 'no-store', headers: { Range: `bytes=${range[0]}-${range[1]}` } }
+        : { cache: 'no-store' });
+      if (range && response.status !== 206) {
+        try { await response.body?.cancel?.(); } catch { /* already closed */ }
+        throw new Error(`answered ${response.status} to a range read`);
+      }
       const bytes = (await response.arrayBuffer()).byteLength;
       const ms = Math.round(performance.now() - started);
       const where = depth === tile.z ? '' : `, at z${depth} which is its deepest`;

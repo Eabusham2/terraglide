@@ -13,7 +13,7 @@ import { CameraRig } from './camera/cameraRig.js';
 import { LocalFrame } from './geo/frame.js';
 import { clearImageryAges, describeImagery, imageryAt } from './geo/imageryAge.js';
 import { geocoder } from './geo/geocode.js';
-import { haversine, latToNormY, lonToNormX } from './geo/mercator.js';
+import { WORLD_RADIUS, bearing, haversine, latToNormY, lonToNormX } from './geo/mercator.js';
 import { waterMap } from './geo/water.js';
 import { observedWeather } from './geo/observed.js';
 import { weatherAt } from './geo/weather.js';
@@ -21,11 +21,12 @@ import { Autopilot } from './player/autopilot.js';
 import { Avatar } from './player/avatar.js';
 import { ContactShadow, RocketTrail } from './player/effects.js';
 import { PlayerController } from './player/controller.js';
-import { Player, SURGE_FACTOR } from './player/player.js';
+import { OXYGEN_SECONDS, Player, SURGE_FACTOR } from './player/player.js';
 import { ElevationField } from './tiles/elevation.js';
 import {
   IMAGERY_PROVIDERS,
   createElevationSource,
+  createBodySources,
   createImagerySource,
   providerChain,
 } from './tiles/providers.js';
@@ -40,6 +41,7 @@ import { EdgeWall } from './world/edgeWall.js';
 import { Beacons } from './world/beacons.js';
 import { SeaFloor } from './world/seaFloor.js';
 import { Woodland } from './world/woodland.js';
+import { Landers } from './world/lander.js';
 import { Sky } from './world/sky.js';
 import { Terrain } from './world/terrain.js';
 import { Weather } from './world/weather.js';
@@ -54,6 +56,19 @@ import { TouchControls } from './ui/touch.js';
 import { trail } from './ui/trail.js';
 import { waypoints } from './ui/waypoints.js';
 import { WorldMap } from './ui/worldmap.js';
+import { BOOT, ONLINE, takeRelaunchReason } from './core/boot.js';
+import { BODIES, BODY, ON_EARTH } from './geo/bodies.js';
+import { describePlace, randomFeature } from './geo/gazetteer.js';
+import { ATTACK_COOLDOWN_S, LANDER_EVERY_S, REACH_M, REFILL_AGL_M, REFILL_M, SWORD_SLOT } from './net/protocol.js';
+import { OnlineSession, SOCIAL_PREFS, markPrefUnsent } from './net/session.js';
+import { findTarget } from './player/combat.js';
+import { ChatBox } from './ui/chat.js';
+import { DeathScreen } from './ui/deathScreen.js';
+import { OnlinePanel } from './ui/onlinePanel.js';
+import { PlayersPanel, RequestPrompts, askMarkName } from './ui/playersPanel.js';
+import { TeleportMenu } from './ui/teleportMenu.js';
+import { ProximityVoice } from './net/voice.js';
+import { TravelPanel } from './ui/travelPanel.js';
 
 /**
  * The game: wiring, the frame loop, and the handful of decisions that only make
@@ -62,7 +77,10 @@ import { WorldMap } from './ui/worldmap.js';
  * gets the frame's remaining milliseconds.
  */
 
-const DEFAULT_SPAWN = { lat: 46.5606, lon: 7.9089 }; // Lauterbrunnen valley
+/** The weather anywhere but Earth, as far as this game can draw it. */
+const OFFWORLD_WEATHER = Object.freeze({ cloudCover: 0, precipitation: 0, kind: 'none', label: 'Clear' });
+const DEFAULT_SPAWN = { lat: BODY.spawn.lat, lon: BODY.spawn.lon }; // Lauterbrunnen valley, on Earth
+/** How often the lander can be moved, seconds. */
 const POSITION_KEY = 'last-position';
 const SETTLE_MS = 2600;
 /**
@@ -111,6 +129,21 @@ const GROUND_STILL_M = 5;
 const START_PATIENCE_MS = 9000;
 /** Random teleports drop you here, high enough to open the wings. */
 const SPAWN_HEIGHT_M = 420;
+/** Seconds of oxygen left at which the suit says so: a toast and a tone. */
+const OXYGEN_WARNINGS = [60, 30, 10, 0];
+/**
+ * The keys that still reach the game while a panel with keys of its own is
+ * open: the players list and the teleport menu. A click in one used to hand
+ * the keyboard back to the page, so B dropped a waypoint and R took a random
+ * teleport from behind the list, and Esc opened Settings over the menu
+ * instead of closing it. What gets through is what opens, closes or swaps a
+ * panel, and the few keys a panel itself answers to. The rest wait until
+ * it closes. See bindEvents.
+ */
+const PANEL_KEYS = new Set([
+  'settings', 'help', 'worldMap', 'players', 'teleportMenu', 'online', 'travel',
+  'chat', 'command', 'pause', 'acceptRequest', 'denyRequest', 'pushToTalk',
+]);
 
 export class Game {
   constructor({ canvas, ui, onStatus }) {
@@ -118,6 +151,7 @@ export class Game {
     this.ui = ui;
     this.onStatus = onStatus ?? (() => {});
     this.running = false;
+    this.oxygenWarned = Infinity;
     this.lastTime = 0;
     this.perf = new PerfGovernor();
     // The dial that was promised in a comment and never built.
@@ -245,6 +279,7 @@ export class Game {
     this.avatar.loadTextures();
     this.avatar.loadModel();
     this.avatar.loadRocketModel();
+    this.avatar.loadSwordModel();
     // The held view model rides the camera, so it is hung off it rather than
     // off the scene root.
     this.avatar.attachTo(this.camera);
@@ -258,13 +293,22 @@ export class Game {
     });
 
     this.onStatus('Building interface');
-    this.hud = new HUD(ui);
+    this.hud = new HUD(ui, { online: ONLINE });
     const mapLayers = {
       tiles: mapTiles,
       street: streetTiles,
       exploration,
       waypointStore: waypoints,
       trail,
+      // Everybody else, on a server: their markers, and their trails and
+      // discoveries where you have switched them on. See mapRenderer.
+      others: {
+        list: () => this.othersForMap(),
+        overlays: () => this.overlaysForMap(),
+        marks: () => this.session?.partyWaypoints() ?? [],
+        // What everybody on the server has explored: it lifts the fog too.
+        shared: () => (this.session?.watchingAll.explored ? this.session.shared : null),
+      },
     };
     this.minimap = new Minimap(ui, mapLayers);
     this.worldmap = new WorldMap(ui, mapLayers);
@@ -278,6 +322,97 @@ export class Game {
     this.cheatPanel = new CheatPanel(ui);
     this.touch = new TouchControls(ui);
     this.input.attachTouch(this.touch);
+
+    // Playing on a server, when that is what this page is. See core/boot.js:
+    // the choice was made before anything loaded and holds until a reload.
+    this.session = ONLINE ? new OnlineSession(this) : null;
+    // The friend choices in Settings → Online can be changed playing alone,
+    // and the account's own would replace them at the next sign-in: marked
+    // to be sent instead, as a change made while disconnected is.
+    if (!this.session) {
+      // Only the choices that actually changed: a reset, or an imported file
+      // that never mentioned them, used to send all four over the account's.
+      const friendChoices = () => Object.fromEntries(SOCIAL_PREFS.map((key) => [key, settings.get(key)]));
+      let choices = friendChoices();
+      settings.on('change', ({ key }) => {
+        markPrefUnsent(key);
+        choices = friendChoices();
+      });
+      settings.on('bulk', () => {
+        const now = friendChoices();
+        for (const key of SOCIAL_PREFS) if (now[key] !== choices[key]) markPrefUnsent(key);
+        choices = now;
+      });
+    }
+    this.onlinePanel = new OnlinePanel(ui, this.session);
+    this.travelPanel = new TravelPanel(ui, { session: this.session, canLeave: () => this.canLeaveWorld() });
+    this.travelPanel.onNotice = (message) => this.toast(message, 'warn');
+    this.deathScreen = new DeathScreen(ui);
+    if (this.session) {
+      this.chat = new ChatBox(ui, this.session);
+      this.playersPanel = new PlayersPanel(ui, this.session, () => ({ lat: this.player.lat, lon: this.player.lon }));
+      this.playersPanel.onWhisper = (name) => {
+        this.playersPanel.close();
+        this.chat.show(`/msg ${name} `);
+      };
+      this.requestPrompts = new RequestPrompts(ui, this.session);
+      // TPA or TPA here, and a name found by typing part of it. See
+      // ui/teleportMenu.js.
+      this.teleportMenu = new TeleportMenu(ui, this.session, () => ({ lat: this.player.lat, lon: this.player.lon }));
+      this.teleportMenu.onSent = (message, tone) => this.toast(message, tone);
+      // Proximity voice: peer to peer between players near each other, the
+      // server only introducing them. It follows the voiceMode setting by
+      // itself; see net/voice.js.
+      this.voice = new ProximityVoice({ session: this.session });
+      this.playersPanel.voice = this.voice;
+      const showVoice = () => this.hud.setVoice(this.voice.info());
+      for (const event of ['status', 'talking', 'transmit', 'speakers', 'mute']) this.voice.on(event, showVoice);
+      showVoice();
+      // A touchscreen has no key to hold: push-to-talk gets a button.
+      const showTalk = () => this.touch.showTalkButton(settings.get('voiceMode') === 'push');
+      settings.on('change', ({ key }) => key === 'voiceMode' && showTalk());
+      settings.on('bulk', showTalk);
+      showTalk();
+      this.touch.onHold = (id, down) => {
+        if (id === 'talk') this.voice.setPushed(down);
+      };
+    }
+    /**
+     * Your lander and the base, off Earth: the two places the suit refills,
+     * stood up as beams so you can find your way back to air from a long way
+     * off. See placeLander().
+     */
+    this.lander = ON_EARTH ? null : readJSON('lander', null);
+    this.sites = { waypoints: [] };
+    this.siteBeacons = ON_EARTH ? null : new Beacons({
+      scene: this.scene,
+      store: this.sites,
+      terrain: this.terrain,
+      frame: this.frame,
+    });
+    // The party's waypoints stand in the world the same way, on a server: a
+    // mark made for the party is somewhere to fly to, and a dot on a map is
+    // easy to lose from the air: a beam stands up over the hills from far
+    // further off. Filled each frame from the session, for this world only;
+    // see update().
+    this.partySites = { waypoints: [] };
+    this.partyBeacons = ONLINE ? new Beacons({
+      scene: this.scene,
+      store: this.partySites,
+      terrain: this.terrain,
+      frame: this.frame,
+    }) : null;
+    // And the things standing there: your lander, and the base. See
+    // world/lander.js.
+    this.landers = ON_EARTH ? null : new Landers({
+      scene: this.scene,
+      terrain: this.terrain,
+      frame: this.frame,
+      worldRadius: WORLD_RADIUS,
+      bodyId: BODY.id,
+      landmark: BODY.landmark ?? null,
+    });
+    this.lastAttackAt = -Infinity;
 
     // Auto that means *here*. Built before the first applyProviders so the
     // very first resolution goes through it, and given a callback rather than
@@ -295,20 +430,55 @@ export class Game {
   /* ---------------------------------------------------------------- setup */
 
   bindEvents() {
-    this.input.on('action', ({ id, repeat }) => this.onAction(id, repeat));
+    this.input.on('action', ({ id, repeat }) => {
+      // While a panel that takes keys of its own is open, the game keeps out
+      // of them. Clicking in the players list handed the keyboard back to the
+      // page: B dropped a waypoint behind it, and R took a random teleport —
+      // a real one, with a toast and a hold, from the
+      // server from behind the players list. Only the keys that work panels
+      // get through; the dead have their own rules (see onAction).
+      if (this.panelHasKeys && !this.player.dead && !PANEL_KEYS.has(id)) return;
+      this.onAction(id, repeat);
+    });
     this.input.on('look', ({ dx, dy }) => this.rig.applyLook(this.player, dx, dy));
-    this.input.on('boost', () => this.fireRocket());
-    this.input.on('land', () => this.toggleWings());
+    // With the sword in hand the primary button swings it and the other one
+    // still lights a rocket, so you can fight and fly without swapping. With a
+    // rocket in hand both buttons fire, exactly as before.
+    this.input.on('boost', ({ button }) => {
+      if (this.player.holdingSword && button === (settings.get('swapMouseButtons') ? 2 : 0)) this.attack();
+      else this.fireRocket();
+    });
+    this.input.on('land', () => {
+      if (this.player.holdingSword) this.attack();
+      else this.toggleWings();
+    });
+    this.input.on('actionUp', ({ id }) => this.onActionUp(id));
     // Out of air. Somewhere you can breathe, which is what a random teleport
     // is for, and it says so rather than silently moving you.
     // Running a slot dry is a thing that happened to you, so it says so.
     this.player.on('outOfRockets', () => {
       this.toast('Out of that rocket — it refills, or pick another', 'warn');
     });
-    this.player.on('drowned', () => {
-      this.toast('Out of air — surfacing somewhere else', 'bad');
-      this.randomTeleport();
+    // Hearts. Hurt flashes the edges and jolts the view; dying puts up the
+    // screen with the one button on it.
+    this.player.on('hurt', (how) => {
+      this.hud.hurtFlash();
+      this.rig.kick(0.06 + Math.min(0.2, how.amount * 0.02));
     });
+    this.player.on('died', (how) => {
+      this.deathCause = how;
+      this.autopilot.disengage();
+      this.player.toggleElytra(false);
+      this.deathScreen.show(how);
+      this.input.exitPointerLock();
+    });
+    // Alive again by any road — a respawn, or a server that brought you back
+    // when you reconnected — and the death screen goes with it. It used to
+    // stay up over full hearts, holding every key, until the page reloaded.
+    this.player.on('revived', () => {
+      if (this.deathScreen.open) this.deathScreen.close();
+    });
+    this.deathScreen.onRespawn = () => this.respawn();
     this.input.on('wheel', ({ delta }) => {
       if (this.rig.isFreecam) {
         const speed = this.rig.adjustFreecamSpeed(delta);
@@ -330,15 +500,25 @@ export class Game {
         copy: 'copyCoords',
         settings: 'settings',
         help: 'help',
+        online: 'online',
+        worlds: 'travel',
+        players: 'players',
+        teleport: 'teleportMenu',
+        chat: 'chat',
       };
       if (map[action]) this.onAction(map[action]);
     };
 
     this.touch.onAction = (id) => {
-      if (id === 'boost') this.fireRocket();
-      else if (id === 'cheats') this.cheatPanel.toggle();
-      else if (id === 'cheatsUnlocked') this.onCheatsUnlocked();
-      else this.onAction(id);
+      if (id === 'boost') {
+        if (this.player.holdingSword) this.attack();
+        else this.fireRocket();
+      } else if (id === 'cheats' || id === 'cheatsUnlocked') {
+        // Not on a server: nobody gets dials the other players do not have.
+        if (ONLINE) this.toast('Cheats are off on servers', 'warn');
+        else if (id === 'cheats') this.cheatPanel.toggle();
+        else this.onCheatsUnlocked();
+      } else this.onAction(id);
     };
     this.touch.onLook = (dx, dy) => this.rig.applyLook(this.player, dx, dy);
     this.touch.watchForTouch();
@@ -349,6 +529,8 @@ export class Game {
     };
 
     this.worldmap.onTeleport = (lat, lon) => {
+      // On a server a teleport is the server's to make; the map does not offer it.
+      if (ONLINE) return;
       this.worldmap.close();
       this.teleportTo(lat, lon, { reason: 'map' });
     };
@@ -357,6 +539,10 @@ export class Game {
       this.randomTeleport();
     };
     this.worldmap.onNotice = (message) => this.toast(message);
+    this.worldmap.onPartyMark = (lat, lon) => {
+      if (!this.session?.party) return this.toast('Join or start a party first — Players (Tab)', 'warn');
+      this.session.partyMark(askMarkName(), lat, lon);
+    };
 
     // Listen to the store, not to the widget.
     //
@@ -422,6 +608,41 @@ export class Game {
       this.address = place.label;
     });
 
+    if (this.session) {
+      const session = this.session;
+      session.on('auth', (m) => {
+        this.toast(`Signed in to ${session.serverName} as ${m.you.name}`, 'good');
+      });
+      session.on('hitConfirm', (m) => this.hud.hitMarker(m.crit));
+      session.on('password', (m) => this.toast(
+        m.ok ? 'Password changed — other devices have been signed out' : m.error,
+        m.ok ? 'good' : 'warn',
+      ));
+      // Notices from friends and the party, in the corner as well as in chat:
+      // somebody coming online or asking is easy to miss in a scrolling log.
+      session.on('chat', (m) => {
+        if (m.kind === 'friend' && settings.get('friendNotices') !== false) this.toast(m.text, 'good');
+        else if (m.kind === 'party' && !m.from) this.toast(m.text, 'info');
+      });
+      // Somebody's discoveries or path arrived or grew: both maps show it now.
+      session.on('overlays', () => {
+        this.worldmap.dirty = true;
+        this.minimap.timer = 1e6;
+      });
+      session.on('lander', (lander) => {
+        this.lander = lander;
+        this.refreshSites();
+      });
+      session.on('auth', () => {
+        this.lander = session.lander;
+        this.refreshSites();
+      });
+      session.on('kicked', (m) => this.toast(m.restart ? `${m.reason} — reconnecting when it is back` : `Disconnected: ${m.reason}`, 'bad'));
+      session.on('status', ({ status, detail }) => {
+        if (status === 'closed' && session.you && detail) this.toast(detail, 'warn');
+      });
+    }
+
     this.streamer.on('degraded', () => {
       mapTiles.setDegraded(true);
       this.toast('Imagery provider unreachable — the ground stays bare', 'warn');
@@ -445,6 +666,8 @@ export class Game {
       exploration.save();
       trail.save();
       this.savePosition();
+      // Hang up at once rather than leaving everyone to notice we left.
+      this.voice?.dispose();
     });
   }
 
@@ -553,6 +776,8 @@ export class Game {
   /* ----------------------------------------------------------------- cheats */
 
   onCheatKey(event) {
+    // On a server the code does nothing at all — not even swallow the letters.
+    if (ONLINE) return;
     const target = event.target;
     if (target instanceof HTMLElement) {
       const tag = target.tagName;
@@ -590,6 +815,10 @@ export class Game {
    *   a second of blank ground you cannot move on.
    */
   applyProviders({ rebuild = true } = {}) {
+    if (!ON_EARTH) {
+      this.applyBodyProviders({ rebuild });
+      return;
+    }
     // "Auto" is a choice about providers rather than a provider, so it is
     // resolved to a real one here — once — and everything downstream sees an
     // ordinary id. Resolved every time providers are applied, so adding a key
@@ -661,12 +890,45 @@ export class Game {
   }
 
   /**
+   * Another world's ground: NASA's and the USGS's photographs over their
+   * heights, from tiles/planetary.js. There is one map of each world and
+   * nobody local to ask, so there is no auto and no probing here, and no
+   * street map behind the fog — unexplored ground is just unexplored.
+   */
+  applyBodyProviders({ rebuild = true } = {}) {
+    const sources = createBodySources(BODY.id, settings.values);
+    if (!sources) return;
+    this.imagerySource = sources.imagery;
+    this.elevationSource = sources.elevation;
+    this.applied = {
+      imagery: sources.imagery.descriptor.id,
+      elevation: sources.elevation?.descriptor.id ?? 'none',
+    };
+    this.streamer.setSource(sources.imagery);
+    this.streamer.setStandbys(sources.standbys ?? []);
+    // No relief measured (Europa, Ganymede, Callisto) is no source at all, and
+    // the ground stays flat rather than invented — flat and *known*, so the
+    // arrival does not sit waiting for heights that are never coming.
+    this.elevation.setSource(sources.elevation ?? null, { flat: !sources.elevation });
+    mapTiles.setSource(sources.imagery);
+    mapTiles.setFallback(sources.mapFallback ?? null);
+    mapTiles.setDegraded(false);
+    streetTiles.setSource(null);
+    streetTiles.setFallback([]);
+    if (rebuild) this.terrain.resettle();
+    sources.imagery.prepare();
+    sources.elevation?.prepare();
+  }
+
+  /**
    * Photorealistic 3D is a big optional dependency — the glTF and Draco
    * decoders — so it is fetched only when it is switched on and there is a key
    * to use it with. The single-file build has no module loader to fetch it
    * with, and says so instead of failing quietly.
    */
   async loadWorld3D() {
+    // Photogrammetry is of Earth's cities; there is none of anywhere else.
+    if (!ON_EARTH) return null;
     if (this.tiles3d || this.loading3d) return this.tiles3d;
     if (settings.get('world3d') === 'off') return null;
     const cesium = settings.get('world3d') === 'cesium';
@@ -771,6 +1033,8 @@ export class Game {
     // loads it, and either decides whether it shows.
     if (key === 'detailedPlayerModel' || key === 'detailedRocketModel') {
       this.avatar.loadRocketModel().then(() => this.avatar.applyRocketModel());
+      // And its sword, generated the same way.
+      this.avatar.loadSwordModel().then(() => this.avatar.applySwordModel());
     }
     if (key === 'resolutionScale' || key === 'graphics' || key === 'autoTier') this.resize();
     // The mesh grid is read from the preset, so a preset that changes changes
@@ -787,6 +1051,11 @@ export class Game {
     if (name === 'export') {
       const data = {
         version: 1,
+        // Places belong to a world: Earth's waypoints mean nothing on the Moon.
+        world: BOOT.world,
+        // A server's places are that server's: a save made online brings
+        // back its settings, never its map, here or anywhere else.
+        ...(ONLINE ? { online: true, server: BOOT.server } : {}),
         settings: settings.values,
         waypoints: waypoints.export(),
         trail: trail.legs,
@@ -807,6 +1076,18 @@ export class Game {
         .then((text) => {
           const data = JSON.parse(text);
           if (data.settings) settings.patch(data.settings);
+          // Settings travel; places do not. A save from another world, or any
+          // save while on a server — where what you have explored is the
+          // server's to keep — brings its settings and nothing else.
+          const from = data.world ?? 'earth';
+          if (ONLINE || data.online || from !== BOOT.world) {
+            this.toast(ONLINE
+              ? 'Settings imported — on a server your places belong to the server, so they stay as they are'
+              : data.online
+                ? 'Settings imported — the places in it were made on a server, so they stay there'
+                : `Settings imported — the places in it are on ${BODIES[from]?.name ?? from}, so they wait there`, 'warn');
+            return;
+          }
           if (data.waypoints) waypoints.import(data.waypoints);
           if (Array.isArray(data.trail)) {
             trail.legs = data.trail;
@@ -824,10 +1105,17 @@ export class Game {
         })
         .catch(() => this.toast('That file could not be read', 'bad'));
     } else if (name === 'clear-explored') {
+      // On a server the map is the server's record of where you have been.
+      if (ONLINE) return;
       exploration.clear();
       this.toast('Explored areas cleared');
     } else if (name === 'clear-marks') {
+      // Waypoints go to the server as they change; the path is its record.
       waypoints.clearAll();
+      if (ONLINE) {
+        this.toast('Waypoints deleted');
+        return;
+      }
       trail.clear();
       this.toast('Waypoints and trail deleted');
     } else if (name === 'reset-settings') {
@@ -840,8 +1128,23 @@ export class Game {
 
   async start() {
     this.onStatus('Finding a place to stand');
+    const why = takeRelaunchReason();
+    this.refreshSites();
     const saved = readJSON(POSITION_KEY, null);
-    if (saved && Number.isFinite(saved.lat)) {
+    if (ONLINE) {
+      // Somewhere to stand while signing in: this world's spawn. The server
+      // says where you really are the moment it knows who you are.
+      await this.patiently(
+        this.teleportTo(DEFAULT_SPAWN.lat, DEFAULT_SPAWN.lon, { reason: 'spawn', quiet: true, flying: false }),
+      );
+      this.session.start();
+      this.onlinePanel.show();
+    } else if (!ON_EARTH && !(saved && Number.isFinite(saved.lat))) {
+      // The first time on another world: the landing site, on your feet.
+      await this.patiently(
+        this.teleportTo(DEFAULT_SPAWN.lat, DEFAULT_SPAWN.lon, { reason: 'spawn', quiet: true, flying: false }),
+      );
+    } else if (saved && Number.isFinite(saved.lat)) {
       // Back where you were, doing what you were doing. `flying` is absent from
       // records written before this, and an old save should not silently start
       // landing people who left mid-glide, so it falls back to the setting.
@@ -849,6 +1152,9 @@ export class Game {
       await this.patiently(
         this.teleportTo(saved.lat, saved.lon, { reason: 'spawn', quiet: true, flying: wasFlying }),
       );
+      // Back with the hearts and the oxygen you left with.
+      if (Number.isFinite(saved.health) && saved.health > 0) this.player.health = Math.min(this.player.maxHealth, saved.health);
+      if (Number.isFinite(saved.oxygen)) this.player.oxygen = Math.max(0, saved.oxygen);
     } else {
       // First run: somewhere new, not the same Swiss valley for everybody
       // forever. The same search a random teleport uses, so it lands on
@@ -877,7 +1183,11 @@ export class Game {
       // in the map's zoom buttons, in the worst possible place for it.
       this.toast('Starting on Low for this machine — change it in Settings » Graphics');
     }
-    if (this.help.firstRun) this.help.show();
+    if (this.help.firstRun && !ONLINE) this.help.show();
+    if (why) this.toast(why);
+    if (!ON_EARTH) {
+      this.toast(`${BODY.name} — ${BODY.spawn.label}. Your suit has ${Math.round(this.player.oxygen / 60)} minutes of oxygen; it refills at the base and at your lander.`);
+    }
   }
 
   /**
@@ -970,6 +1280,9 @@ export class Game {
    * nothing moves, nothing burns down and nothing lands on you.
    */
   get paused() {
+    // Online nothing pauses: the world is everyone's, and its clock with it.
+    // Menus still take your keys — see menuOpen and takingKeys.
+    if (ONLINE) return false;
     // A menu stops the world, and so does the pause key on its own — there was
     // no way to freeze the game and look at it without a panel over half the
     // screen. The freecam is deliberately not on this list: looking around a
@@ -995,8 +1308,37 @@ export class Game {
    * place name. They are two different things: the map takes your keys and
    * leaves the clock running; a menu takes both.
    */
+  /** A menu is open, whether or not it stops the clock. */
+  get menuOpen() {
+    return Boolean(this.settingsPanel.open || this.help.open || this.cheatPanel.open);
+  }
+
   get takingKeys() {
-    return Boolean(this.paused || this.worldmap.open);
+    return Boolean(
+      this.paused
+        || this.menuOpen
+        || this.worldmap.open
+        || this.onlinePanel.open
+        || this.travelPanel.open
+        || this.chat?.open
+        || this.playersPanel?.open
+        || this.teleportMenu?.open
+        || this.deathScreen.open,
+    );
+  }
+
+  /**
+   * A panel that keeps keys of its own is up: the players list, the teleport
+   * menu, or the death screen. A click in one hands the keyboard back to the
+   * page rather than to the panel, so while one is up only PANEL_KEYS reach
+   * the game; see bindEvents.
+   */
+  get panelHasKeys() {
+    return Boolean(
+      this.playersPanel?.open
+        || this.teleportMenu?.open
+        || this.deathScreen.open,
+    );
   }
 
   update(dt) {
@@ -1014,7 +1356,11 @@ export class Game {
       movement = this.autopilot.step(dt, movement);
     }
 
-    if (this.rig.isFreecam) {
+    if (player.dead) {
+      // Where you fell, until you respawn.
+      player.velocity.set(0, 0, 0);
+      player.snapRender();
+    } else if (this.rig.isFreecam) {
       const ground = this.terrain.heightAt(this.rig.freecam.position.x, this.rig.freecam.position.z);
       this.rig.updateFreecam(dt, movement, ground);
       player.tickTimers(dt);
@@ -1094,15 +1440,37 @@ export class Game {
     // drawing this frame, so the wall goes exactly there rather than at some
     // guess that would either float in front of the last tiles or leave a gap.
     this.edgeWall.update(this.camera, this.terrain.edgeProfile);
-    this.seaFloor.update(this.camera, this.terrain.farDistance);
+    // Only Earth has a sea to see the floor of.
+    this.seaFloor.mesh.visible = ON_EARTH;
+    if (ON_EARTH) this.seaFloor.update(this.camera, this.terrain.farDistance);
     this.beacons.update(this.camera, player);
-    this.hud.setBeacons(this.beacons.labels, settings.get('units'));
+    this.siteBeacons?.update(this.camera, player);
+    // The party's marks on this world, as beams like everything else here.
+    if (this.partyBeacons) {
+      this.partySites.waypoints = (this.session?.partyWaypoints() ?? []).map((w) => ({
+        id: `party:${w.id}`, name: `${w.name} (party)`, lat: w.lat, lon: w.lon, colour: w.colour,
+      }));
+      this.partyBeacons.update(this.camera, player);
+    }
+    this.hud.setBeacons([
+      ...this.beacons.labels,
+      ...(this.siteBeacons?.labels ?? []),
+      ...(this.partyBeacons?.labels ?? []),
+    ], settings.get('units'));
+    // The suit refills at your lander and at the base, on the ground beside
+    // them — not flying past at altitude. And it says when it is running out:
+    // a toast and a tone at a minute, thirty seconds, ten and empty, and the
+    // screen edged red while there is nothing left to breathe.
+    if (!ON_EARTH) player.oxygenSource = this.nearAir(player);
+    this.warnOxygen(player);
+    this.landers?.update(this.camera, this.lander, this.session?.spawn ?? BODY.spawn);
     // Which of that disc is actually sea. A few rows a frame, off the same
     // elevation field the ground is built from.
-    this.seaFloor.updateMask(this.terrain, this.camera, this.terrain.farDistance);
+    if (ON_EARTH) this.seaFloor.updateMask(this.terrain, this.camera, this.terrain.farDistance);
 
     const groundHeight = player.groundHeight;
     this.sky.setLandFraction(this.landFraction);
+    this.sky.pixelRatio = this.renderer.getPixelRatio();
     this.sky.update(this.camera, player.lat, player.lon, groundHeight);
     this.scene.fog.color.copy(this.sky.horizonColor);
     this.scene.fog.density = this.shared.uFogDensity.value;
@@ -1115,23 +1483,30 @@ export class Game {
     // Failing that, the climatology below — which is a good model of what this
     // place tends to get in this month, and is labelled as one, so "light rain"
     // over somewhere in bright sun is never presented as fact.
-    observedWeather.fetch(player.lat, player.lon);
-    this.weatherState = observedWeather.fresh(player.lat, player.lon)
-      ? observedWeather.current
-      : weatherAt({
-          lat: player.lat,
-          lon: player.lon,
-          date: this.sky.date,
-          avgC: this.sky.climate ? this.sky.climate.avgC : 12,
-          landFraction: this.landFraction,
-        });
+    //
+    // Nowhere else has a weather service, or weather this could draw: no
+    // cloud, no rain, and the deck stays put away.
+    if (ON_EARTH) {
+      observedWeather.fetch(player.lat, player.lon);
+      this.weatherState = observedWeather.fresh(player.lat, player.lon)
+        ? observedWeather.current
+        : weatherAt({
+            lat: player.lat,
+            lon: player.lon,
+            date: this.sky.date,
+            avgC: this.sky.climate ? this.sky.climate.avgC : 12,
+            landFraction: this.landFraction,
+          });
+    } else {
+      this.weatherState = OFFWORLD_WEATHER;
+    }
     this.weather.setState(this.weatherState);
     this.weather.update(this.camera, dt, this.sky);
 
     // Real photogrammetry first, where it is switched on and reaching Google.
     // Where its tiles are drawn, our own terrain and extruded
     // footprints step aside rather than fighting them for the same ground.
-    if (settings.get('world3d') !== 'off' && !this.tiles3d) this.loadWorld3D();
+    if (ON_EARTH && settings.get('world3d') !== 'off' && !this.tiles3d) this.loadWorld3D();
     if (this.tiles3d) this.tiles3d.update(this.camera, player);
     // The handover is per square of ground, not all-or-nothing.
     //
@@ -1169,18 +1544,20 @@ export class Game {
     if (!this.photoreal && this.photorealHold >= 4) this.photoreal = true;
     else if (this.photoreal && this.photorealHold === 0) this.photoreal = false;
     const photoreal = Boolean(this.photoreal);
-    this.buildings.setVisible(!photoreal && settings.get('buildings'));
+    // Buildings, woods and street photographs are all surveys of Earth.
+    const surveyed = ON_EARTH;
+    this.buildings.setVisible(surveyed && !photoreal && settings.get('buildings'));
 
     // Trees, scrub and rock, in the places OpenStreetMap says they are. Where
     // it has nothing mapped, nothing is drawn.
     // Nothing to extrude where Google is already handing us the real thing:
     // asking Overpass for footprints we are not going to draw is a request
     // against a shared community endpoint for nothing at all.
-    if (!photoreal) this.buildings.update(player.lat, player.lon, player.altitudeAboveGround);
+    if (surveyed && !photoreal) this.buildings.update(player.lat, player.lon, player.altitudeAboveGround);
     // Same reasoning: the scanned world already has its trees in the mesh, so
     // there is nothing for a canopy mask to improve and nothing worth asking
     // Overpass for.
-    this.woodland.enabled = !photoreal && settings.get('woodlandRelief');
+    this.woodland.enabled = surveyed && !photoreal && settings.get('woodlandRelief');
     this.woodland.update(this.camera);
     this.shared.uHasWood.value = this.woodland.painted && this.woodland.enabled ? 1 : 0;
     this.shared.uWoodMask.value = this.woodland.texture;
@@ -1192,18 +1569,20 @@ export class Game {
     // bumping the trees with the setting switched off. It reads "Woodland
     // canopy relief", so it governs woodland canopy relief. The scanned world
     // has its trees in the mesh already and gets none of it either way.
-    this.shared.uWoodStrength.value = !photoreal && settings.get('woodlandRelief') ? 1 : 0;
+    this.shared.uWoodStrength.value = surveyed && !photoreal && settings.get('woodlandRelief') ? 1 : 0;
 
-    this.panorama.update(
-      {
-        lat: player.lat,
-        lon: player.lon,
-        altitudeAboveGround: player.altitudeAboveGround,
-        speed: player.speed,
-        groundHeight,
-      },
-      dt,
-    );
+    if (surveyed) {
+      this.panorama.update(
+        {
+          lat: player.lat,
+          lon: player.lon,
+          altitudeAboveGround: player.altitudeAboveGround,
+          speed: player.speed,
+          groundHeight,
+        },
+        dt,
+      );
+    }
 
     // The body is drawn in first person too, minus the head, so you can see
     // your own legs and the wings you are flying on.
@@ -1227,6 +1606,9 @@ export class Game {
       !this.rig.isFreecam,
     );
     this.rocketTrail.update(player, dt, rebasedX, rebasedZ);
+    // Everyone else: what they are doing, drawn; what you are doing, sent.
+    this.session?.update(dt, this.camera, movement, rebasedX, rebasedZ);
+    this.voice?.update(this.camera);
     this.avatar.setFirstPerson(!thirdPerson);
     // Always update, even with the body switched off: the held view model
     // hangs off the camera rather than off the avatar root, and it is drawn in
@@ -1242,19 +1624,24 @@ export class Game {
     trail.record(player.lat, player.lon);
     trail.tick(dt);
 
-    this.address = geocoder.lookup(player.lat, player.lon)?.label ?? this.address;
+    this.address = ON_EARTH
+      ? geocoder.lookup(player.lat, player.lon)?.label ?? this.address
+      : this.offworldAddress(player);
     this.refreshGoogleAttribution(player);
     // Has the ground under you changed hands? Asked once per zoom-8 square and
     // free everywhere else, so this costs a Map lookup on an ordinary frame.
-    this.localAuto.tick(
-      player,
-      settings.values,
-      {
-        imagery: settings.get('imageryProvider'),
-        elevation: settings.get('elevationProvider'),
-      },
-      this.applied,
-    );
+    // Off Earth there is one map of the whole world and nobody to ask.
+    if (ON_EARTH) {
+      this.localAuto.tick(
+        player,
+        settings.values,
+        {
+          imagery: settings.get('imageryProvider'),
+          elevation: settings.get('elevationProvider'),
+        },
+        this.applied,
+      );
+    }
 
     this.hud.update({
       player,
@@ -1269,6 +1656,12 @@ export class Game {
       cheats: cheats.active ? cheats.labels.join(' · ') : '',
       autopilot: this.autopilot.status(),
       debug: this.debugVisible ? this.debugText() : '',
+      // Hearts are always on show where something can take them: online,
+      // and anywhere the air runs out.
+      showHearts: ONLINE || !ON_EARTH,
+      others: this.othersForHud(),
+      marks: this.siteMarks(),
+      attackCharge: this.attackCharge,
     });
 
     this.cheatPanel.setStatus(this.autopilot.status());
@@ -1277,6 +1670,17 @@ export class Game {
       { lat: player.lat, lon: player.lon, heading: player.yaw },
       dt,
     );
+    // The big map only redraws when something on it changed. Other players
+    // move without you touching it, so while it is open with anyone else on
+    // it, it is redrawn a few times a second — or their arrows stand still
+    // where they were when you opened it.
+    if (this.session && this.worldmap.open && this.session.remote.players.size) {
+      this.worldmapLive = (this.worldmapLive ?? 0) + dt;
+      if (this.worldmapLive >= 0.25) {
+        this.worldmapLive = 0;
+        this.worldmap.dirty = true;
+      }
+    }
     this.worldmap.update({ lat: player.lat, lon: player.lon, heading: player.yaw });
 
     this.updateWaterReadout(dt);
@@ -1286,6 +1690,120 @@ export class Game {
       this.saveTimer = 0;
       this.savePosition();
     }
+  }
+
+  /** The suit's tank, said and not only drawn: nobody reads a gauge while flying. */
+  warnOxygen(player) {
+    const left = player.needsSuit && !player.dead && !player.oxygenSource ? player.oxygen : Infinity;
+    if (left <= 0) this.hud.hurtFlash();
+    const mark = OXYGEN_WARNINGS.find((s) => left <= s && s < this.oxygenWarned);
+    this.oxygenWarned = left === Infinity ? Infinity : mark ?? this.oxygenWarned;
+    if (mark === undefined) return;
+    this.toast(mark > 0 ? `${Math.ceil(left)} s of oxygen left — back to your lander or the base` : 'Out of oxygen', 'bad');
+    try {
+      this.audio ??= new AudioContext();
+      const beep = this.audio.createOscillator();
+      beep.frequency.value = mark > 0 ? 880 : 440;
+      beep.connect(this.audio.destination);
+      beep.start();
+      beep.stop(this.audio.currentTime + 0.15);
+    } catch { /* no sound to be had here: the toast still says it */ }
+  }
+
+  /** Is there air to be had here: at your lander or the base, on the ground? */
+  nearAir(player) {
+    // On the ground, as the server has it: flying low over the base counted
+    // here and not there, and the gauge jumped back once a second.
+    if (!player.onGround) return false;
+    const here = { lat: player.lat, lon: player.lon };
+    const base = this.session?.spawn ?? BODY.spawn;
+    for (const site of [this.lander, base]) {
+      if (!site) continue;
+      if (haversine(here, site) <= REFILL_M && player.altitudeAboveGround < REFILL_AGL_M) return true;
+    }
+    return false;
+  }
+
+  /** The others, as the HUD's locator bar and compass want them. */
+  othersForHud() {
+    if (!this.session) return [];
+    const me = { lat: this.player.lat, lon: this.player.lon };
+    const eyeY = this.player.position.y + this.player.eyeHeight;
+    const out = [];
+    for (const p of this.session.remote.list()) {
+      if (!p.now || p.dead) continue;
+      const sameWorld = p.world === BOOT.world;
+      if (!sameWorld) continue;
+      const distance = haversine(me, p.now);
+      out.push({
+        key: p.id,
+        name: p.name,
+        colour: p.colour,
+        sameWorld,
+        distance,
+        bearing: bearing(me, p.now),
+        elevation: Math.atan2(p.now.alt - eyeY, Math.max(1, distance)),
+        // Yours, among everybody: a ring on the compass and the locator bar.
+        tie: this.session.inParty(p.name) ? 'party' : this.session.isFriend(p.name) ? 'friend' : '',
+      });
+    }
+    return out;
+  }
+
+  /** The base and your lander on the compass, off Earth. */
+  siteMarks() {
+    const me = { lat: this.player.lat, lon: this.player.lon };
+    // The party's waypoints, on every world, so the compass points the way.
+    const party = (this.session?.partyWaypoints() ?? []).map((w) => ({
+      key: `party-${w.id}`, bearing: bearing(me, w), colour: w.colour, label: 'P', title: `${w.name} (party)`,
+    }));
+    if (ON_EARTH) return party;
+    const base = this.session?.spawn ?? BODY.spawn;
+    const marks = [{ key: 'base', bearing: bearing(me, base), colour: '#9fd3ff', label: 'B', title: 'Base' }];
+    if (this.lander) marks.push({ key: 'lander', bearing: bearing(me, this.lander), colour: '#ffd27a', label: 'L', title: 'Your lander' });
+    return [...marks, ...party];
+  }
+
+  /** Everybody else for the maps: a marker each, where they are now. */
+  othersForMap() {
+    if (!this.session) return [];
+    return this.session.remote.list()
+      .filter((p) => p.now && !p.dead && p.world === BOOT.world)
+      .map((p) => ({ name: p.name, colour: p.colour, lat: p.now.lat, lon: p.now.lon, heading: p.now.yaw }));
+  }
+
+  /** Other players' discoveries and trails, where they are switched on. */
+  overlaysForMap() {
+    if (!this.session) return [];
+    const list = [...this.session.overlays.values()].filter((o) => (o.showExplored && o.explored) || (o.showTrail && o.legs));
+    const shared = this.session.watchingAll.explored ? this.session.shared : null;
+    // Everybody's discoveries as one faint wash, over the ground others found
+    // and you have not — your own stays clear.
+    if (shared) list.unshift({ key: '*', name: 'Everyone', colour: '#f1e4c2', explored: shared, showExplored: true, exclude: exploration, wash: 0.2 });
+    return list;
+  }
+
+  /**
+   * Put the player back where the server last agreed they were.
+   *
+   * Almost always a few metres — a move the server would not accept, nudged
+   * back — so it is a nudge rather than a teleport with a hold and a toast.
+   */
+  correctTo(lat, lon, alt) {
+    const player = this.player;
+    const here = { lat: player.lat, lon: player.lon };
+    if (haversine(here, { lat, lon }) > 5000) {
+      this.teleportTo(lat, lon, { reason: 'server', quiet: true, altitude: Number.isFinite(alt) ? alt : undefined });
+      return;
+    }
+    const at = this.frame.toWorld(lat, lon);
+    player.position.x = at.x;
+    player.position.z = at.z;
+    if (Number.isFinite(alt)) player.position.y = alt;
+    player.velocity.set(0, 0, 0);
+    player.stopRockets();
+    player.snapRender();
+    player.syncGeo();
   }
 
   /**
@@ -1328,7 +1846,7 @@ export class Game {
    */
   seenRadius() {
     const alt = Math.max(2, this.player.altitudeAboveGround);
-    const horizon = Math.sqrt(2 * 6378137 * alt);
+    const horizon = Math.sqrt(2 * WORLD_RADIUS * alt);
     return Math.max(240, Math.min(horizon, this.terrain.renderDistance));
   }
 
@@ -1446,6 +1964,14 @@ export class Game {
     if (!this.arrivalHeld && !this.settleUntil) return;
     this.settleUntil = 0;
     this.arrivalHeld = false;
+    // A ground arrival off Earth is placed before any elevation exists, 1.2 m
+    // above a datum the ground can be kilometres under — the Moon's landing
+    // site is 1,926 m below it. Handed over at the held height, the release
+    // was a thirty-second fall to the real surface. Once the ground is real,
+    // the hand-over is onto it.
+    if (!this.holdInAir && this.groundIsReal) {
+      this._holdY = this.terrain.heightAt(this.player.position.x, this.player.position.z) + 1.2;
+    }
     // Hand over at exactly the height we were holding, so the release is not
     // a step either.
     if (Number.isFinite(this._holdY)) this.player.position.y = this._holdY;
@@ -1473,7 +1999,12 @@ export class Game {
       // until the ground turns out to be 3,656 m of Antarctic ice and you are
       // inside it. Big corrections are followed, small ones ignored, so a
       // refinement of a few metres cannot slide the world past you.
-      const above = ground + SPAWN_HEIGHT_M;
+      // Held at the height you were sent to when there is one — beside a
+      // friend in the air — and four hundred metres up otherwise. Never inside
+      // the ground either way.
+      const above = Number.isFinite(this.holdAltitude)
+        ? Math.max(this.holdAltitude, ground + 20)
+        : ground + SPAWN_HEIGHT_M;
       if (!Number.isFinite(this._holdY)) this._holdY = player.position.y;
       else if (Math.abs(this._holdY - above) > GROUND_JUMP_M) this._holdY = above;
       const norm = this.frame.worldToNorm(player.position.x, player.position.z);
@@ -1585,7 +2116,7 @@ export class Game {
    * @param {boolean} [options.flying]  what you were doing before, when the
    *   player object cannot say — a spawn, where there is no "before" in memory.
    */
-  async teleportTo(lat, lon, { reason = 'manual', quiet = false, flying } = {}) {
+  async teleportTo(lat, lon, { reason = 'manual', quiet = false, flying, altitude, yaw } = {}) {
     this.teleporting = true;
     // Being somewhere else makes the old destination somebody else's problem.
     this.autopilot.disengage();
@@ -1607,7 +2138,12 @@ export class Game {
     this.elevation.ensureAround(nx, ny, 10, 1);
     this.elevation.ensureAround(nx, ny, Math.min(13, this.elevation.maxZoom), 1);
 
-    const ground = Math.max(0, this.elevation.sampleLatLon(lat, lon));
+    // Sea level is a floor on Earth, where below it is water. Elsewhere there
+    // is no sea, and below the datum is just ground: Tranquility Base is at
+    // -1,926 m and Jezero at -2,564, and floored at nought every arrival there
+    // began two kilometres up and fell for half a minute.
+    const sampled = this.elevation.sampleLatLon(lat, lon);
+    const ground = ON_EARTH ? Math.max(0, sampled) : sampled;
     // Arrive in the air with the wings out: you are here to look around, and a
     // teleport that dumps you in a field facing a hedge wastes the trip. Turn
     // "arrives in the sky" off in Settings → World to land on your feet instead.
@@ -1619,10 +2155,18 @@ export class Game {
     // A spawn knows what you were doing when you left, and says so; every other
     // reason reads it off the player, who is standing right here.
     const flyingBefore = typeof flying === 'boolean' ? flying : wasFlying;
-    const airborne =
-      settings.get('rtpSkySpawn') &&
-      (reason === 'spawn' ? flyingBefore : (reason === 'rtp' || reason === 'map') && wasFlying);
-    player.teleport(lat, lon, ground, airborne ? SPAWN_HEIGHT_M : 1.2);
+    // A teleport the server sends to someone's side arrives at their height, in
+    // the air if they were in the air: a request answered by a friend flying
+    // at two thousand metres puts you beside them, not on the hill below.
+    const server = reason === 'server' || reason === 'online';
+    const airborne = server
+      ? !!flying
+      : settings.get('rtpSkySpawn')
+        && (reason === 'spawn' ? flyingBefore : (reason === 'rtp' || reason === 'map') && wasFlying);
+    const atHeight = server && Number.isFinite(altitude) && airborne;
+    player.teleport(lat, lon, ground, atHeight ? Math.max(20, altitude - ground) : airborne ? SPAWN_HEIGHT_M : 1.2);
+    if (Number.isFinite(yaw)) player.yaw = yaw;
+    this.holdAltitude = atHeight ? altitude : NaN;
     // Arrive looking at the country rather than at your own boots. Teleporting
     // while you happened to be looking down dropped you four hundred metres up
     // staring into ground that had not streamed in yet, which reads as a
@@ -1695,6 +2239,22 @@ export class Game {
    * @param {string} [options.reason]
    */
   async randomTeleport({ quiet = false, flying, reason = 'rtp' } = {}) {
+    // On a server the server picks, so nobody can pick for themselves.
+    if (this.session && reason !== 'spawn') {
+      this.session.randomTeleport();
+      return;
+    }
+    if (!ON_EARTH) {
+      // Off Earth there is no sea to avoid and no town to land near: somewhere
+      // the IAU has named instead — a crater, a mountain, a plain — or, on a
+      // world with no names, anywhere away from the poles.
+      const feature = randomFeature(BODY.id);
+      const lat = feature?.lat ?? (Math.asin(Math.random() * 2 - 1) * 180) / Math.PI * 0.8;
+      const lon = feature?.lon ?? Math.random() * 360 - 180;
+      await this.teleportTo(lat, lon, { reason, quiet: true, flying });
+      if (!quiet) this.toast(feature ? `Dropped at ${feature.label} · ${formatLatLon(lat, lon, 3)}` : `Dropped at ${formatLatLon(lat, lon, 3)}`);
+      return;
+    }
     if (this.rtpBusy) return;
     this.rtpBusy = true;
     if (!quiet) this.toast('Looking for somewhere to land…');
@@ -1719,6 +2279,11 @@ export class Game {
   }
 
   refreshLandFraction(lat, lon) {
+    // All of every other world is land.
+    if (!ON_EARTH) {
+      this.landFraction = 1;
+      return;
+    }
     waterMap
       .landFraction(lat, lon, 320)
       .then((value) => {
@@ -1734,10 +2299,22 @@ export class Game {
     // threw you into the air with the wings out, because the spawn took the
     // "arrive in the sky" setting at its word and had nothing else to go on —
     // which is "why is it forcing me to fly". Now it has something to go on.
+    // Dead, the save is the respawn: off Earth your lander or the base, and
+    // either way full hearts and a full tank. It kept the place you fell with
+    // an empty tank, so a reload brought you back alive, to suffocate again
+    // ten seconds later.
+    const player = this.player;
+    const at = player.dead && !ON_EARTH ? this.lander ?? BODY.spawn : player;
     writeJSON(POSITION_KEY, {
-      lat: this.player.lat,
-      lon: this.player.lon,
-      flying: !this.player.onGround || this.player.elytraDeployed,
+      lat: at.lat,
+      lon: at.lon,
+      flying: !player.dead && (!player.onGround || player.elytraDeployed),
+      // Hearts and the suit's tank, so a reload is not a refill here either.
+      // Online the server keeps both; this is the local save.
+      ...(ONLINE ? {} : {
+        health: player.dead ? player.maxHealth : player.health,
+        oxygen: player.dead ? OXYGEN_SECONDS : player.oxygen,
+      }),
     });
   }
 
@@ -1747,9 +2324,69 @@ export class Game {
     if (repeat && id !== 'scaleUp' && id !== 'scaleDown') return;
     const player = this.player;
 
+    // Dead, the one thing that does anything is getting back up.
+    if (player.dead) {
+      if ((id === 'jump' || id === 'settings') && this.deathScreen.ready) this.respawn();
+      if (id !== 'chat' && id !== 'command' && id !== 'players') return;
+    }
+
+    // What a server does not allow, said rather than silently ignored.
+    if (ONLINE) {
+      const refused = {
+        freecam: 'Freecam is off on servers',
+        scaleUp: 'Everyone is the same size on a server',
+        scaleDown: 'Everyone is the same size on a server',
+        pause: 'A server cannot be paused — everyone else is still flying',
+      }[id];
+      if (refused) {
+        if (!repeat) this.toast(refused, 'warn');
+        return;
+      }
+    }
+
     switch (id) {
       case 'rtp':
         this.randomTeleport();
+        break;
+      case 'chat':
+      case 'command':
+        if (this.chat) this.chat.show(id === 'command' ? '/' : '');
+        else this.toast('Chat is for servers — join one from Online', 'warn');
+        break;
+      case 'players':
+        if (this.playersPanel) {
+          this.teleportMenu?.close();
+          this.playersPanel.toggle();
+        }
+        else this.toast('The players list is for servers — join one from Online', 'warn');
+        break;
+      case 'pushToTalk':
+        // Voice starts off - nobody's microphone is opened unasked - so the
+        // key says where it is turned on, rather than nothing at all.
+        if (this.voice && settings.get('voiceMode') === 'off') {
+          if (!repeat) this.toast('Proximity voice is off — turn it on in Settings, under Online', 'warn');
+        } else if (this.voice) this.voice.setPushed(true);
+        else if (!repeat) this.toast('Voice is for servers — join one from Online', 'warn');
+        break;
+      case 'teleportMenu':
+        if (this.teleportMenu) {
+          // One panel at a time: the players list covers the same corner.
+          this.playersPanel?.close();
+          this.teleportMenu.toggle();
+        } else this.toast('Teleport requests are for servers — join one from Online', 'warn');
+        break;
+      case 'acceptRequest':
+      case 'denyRequest':
+        this.requestPrompts?.answerNewest(id === 'acceptRequest');
+        break;
+      case 'online':
+        this.onlinePanel.toggle();
+        break;
+      case 'travel':
+        this.travelPanel.toggle();
+        break;
+      case 'lander':
+        this.placeLander();
         break;
       case 'rocket':
         this.fireRocket();
@@ -1833,6 +2470,12 @@ export class Game {
         if (this.worldmap.open) this.worldmap.close();
         else if (this.help.open) this.help.close();
         else if (this.cheatPanel.open) this.cheatPanel.close();
+        else if (this.teleportMenu?.open) this.teleportMenu.close();
+        else if (this.playersPanel?.open) this.playersPanel.close();
+        else if (this.travelPanel.open) this.travelPanel.close();
+        // A sign-in the server is waiting for stays up; Esc is no way out of
+        // that one. See onlinePanel.mustStay.
+        else if (this.onlinePanel.open && !this.onlinePanel.mustStay) this.onlinePanel.close();
         else this.settingsPanel.toggle();
         break;
       case 'pause':
@@ -1862,11 +2505,130 @@ export class Game {
 
   /**
    * Picking a hotbar slot chooses which rocket you fire next — and pressing the
-   * number you are already on fires it, so a rocket is one key, not two.
+   * number you are already on fires it, so a rocket is one key, not two. The
+   * sword's number just draws the sword: pressing it again does nothing.
    */
   useSlot(index) {
-    if (index === this.player.selectedSlot) this.fireRocket();
+    if (index === SWORD_SLOT) this.player.selectSlot(index);
+    else if (index === this.player.selectedSlot) this.fireRocket();
     else this.player.selectSlot(index);
+  }
+
+  /** Keys that do something when they come back up: push to talk. */
+  onActionUp(id) {
+    if (id === 'pushToTalk') this.voice?.setPushed(false);
+  }
+
+  /**
+   * Swing the sword.
+   *
+   * Always a swing — you see it and so does everyone near you — and, if the
+   * blade passes through somebody within reach, a hit for the server to
+   * judge. Swinging again before the blade has come round is allowed, and
+   * hits for less, which is Minecraft's rule and the server's.
+   */
+  attack() {
+    const player = this.player;
+    if (player.dead || this.rig.isFreecam || !player.holdingSword) return;
+    this.releaseSettle();
+    player.swings += 1;
+    player.lastSwingAt = player.clock;
+    this.avatar.swing?.();
+    this.lastAttackAt = performance.now();
+    if (!this.session) return;
+    const eye = {
+      x: player.position.x,
+      y: player.position.y + player.eyeHeight,
+      z: player.position.z,
+    };
+    const look = player.lookVector();
+    const bodies = [];
+    for (const other of this.session.remote.list()) {
+      if (!other.visible || other.dead || !other.now) continue;
+      const pose = other.pose;
+      bodies.push({
+        id: other.id,
+        feet: pose.position,
+        height: pose.height,
+        lying: pose.mode === 'glide',
+        along: pose.velocity.lengthSq() > 1 ? pose.velocity : null,
+      });
+    }
+    const hit = findTarget(eye, look, bodies, REACH_M);
+    if (hit) this.session.attack(hit.id);
+  }
+
+  /** How far the next swing is charged, 0 to 1. See attack(). */
+  get attackCharge() {
+    return Math.min(1, (performance.now() - this.lastAttackAt) / (ATTACK_COOLDOWN_S * 1000));
+  }
+
+  /**
+   * Back on your feet after dying.
+   *
+   * On a server, the server decides where — the world's spawn, or your lander
+   * off Earth — and sends you there. Locally: on Earth the only thing that can
+   * kill you is the sea, so it is somewhere you can breathe, which is what a
+   * random teleport is for; anywhere else it is your lander, or the base.
+   */
+  respawn() {
+    const player = this.player;
+    if (!player.dead) return;
+    this.deathScreen.close();
+    if (this.session) {
+      this.session.respawn();
+      return;
+    }
+    player.revive();
+    if (ON_EARTH) {
+      this.randomTeleport({ reason: 'respawn', flying: false });
+    } else {
+      const at = this.lander ?? BODY.spawn;
+      this.teleportTo(at.lat, at.lon, { reason: 'respawn', quiet: true, flying: false });
+    }
+  }
+
+  /**
+   * Off Earth, put your lander down where you stand: the place the suit
+   * refills, and where you come back to if you die.
+   */
+  placeLander() {
+    const player = this.player;
+    if (ON_EARTH) {
+      this.toast('No lander on Earth — you can breathe here', 'warn');
+      return;
+    }
+    if (!player.onGround) {
+      this.toast('Land first — a lander goes down on solid ground', 'warn');
+      return;
+    }
+    const now = performance.now();
+    if (now - (this.landerMovedAt ?? -Infinity) < LANDER_EVERY_S * 1000) {
+      this.toast(`The lander can move again in ${Math.ceil((LANDER_EVERY_S * 1000 - (now - this.landerMovedAt)) / 1000)} s`, 'warn');
+      return;
+    }
+    this.landerMovedAt = now;
+    this.lander = { lat: player.lat, lon: player.lon, alt: player.position.y };
+    if (this.session) this.session.placeLander();
+    else writeJSON('lander', this.lander);
+    this.refreshSites();
+    this.toast('Lander set down here — your suit refills beside it');
+  }
+
+  /** The base and your lander, as beams. */
+  refreshSites() {
+    if (!this.siteBeacons) return;
+    const base = this.session?.spawn ?? BODY.spawn;
+    const list = [{ id: 'site:base', name: `Base · ${BODY.spawn.label}`, lat: base.lat, lon: base.lon, colour: '#9fd3ff' }];
+    if (this.lander) list.push({ id: 'site:lander', name: 'Your lander', lat: this.lander.lat, lon: this.lander.lon, colour: '#ffd27a' });
+    this.sites.waypoints = list;
+  }
+
+  /** Can you leave this world right now? true, or why not. */
+  canLeaveWorld() {
+    if (this.player.dead) return 'Respawn first';
+    if (this.settling) return 'Wait until you have landed';
+    return true;
   }
 
   fireRocket() {
@@ -2121,6 +2883,36 @@ export class Game {
       });
   }
 
+  /**
+   * Where you are, off Earth, for the corner: the named place you are in or
+   * nearest, and how far it is back to air — your lander or the base.
+   */
+  offworldAddress(player) {
+    const here = { lat: player.lat, lon: player.lon };
+    // The named place: worked out again only once you have moved, because it
+    // walks the whole of the body's gazetteer.
+    const moved = this.placeAt ? haversine(here, this.placeAt) : Infinity;
+    if (moved > 60) {
+      this.placeAt = here;
+      this.place = describePlace(BODY.id, player.lat, player.lon);
+    }
+    const units = settings.get('units');
+    const place = this.place;
+    let named = BODY.name;
+    if (place?.inside) named = `${place.label}, ${BODY.name}`;
+    else if (place && place.distanceKm < 1) named = `By ${place.label}, ${BODY.name}`;
+    else if (place) named = `${formatDistance(place.distanceKm * 1000, units)} from ${place.label}, ${BODY.name}`;
+    // And how far it is back to air.
+    const base = this.session?.spawn ?? BODY.spawn;
+    let air = { name: 'base', d: haversine(here, base) };
+    if (this.lander) {
+      const d = haversine(here, this.lander);
+      if (d < air.d) air = { name: 'lander', d };
+    }
+    if (air.d < 150) return `${named} · at your ${air.name}`;
+    return `${named} · ${air.name} ${formatDistance(air.d, units)}`;
+  }
+
   attributionLine() {
     const parts = [];
     // Google requires the copyright that comes back with the 3D tiles to be
@@ -2137,8 +2929,8 @@ export class Game {
       if (age) parts.push(age);
     }
     if (this.elevationSource?.attribution) parts.push(this.elevationSource.attribution);
-    if (settings.get('buildings')) parts.push('Buildings © OpenStreetMap contributors');
-    if (settings.get('addressLookup')) {
+    if (ON_EARTH && settings.get('buildings')) parts.push('Buildings © OpenStreetMap contributors');
+    if (ON_EARTH && settings.get('addressLookup')) {
       // Whoever's addresses you are actually reading gets the credit.
       if (settings.get('appleMapsToken').trim()) parts.push('Geocoding: Apple Maps');
       else if (!settings.get('googleKey')) parts.push('Geocoding: Nominatim');
