@@ -97,8 +97,8 @@ export function loadConfig({ file = join(HERE, 'config.json'), env = process.env
       throw new Error(`server/config.json is not valid JSON: ${error.message}`);
     }
   }
-  // The same, from one variable, for hosts that build from the repository and
-  // so never have a config.json: laid over the file, under the variables below.
+  // The same, as one JSON variable, for hosts that build from the repository and
+  // so have no config.json: laid over the file, under the variables below.
   let fromEnv = {};
   if (env.TERRAGLIDE_CONFIG) {
     try {
@@ -112,12 +112,12 @@ export function loadConfig({ file = join(HERE, 'config.json'), env = process.env
     if (!env[name]) return;
     const n = Number(env[name]);
     if (Number.isFinite(n) && n >= 0) config[key] = n;
-    else console.warn(`[terraglide] ${name}=${env[name]} is not a number; ${key} stays ${config[key]}`);
+    else console.warn(`${name}=${env[name]} is not a number; ${key} stays ${config[key]}`);
   };
   const flag = (name, key) => {
     if (!env[name]) return;
     if (/^(1|true|yes|on|0|false|no|off)$/i.test(env[name])) config[key] = /^(1|true|yes|on)$/i.test(env[name]);
-    else console.warn(`[terraglide] ${name}=${env[name]} is not 1 or 0; ${key} stays ${config[key]}`);
+    else console.warn(`${name}=${env[name]} is not on or off; ${key} stays ${config[key]}`);
   };
   if (env.TERRAGLIDE_MOTD) config.motd = env.TERRAGLIDE_MOTD;
   number('TERRAGLIDE_MAX_PLAYERS', 'maxPlayers');

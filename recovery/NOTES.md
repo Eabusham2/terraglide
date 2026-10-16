@@ -1,7 +1,12 @@
 # Recovery notepad (read this first after any compaction)
 
 ## OUTLINE (keep current: newest at the top of each list)
-### Where I am right now (Oct 15, afternoon)
+### Where I am right now (Oct 16, afternoon)
+- The checklist is finished: every file is in the repo at its final count, and the WHAT TO VERIFY pass has been run (results under WHAT TO VERIFY).
+- Done today, each committed: selftest.mjs (11622), shots.mjs (389, exact), sword.glb (regenerated) + tools/glb-unplate.py, shots/online (all 9), config.mjs (now the logged 6388 bytes too), stars.mjs (exact by size), and the voice harness rebuilt into recovery/harness/voice.
+- Still open, and why: 5 selftest checks (1748 here, 1753 then) that no log shows; sword.glb is bigger than the swordNote says (the ZeroGPU quota ran out; a check-in on Oct 17 06:32 UTC regenerates it at ~60000).
+
+### Where I was on Oct 15, afternoon
 - Done since the last compaction, each committed: social.mjs (866), HOSTING.md (1533), voice.js (1553, exact count), planetary.js (1947, exact count), chat.js (237), touch.js (351), beacons.js (exact), manifest.json (exact), the workflow (exact), gazetteerData.js + starCatalogue.js (regenerated).
 - METHOD that works (use it for every remaining file):
   1. `./newestfull.sh REL` (scratchpad/recover) pools each version newest first and stops at the first complete one, written to out/t/<base>.<V>.js.
@@ -13,7 +18,7 @@
 - NEXT: the client UI (hud 412 missing, onlinePanel 226, playersPanel 146, teleportMenu 145, travelPanel short 65, minimap, worldmap, settingsPanel), then game.js (562 missing after aligning V4), player.js, avatar.js, main.css, README, then the tests, then sword.glb and the verify pass.
   - game.js done (see Guessed). Next: styles/main.css, README.md, then the tests, then sword.glb and the verify pass.
 
-### selftest.mjs rebuild (Oct 16, in progress) — what the logs settle
+### selftest.mjs rebuild (Oct 16, done: 11622 lines, 1748/1748) — what the logs settle
 - Base v7 = the commit + every logged edit replayed (scratchpad/recover/stpool.py + stedits.json: a46d0e35's Oct 3 planetary
   section (Write + 2 python fixes + insert + \u escapes + 21:54 Mars edit), aee77e2c's 2 Edits and a54442e4's Edit/python/Edit
   of Oct 5): 11135 lines, every view up to Oct 5 05:53 agrees except one line (stepGlide ..., this.env, Oct 5 05:39 view).
@@ -151,7 +156,7 @@ New files:
 - [x] Dockerfile · [x] .dockerignore · [x] fly.toml · [x] render.yaml · [x] server/config.example.json · [x] src/net/publicServer.js
 - [x] server/ws.mjs (405) · [x] server/cells.mjs (146) · [x] server/store.mjs (90; the paste had a stray leading blank line, removed; all 62 logged lines then match)
 - [x] server/game.mjs FINAL (2720 lines, 126238 bytes) = V5 + round 6 (recovery/diffs/atk6.game.diff, then r6_copy2_edit1.py and r6_copy2_edit2.py, replayed exactly). Its line numbers match my Oct 12 07:56 grep of the copy (GLIDE_ROOM at 104, 915, 1079). Caveat: 25 guessed lines (see Guessed), about 52 bytes short; everything else is from the logs.
-- [x] server/accounts.mjs (319) · [x] server/commands.mjs (244) · [~] server/config.mjs (146; lines 100-135 rebuilt, see Guessed) · [x] server/records.mjs (148) · [~] server/server.mjs (321 = final; 5 lines guessed: the unhandledRejection handler, see Verification pass) · [~] server/social.mjs (876 = final; every view and grep since Oct 10 03:48 agrees; the party fixes in the three Oct 9 fills are mine, see Guessed)
+- [x] server/accounts.mjs (319) · [x] server/commands.mjs (244) · [~] server/config.mjs (146 lines and 6388 bytes = the Oct 9–11 `ls -la`; lines 100-135 rebuilt, see Guessed) · [x] server/records.mjs (148) · [~] server/server.mjs (321 = final; 5 lines guessed: the unhandledRejection handler, see Verification pass) · [~] server/social.mjs (876 = final; every view and grep since Oct 10 03:48 agrees; the party fixes in the three Oct 9 fills are mine, see Guessed)
 - [~] HOSTING.md (1544 = final; every line the final's greps place lands there; the 11 lines the Oct 7 fills lacked are mine, see Guessed)
 - [x] src/core/boot.js (256, whole cat of Oct 7 16:54; count matches Oct 11)
 - [x] src/geo/bodies.js (395) · [x] src/geo/ephemeris.js (231) · [x] src/geo/gazetteer.js (151, the whole file from an Oct 5 13:56 `cat -n` inside a mixed command; one version to the end) · [x] src/geo/gazetteerData.js (regenerated Oct 15 after the apostrophe fix: 8147 features, 254409 bytes; no older size was logged)
@@ -160,7 +165,7 @@ New files:
 - [~] src/tiles/planetary.js (1947, every known line in place; the Oct 5 review's fixes rebuilt, see Guessed)
 - [~] src/ui/chat.js (237, every known line in place; Oct 6 text + ledger F2/F9/P4/P8, see Guessed) · [~] src/ui/deathScreen.js (87 = the Oct 11 count; written to P2 and session.js's update(how) call, see Guessed) · [~] src/ui/onlinePanel.js (387 = final, every known line in place; F9 Change password form, see Guessed) · [~] src/ui/playersPanel.js (463 = final, every known line in place; see Guessed) · [~] src/ui/teleportMenu.js (377 = final, every known line in place; F7, see Guessed) · [~] src/ui/travelPanel.js (173 = final; lines 69-173 rebuilt for P3, see Guessed) · [x] src/ui/trail.js (140)
 - [x] src/world/lander.js (184) · [x] src/world/stars.js (173, the whole file from an Oct 5 13:49 `cat -n` inside a mixed command; one version to the end) · [x] src/world/starCatalogue.js (regenerated: 2887 stars, 25302 bytes, the same size the Oct 5 wc -c gave)
-- [x] tools/flightcheck.mjs (396 = final, 16312 bytes = the Oct 10 03:29 ls; recovery/guess/flightcheck_build.py; 15/15 with every world's speed as logged; one line mine, see Guessed) · [x] tools/onlinecheck.mjs (596 = the Oct 11 count; recovery/guess/onlinecheck_build.py; 43/43 here on Oct 16, with the regenerated assets/sword.glb; see Guessed) · [~] tools/servertest.mjs (1749 = final, 210/210; recovery/guess/servertest_build.py; sections marked mine in it) · [~] tools/stars.mjs (96) · [~] tools/gazetteer.py (the paste, plus 3 lines of mine that turn U+2019/U+2018 into ' so today's USGS names pass the Latin-1 selftest) · [x] tools/glb-unplate.py (WRITTEN BY ME to the manifest's swordNote)
+- [x] tools/flightcheck.mjs (396 = final, 16312 bytes = the Oct 10 03:29 ls; recovery/guess/flightcheck_build.py; 15/15 with every world's speed as logged; one line mine, see Guessed) · [x] tools/onlinecheck.mjs (596 = the Oct 11 count; recovery/guess/onlinecheck_build.py; 43/43 here on Oct 16, with the regenerated assets/sword.glb; see Guessed) · [~] tools/servertest.mjs (1749 = final, 210/210; recovery/guess/servertest_build.py; sections marked mine in it) · [x] tools/stars.mjs (96 lines and 3872 bytes = the Oct 9 `ls -la`, mtime Oct 3 08:19, so the paste is the last version) · [~] tools/gazetteer.py (the paste, plus 3 lines of mine that turn U+2019/U+2018 into ' so today's USGS names pass the Latin-1 selftest) · [x] tools/glb-unplate.py (WRITTEN BY ME to the manifest's swordNote)
 - [x] assets/sword.glb (regenerated Oct 16 by the swordNote recipe; 70,232 triangles and 3.5 MB, not 8,722 and 0.57 MB: see Guessed)  · [x] shots/online/*.png (all 9 rewritten by tools/onlinecheck.mjs on Oct 16, the 43/43 run) · [x] terraglide-online.html (built; gitignored, like the bundles)
 
 Changed tracked files (base = 2c7ee70):
@@ -185,8 +190,18 @@ Changed tracked files (base = 2c7ee70):
 7. Parse check: config.example.json (JSON), fly.toml (TOML), render.yaml and the workflow (YAML).
 8. Anything guessed rather than recovered is listed under "Guessed" below, so it can be reviewed.
 
+Results, Oct 16 afternoon (after the last rebuilds):
+1. Line counts: 74 files equal their last logged `wc -l`. The other 6 grew after it, each shown by a later sighting or edit (beyond.py): the workflow 122 (+16, the Oct 9 15:03 cat), HOSTING.md 1544, game.mjs 2720 (V5 + round 6), cheats.js 218, touch.js 351, servertest.mjs 1749. Sizes that were logged also match: config.mjs 6388, stars.mjs 3872, flightcheck.mjs 16312, starCatalogue.js 25302.
+2. Sightings: finalcount.py: every numbered sighting after each file's final count agrees (flightcheck and onlinecheck went to 0 differing with today's rebuilds; main.css's 22 are all Oct 5–7 views from before its Oct 9 changes, the newest at 1404 being the line the final selftest's own regex requires). newest.py: nothing new against the newest sightings except lines already listed under Guessed (server.mjs's 5 lines, social.mjs's Oct 9 fills). greplines.py main.css since Oct 9 16:16: 0 differing.
+3. `node --check`: every .js/.mjs outside recovery/partial passes (the 24 there are the gap-marked snapshots, meant not to parse). check.mjs: "checked 96 modules — no problems found".
+4. bundle.mjs and online.mjs: both built.
+5. Suites: selftest 1748/1748 (target 1753: see Guessed), servertest 210/210, flightcheck 15/15 worlds, onlinecheck 43/43, voice 50/50 ("all passed", the harness rebuilt from its logged Write, edits and python fixes into recovery/harness/voice; copy that folder somewhere writable, `node speech.cjs`, then `node run.mjs`).
+6. Live server: `node server/server.mjs` with PORT/DATA_DIR set serves the page, the bundle and sword.glb, upgrades /ws, and two clients against it (scratch live.mjs) got 9/9: sign-up (the first account is an admin), each sees the other, /rtp, /tpa → tpreq → /tpaccept puts Bruno 4 m from Ada, a sword hit (7 hearts' worth), a party, a voice offer relayed between them. Ctrl+C saves and stops.
+7. Parse: config.example.json, manifest.json and package.json (JSON), fly.toml (TOML), render.yaml and the workflow (YAML): all parse.
+- shots.mjs, run into scratch: Earth 16 images, exit 0, holes under 0.3%. `--world moon` works too, but arrives at your base, so first person stands inside the base beam (beacons.js, unchanged from the commit) and the hole measure counts the beam: not a recovery fault.
+
 ## Guessed (not recovered exactly)
-- server/config.mjs: lines 100-135 rebuilt from their known anchors (123 number MAX_PLAYERS, 126 flag OPEN_SIGNUPS, 128 flag PVP, 129 ALLOWED_ORIGINS, 136 TRUST_PROXY) and ledger item H2 (MOTD/MAX_PLAYERS/MAX_ACCOUNTS/SIGNUPS_PER_HOUR/OPEN_SIGNUPS/FIRST_ACCOUNT_ADMIN/PVP/ALLOWED_ORIGINS/CONFIG). The TERRAGLIDE_CONFIG layer and the number()/flag() helper bodies are WRITTEN BY ME; the count (146) and every known line match.
+- server/config.mjs: lines 100-135 rebuilt from their known anchors (123 number MAX_PLAYERS, 126 flag OPEN_SIGNUPS, 128 flag PVP, 129 ALLOWED_ORIGINS, 136 TRUST_PROXY) and ledger item H2 (MOTD/MAX_PLAYERS/MAX_ACCOUNTS/SIGNUPS_PER_HOUR/OPEN_SIGNUPS/FIRST_ACCOUNT_ADMIN/PVP/ALLOWED_ORIGINS/CONFIG). The TERRAGLIDE_CONFIG layer (its place is HOSTING.md 836's: over the file, under the variables) and the number()/flag() helper bodies are WRITTEN BY ME; the count (146), the size (6388 bytes, Oct 9–11) and every known line match. Oct 16: the two warning lines and the comment over TERRAGLIDE_CONFIG were reworded to take off the 25 bytes they had over the logged size.
 - src/core/settings.js: (resolved Oct 15) the 5 lines after `const STORAGE_KEY` are SettingsStore's doc comment, exact from Oct 5, placed by the Oct 11 05:23 grep (484 = its second line). Every view and grep since Oct 11 05:15 now agrees.
 - src/player/elytra.js: exact (the Oct 7-9 version is complete and the final adds exactly FLIGHT_GRAVITY_MPS2 + a blank after line 26).
 - src/net/protocol.js: pickColour's body from the early paste (exact for that version); colourDistance (redmean distance), its doc comment and the doc comments for TWIN_DISTANCE and distinctColour WRITTEN BY ME (never shown). recovery/guess/src_net_protocol.js.txt.
