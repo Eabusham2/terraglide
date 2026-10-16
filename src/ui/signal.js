@@ -40,3 +40,13 @@ export function setSignal(element, level) {
 export function formatPing(ms) {
   return Number.isFinite(ms) ? `${Math.round(ms)} ms` : '— ms';
 }
+
+/** How many are on the server, for beside the ping. */
+export function formatPlayers(count) {
+  return `${count} playing`;
+}
+
+/** Your friends who are on, of all of them - for beside the player count. */
+export function formatFriends({ online, total }) {
+  return total ? `${online}/${total} friends` : '0 friends';
+}

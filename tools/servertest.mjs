@@ -12,6 +12,7 @@
  *   node tools/servertest.mjs
  */
 
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -796,9 +797,22 @@ try {
     // another, for good.
     const { colourDistance, TWIN_DISTANCE } = await import('../src/net/protocol.js');
     server.accounts.get('hugo').colour = server.accounts.get('gina').colour;
+    // The startup screen's view: a page with Gina's session asks the status
+    // how many of her friends are on, before signing in.
+    const status = async (token) => (await fetch(`${BASE}/api/status`, { method: 'POST', body: token, headers: { 'content-type': 'text/plain' } })).json();
+    const sessionOf = (token) => server.accounts.sessions[createHash('sha256').update(token).digest('base64url')];
+    const usedBefore = sessionOf(gina.auth.token).used;
+    const withHugo = await status(gina.auth.token);
+    ok('the status tells a page with a session how many of its friends are on', withHugo.friends?.online === 1 && withHugo.friends?.total === 1, JSON.stringify(withHugo.friends));
+    ok('and is still the public status besides', withHugo.terraglide === true && withHugo.online >= 2);
+    ok('a look is not a sign-in: the session is not refreshed', sessionOf(gina.auth.token).used === usedBefore);
+    const stranger = await status('not-a-token');
+    ok('a token that is not one gets the plain status, no friends', stranger.terraglide === true && !('friends' in stranger));
     await hugo.close();
     const gone = await gina.next('chat', (m) => m.kind === 'friend' && /Hugo went offline/.test(m.text));
     ok('friends hear when you go offline', !!gone);
+    const without = await status(gina.auth.token);
+    ok('and the status count drops with them, at once', without.friends?.online === 0 && without.friends?.total === 1, JSON.stringify(without.friends));
     // Back with the token, as a reload does.
     const back = await new Bot('Hugo').open();
     back.send({ t: 'resume', token: hugo.auth.token });

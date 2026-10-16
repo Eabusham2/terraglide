@@ -216,10 +216,11 @@ Every time the game starts it asks how you want to play: **Play locally**, on
 your own with everything kept in this browser, or **Play online with
 everyone**, which joins the main lobby: the public server everybody plays on
 together, where whatever anybody explores goes on one map, kept by the server
-for good. The online button says whether the main lobby is up, how many are on
-it and its ping, with signal bars (green, yellow or red), checked every two
-seconds; if the lobby is down the button greys out with a red light until it
-answers again. The first time, a few short cards come before it on what the
+for good. The online button says whether the main lobby is up, and beside its
+ping and signal bars (green, yellow or red) how many are playing there and, if
+you have signed in to it from this browser before, how many of your friends are
+on (*2/7 friends*), checked every two seconds; if the lobby is down the button
+greys out with a red light until it answers again. The first time, a few short cards come before it on what the
 game is and how to fly (*How it works* on that screen shows them again). A page
 opened from an invite link, or with `?local`, has already chosen and goes
 straight in.
@@ -227,7 +228,8 @@ straight in.
 On a server your ping to it shows in the bottom-right corner, after the frame
 rate (*Settings → Show performance readout*), with the same bars: green under
 120 ms, yellow under 250, red beyond that or when the server stops answering,
-and *offline* when the connection is down.
+and *offline* when the connection is down. Beside it, live, how many are
+playing on the server and how many of your friends are on, of all of them.
 
 In the game, press `K` (or **Play online** in the toolbar) and press **Play on
 the public server**, or type another server's address. Every player signs up with a username and a password the first time

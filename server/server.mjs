@@ -142,12 +142,37 @@ export function startServer(overrides = {}) {
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
       if (url.pathname === '/api/status') {
-        res.writeHead(200, {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Access-Control-Allow-Origin': '*',
-          'Cache-Control': 'no-store',
-        });
-        res.end(JSON.stringify({ terraglide: true, ...game.publicInfo() }));
+        const answer = (extra = {}) => {
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-store',
+          });
+          res.end(JSON.stringify({ terraglide: true, ...game.publicInfo(), ...extra }));
+        };
+        if (req.method === 'POST') {
+          // A page holding a session here can say so, to hear how many of its
+          // friends are on: the token in the body, as plain text - never the
+          // address, which ends up in logs - so it is a simple request a page
+          // anywhere may send without asking first.
+          let body = '';
+          req.setEncoding('utf8');
+          req.on('data', (chunk) => {
+            body += chunk;
+            if (body.length > 512) req.destroy();
+          });
+          req.on('end', () => {
+            try {
+              const friends = game.friendsStatus(body.trim());
+              answer(friends ? { friends } : {});
+            } catch (error) {
+              console.error('[http] status', error);
+              if (!res.headersSent) res.writeHead(500).end();
+            }
+          });
+          return;
+        }
+        answer();
         return;
       }
       if (url.pathname === '/healthz') {

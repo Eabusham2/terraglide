@@ -68,7 +68,7 @@ import { Exploration, decodeCells, encodeCells } from '../src/ui/exploration.js'
 import { CellRuns } from './cells.mjs';
 import { MAX_WAYPOINTS, PlayerRecord, circumferenceOf, radiusOf } from './records.mjs';
 import { runCommand } from './commands.mjs';
-import { Social } from './social.mjs';
+import { MAX_FRIENDS, Social } from './social.mjs';
 
 const TICK_MS = 100;
 /** Everyone within this sees you at the full rate; further out, once a second. */
@@ -240,6 +240,8 @@ export class Game {
     this.nextId = 1;
     /** Records of the players online, and of anybody touched since the last save. See evictRecords(). */
     this.records = new Map();
+    /** Friend lists for /api/status, read off the disk at most once a minute each. See friendsStatus. */
+    this.statusFriends = new Map();
     this.requests = new Map();
     this.nextRequest = 1;
     this.travelling = new Map();
@@ -564,6 +566,30 @@ export class Game {
         return;
       default:
     }
+  }
+
+  /**
+   * What /api/status adds for a page that holds a session here: how many of
+   * that account's friends are on, of how many. A look, not a sign-in - the
+   * session is not refreshed - and since the startup screen asks every couple
+   * of seconds, the list itself is read at most once a minute per account
+   * rather than a whole player file each time. Who is on is always live.
+   */
+  friendsStatus(token) {
+    const account = this.accounts.peekSession(token);
+    if (!account) return null;
+    const now = this.now();
+    let cached = this.statusFriends.get(account.key);
+    if (!cached || now - cached.at > 60000) {
+      const social = this.peek(account.key).social;
+      const friends = Array.isArray(social?.friends) ? social.friends.filter((k) => typeof k === 'string').slice(0, MAX_FRIENDS) : [];
+      if (this.statusFriends.size > 1000) this.statusFriends.clear();
+      this.statusFriends.set(account.key, (cached = { at: now, friends }));
+    }
+    // A friend made or lost while signed in is in the live record already.
+    const live = this.records.get(account.key)?.social?.friends;
+    const friends = Array.isArray(live) ? live : cached.friends;
+    return { online: friends.filter((k) => this.byKey.has(k)).length, total: friends.length };
   }
 
   publicInfo() {

@@ -16,7 +16,7 @@ import {
 } from '../core/units.js';
 import { HOTBAR, SLOTS } from '../player/player.js';
 import { escapeHtml } from './worldmap.js';
-import { formatPing, setSignal, signalLevel, signalMarkup } from './signal.js';
+import { formatFriends, formatPing, formatPlayers, setSignal, signalLevel, signalMarkup } from './signal.js';
 
 /**
  * The heads-up display.
@@ -125,7 +125,7 @@ export class HUD {
         <div class="hud-voice" data-id="voice" hidden><i class="hud-voice-dot"></i><span data-id="voice-text"></span></div>
         <div class="hud-statusrow">
           <div class="status-line" data-id="status">—</div>
-          <div class="hud-net" data-id="net" title="Ping to the server" hidden>${signalMarkup(signalLevel(NaN))}<span data-id="net-text">${formatPing(NaN)}</span></div>
+          <div class="hud-net" data-id="net" hidden>${signalMarkup(signalLevel(NaN))}<span data-id="net-text" title="Ping to the server">${formatPing(NaN)}</span><span data-id="net-players" title="Players on the server" hidden></span><span data-id="net-friends" title="Your friends on the server, of all your friends" hidden></span></div>
         </div>
         <div class="attribution" data-id="attribution">—</div>
       </div>
@@ -211,7 +211,8 @@ export class HUD {
   }
 
   /**
-   * The ping to the server, after the frame rate, with its bars: online only.
+   * The ping to the server, after the frame rate, with its bars, then how
+   * many are playing and how many of your friends are on: online only.
    * A connection that is down says so in red; one that has stopped answering
    * its pings for three of them in a row turns red before it is noticed gone.
    */
@@ -225,6 +226,13 @@ export class HUD {
     const stale = heard && Date.now() - net.lastPong > 7000;
     setSignal(node.querySelector('.signal'), signalLevel(heard ? net.rtt : NaN, { up, stale }));
     this.setText('net-text', !up ? 'offline' : heard ? formatPing(net.rtt) : formatPing(NaN));
+    // Beside the ping: how many are on, then how many of your friends.
+    const players = up && Number.isFinite(net.players) ? formatPlayers(net.players) : '';
+    const friends = up && net.friends ? formatFriends(net.friends) : '';
+    this.refs['net-players'].hidden = !players;
+    this.refs['net-friends'].hidden = !friends;
+    this.setText('net-players', players);
+    this.setText('net-friends', friends);
   }
 
   setText(id, value) {

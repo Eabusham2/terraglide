@@ -234,6 +234,19 @@ export class Accounts {
     return token;
   }
 
+  /**
+   * The account a token belongs to, or null, without refreshing the session or
+   * touching the file: a look, not a sign-in. For /api/status, which a page on
+   * the startup screen asks every couple of seconds - resume() would rewrite
+   * accounts.json each time.
+   */
+  peekSession(token) {
+    if (typeof token !== 'string' || !token || token.length > 200) return null;
+    const session = this.sessions[tokenHash(token)];
+    if (!session || Date.now() - session.used > SESSION_DAYS * 86400 * 1000) return null;
+    return this.accounts[session.key] ?? null;
+  }
+
   /** The account a token belongs to, or null. Refreshes the session. */
   resume(token) {
     const id = tokenHash(token);

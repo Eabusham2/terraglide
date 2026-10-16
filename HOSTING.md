@@ -60,7 +60,11 @@ minutes, for free, without touching your router.
   message, how many are online and whether it needs a join code — handy for an
   uptime checker, and safe for anyone to read. The game's startup screen asks
   the main lobby's `/api/status` every two seconds while it is open, for the
-  lobby's up-or-down light, player count and ping.
+  lobby's up-or-down light, player count and ping. A page that has signed in
+  there before sends its session token as the body of a `POST` to the same
+  address and gets `friends: {online, total}` as well — counts only, no names;
+  the session is looked at, not refreshed, and each account's friend list is
+  read from disk at most once a minute.
 
 What it needs: a computer that stays on while people play, Node.js 18 or newer
 (22 is what this guide and the Docker image use), and about 100 MB of memory.

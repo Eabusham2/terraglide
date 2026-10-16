@@ -9,8 +9,9 @@ import { Emitter } from '../core/events.js';
  * and how far away it is before anybody chooses it, without opening a game
  * connection to find out.
  *
- * Asked every couple of seconds while something is listening. Events:
- * 'change', with the probe itself.
+ * Asked every couple of seconds while something is listening. A page with a
+ * session for the server sends it (in the body, see server.mjs) and hears how
+ * many of its friends are on as well. Events: 'change', with the probe itself.
  */
 
 /** wss://host/ws -> https://host/api/status, and the same beside any path the socket sits under. */
@@ -32,21 +33,27 @@ export function statusUrl(server) {
 /** Only what the screen shows, in the shape it expects: it is another machine's reply. */
 function cleanStatus(body) {
   const count = (value) => Math.max(0, Math.floor(Number(value) || 0));
+  const friends = body.friends && typeof body.friends === 'object'
+    ? { online: count(body.friends.online), total: count(body.friends.total) }
+    : null;
   return {
     name: typeof body.name === 'string' ? body.name.slice(0, 80) : '',
     online: count(body.online),
     max: count(body.max),
+    friends,
   };
 }
 
 export class ServerProbe extends Emitter {
   /**
    * @param {string} server its socket address, as boot.js keeps it
-   * @param {{every?: number, timeout?: number}} [options] milliseconds
+   * @param {{every?: number, timeout?: number, token?: string|null}} [options]
+   *   milliseconds; and this browser's session there, for the friend count
    */
-  constructor(server, { every = 2000, timeout = 4000 } = {}) {
+  constructor(server, { every = 2000, timeout = 4000, token = null } = {}) {
     super();
     this.url = statusUrl(server);
+    this.token = token;
     this.every = every;
     this.timeout = timeout;
     /** 'checking' until the first answer, then 'up' or 'down'. */
@@ -82,7 +89,11 @@ export class ServerProbe extends Emitter {
     const started = performance.now();
     let info = null;
     try {
-      const reply = await fetch(this.url, { cache: 'no-store', signal: stop.signal });
+      // Plain text, so it is a simple request a page anywhere may make
+      // without a preflight - which would be a second round trip to time.
+      const reply = await fetch(this.url, this.token
+        ? { method: 'POST', body: this.token, headers: { 'content-type': 'text/plain' }, cache: 'no-store', signal: stop.signal }
+        : { cache: 'no-store', signal: stop.signal });
       const body = reply.ok ? await reply.json() : null;
       if (body && body.terraglide === true) info = cleanStatus(body);
     } catch {

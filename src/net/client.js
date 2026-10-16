@@ -25,6 +25,15 @@ const TOKEN_KEY = 'terraglide.session.';
 const MAX_BACKOFF_MS = 15000;
 const PING_EVERY_MS = 2000;
 
+/** The session this browser keeps for a server, if it has one: what a page signs back in with. */
+export function savedToken(server) {
+  try {
+    return globalThis.localStorage?.getItem(TOKEN_KEY + serverId(server)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** A server's description of itself, in exactly the shape the page uses. */
 function cleanInfo(info) {
   if (!info || typeof info !== 'object') return null;
@@ -61,11 +70,7 @@ export class NetClient extends Emitter {
 
   /** The saved session for this server, if this browser has one. */
   get token() {
-    try {
-      return globalThis.localStorage?.getItem(TOKEN_KEY + serverId(this.server)) ?? null;
-    } catch {
-      return null;
-    }
+    return savedToken(this.server);
   }
 
   set token(value) {

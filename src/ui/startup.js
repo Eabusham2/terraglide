@@ -3,9 +3,10 @@ import { keybinds } from '../core/keybinds.js';
 import { readJSON, writeJSON } from '../core/storage.js';
 import { BODY } from '../geo/bodies.js';
 import { PUBLIC_SERVER } from '../net/publicServer.js';
+import { savedToken } from '../net/client.js';
 import { ServerProbe } from '../net/serverStatus.js';
 import { rememberServer } from './onlinePanel.js';
-import { formatPing, setSignal, signalLevel, signalMarkup } from './signal.js';
+import { formatFriends, formatPing, formatPlayers, setSignal, signalLevel, signalMarkup } from './signal.js';
 import { escapeHtml } from './worldmap.js';
 
 /**
@@ -199,7 +200,7 @@ class StartupScreen {
             ${lobby ? `<span class="startup-server" data-state="checking">
               <i class="startup-dot"></i>
               <b data-server="text">Checking the main lobby\u2026</b>
-              <span class="startup-ping">${signalMarkup(signalLevel(NaN))}<em data-server="ping">${formatPing(NaN)}</em></span>
+              <span class="startup-ping">${signalMarkup(signalLevel(NaN))}<em data-server="ping">${formatPing(NaN)}</em><em data-server="players" hidden></em><em data-server="friends" hidden></em></span>
             </span>` : ''}
           </button>
         </div>
@@ -223,7 +224,8 @@ class StartupScreen {
   watchLobby() {
     if (!this.lobby) return;
     if (!this.probe) {
-      this.probe = new ServerProbe(this.lobby);
+      // With this browser's session there, if it has one, for the friend count.
+      this.probe = new ServerProbe(this.lobby, { token: savedToken(this.lobby) });
       this.probe.on('change', () => this.showLobby());
       this.probe.start();
     }
@@ -236,13 +238,10 @@ class StartupScreen {
     const button = this.element.querySelector('[data-do="online"]');
     if (!probe || !box || !button) return;
     const state = probe.state;
+    const { online = 0, max = 0, friends = null } = probe.info ?? {};
     let text = 'Checking the main lobby\u2026';
     if (state === 'down') text = 'Down: the main lobby is not answering';
-    else if (state === 'up') {
-      const { online, max } = probe.info ?? {};
-      const full = max > 0 && online >= max;
-      text = full ? `Up, but full: ${online} of ${max} playing` : `Up \u00b7 ${online} playing`;
-    }
+    else if (state === 'up') text = max > 0 && online >= max ? `Up, but full (${max})` : 'Up';
     if (box.dataset.state !== state) box.dataset.state = state;
     const label = box.querySelector('[data-server="text"]');
     if (label.textContent !== text) label.textContent = text;
@@ -250,6 +249,14 @@ class StartupScreen {
     const ping = state === 'up' ? formatPing(probe.ping) : state === 'down' ? 'no answer' : formatPing(NaN);
     const pingText = box.querySelector('[data-server="ping"]');
     if (pingText.textContent !== ping) pingText.textContent = ping;
+    // Beside the ping: how many are on, and how many of your friends.
+    const show = (name, value) => {
+      const node = box.querySelector(`[data-server="${name}"]`);
+      node.hidden = value === null;
+      if (value !== null && node.textContent !== value) node.textContent = value;
+    };
+    show('players', state === 'up' ? formatPlayers(online) : null);
+    show('friends', state === 'up' && friends ? formatFriends(friends) : null);
     const down = state === 'down';
     if (button.disabled !== down) {
       const hadFocus = document.activeElement === button;

@@ -346,6 +346,14 @@ body {
   font-style: normal;
 }
 
+/* Ping, players, friends: one line, a dot between each. */
+.startup-ping em + em::before,
+.hud-net > span:not(.signal) + span::before {
+  content: '\00b7';
+  margin-right: 5px;
+  color: var(--text-faint);
+}
+
 .startup-other {
   margin: 10px 0 0;
   font-size: 12px;
@@ -869,7 +877,7 @@ input[type='checkbox'] {
      not something you read while flying. */
   bottom: 4px;
   text-align: right;
-  max-width: 260px;
+  max-width: 440px;
   opacity: 0.85;
   /* Small and faint is fine; illegible is not. Pale grey text with nothing
      behind it disappears completely over pale ground — over the tan hills
@@ -950,7 +958,11 @@ input[type='checkbox'] {
   background: rgba(229, 87, 76, 0.35);
 }
 
+/* The corner is wide enough for the status row (the ping and who is on
+   after the frame rate); the credit line keeps its old 260px measure. */
 .attribution {
+  max-width: 260px;
+  margin-left: auto;
   font-size: 9px;
   line-height: 1.35;
   color: var(--text-faint);
@@ -2048,6 +2060,16 @@ body.touch-active:not(.sword-out) .hud-crosshair {
     margin: 0 12px;
     max-width: none;
     text-align: left;
+  }
+
+  /* Read from the left here, so the status row and the credit start there too. */
+  .hud-statusrow {
+    justify-content: flex-start;
+  }
+
+  .hud-bottomright .attribution {
+    max-width: none;
+    margin-left: 0;
   }
 
   /* Credit and status above, location below, whatever the markup order. */

@@ -1654,8 +1654,9 @@ export class Game {
       weather: this.weatherState,
       address: this.address,
       status: this.statusLine(),
-      // The connection's round trip, for the ping beside the frame rate.
-      net: this.session ? { status: this.session.net.status, rtt: this.session.net.rtt, lastPong: this.session.net.lastPong } : null,
+      // The connection's round trip, for the ping beside the frame rate, and
+      // who is on: everybody, and your friends.
+      net: this.session ? this.netForHud() : null,
       attribution: this.attributionLine(),
       freecam: this.rig.isFreecam,
       onWater: this.terrain.isWaterAt(player.position.x, player.position.z),
@@ -2789,6 +2790,24 @@ export class Game {
   }
 
   /* --------------------------------------------------------------- readouts */
+
+  /**
+   * The connection for the HUD's corner: the ping, everybody on the server -
+   * the roster is every world's, and it does not list you - and your friends,
+   * whose list the server sends again whenever one of them comes or goes.
+   */
+  netForHud() {
+    const session = this.session;
+    const known = session.signedIn;
+    const friends = session.friends;
+    return {
+      status: session.net.status,
+      rtt: session.net.rtt,
+      lastPong: session.net.lastPong,
+      players: known ? session.remote.players.size + 1 : NaN,
+      friends: known && friends.prefs ? { online: friends.friends.filter((f) => f.online).length, total: friends.friends.length } : null,
+    };
+  }
 
   statusLine() {
     const parts = [];
