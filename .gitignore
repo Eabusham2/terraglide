@@ -13,3 +13,8 @@ terraglide-online.html
 # sets of fourteen 1400-pixel images per sitting; the finished views that are
 # worth keeping live in shots/ itself.
 shots/raw/
+
+# A server's own data and settings: accounts (password hashes), players, bans,
+# and a config that may hold a join code or TURN credential. Never committed.
+server/data/
+server/config.json

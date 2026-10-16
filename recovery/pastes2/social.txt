@@ -1,0 +1,555 @@
+  /** An account by name, online or off, for friend requests. */
+  account(name) {
+    const key = nameKey(String(name ?? ''));
+    if (!key) return null;
+    const online = this.game.findPlayer(name);
+    if (online) return online.key;
+    return this.game.accounts.get(key) ? key : null;
+  }
+
+  /* ------------------------------------------------------------- friends */
+
+  /** Everything the page shows about your friends, sent whole when it changes. */
+  sendFriends(key) {
+    const player = this.game.byKey.get(key);
+    if (!player) return;
+    const s = this.social(key);
+    this.game.send(player.client, {
+      t: 'friends',
+      friends: s.friends.map((k) => this.who(k)),
+      incoming: s.incoming.map((k) => this.who(k)),
+      outgoing: s.outgoing.map((k) => this.who(k)),
+      prefs: s.prefs,
+    });
+  }
+
+  addFriend(player, name) {
+    const key = this.account(name);
+    if (!key) return this.game.tell(player, `No account called ${String(name ?? '').slice(0, 32)}`, 'error');
+    if (key === player.key) return this.game.tell(player, 'You are already your own friend', 'error');
+    const mine = this.social(player.key);
+    const theirs = this.social(key);
+    const them = this.who(key);
+    if (mine.friends.includes(key)) return this.game.tell(player, `${them.name} is already your friend`, 'error');
+    // They asked first: this is the answer.
+    if (mine.incoming.includes(key)) return this.acceptFriend(player, them.name);
+    if (mine.friends.length >= MAX_FRIENDS) return this.game.tell(player, `That is ${MAX_FRIENDS} friends — remove one first`, 'error');
+    if (!mine.outgoing.includes(key)) mine.outgoing.push(key);
+    if (!theirs.incoming.includes(key) && !theirs.incoming.includes(player.key)) theirs.incoming.push(player.key);
+    mine.outgoing = mine.outgoing.slice(-MAX_PENDING);
+    theirs.incoming = theirs.incoming.slice(-MAX_PENDING);
+    this.save(player.key);
+    this.save(key);
+    this.game.tell(player, `Friend request sent to ${them.name}${them.online ? '' : ' — they will see it when they are next on'}`);
+    const online = this.game.byKey.get(key);
+    if (online) this.game.tell(online, `${player.name} wants to be friends — /friend accept ${player.name} or /friend deny ${player.name}`, 'friend');
+    this.sendFriends(player.key);
+    this.sendFriends(key);
+  }
+
+  acceptFriend(player, name) {
+    const mine = this.social(player.key);
+    const key = name ? this.account(name) : mine.incoming[mine.incoming.length - 1];
+    if (!key || !mine.incoming.includes(key)) {
+      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');
+    }
+    const theirs = this.social(key);
+    mine.incoming = mine.incoming.filter((k) => k !== key);
+    theirs.outgoing = theirs.outgoing.filter((k) => k !== player.key);
+    if (mine.friends.length >= MAX_FRIENDS || theirs.friends.length >= MAX_FRIENDS) {
+      this.save(player.key);
+      this.save(key);
+      this.sendFriends(player.key);
+      return this.game.tell(player, 'One of you already has as many friends as there is room for', 'error');
+    }
+    if (!mine.friends.includes(key)) mine.friends.push(key);
+    if (!theirs.friends.includes(player.key)) theirs.friends.push(player.key);
+    this.save(player.key);
+    this.save(key);
+    const them = this.who(key);
+    this.game.tell(player, `You and ${them.name} are friends`, 'friend');
+    const online = this.game.byKey.get(key);
+    if (online) this.game.tell(online, `${player.name} accepted — you are friends`, 'friend');
+    this.sendFriends(player.key);
+    this.sendFriends(key);
+  }
+
+  denyFriend(player, name) {
+    const mine = this.social(player.key);
+    const key = name ? this.account(name) : mine.incoming[mine.incoming.length - 1];
+    if (!key || !mine.incoming.includes(key)) {
+      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');
+    }
+    mine.incoming = mine.incoming.filter((k) => k !== key);
+    const theirs = this.social(key);
+    theirs.outgoing = theirs.outgoing.filter((k) => k !== player.key);
+    this.save(player.key);
+    this.save(key);
+    this.game.tell(player, `Turned down ${this.who(key).name}`);
+    this.sendFriends(player.key);
+    this.sendFriends(key);
+  }
+
+  removeFriend(player, name) {
+    const key = this.account(name);
+    const mine = this.social(player.key);
+    if (!key || !(mine.friends.includes(key) || mine.outgoing.includes(key))) {
+      return this.game.tell(player, `${String(name ?? '').slice(0, 32)} is not on your friends list`, 'error');
+    }
+    const theirs = this.social(key);
+    mine.friends = mine.friends.filter((k) => k !== key);
+    mine.outgoing = mine.outgoing.filter((k) => k !== key);
+    theirs.friends = theirs.friends.filter((k) => k !== player.key);
+    theirs.incoming = theirs.incoming.filter((k) => k !== player.key);
+    this.save(player.key);
+    this.save(key);
+    this.game.tell(player, `${this.who(key).name} is off your friends list`);
+    this.sendFriends(player.key);
+    this.sendFriends(key);
+  }
+
+  listFriends(player) {
+    const s = this.social(player.key);
+    if (!s.friends.length && !s.incoming.length) return this.game.tell(player, 'No friends yet — /friend add <name>');
+    const parts = s.friends.map((k) => {
+      const w = this.who(k);
+      return w.online ? `${w.name} (on ${BODIES[w.world]?.name ?? w.world})` : `${w.name} (offline)`;
+    });
+    const asking = s.incoming.map((k) => this.who(k).name);
+    this.game.tell(player, `Friends: ${parts.join(', ') || 'none yet'}${asking.length ? ` · asking: ${asking.join(', ')}` : ''}`);
+  }
+
+  setPrefs(player, m) {
+    const s = this.social(player.key);
+    s.prefs = {
+      autoTpa: !!m.autoTpa,
+      autoParty: !!m.autoParty,
+      notify: m.notify !== false,
+    };
+    this.save(player.key);
+  }
+
+  /** Whether `to` takes a teleport request from `from` without being asked. */
+  autoAcceptsTpa(to, from) {
+    return this.social(to.key).prefs.autoTpa && this.areFriends(to.key, from.key);
+Shell cwd was reset to /home/user/terraglide$ cd /tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party && python3 - <<'EOF'
+def edit(p, pairs):
+    s=open(p).read()
+    for old,new in pairs:
+        assert s.count(old)==1, (p, old[:70])
+        s=s.replace(old,new)
+    open(p,'w').write(s)
+edit('server/social.mjs', [
+("""const MAX_NOTICES = 10;""","""const MAX_NOTICES = 10;
+/** After a no, how long before the same person may ask to be friends again. */
+const DENIED_MS = 10 * 60 * 1000;"""),
+("""      notices: (Array.isArray(s.notices) ? s.notices.filter((n) => typeof n === 'string') : []).slice(-MAX_NOTICES),
+    };""","""      notices: (Array.isArray(s.notices) ? s.notices.filter((n) => typeof n === 'string') : []).slice(-MAX_NOTICES),
+      // Who this player said no to, and when: they wait a while to ask again.
+      denied: Object.fromEntries(Object.entries(s.denied && typeof s.denied === 'object' ? s.denied : {})
+        .filter(([k, at]) => typeof k === 'string' && Number.isFinite(at) && Date.now() - at < DENIED_MS)
+        .slice(-MAX_PENDING)),
+    };"""),
+("""  account(name) {
+    const key = nameKey(String(name ?? ''));
+    if (!key) return null;
+    const online = this.game.findPlayer(name);
+    if (online) return online.key;
+    return this.game.accounts.get(key) ? key : null;
+  }""","""  account(name) {
+    const key = nameKey(String(name ?? ''));
+    if (!key) return null;
+    // The account of exactly that name first. Asking who is online first
+    // took "Ben" to mean Benji whenever Benji was on and Ben was not - so
+    // removing Ben removed Benji.
+    if (this.game.accounts.get(key)) return key;
+    return this.game.findPlayer(name)?.key ?? null;
+  }
+
+  /** Somebody in one of your lists by name: the exact one, else the only one it begins. */
+  inList(list, name) {
+    const key = nameKey(String(name ?? ''));
+    if (!key) return null;
+    if (list.includes(key)) return key;
+    const starts = list.filter((k) => k.startsWith(key));
+    return starts.length === 1 ? starts[0] : null;
+  }"""),
+("""    if (mine.friends.includes(key)) return this.game.tell(player, `${them.name} is already your friend`, 'error');
+    // They asked first: this is the answer.
+    if (mine.incoming.includes(key)) return this.acceptFriend(player, them.name);""","""    if (mine.friends.includes(key)) return this.game.tell(player, `${them.name} is already your friend`, 'error');
+    // They asked first: this is the answer.
+    if (mine.incoming.includes(key)) return this.acceptFriend(player, them.name);
+    // Asked already: once is a request, the twelfth is spam.
+    if (mine.outgoing.includes(key) && theirs.incoming.includes(player.key)) {
+      return this.game.tell(player, `Already asked — waiting for ${them.name} to answer`, 'error');
+    }
+    if (Date.now() - (theirs.denied[player.key] ?? -Infinity) < DENIED_MS) {
+      return this.game.tell(player, `${them.name} said no not long ago — ask again later`, 'error');
+    }"""),
+("""    const mine = this.social(player.key);
+    const key = name ? this.account(name) : mine.incoming[mine.incoming.length - 1];
+    if (!key || !mine.incoming.includes(key)) {
+      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');
+    }
+    const theirs = this.social(key);
+    mine.incoming = mine.incoming.filter((k) => k !== key);
+    theirs.outgoing = theirs.outgoing.filter((k) => k !== player.key);
+    if (mine.friends.length >= MAX_FRIENDS""","""    const mine = this.social(player.key);
+    const key = name ? this.inList(mine.incoming, name) : mine.incoming[mine.incoming.length - 1];
+    if (!key || !mine.incoming.includes(key)) {
+      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');
+    }
+    const theirs = this.social(key);
+    mine.incoming = mine.incoming.filter((k) => k !== key);
+    theirs.outgoing = theirs.outgoing.filter((k) => k !== player.key);
+    if (mine.friends.length >= MAX_FRIENDS"""),
+("""    const online = this.game.byKey.get(key);
+    if (online) this.game.tell(online, `${player.name} accepted — you are friends`, 'friend');
+    this.sendFriends(player.key);
+    this.sendFriends(key);
+  }""","""    const online = this.game.byKey.get(key);
+    if (online) this.game.tell(online, `${player.name} accepted — you are friends`, 'friend');
+    else {
+      // Away: told when they are back, not never.
+      theirs.notices.push(`${player.name} accepted your friend request — you are friends`);
+      this.save(key);
+    }
+    this.sendFriends(player.key);
+    this.sendFriends(key);
+  }"""),
+("""    const mine = this.social(player.key);
+    const key = name ? this.account(name) : mine.incoming[mine.incoming.length - 1];
+    if (!key || !mine.incoming.includes(key)) {
+      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');
+    }
+    mine.incoming = mine.incoming.filter((k) => k !== key);
+    const theirs = this.social(key);""","""    const mine = this.social(player.key);
+    const key = name ? this.inList(mine.incoming, name) : mine.incoming[mine.incoming.length - 1];
+    if (!key || !mine.incoming.includes(key)) {
+      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');
+    }
+    mine.incoming = mine.incoming.filter((k) => k !== key);
+    mine.denied[key] = Date.now();
+    const theirs = this.social(key);"""),
+("""  removeFriend(player, name) {
+    const key = this.account(name);
+    const mine = this.social(player.key);""","""  removeFriend(player, name) {
+    const mine = this.social(player.key);
+    const key = this.inList([...mine.friends, ...mine.outgoing], name);"""),
+("""    if (quiet) return;
+    for (const key of s.friends) {
+      const friend = this.game.byKey.get(key);
+      if (!friend) continue;
+      this.sendFriends(key);
+      if (this.social(key).prefs.notify) {""","""    for (const key of s.friends) {
+      const friend = this.game.byKey.get(key);
+      if (!friend) continue;
+      // Their list says where you are now - after a trip to another world
+      // too, which is a quiet join; only the "is online" line waits on that.
+      this.sendFriends(key);
+      if (quiet) continue;
+      if (this.social(key).prefs.notify) {"""),
+])
+EOF
+node --check server/social.mjs && sed -n "$(grep -n '  onLeave(player' server/social.mjs | cut -d: -f1),+20p" server/social.mjs
+
+  onLeave(player, { quiet = false } = {}) {
+    // Invitations to them are left to run out, not ended: a reload, or a trip
+    // to another world, is not saying no. See onJoin.
+    const party = this.partyFor(player.key);
+    if (party) {
+      if (party.leader === player.key) party.leaderAwaySince = this.game.now();
+      if (!party.members.some((k) => k !== player.key && this.game.byKey.has(k))) party.idleSince = this.game.now();
+      this.sendParty(party, { except: player.key });
+    }
+    if (quiet) return;
+    for (const key of this.social(player.key).friends) {
+      const friend = this.game.byKey.get(key);
+      if (!friend) continue;
+      this.sendFriends(key);
+      if (this.social(key).prefs.notify) this.game.tell(friend, `${player.name} went offline`, 'friend');
+    }
+  }
+
+  /* ------------------------------------------------------------- parties */
+
+  partyFor(key) {
+Shell cwd was reset to /home/user/terraglide$ cd /tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party && sed -n 92,225p server/social.mjs
+
+  /** An account by name, online or off, for friend requests. */
+  account(name) {
+    const key = nameKey(String(name ?? ''));
+    if (!key) return null;
+    const online = this.game.findPlayer(name);
+    if (online) return online.key;
+    return this.game.accounts.get(key) ? key : null;
+  }
+
+  /* ------------------------------------------------------------- friends */
+
+  /** Everything the page shows about your friends, sent whole when it changes. */
+  sendFriends(key) {
+    const player = this.game.byKey.get(key);
+    if (!player) return;
+    const s = this.social(key);
+    this.game.send(player.client, {
+      t: 'friends',
+      friends: s.friends.map((k) => this.who(k)),
+      incoming: s.incoming.map((k) => this.who(k)),
+      outgoing: s.outgoing.map((k) => this.who(k)),
+      prefs: s.prefs,
+    });
+  }
+
+  addFriend(player, name) {
+    const key = this.account(name);
+    if (!key) return this.game.tell(player, `No account called ${String(name ?? '').slice(0, 32)}`, 'error');
+    if (key === player.key) return this.game.tell(player, 'You are already your own friend', 'error');
+    const mine = this.social(player.key);
+    const theirs = this.social(key);
+    const them = this.who(key);
+    if (mine.friends.includes(key)) return this.game.tell(player, `${them.name} is already your friend`, 'error');
+    // They asked first: this is the answer.
+    if (mine.incoming.includes(key)) return this.acceptFriend(player, them.name);
+    if (mine.friends.length >= MAX_FRIENDS) return this.game.tell(player, `That is ${MAX_FRIENDS} friends — remove one first`, 'error');
+    if (!mine.outgoing.includes(key)) mine.outgoing.push(key);
+    if (!theirs.incoming.includes(key) && !theirs.incoming.includes(player.key)) theirs.incoming.push(player.key);
+    mine.outgoing = mine.outgoing.slice(-MAX_PENDING);
+    theirs.incoming = theirs.incoming.slice(-MAX_PENDING);
+    this.save(player.key);
+    this.save(key);
+    this.game.tell(player, `Friend request sent to ${them.name}${them.online ? '' : ' — they will see it when they are next on'}`);
+    const online = this.game.byKey.get(key);
+    if (online) this.game.tell(online, `${player.name} wants to be friends — /friend accept ${player.name} or /friend deny ${player.name}`, 'friend');
+    this.sendFriends(player.key);
+    this.sendFriends(key);
+  }
+
+  acceptFriend(player, name) {
+    const mine = this.social(player.key);
+    const key = name ? this.account(name) : mine.incoming[mine.incoming.length - 1];
+    if (!key || !mine.incoming.includes(key)) {
+      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');
+    }
+    const theirs = this.social(key);
+    mine.incoming = mine.incoming.filter((k) => k !== key);
+    theirs.outgoing = theirs.outgoing.filter((k) => k !== player.key);
+    if (mine.friends.length >= MAX_FRIENDS || theirs.friends.length >= MAX_FRIENDS) {
+      this.save(player.key);
+      this.save(key);
+      this.sendFriends(player.key);
+      return this.game.tell(player, 'One of you already has as many friends as there is room for', 'error');
+    }
+    if (!mine.friends.includes(key)) mine.friends.push(key);
+    if (!theirs.friends.includes(player.key)) theirs.friends.push(player.key);
+    this.save(player.key);
+    this.save(key);
+    const them = this.who(key);
+    this.game.tell(player, `You and ${them.name} are friends`, 'friend');
+    const online = this.game.byKey.get(key);
+    if (online) this.game.tell(online, `${player.name} accepted — you are friends`, 'friend');
+    this.sendFriends(player.key);
+    this.sendFriends(key);
+  }
+
+  denyFriend(player, name) {
+    const mine = this.social(player.key);
+    const key = name ? this.account(name) : mine.incoming[mine.incoming.length - 1];
+    if (!key || !mine.incoming.includes(key)) {
+      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');
+    }
+    mine.incoming = mine.incoming.filter((k) => k !== key);
+    const theirs = this.social(key);
+    theirs.outgoing = theirs.outgoing.filter((k) => k !== player.key);
+    this.save(player.key);
+    this.save(key);
+    this.game.tell(player, `Turned down ${this.who(key).name}`);
+    this.sendFriends(player.key);
+    this.sendFriends(key);
+  }
+
+  removeFriend(player, name) {
+    const key = this.account(name);
+    const mine = this.social(player.key);
+    if (!key || !(mine.friends.includes(key) || mine.outgoing.includes(key))) {
+      return this.game.tell(player, `${String(name ?? '').slice(0, 32)} is not on your friends list`, 'error');
+    }
+    const theirs = this.social(key);
+    mine.friends = mine.friends.filter((k) => k !== key);
+    mine.outgoing = mine.outgoing.filter((k) => k !== key);
+    theirs.friends = theirs.friends.filter((k) => k !== player.key);
+    theirs.incoming = theirs.incoming.filter((k) => k !== player.key);
+    this.save(player.key);
+    this.save(key);
+    this.game.tell(player, `${this.who(key).name} is off your friends list`);
+    this.sendFriends(player.key);
+    this.sendFriends(key);
+  }
+
+  listFriends(player) {
+    const s = this.social(player.key);
+    if (!s.friends.length && !s.incoming.length) return this.game.tell(player, 'No friends yet — /friend add <name>');
+    const parts = s.friends.map((k) => {
+      const w = this.who(k);
+      return w.online ? `${w.name} (on ${BODIES[w.world]?.name ?? w.world})` : `${w.name} (offline)`;
+    });
+    const asking = s.incoming.map((k) => this.who(k).name);
+    this.game.tell(player, `Friends: ${parts.join(', ') || 'none yet'}${asking.length ? ` · asking: ${asking.join(', ')}` : ''}`);
+  }
+
+  setPrefs(player, m) {
+    const s = this.social(player.key);
+    s.prefs = {
+      autoTpa: !!m.autoTpa,
+      autoParty: !!m.autoParty,
+      notify: m.notify !== false,
+    };
+    this.save(player.key);
+  }
+
+  /** Whether `to` takes a teleport request from `from` without being asked. */
+  autoAcceptsTpa(to, from) {
+    return this.social(to.key).prefs.autoTpa && this.areFriends(to.key, from.key);
+Shell cwd was reset to /home/user/terraglide$ cd /tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party && python3 - <<'EOF'
+def edit(p, pairs):
+    s=open(p).read()
+    for old,new in pairs:
+        assert s.count(old)==1, (p, old[:70])
+        s=s.replace(old,new)
+    open(p,'w').write(s)
+edit('server/social.mjs', [
+("""const MAX_NOTICES = 10;""","""const MAX_NOTICES = 10;
+/** After a no, how long before the same person may ask to be friends again. */
+const DENIED_MS = 10 * 60 * 1000;"""),
+("""      notices: (Array.isArray(s.notices) ? s.notices.filter((n) => typeof n === 'string') : []).slice(-MAX_NOTICES),
+    };""","""      notices: (Array.isArray(s.notices) ? s.notices.filter((n) => typeof n === 'string') : []).slice(-MAX_NOTICES),
+      // Who this player said no to, and when: they wait a while to ask again.
+      denied: Object.fromEntries(Object.entries(s.denied && typeof s.denied === 'object' ? s.denied : {})
+        .filter(([k, at]) => typeof k === 'string' && Number.isFinite(at) && Date.now() - at < DENIED_MS)
+        .slice(-MAX_PENDING)),
+    };"""),
+("""  account(name) {
+    const key = nameKey(String(name ?? ''));
+    if (!key) return null;
+    const online = this.game.findPlayer(name);
+    if (online) return online.key;
+    return this.game.accounts.get(key) ? key : null;
+  }""","""  account(name) {
+    const key = nameKey(String(name ?? ''));
+    if (!key) return null;
+    // The account of exactly that name first. Asking who is online first
+    // took "Ben" to mean Benji whenever Benji was on and Ben was not - so
+    // removing Ben removed Benji.
+    if (this.game.accounts.get(key)) return key;
+    return this.game.findPlayer(name)?.key ?? null;
+  }
+
+  /** Somebody in one of your lists by name: the exact one, else the only one it begins. */
+  inList(list, name) {
+    const key = nameKey(String(name ?? ''));
+    if (!key) return null;
+    if (list.includes(key)) return key;
+    const starts = list.filter((k) => k.startsWith(key));
+    return starts.length === 1 ? starts[0] : null;
+  }"""),
+("""    if (mine.friends.includes(key)) return this.game.tell(player, `${them.name} is already your friend`, 'error');
+    // They asked first: this is the answer.
+    if (mine.incoming.includes(key)) return this.acceptFriend(player, them.name);""","""    if (mine.friends.includes(key)) return this.game.tell(player, `${them.name} is already your friend`, 'error');
+    // They asked first: this is the answer.
+    if (mine.incoming.includes(key)) return this.acceptFriend(player, them.name);
+    // Asked already: once is a request, the twelfth is spam.
+    if (mine.outgoing.includes(key) && theirs.incoming.includes(player.key)) {
+      return this.game.tell(player, `Already asked — waiting for ${them.name} to answer`, 'error');
+    }
+    if (Date.now() - (theirs.denied[player.key] ?? -Infinity) < DENIED_MS) {
+      return this.game.tell(player, `${them.name} said no not long ago — ask again later`, 'error');
+    }"""),
+("""    const mine = this.social(player.key);
+    const key = name ? this.account(name) : mine.incoming[mine.incoming.length - 1];
+    if (!key || !mine.incoming.includes(key)) {
+      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');
+    }
+    const theirs = this.social(key);
+    mine.incoming = mine.incoming.filter((k) => k !== key);
+    theirs.outgoing = theirs.outgoing.filter((k) => k !== player.key);
+    if (mine.friends.length >= MAX_FRIENDS""","""    const mine = this.social(player.key);
+    const key = name ? this.inList(mine.incoming, name) : mine.incoming[mine.incoming.length - 1];
+    if (!key || !mine.incoming.includes(key)) {
+      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');
+    }
+    const theirs = this.social(key);
+    mine.incoming = mine.incoming.filter((k) => k !== key);
+    theirs.outgoing = theirs.outgoing.filter((k) => k !== player.key);
+    if (mine.friends.length >= MAX_FRIENDS"""),
+("""    const online = this.game.byKey.get(key);
+    if (online) this.game.tell(online, `${player.name} accepted — you are friends`, 'friend');
+    this.sendFriends(player.key);
+    this.sendFriends(key);
+  }""","""    const online = this.game.byKey.get(key);
+    if (online) this.game.tell(online, `${player.name} accepted — you are friends`, 'friend');
+    else {
+      // Away: told when they are back, not never.
+      theirs.notices.push(`${player.name} accepted your friend request — you are friends`);
+      this.save(key);
+    }
+    this.sendFriends(player.key);
+    this.sendFriends(key);
+  }"""),
+("""    const mine = this.social(player.key);
+    const key = name ? this.account(name) : mine.incoming[mine.incoming.length - 1];
+    if (!key || !mine.incoming.includes(key)) {
+      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');
+    }
+    mine.incoming = mine.incoming.filter((k) => k !== key);
+    const theirs = this.social(key);""","""    const mine = this.social(player.key);
+    const key = name ? this.inList(mine.incoming, name) : mine.incoming[mine.incoming.length - 1];
+    if (!key || !mine.incoming.includes(key)) {
+      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');
+    }
+    mine.incoming = mine.incoming.filter((k) => k !== key);
+    mine.denied[key] = Date.now();
+    const theirs = this.social(key);"""),
+("""  removeFriend(player, name) {
+    const key = this.account(name);
+    const mine = this.social(player.key);""","""  removeFriend(player, name) {
+    const mine = this.social(player.key);
+    const key = this.inList([...mine.friends, ...mine.outgoing], name);"""),
+("""    if (quiet) return;
+    for (const key of s.friends) {
+      const friend = this.game.byKey.get(key);
+      if (!friend) continue;
+      this.sendFriends(key);
+      if (this.social(key).prefs.notify) {""","""    for (const key of s.friends) {
+      const friend = this.game.byKey.get(key);
+      if (!friend) continue;
+      // Their list says where you are now - after a trip to another world
+      // too, which is a quiet join; only the "is online" line waits on that.
+      this.sendFriends(key);
+      if (quiet) continue;
+      if (this.social(key).prefs.notify) {"""),
+])
+EOF
+node --check server/social.mjs && sed -n "$(grep -n '  onLeave(player' server/social.mjs | cut -d: -f1),+20p" server/social.mjs
+
+  onLeave(player, { quiet = false } = {}) {
+    // Invitations to them are left to run out, not ended: a reload, or a trip
+    // to another world, is not saying no. See onJoin.
+    const party = this.partyFor(player.key);
+    if (party) {
+      if (party.leader === player.key) party.leaderAwaySince = this.game.now();
+      if (!party.members.some((k) => k !== player.key && this.game.byKey.has(k))) party.idleSince = this.game.now();
+      this.sendParty(party, { except: player.key });
+    }
+    if (quiet) return;
+    for (const key of this.social(player.key).friends) {
+      const friend = this.game.byKey.get(key);
+      if (!friend) continue;
+      this.sendFriends(key);
+      if (this.social(key).prefs.notify) this.game.tell(friend, `${player.name} went offline`, 'friend');
+    }
+  }
+
+  /* ------------------------------------------------------------- parties */
+
+  partyFor(key) {
+Shell cwd was reset to /home/user/terraglide

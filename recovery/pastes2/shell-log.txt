@@ -1,0 +1,187 @@
+$ S=/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party; cd $S && cat > src/net/publicServer.js <<'EOF'
+/**
+ * The public server: the one everybody plays on together unless they choose
+ * another. The Online panel offers it first, as one button.
+ *
+ * Its socket address — wss://your-app.fly.dev/ws, say — once it is running;
+ * see HOSTING.md, "The public server". The GitHub Pages build fills it in
+ * from the repository variable TERRAGLIDE_PUBLIC_SERVER, so it can be set
+ * without touching the code. Empty means there is none yet, and the panel
+ * asks for an address instead.
+ */
+export const PUBLIC_SERVER = '';
+EOF
+python3 - <<'EOF'
+import os
+S=os.environ.get('S','/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party')
+def edit(p, pairs):
+    p=os.path.join(S,p)
+    s=open(p).read()
+    for old,new in pairs:
+        assert old in s, (p, old[:90])
+        s=s.replace(old,new,1)
+    open(p,'w').write(s)
+edit('.github/workflows/deploy-gh-pages.yml',[
+("""      - name: Build the two single-file downloads
+        run: |""","""      # The public server everybody plays on: set the repository variable
+      # TERRAGLIDE_PUBLIC_SERVER (Settings, Secrets and variables, Actions,
+      # Variables) to its wss:// address and every published copy offers it
+      # first. Only a plain wss:// address is accepted.
+      - name: Point the game at the public server
+        env:
+          PUBLIC_SERVER: ${{ vars.TERRAGLIDE_PUBLIC_SERVER }}
+        run: |
+          if [ -n "$PUBLIC_SERVER" ]; then
+            [[ "$PUBLIC_SERVER" =~ ^wss://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._/-]*)?$ ]] || { echo "TERRAGLIDE_PUBLIC_SERVER must be a wss:// address"; exit 1; }
+            sed -i "s|^export const PUBLIC_SERVER = .*|export const PUBLIC_SERVER = '$PUBLIC_SERVER';|" src/net/publicServer.js
+            grep -q "PUBLIC_SERVER = '$PUBLIC_SERVER'" src/net/publicServer.js
+          fi
+
+      - name: Build the two single-file downloads
+        run: |"""),
+])
+edit('src/ui/onlinePanel.js',[
+("""import { BOOT, hostedServer, normaliseServer, relaunch, serverId } from '../core/boot.js';""","""import { BOOT, hostedServer, normaliseServer, relaunch, serverId } from '../core/boot.js';
+import { PUBLIC_SERVER } from '../net/publicServer.js';"""),
+("""  renderLocal() {
+    const recent = recentServers();
+    return `
+      <p class="online-intro">You are playing locally: everything you explore is kept in this browser.
+        Join a server to fly with other people — your local save stays exactly as it is,
+        and nothing you do online is written into it.</p>
+      <form data-form="join" class="online-form">""","""  renderLocal() {
+    const recent = recentServers();
+    const publicServer = normaliseServer(PUBLIC_SERVER);
+    return `
+      <p class="online-intro">You are playing locally: everything you explore is kept in this browser.
+        Join a server to fly with other people — your local save stays exactly as it is,
+        and nothing you do online is written into it.</p>
+      ${publicServer ? `<div class="online-public">
+        <button type="button" class="primary" data-action="public">Play on the public server</button>
+        <span>Everybody's discoveries on one map, parties and friends, voice. ${escapeHtml(serverId(publicServer))}</span>
+      </div>
+      <p class="online-or">or join another server</p>` : ''}
+      <form data-form="join" class="online-form">"""),
+("""      case 'pick':
+        this.element.querySelector('input[name=server]').value = button.dataset.server;
+        break;""","""      case 'pick':
+        this.element.querySelector('input[name=server]').value = button.dataset.server;
+        break;
+      case 'public': {
+        const server = normaliseServer(PUBLIC_SERVER);
+        if (!server) break;
+        rememberServer(server);
+        relaunch({ mode: 'online', server, reason: 'Joining the public server' });
+        break;
+      }"""),
+])
+EOF
+grep -n "online-intro {" styles/main.css | head -2
+
+Shell cwd was reset to /home/user/terraglide$ S=/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party; cd $S && cat > /tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/edit_hosting.py <<'PYEOF'
+import sys
+p=sys.argv[1]
+s=open(p).read()
+pairs=[
+("""- [What the server is](#what-the-server-is)
+- [Quick start on your own computer](#quick-start-on-your-own-computer)""","""- [What the server is](#what-the-server-is)
+- [The public server](#the-public-server)
+- [Quick start on your own computer](#quick-start-on-your-own-computer)"""),
+("""What it needs: a computer that stays on while people play, Node.js 18 or newer
+(22 is what this guide and the Docker image use), and about 100 MB of memory.
+A Raspberry Pi is plenty for a group of friends.
+
+---
+""","""What it needs: a computer that stays on while people play, Node.js 18 or newer
+(22 is what this guide and the Docker image use), and about 100 MB of memory.
+A Raspberry Pi is plenty for a group of friends.
+
+---
+
+## The public server
+
+The game is built for **one public server that everybody plays on**: the
+Online panel offers it first, as one button — *Play on the public server* —
+and everything anybody explores there is uncovered on everybody's map. Private
+servers for a group of friends still work exactly as below; the public one is
+just the one the published game points at.
+
+Running it is one deploy and one setting:
+
+1. **Deploy a server that stays up and keeps its disk.** [Fly.io](#flyio) is
+   the best fit (a volume for the data; `fly.toml` here is ready). Render's
+   free plan is not: it forgets every account whenever it sleeps — use a paid
+   instance with a disk if you prefer Render. Give it a name people will see:
+   `TERRAGLIDE_NAME="TerraGlide"`.
+2. **Point the game at it.** On GitHub, open the repository's *Settings →
+   Secrets and variables → Actions → Variables* and add
+   `TERRAGLIDE_PUBLIC_SERVER` = `wss://<your-app>.fly.dev/ws`. The next
+   publish of the site (any push to `main`, or *Actions → Deploy to GitHub
+   Pages → Run workflow*) builds that address into every copy of the game.
+   Without GitHub, put the same address in `src/net/publicServer.js`.
+3. **Make yourself an admin** — `TERRAGLIDE_ADMINS=yourname`, or the first
+   account made is one — so you can kick, ban and move the spawn.
+
+Settings that suit a public server: leave `openSignups` on and `joinCode`
+empty; keep `signupsPerHour` low (5) so nobody fills the account list;
+`maxPlayers` as high as the machine takes (a shared-cpu 256 MB machine is
+comfortable to about 50; give it 512 MB and raise it for more); and add a
+[TURN server](#when-people-cannot-hear-each-other-turn) so voice works for
+everyone. The server is built to stay steady with a crowd: players far from
+you are sent less often once a world has more than 64 people, everybody's
+discoveries go out as one shared map rather than one per player, and big maps
+are sent in paced parts so nobody's connection is overwhelmed.
+
+---
+"""),
+("""| `/password <old> <new>` | Change your password; your other devices are signed out. |""","""| `/password <old> <new>` | Change your password; your other devices are signed out. |
+| `/friend add <player>` | Ask to be friends — works for players who are offline too; they see it when they next sign in. `/friend <player>` does the same. Also `/friends`, `/f`. |
+| `/friend accept [player]` / `/friend deny [player]` | Answer a friend request — the newest, or the one from that player. |
+| `/friend remove <player>` | Take somebody off your list (or take back a request). |
+| `/friend list` | Your friends, who is online and where, and who is asking. |
+| `/party invite <player>` | Invite somebody to your party (starting one if you have none). Up to 8; an invite lasts 60 s. `/party <player>` does the same. Also `/p`. |
+| `/party accept [player]` / `/party deny [player]` | Answer a party invite. |
+| `/party leave` | Leave your party. The last but one leaving ends it. |
+| `/party kick <player>` / `/party leader <player>` | Leader: remove somebody, or hand the party over. |
+| `/party together on\\|off` | Whether you teleport along when the leader does. On when you join. |
+| `/party gather` | Leader: bring everyone with *together* on to where you are. |
+| `/party mark [name]` / `/party unmark <name>` | A party waypoint where you stand, or remove one. |
+| `/party list` | Who is in your party. |
+| `/pc <message>` | Talk to your party only, wherever they are. |"""),
+("""  server.json           bans (with the banned address) and spawn points
+                        moved with /setspawn
+  players/<name>.json   one player: which world they are on, their health,
+                        kills, deaths and time played, and for every world
+                        they have visited: where they are, what they have
+                        explored, their trail, waypoints and lander""","""  server.json           bans (with the banned address), spawn points moved
+                        with /setspawn, and parties: their members, leader
+                        and waypoints
+  shared-<world>.json   everything anybody has explored on that world: the
+                        shared map. Rebuilt from players/ if deleted
+  players/<name>.json   one player: which world they are on, their health,
+                        oxygen, rocket stock, kills, deaths and time played,
+                        their friends and friend requests, and for every
+                        world they have visited: where they are, what they
+                        have explored, their trail, waypoints and lander"""),
+("""**What players can see of each other:** names, colours, and position, health
+and what they are holding for everyone on the same world; who is on which
+world. Anyone on a world can switch on another player's **trail** and
+**explored ground** on their map (players list, `Tab`), including players who
+are offline — tell your players. Waypoints are private.""","""**What players can see of each other:** names, colours, and position, health
+and what they are holding for everyone on the same world; who is on which
+world. Everything anybody has explored on a world is on everybody's map there
+(the shared map, on by default), and anyone can switch on another player's
+**trail** and own **explored ground** (players list, `Tab`), including
+players who are offline — tell your players. Friends see when each other come
+online and on which world. A party's members see each other's party waypoints
+and hear each other on voice wherever they are. Personal waypoints are private."""),
+]
+for old,new in pairs:
+    assert old in s, old[:90]
+    s=s.replace(old,new,1)
+open(p,'w').write(s)
+PYEOF
+python3 /tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/edit_hosting.py HOSTING.md && echo ok
+
+ok
+Shell cwd was reset to /home/user/terraglide

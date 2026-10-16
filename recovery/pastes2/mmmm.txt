@@ -1,0 +1,403 @@
+## 2. The tile pipeline
+
+### 2.1 Scheme and keys
+- **Web Mercator XYZ** with normalised coordinates `nx, ny ∈ [0,1)`, where `ny = 0` is the north edge:
+  - `lonToNormX` and `latToNormY` (mercator.js:10-18)
+  - inverses at mercator.js:20-26
+  - `lonLatToTile` (53-58), `wrapTileX` (48-51)
+- Geographic tile edges: `tileBounds(tile)` returns `{west,east,north,south}` (elevationGrid.js:27-35).
+- Key: `tileKey(z,x,y)` gives `"z/x/y"` (mercator.js:140-142). The same key format is used for:
+  - imagery entries (`ImageryStreamer.entries`)
+  - elevation tiles (`ElevationField.tiles`)
+  - terrain nodes (`Terrain.nodes`)
+  - exploration cells
+- Worker jobs are keyed `${channel}:${id}` (tileJobs.js:34; workerHost.js:101,137).
+- The world frame is local mercator metres: +X east, +Y up, −Z north. A tile is an exact square of side `frame.worldTileSize(z) = 2π·scale/2^z` (frame.js:88-90). The tile's NW corner comes from `frame.normToWorld(x/n, y/n)` (terrain.js:743).
+- URL axis order differs between providers:
+  - Esri: `{z}/{y}/{x}` (providers.js:68)
+  - Terrarium: `{z}/{x}/{y}` (326)
+  - Bing: quadkey (`quadKey`, mercator.js:77-87; providers.js:751-759)
+  - Mapbox: `@2x` 512-px tiles (194)
+
+### 2.2 Provider descriptor shape
+Plain objects in `IMAGERY_PROVIDERS` (providers.js:14-238) and `ELEVATION_PROVIDERS` (287-338).
+
+Fields:
+- `id`, `label`
+- `kind`: `'xyz' | 'google' | 'bing' | 'ion' | 'openmaptiles' | 'terrain-rgb' | 'terrarium' | 'bing-elevation'`. `'google-elevation'` is handled in code but has no descriptor.
+- `needsKey`: the settings key name, or `null`. **There is no `keyless` field**: keyless means `needsKey: null`, and `providerLabel()` (385-390) prints "keyless".
+- `recommended?`, `maxZoom`, `template?` (placeholders `{z} {x} {y} {date} {key}`), `attribution`, `note`, `hidden?`, `imageryYear?`
+
+**There is no `decode` field on the descriptor.** It is derived by the `TileSource.decode` getter from `kind` (providers.js:801-815): it returns `'terrain-rgb' | 'terrarium' | 'bing-elevation' | 'google-elevation' | 'vector' | 'imagery'`.
+
+One full imagery definition (providers.js:72-87):
+```js
+{
+  id: 'sentinel2',
+  label: 'Sentinel-2 cloudless',
+  kind: 'xyz',
+  needsKey: null,
+  maxZoom: 16,
+  // The year is in the product name, and it is a fixed annual mosaic.
+  imageryYear: 2020,
+  template: 'https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg',
+  attribution: 'Sentinel-2 cloudless by EOX IT Services, from modified Copernicus Sentinel data',
+  note: 'Keyless, whole planet, ten metres a pixel, and \u2014 the point of it \u2014 a ' + ...,
+},
+```
+One full elevation definition (providers.js:319-337):
+```js
+{ id: 'terrarium', label: 'AWS Terrain Tiles (Terrarium)', kind: 'terrarium', needsKey: null,
+  recommended: true, maxZoom: 14,
+  template: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+  attribution: 'Elevation: AWS Terrain Tiles, SRTM/GMTED', note: '...' }
+```
+
+**`TileSource`** (providers.js:475-816) wraps a descriptor and the settings values.
+- `state` is `idle | preparing | ready | needs-key | error`.
+- `prepare()` (522-565) does the per-kind handshake, with exponential backoff (2 s up to 60 s).
+- `urlFor(tile)` (749-798) returns **a string, or `null` meaning "cannot serve, go bare"**.
+- `fillTemplate` (461-468) uses `String.replace` with string patterns, so **only the first occurrence of each placeholder is replaced.**
+
+Construction and resolution:
+- `createImagerySource` / `createElevationSource` (901-919) use `withKeylessFallback` (890-899).
+- `providerChain` (869-879) orders standbys.
+- `resolveAuto` and `effectiveProvider` (850-867) resolve "auto".
+- `LocalAuto` (tiles/localAuto.js) probes "best provider here" through `bestProviderFor` (953-1001), `deepestZoomAt` (1063-1082) and `tileAnswers` (1111-1139). These run on the main thread, call `fetch(url)` + `createImageBitmap`, and use JSON only for the bing/google kinds.
+- Wiring: `Game.applyProviders()` (game.js:592-662):
+  - sets streamer source and standbys (slice 3)
+  - `elevation.setSource`
+  - `mapTiles.setSource` with a `sentinel2` fallback
+  - `streetTiles` uses `esri-street` with an `openfreemap` fallback
+  - `waterMap.setSource`
+
+### 2.3 Imagery tile: request, decode, cache, mesh texture
+1. `Terrain.update` (terrain.js:413-580) calls `streamer.beginFrame(nx,ny)`, which clears the queue (streamer.js:507-525). It then walks the quadtree (`visit`, 706-966) and `draw`s leaves. `show()` (1143-1221) calls `streamer.request(tile, distance/2^(20-z))`, then `streamer.resolve(node.tile)` to get its own texture or the nearest loaded ancestor with a UV window (streamer.js:699-733). It sets `uMap`, `uUvOffset`, `uUvScale` and `uHasTexture`, and asks for ancestors when the stretch is more than 4×.
+2. `ImageryStreamer.request` (streamer.js:547-596) handles entry state and the barren/bare TTLs. `pump` (735-753) runs up to `settings.preset().maxConcurrentRequests`. `dispatch` (755-805) does `sourceFor(attempt)`, then `urlFor`, then:
+   `postMessage({ kind:'imagery', channel:'imagery', id, tile, url, size:128 })` (804).
+3. Worker: `runJob` (tileJobs.js:32-61), then `handleImagery` (131-158):
+   - `fetchBitmap` (90-112) does `fetch(cors, omit)` then `createImageBitmap`
+   - `isNoDataCard(bytes)` (noData.js:227-232)
+   - `measureSharpness`, `measureCanopy`
+   - `post({ok, bitmap, sharpness, canopy}, [bitmap])`
+4. `receive` (streamer.js:833-996):
+   - On failure it moves to the standby chain (`nextAttempt`, 343-349; `canServe` uses descriptor `maxZoom`, 263-266), records `barren` for 90 s, and runs `reviewDepth`/`depthLimit`.
+   - On success it creates `new THREE.Texture(bitmap)` (sRGB, mipmaps, anisotropy), sets `entry.state = READY`, and calls `noteSharpness` and `canopy.set`.
+5. Eviction: `textureLimit()` (1024-1060) and `evict()` (1062-1158). Tiles at z ≤ `COVER_ZOOM`(9) are a protected pool of 160. There is a 20 s keep (`KEEP_SECONDS`).
+
+**Main-thread paths that bypass the worker.** Each assumes "one URL, one image".
+- `mapTiles.fetchTile` (ui/mapTiles.js:415-458), for the minimap and world map.
+- `WaterMap.buildMask` (geo/water.js:126-169).
+- `tileAnswers`, `deepestZoomAt`, `testProviders` (providers.js:1063-1216).
+
+### 2.4 Elevation tile: request, decode, resample, cache
+1. `Terrain.update` computes `elevZoom = clamp(round(19 − log2(alt+1)·1.35), 6, elevation.maxZoom)` (terrain.js:559) and calls `elevation.ensureAround(nx,ny,elevZoom,1)` (570). That function requests a 3×3 block plus `ensureBlanket` (elevation.js:265-278, every second zoom down to `BLANKET_FLOOR` 6). `show()` also requests the matching elevation tile (terrain.js:1215-1220).
+2. `ElevationField.pump` (elevation.js:297-329), with `maxActive = 4`:
+   `postMessage({ kind:'elevation', channel:'elevation', id, tile, url, decode: source.decode, size: GRID /*65*/ })`.
+3. Worker `handleElevation` (tileJobs.js:160-177):
+   - `bing-elevation` and `google-elevation` go through `fetchJson`, then `decodeBingElevation` (rows flipped S→N to N→S, elevationGrid.js:113-124) or `decodeGoogleElevation`, then `resampleGrid` to 65×65.
+   - Raster kinds go through `fetchBitmap`, then **`decodeHeights`** (tileJobs.js:467-502), at full resolution:
+     ```js
+     full[i] = decode === 'terrarium'
+       ? r * 256 + g + b / 256 - 32768
+       : -10000 + (r * 65536 + g * 256 + b) * 0.1;
+     ```
+     followed by `fillImpossible` (Earth bounds, 353-393) and `despike` (414-464). The result is then nearest-subsampled to a **corner-aligned** 65×65 grid: `sx = round(x/(size-1)*(w-1))`.
+   - `post({ok, heights: Float32Array(65*65), size}, [heights.buffer])`.
+4. `receive` (elevation.js:352-374) sets `entry.heights` and `state = READY`, and bumps `version`.
+   - Cache: `tiles` Map with `cacheLimit = 320·(grid/25)²` (420-423) and `evict()` (425-456).
+   - `maxZoom = min(source.maxZoom, 15)`, or 12 with no source (62-64).
+5. Sampling: `sampleNorm`/`sampleFrom` (106-168) walk from `maxZoom` down to z3, take `bilinear(heights, 65, 65, u·64, v·64)` with u, v being the **mercator** fraction inside the tile, and fade into the coarser level over `EDGE_BAND` 0.15 at sides with no finer neighbour (174-190).
+
+### 2.5 Mesh
+`Terrain.build(tile, x0, z0, size, existing)` (terrain.js:1223-1583):
+- `grid = gridFor(tile)` (252-259) assumes **256 real samples per elevation tile** (`across = 256·2^(elevMax−z)`).
+- It samples `elevation.sampleNorm` on a grid across the mercator tile. If `hasDataAt` is false, it uses the stand-in height of the ancestor (1302-1303).
+- **`h = Math.max(SEA_LEVEL, raw)`** (1310). The raw value goes to the `bed` attribute.
+- Skirts are sized per edge (1351-1418). Normals use finite differences.
+- Vertex positions are tile-local metres; `mesh.position = (x0, 0, z0)`.
+- Attributes: `position`, `normal`, `uv`, `bed`, `skirt`, `prevY`. The morph uniforms are `uMorph` and `uWalk`. `uMeasured` is set to `builtElevZoom >= 0` (1564).
+- Material: `createTerrainMaterial(shared)` (shaders.js:741-782).
+- **Curvature is applied only in the vertex shader** (shaders.js:244); the CPU heights are flat mercator.
+
+### 2.6 What "no data" means
+| Layer | Signal | Result |
+|---|---|---|
+| Imagery HTTP 404/204/410 | `classify` gives `noImageryHere` (tileJobs.js:75-88) | Next standby. If all fail: `barren` (90 s), STATE_FAILED with a 20 s retry, and `reviewDepth` evidence. |
+| Esri "Map data not yet available" card | Byte length 2521 plus FNV hash (noData.js:212-232) | Same as above. This check is **Esri-specific**. |
+| 408/429/5xx/transport | `transient` | 4 s retry, not barren, not depth evidence |
+| No source or no URL | `markBare` (streamer.js:541-545, 758-796) | Shader draws `groundNotLoaded` grey (shaders.js:417-419, 618-619) |
+| Elevation not loaded | `sampleFrom` returns **0** (elevation.js:163-167), `hasDataAt` is false | Build uses the ancestor stand-in. `isWaterAt` refuses it (terrain.js:349-358). |
+| Elevation failed | STATE_FAILED, 20 s retry | `givenUp` after ≥ 6 failures with 0 loads (377-392): a flat plate at 0 |
+| Impossible or spike cells | Earth bounds / despike | Filled from neighbours or median |
+
+---
+
+## 3. Adding a planetary body: where it plugs in
+
+### 3.1 Body selection
+- Use a reload: the world is fixed at boot. Your tree already has `BOOT`, `BODY` and `ON_EARTH` for this.
+- Every Earth-only subsystem should read `ON_EARTH` (or `BODY.water`, `BODY.sky`) once at construction or per frame in `Game`.
+- The worker gets body parameters **in the message**.
+
+### 3.2 What changes in the mercator maths for a different radius
+- **Angle maths does not change.** `lonToNormX`, `latToNormY`, `normYToLat`, `mercatorPhi`, `tileBounds`, quadkeys and `MAX_LATITUDE` are the same on a sphere of any radius.
+- **Only metres change:**
+  - frame.js:38 (`scale`)
+  - frame.js:102
+  - mercator.js:5, 73, 96, 111
+  - terrain.js:34
+  - the shaders.js:787 uniform
+  - game.js:1331
+  - mapRenderer.js:487
+  - exploration.js metres
+- **Small-body limits of the flat frame.** The scale error is `cos(anchorLat)/cos(lat)`, and the curvature is approximated by the parabola `d²/2R`.
+  - Over the same `rebaseDistance` of 40 km, the latitude span is 0.36° on Earth, 1.3° on the Moon and 4.9° on Ceres.
+  - Distant mode reaches 1024 km (`distantDistanceKm`, terrain.js:442-445). On Ceres that is a third of the circumference.
+  - Scale `frame.rebaseDistance`, `renderDistanceKm` and `distantDistanceKm` caps with `BODY.radius` (for example ≤ 0.05–0.1·R).
+- `elevZoom` (terrain.js:559) is in zoom levels. On a body with radius r, a tile at the same z is r/R_E times smaller, so the altitude formula requests about `log2(R_E/r)` levels deeper than needed (about 1.9 on the Moon). This is optional to correct.
+- **Quadtree depth equals imagery depth.** `maxZoom = min(ceiling, streamer.maxUsefulZoom)` (terrain.js:428), and splitting requires `tile.z < maxZoom` (922).
+  - With Trek WAC (merc z9 at most) the Moon's finest square is about 21 km at grid ≤ 65, i.e. about 330 m between vertices.
+  - Decide whether to publish a deeper `maxZoom` with cropping (the same EQ tile is re-fetched, and the browser may cache it), or let geometry split past the imagery depth.
+
+### 3.3 Imagery: NASA Trek equirectangular tiles reprojected to Web Mercator
+
+**Facts verified against the live service:**
+- `…/Moon/EQ/LRO_WAC_Mosaic_Global_303ppd_v02/1.0.0/WMTSCapabilities.xml`:
+  - `TopLeftCorner -180 90`, 256×256 JPEG
+  - level 0 = `MatrixWidth 2, MatrixHeight 1`; levels 0–8, where level 8 = 512×256 tiles
+  - `Access-Control-Allow-Origin: *`
+  - Out-of-range row or level returns **404**, which `classify` already reads as `noImageryHere`. No Cache-Control header; it has an ETag and Last-Modified.
+- Mars Trek `Mars_Viking_MDIM21_ClrMosaic_global_232m` and `Mars_MGS_MOLA_ClrShade_merge_global_463m` use the same scheme, with levels 0–7.
+- `astro.arcgis.com/arcgis/rest/services/OnMars/CTX/MapServer` (CORS `*`) is also geographic: origin (-180, 90), **512-px** PNG tiles, 18 LODs, lod0 0.3515625°/px (level 0 = 2×1), URL `…/MapServer/tile/{level}/{row}/{col}`. This is a much deeper Mars layer worth having as primary or standby. Deep LODs are oversampled; real CTX detail is about 5 m/px.
+
+**Mapping maths** (checked numerically on four points at z = 1, 2, 9 and 12):
+- EQ level L has `2^(L+1) × 2^L` tiles, each spanning `Δ = 180/2^L` degrees. Row r covers lat `[90−rΔ, 90−(r+1)Δ]`; column c covers lon `[−180+cΔ, …]`.
+- A mercator tile at z spans `360/2^z` in longitude.
+- Choose `L = min(z−1, Lmax)` and `k = (z−1) − L`. Then:
+  - `col = x >> k`
+  - the source crop in x is `sw = T/2^k`, `sx = (x & (2^k−1))·sw`, where T is the EQ tile size (256 or 512)
+  - with k = 0, the EQ column equals the mercator x exactly, so **x maps linearly**
+- **Per output row j** (0..H−1), compute `lat_j = normYToLat((y + (j+0.5)/H)/2^z)` (mercator.js:24-26), then `rf = (90−lat_j)/Δ`, `r = floor(rf)`, `srcY = (rf − r)·T`.
+- A mercator tile's latitude span is at most Δ, so it needs **one or two EQ rows** (`rows = floor((90−north)/Δ) .. floor((90−south)/Δ)`). For example, Jezero z9 needs rows 101–102.
+- z = 0 needs both level-0 tiles side by side. The terrain never asks for z0 (`baseZoom ≥ 1`, terrain.js:509; `requestAncestors` stops at z1, streamer.js:663), but `mapRenderer` clamps tile zoom to `≥ 0` (mapRenderer.js:127). Return `null` for z0 or special-case it.
+- Set descriptor `maxZoom = Lmax + 1` for 256-px EQ tiles. At that depth mercator already oversamples latitude by `1/cos φ`; deeper levels are the same EQ pixels cropped.
+
+**Where it plugs in:**
+1. **Descriptor.** Add a new `kind` such as `'eq'`, with extra fields: `eqTileSize` (256), `eqMaxLevel` (8), and a template using `{level}/{row}/{col}`. `fillTemplate` replaces one occurrence per placeholder, so give it its own filler.
+2. **`TileSource`.**
+   - `urlFor(tile)` must still return a **string** (the first EQ URL), because callers read `null` as bare (streamer.js:793-796; elevation.js:313-314; mapTiles.js:422-428).
+   - Add something like `TileSource.eqPlan(tile)` returning `{ urls:[…], rows:[r0,r1], level, col, sx, sw, tileSize, z, y }`.
+   - The `decode` getter should return `'imagery'` (or a new `'eq'`).
+3. **Streamer.** In `dispatch` (streamer.js:804), add `eq: source.eqPlan?.(tile)` to the posted message. Cancellation is unchanged.
+4. **Worker.**
+   - `handleImagery` (tileJobs.js:131-158): `if (msg.eq) bitmap = await reprojectEq(msg, jobKey)`, then sharpness as before. Skip canopy off-Earth (§6).
+   - The precedent is **`handlePanoStitch` (tileJobs.js:186-246)**: it already fetches several URLs in one job, composes them on a `makeCanvas` (noData.js:1-11, which uses OffscreenCanvas in a worker) and returns `createImageBitmap(...)` as a transferable.
+   - Draw the 1–2 EQ rows stacked into a canvas `sw × (T·rows)`. For each output row, `ctx.drawImage(src, sx, srcY, sw, 1, 0, j, W, 1)`, or interpolate two rows through `getImageData` for a smoother remap.
+   - Run `isNoDataCard` per source if the layer can return cards. Trek returns 404, which already throws `noImageryHere` through `classify`.
+5. **One shared, DOM-free module** (for example `src/tiles/reproject.js`, importing only `normYToLat` and `makeCanvas`). Call it from:
+   - the worker
+   - `mapTiles.fetchTile` (mapTiles.js:430-447), which otherwise would draw raw EQ tiles on the minimap and world map
+   - `tileAnswers` (providers.js:1111-1139), if `LocalAuto` or provider tests stay enabled off-Earth
+   - `water.js` does not need it (Earth-only)
+
+**Pitfall:** `fetchBitmap` stores one `AbortController` per `jobKey` in `inflight` (tileJobs.js:91-92). A second `fetchBitmap` in the same job overwrites the first, so `cancelJob` aborts only the last one. Use one controller per job and pass its signal, or fetch sequentially as `handlePanoStitch` does.
+
+### 3.4 Elevation: ArcGIS ImageServer `exportImage` returning raw Float32
+
+**Partly verified.** `https://astro.arcgis.com/arcgis/rest/services/OnMars/MDEM200M/ImageServer?f=json` answers with CORS `*` and reports:
+- `pixelType "F32"`, 1 band
+- extent ±180/±90 in **wkid 104971 `GCS_Mars_2000_Sphere`, radius 3396190**
+- `minValues [-8210]`, `maxValues [21241]`
+- `maxImageWidth/Height: 40`, which looks low and needs checking
+
+However, **every `exportImage` variant tried from this sandbox returned 404**: `format=bsq|bip|tiff|lerc`, `f=image|json`, browser User-Agent and Origin. The real export endpoint, the byte order of raw `bsq`/`bip`, and the size cap must be confirmed from a browser before building on it. A Moon equivalent was not found under `astro.arcgis.com/.../OnMoon`.
+
+**Where it plugs in:**
+1. **Descriptor**, for example `{ id:'mars-mdem200m', kind:'arcgis-f32', needsKey:null, maxZoom: ~9–10, template:'…/ImageServer/exportImage?bbox={w},{s},{e},{n}&bboxSR=104971&imageSR=104971&size={cols},{rows}&format=bsq&pixelType=F32&interpolation=RSP_BilinearInterpolation&f=image', attribution }`.
+   - 200 m/px on Mars is about mercator z8.7 (circumference 21,339 km / 256 / 200).
+2. **`TileSource.urlFor`.** Add a branch like the Bing one (providers.js:764-772), built from `tileBounds(tile)`.
+   - **Expand the bbox by half a pixel on each side.** ArcGIS pixel centres sit at `min + (i+0.5)·span/N`. The pipeline expects **corner-aligned** samples: the Terrarium subsample is corner-aligned (tileJobs.js:494-499) and Bing returns corners. So request `span' = span·N/(N−1)` centred on the tile, or seams appear between elevation tiles.
+   - `decode` getter (providers.js:801-815) must return `'arcgis-f32'`. Otherwise it falls through to `'imagery'` and the worker would call `createImageBitmap` on floats.
+3. **Worker.** In `handleElevation` (tileJobs.js:160-177), add `else if (msg.decode === 'arcgis-f32')`. Add a `fetchBytes` helper modelled on `fetchJson` (115-129) to get the same abort and `classify` behaviour. Then:
+   - Create `new Float32Array(buf)`, honouring byte order. If it turns out big-endian, use a `DataView`.
+   - Map `noData` / NaN / values outside `msg.reach` to invalid, then fill them as `fillImpossible` does. Pass `reach` in the message; `bodies.js` has `reach`.
+   - **Remap rows from linear latitude to mercator spacing.** `exportImage` rows are evenly spaced in latitude, but `sampleFrom` interpolates at the **mercator** fraction (elevation.js:155-156). For output row v, use `lat = normYToLat((tile.y + v/(size−1))/2^z)` and interpolate source rows. Request extra rows at coarse zooms.
+   - The existing Bing and Google paths have the same small linear-latitude error (`googleSamplePoints`, elevationGrid.js:70-80). It is negligible at z ≥ 10, but not at the blanket z6–8 on small bodies.
+   - If the server caps size below 65, request the cap and use `resampleGrid` (elevationGrid.js:95-102).
+   - **Do not run `despike`.** It is calibrated on Earth Terrarium at about 14 m/cell (tileJobs.js:248-310). Planetary DEMs at 100–500 m/cell have genuine crater rims and scarps beyond 500 m. **Do not use the `EARTH_MIN_M`/`EARTH_MAX_M` bounds**; Olympus Mons is about +21 km.
+4. **`tileAnswers`** (providers.js:1120-1131) needs an F32 branch, or keep `LocalAuto` off for planets.
+5. **Height datum.** Moon LOLA heights are relative to the 1737.4 km sphere, so the maria are at −1 to −3 km. Mars heights are relative to the areoid or the 3396.19 km sphere. Negative heights everywhere are normal, so see the `SEA_LEVEL` item in §6.
+
+---
+
+## 4. Sky, atmosphere, sun and haze
+
+### 4.1 Current model
+- **`Sky`** (world/sky.js):
+  - Four palettes `DAY`, `GOLDEN`, `TWILIGHT`, `NIGHT`, each `{zenith, horizon, sun, ambient}` (17-41).
+  - Blended by real solar altitude at the thresholds 12–26°, 0–12° and −9–0° (93-96).
+  - Writes the sky material uniforms (101-106).
+  - Drives `DirectionalLight` intensity from `sin(alt)` (108-112) and a `HemisphereLight` coloured horizon/ambient (64, 113-115).
+  - Writes shared uniforms: `uSunDir`, `uSunColor`, `uAmbient`, `uLatitude`, **`uFogColor = horizon`** (125), `uNight = smoothstep(2,−8,alt)·0.7` (127) and `uFogEnabled` from the `fog` setting (128).
+  - **`uFogDensity = 1/max(2000, renderDistanceKm·1000·0.92)`** (130-131).
+  - `climateAt(...)` and **`uSnowLine`** (133-143).
+- **Sky dome shader** `SKY_FRAG` (shaders.js:832-876):
+  - air-mass gradient `air = max(0, 1/max(0.06, up+0.12) − 0.893)` and `thickness`, mixing zenith to horizon
+  - forward scattering `pow(toward,9)·0.34 + pow(toward,2)·0.11`, mixed **toward `uSunColor`** (863)
+  - below-horizon `uGround` (865)
+  - sun disc `smoothstep(uSunSize…)`, where `uSunSize` is 0.9994 (886), plus a halo
+  - the dome has radius 100, follows the camera, uses `depthTest:false` and `renderOrder −1000` (sky.js:55-59; shaders.js:888-893)
+- **Terrain haze** (shaders.js:693-720):
+  - aerial perspective with **`const float SCALE_HEIGHT = 1400.0`** (705), which is GLSL-constant
+  - `f = 1 − exp(−(vDist·uFogDensity·density)²)`
+  - the toward-sun haze uses `uSunColor·1.08` (718)
+- `scene.fog` (FogExp2, game.js:172) for non-terrain materials copies colour and density each frame (game.js:1107-1108), **regardless of the fog toggle**. The clear colour equals the horizon (1109).
+- **Edge wall** rim (edgeWall.js:105-111) repeats the sky's scattering, using `uFogColor` and `uSunColor·1.6`.
+- **Clouds**: `Weather` deck at 2100 m (world/weather.js:16, 166-188) writes `uCloudCover`/`uCloudHeight`/`uCloudTime`, which `cloudShadow` reads (shaders.js:41-70).
+- **No stars exist anywhere.** NIGHT is a dim blue, deliberately "never pitch black" (sky.js:35-41).
+- **Sun position** comes from `solarPosition` (sun.js:6-38), which is Earth/NOAA. `skyDate` (61-72) turns a local solar hour into UTC with `lon/15`.
+
+### 4.2 Moon: black sky, stars, no haze
+- **Palettes:** zenith = horizon = black in every palette. Keep `ambient` low and neutral grey (regolith bounce) so the game stays playable. `uNight` should be a neutral darken, not the blue `vec3(0.46,0.52,0.7)` cast (shaders.js:633).
+- **No scattering.** Add a per-body scatter strength uniform, or zero the two lobes in `SKY_FRAG` (861-863). Keep the hard disc and drop most of the halo. Also zero the rim scattering in the edge wall (edgeWall.js:105-108) and the toward-sun haze (shaders.js:718).
+- **No haze:**
+  - force `shared.uFogEnabled = 0` (sky.js:128)
+  - **`scene.fog.density = 0`** (game.js:1108 currently copies the density even with fog off)
+  - clear colour black (game.js:1109)
+  - with fog off, `renderDistance` already returns `max(setting, horizon)` (terrain.js:611). The Moon's horizon is close (2.6 km at 2 m height), so that is fine.
+- **No twilight:** day/night should switch at sun altitude ≈ −0.27° instead of the 12/0/−9° Earth bands.
+- **Stars:** a `THREE.Points` mesh (or texture) inside the dome, with `depthTest:false`, `fog:false` and render order between sky and terrain. To fit "nothing invented", use a **real bright-star catalogue** (RA/Dec/magnitude, for example HYG or Yale BSC down to about magnitude 5) rather than procedural hash stars. Orient it by the body's pole RA/Dec and local sidereal angle if desired.
+- **Sun size:** scale `uSunSize` by distance from the Sun (Mercury about 3× wider). Sunlight intensity has no atmospheric falloff.
+
+### 4.3 Mars: dusty butterscotch sky with blue sunsets
+- **Palettes:**
+  - DAY: zenith a darker tan-brown, horizon butterscotch (around `(0.80,0.62,0.45)`)
+  - GOLDEN/TWILIGHT: zenith dark brown, horizon dim brown-grey
+  - NIGHT: near-black
+  - ambient: warm tan
+- **Blue sunset.** This needs a new uniform. The glow around the sun currently reuses `uSunColor` (SKY_FRAG:863; terrain haze 718; edge wall 108), but on Mars the aureole is **blue** while the sunlight is not. Add a shared `uGlowColor`:
+  - Earth sets it equal to the sun colour, so there is no visual change.
+  - Mars blends it toward blue `(0.4,0.55,0.9)` as the sun gets low, with a tighter lobe.
+  - Use it in all three places.
+- **Haze:**
+  - make `SCALE_HEIGHT` a uniform (Mars dust about 11 km, Earth 1400 m)
+  - fog colour = horizon butterscotch
+  - consider a body multiplier on `uFogDensity` (sky.js:131), which currently derives only from the render-distance setting
+- Thin cloud and dust storms have no data source, so leave the cloud deck off.
+
+### 4.4 Sun for other bodies
+`sky.js:89-90` calls `skyDate(mode, customHour, lon)` and then `solarPosition(date, lat, lon)`. Provide `bodySolarPosition(body, date, lat, lon)` with the same `{altitude, azimuth, altitudeDeg}` result:
+- **Fixed modes** (`'day'` is 10.5, `'golden'` 18.2, `'night'` 0.5): use hour angle `(h−12)·15°` and the body's current declination. This is independent of day length.
+- **Live mode:** compute local solar time from `BODY.day` plus a real epoch.
+  - **Moon:** synodic 29.530588 d, new-moon epoch 2000-01-06 18:14 UTC, at which the subsolar longitude is 180°; declination about ±1.54°.
+  - **Mars:** the Allison & McEwen / Mars24 algorithm (Mars Sol Date, Ls, declination up to 25.19°).
+- Add `selftest` cases for these, alongside `solarPosition` (selftest.mjs:24).
+
+---
+
+## 5. Turning things off away from Earth
+
+| Thing | Switch points (HEAD) | Notes |
+|---|---|---|
+| **Sea-level clamp** | terrain.js:32 `SEA_LEVEL`, used at 288 (`heightAtNorm`), 357 (`isWaterAt`), 1310 (build) | **Critical.** The maria at −1 to −3 km and Hellas at −8 km would be flattened to 0. Spawn at Tranquility Base sits in a mare. Use `-Infinity` off-Earth and make `isWaterAt` return false. |
+| **Water shading** | shaders.js:654 `wet = uMeasured * (1 − smoothstep(0,2,vHeight))` | Every measured fragment below +2 m becomes Fresnel/glint "sea". Add a shared uniform (for example `uHasSea`) as a multiplier. |
+| **Sea floor sheet** | seaFloor.js (sheet at −12 m: 53, 252; mask `≤ 0.5 m`: 229-231); game.js:196, 1097, 1102 | The sheet would float **above** below-datum ground as blue water. Don't construct it, or keep it hidden and skip `updateMask`. |
+| **Swimming** | controller.js:561-562 (`-bed > 0.6`), 155-160; hud.js:478 "At sea"; game.js:1290-1318 `landAway` ring probe | Gate on `BODY.water` |
+| **Water probe / RTP / land fraction** | `waterMap` (geo/water.js:187); game.js:656, 1702 (`pickRandomDestination({waterMap})`), 1722-1728 (`landFraction`); rtp.js:65-129 | RTP should treat everything as land within the mercator band. Never fetch Earth imagery probes. |
+| **Weather** | game.js:1118-1129 (`observedWeather.fetch`, which sends coordinates to **Open-Meteo**, then `weatherAt`); world/weather.js `update` (167-176) | Off-Earth: `setState({cloudCover:0, precipitation:0, kind:'none'})` and **no fetch** |
+| **Climate / temperature** | sky.js:133-138 `climateAt`; hud.js:219-231 (expects `avgC`, `monthName`, `season`, `band`, `annualC`) | Provide a body readout from `BODY.tempC`, labelled as typical, or a HUD branch |
+| **Snow line** | sky.js:141-143 | Use `1e9` (the existing "off" value) |
+| **Buildings / Overpass** | game.js:1172, 1179; `Buildings.update` reads `settings.get('buildings')` (buildings.js:210-213); overpass.js:34-37 endpoints | Gate both visibility and update. Remove the attribution at game.js:2140. |
+| **Woodland / canopy** | game.js:1183-1195 (`woodland.enabled`, `uHasWood`, `uWoodStrength`); worker `measureCanopy` (tileJobs.js:156, Earth m/px at canopy.js:118) | Set strength to 0 off-Earth. Pass `canopy:false` in the imagery message. |
+| **Photorealistic 3D tiles** | game.js:1134 auto `loadWorld3D`; 668-707; onSettingChanged 755-763; ecef.js WGS84 | Never load off-Earth |
+| **Street view** | panorama.js:79-81 `enabled` getter; game.js:1197-1206 | Return false off-Earth |
+| **Geocoding / address** | game.js:421-423 (`geocoder.on('address')`), 1245 (`lookup`), 2141-2145 attribution; worldmap.js:285-291 `search()` (Nominatim/Google/Apple) | Off: show "Unmapped location" (hud.js:236) or a body gazetteer. Never send Moon coordinates to Nominatim. |
+| **Imagery age** | game.js:2135-2138 (`imageryAt`, Esri metadata); providers.js:967 | Esri-only already, by id check |
+| **LocalAuto / provider lists** | game.js:286, 603-608, 1249-1258; settingsPanel.js:89-110, 724-785; providers.js `IMAGERY_PROVIDERS`/`ELEVATION_PROVIDERS` | Use per-body provider lists. **The `imageryProvider` and `elevationProvider` settings are global** (settings is not in storage's world-scoped keys), so a Moon choice must not overwrite Earth's. |
+| **Map layers** | game.js:628-652 (`mapTiles` sentinel2 fallback; `streetTiles` esri-street/openfreemap) | Body-specific fallback (for example the MOLA shaded relief) or `null` |
+| **Places** | world/places.js, rtp.js | Earth gazetteer |
+
+---
+
+## 6. 2 km reveal cap
+
+Exploration is not this subsystem, but it touches radius. The reveal radius is:
+- `Game.seenRadius()` (game.js:1329-1333): `max(240, min(sqrt(2·6378137·alt), terrain.renderDistance))`
+- clamped in `Exploration.visit` (exploration.js:88-91): `Math.min(60000, Math.max(220, seenRadius))`, with a fallback of `Math.min(6000, …)`
+
+A 2 km cap means changing those two `min` values (60000 and 6000) to 2000. `LEVELS = [8,10,12,14,16]` with reach ≤ 4 tiles (exploration.js:17-28) still applies.
+
+---
+
+## 7. Code style to match
+
+- **Long "why" comments are the norm.** They are typically JSDoc `/** … */` on constants and methods, and `/* … */` blocks inside functions. They:
+  - name the bug or report the code fixes, often quoting the user ("That is 'the ground moves up and down in sections'")
+  - give **measurements** with numbers and small aligned tables, such as `Measured over the Black Forest at…` or the zoom/contrast tables at providers.js:33-56 and tileJobs.js:263-270
+  - explain what was tried before and why it was wrong ("It used to … That was the bug.")
+- **The principle repeated everywhere: never invent data.** Missing imagery is shown as neutral grey (shaders.js:403-419); missing relief is flat; unknown answers "do no harm" (water.js:55-59). Planetary work should say the same ("NASA's photography over NASA's altimetry; where nothing was measured, flat").
+- **British spelling:** colour, metres, neighbour, behaviour, grey. `\u2014` escapes appear in strings. No emojis.
+- **Naming:**
+  - SCREAMING_SNAKE constants, each with a provenance comment (`KEEP_SECONDS`, `BARREN_TTL_MS`, `SPIKE_LIMIT_M`); units in the suffix (`_M`, `_MS`, `_KM`)
+  - verb-y descriptive methods (`ensureBlanket`, `childrenBarren`, `markBare`, `atFinest`, `requestAncestors`, `resettle`)
+  - getters for derived state (`get ready`, `get givenUp`, `get hasRelief`)
+- **Structure:**
+  - plain ES classes with a dependencies object in the constructor (`new Terrain({ scene, frame, streamer, elevation, shared })`)
+  - module singletons (`export const waterMap = new WaterMap()`)
+  - `Emitter` events (`streamer.on('degraded')`)
+  - `settings.get('key')` read at the point of use
+  - shared uniform objects passed by reference
+  - scratch objects reused per frame (`this._norm`, `this._world`)
+  - 2-space indent, single quotes, semicolons, trailing commas, `??`, `?.`, `??=`
+- **Failure handling:** failures are remembered with TTLs (barren 90 s, a failed water probe for 60 s), and handshakes back off exponentially.
+- **Tests:** `tools/selftest.mjs` runs pure maths in Node and **asserts on source text with regexes**. Files touched here carry such assertions: terrain.js (19), shaders.js (11), streamer.js (10), providers.js (6), elevation.js (4), tileJobs.js (3), sky.js (1), seaFloor.js (1), weather.js (2). Grep `selftest.mjs` for any line you rewrite. `npm run check` = build + `tools/check.mjs` + selftest.
+- **Build:** a new on-demand module must be added to `DYNAMIC` (bundle.mjs:184-187). New static imports are picked up automatically. The single file's tile worker runs in-page through `InlineWorker` (workerHost.js:175-242, up to 6 jobs at once).
+
+---
+
+## 8. Pitfalls, in order of how badly they would show
+$ cd /root/.claude/projects/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/workflows/scripts && python3 - <<'EOF'
+p='terraglide-build-planets-voice-docs-wf_ffdf8831-b57.js'
+s=open(p).read()
+start=s.index("  'planet-tiles': `RESUMING")
+end=s.index("  voice: `RESUMING")
+s=s[:start]+"""  'planet-tiles': `RESUMING AN INTERRUPTED RUN (third attempt). Two earlier attempts at exactly this task were cut off by
+a usage limit before they could report. Their work is ON DISK and is yours: src/tiles/planetary.js (~1,700 lines),
+and changes in src/tiles/providers.js (createBodySources, bodyProviders, new source kinds), tileJobs.js, elevation.js,
+streamer.js, src/ui/mapTiles.js, and a large new section in tools/selftest.mjs — see git diff. Do NOT start over: read
+what exists, review it critically against the brief below, finish whatever is missing, fix what is wrong, run the live
+verification and the full self-test, and then WRITE THE REPORT — the report is the deliverable the last two attempts
+never got to, so do not leave it to the very end of a long session: once the code is done and checked, report.
+Since then the lead has also edited (do not touch): src/geo/bodies.js (orbit/pole/spin/parent/landmark fields; the
+Moon spawn moved 25 m west of the LM site; Enceladus and Charon spawns moved to IAU feature centres), src/world/terrain.js
+(SEA_LEVEL is -Infinity off Earth, bedAt returns Infinity off Earth), shaders.js, sky.js, edgeWall.js, elytra.js,
+controller.js, hud.js, game.js, settingsPanel.js, cheatPanel.js, worldmap.js, and new src/geo/ephemeris.js,
+src/geo/gazetteer.js, src/geo/gazetteerData.js, src/world/stars.js, src/world/starCatalogue.js, src/world/lander.js,
+src/ui/teleportMenu.js, tools/stars.mjs, tools/gazetteer.py; the lead also added sections near the end of
+tools/selftest.mjs ("other worlds: ..." and "the teleport menu") — leave those alone.
+
+`,
+"""+s[end:]
+start=s.index("  'hosting-docs': `RESUMING")
+end=s.index("}\n\nphase('Build')")
+s=s[:start]+"""  'hosting-docs': `RESUMING AN INTERRUPTED RUN (third attempt). The previous attempt wrote all six files before a usage
+limit cut it off, so they are ON DISK and are yours: HOSTING.md (~59 KB), server/config.example.json, Dockerfile,
+.dockerignore, render.yaml, fly.toml. Do NOT start over: read them, check every command, key, number and claim against
+the code (the code is the truth and may have changed since: e.g. server/game.mjs maxSpeed now allows a world's fastest
+honest fall, random teleports off Earth land on IAU-named features, and the client has a teleport menu on J), finish
+anything missing, verify (run the server on a spare port and curl it; parse the JSON/YAML/TOML), fix what is wrong,
+and then WRITE THE REPORT — the report is the deliverable the last attempt never got to. Worth a line in the guide: a
+group sharing one public address (one home, one school) is limited to signupsPerHour new accounts per hour from it, and
+behind a tunnel or proxy every player looks like 127.0.0.1 unless trustProxy is on.
+
+`,
+"""+s[end:]
+open(p,'w').write(s)
+EOF
+grep -n "RESUMING" /root/.claude/projects/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/workflows/scripts/terraglide-build-planets-voice-docs-wf_ffdf8831-b57.js
+
+215:  'planet-tiles': `RESUMING AN INTERRUPTED RUN (third attempt). Two earlier attempts at exactly this task were cut off by
+231:  voice: `RESUMING AN INTERRUPTED RUN. A previous attempt at exactly this task was cut off by a usage limit before it
+238:  'hosting-docs': `RESUMING AN INTERRUPTED RUN (third attempt). The previous attempt wrote all six files before a usage
+Shell cwd was reset to /home/user/terraglide
