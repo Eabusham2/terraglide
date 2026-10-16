@@ -3,7 +3,9 @@ import { keybinds } from '../core/keybinds.js';
 import { readJSON, writeJSON } from '../core/storage.js';
 import { BODY } from '../geo/bodies.js';
 import { PUBLIC_SERVER } from '../net/publicServer.js';
+import { ServerProbe } from '../net/serverStatus.js';
 import { rememberServer } from './onlinePanel.js';
+import { formatPing, setSignal, signalLevel, signalMarkup } from './signal.js';
 import { escapeHtml } from './worldmap.js';
 
 /**
@@ -194,6 +196,11 @@ class StartupScreen {
             <span>${lobby
               ? `The main lobby: everybody's exploring on one map, saved for good. ${escapeHtml(serverId(lobby))}`
               : 'The main lobby is not open yet. Its host points the game at it (HOSTING.md, "The public server").'}</span>
+            ${lobby ? `<span class="startup-server" data-state="checking">
+              <i class="startup-dot"></i>
+              <b data-server="text">Checking the main lobby\u2026</b>
+              <span class="startup-ping">${signalMarkup(signalLevel(NaN))}<em data-server="ping">${formatPing(NaN)}</em></span>
+            </span>` : ''}
           </button>
         </div>
         ${other ? `<p class="startup-other">or <button type="button" class="link" data-do="other">go back to ${escapeHtml(serverId(other))}</button></p>` : ''}
@@ -204,6 +211,51 @@ class StartupScreen {
       </div>`;
     // The way you played last time is the one Enter takes.
     (this.element.querySelector('.startup-choice.last:not([disabled])') ?? this.element.querySelector('.startup-choice'))?.focus();
+    this.watchLobby();
+  }
+
+  /**
+   * Whether the main lobby is up, how many are on it and how quick it is,
+   * on its button and kept current while the question is on screen. A lobby
+   * that does not answer greys the button out, with a red light, until it
+   * does again.
+   */
+  watchLobby() {
+    if (!this.lobby) return;
+    if (!this.probe) {
+      this.probe = new ServerProbe(this.lobby);
+      this.probe.on('change', () => this.showLobby());
+      this.probe.start();
+    }
+    this.showLobby();
+  }
+
+  showLobby() {
+    const probe = this.probe;
+    const box = this.element.querySelector('.startup-server');
+    const button = this.element.querySelector('[data-do="online"]');
+    if (!probe || !box || !button) return;
+    const state = probe.state;
+    let text = 'Checking the main lobby\u2026';
+    if (state === 'down') text = 'Down: the main lobby is not answering';
+    else if (state === 'up') {
+      const { online, max } = probe.info ?? {};
+      const full = max > 0 && online >= max;
+      text = full ? `Up, but full: ${online} of ${max} playing` : `Up \u00b7 ${online} playing`;
+    }
+    if (box.dataset.state !== state) box.dataset.state = state;
+    const label = box.querySelector('[data-server="text"]');
+    if (label.textContent !== text) label.textContent = text;
+    setSignal(box.querySelector('.signal'), signalLevel(probe.ping, { up: state !== 'down' }));
+    const ping = state === 'up' ? formatPing(probe.ping) : state === 'down' ? 'no answer' : formatPing(NaN);
+    const pingText = box.querySelector('[data-server="ping"]');
+    if (pingText.textContent !== ping) pingText.textContent = ping;
+    const down = state === 'down';
+    if (button.disabled !== down) {
+      const hadFocus = document.activeElement === button;
+      button.disabled = down;
+      if (hadFocus && down) this.element.querySelector('[data-do="local"]')?.focus();
+    }
   }
 
   key(event) {
@@ -251,7 +303,7 @@ class StartupScreen {
         this.choose('local', null);
         break;
       case 'online':
-        if (this.lobby) this.choose('online', this.lobby);
+        if (this.lobby && this.probe?.state !== 'down') this.choose('online', this.lobby);
         break;
       case 'other':
         if (BOOT.server) this.choose('online', BOOT.server);
@@ -269,6 +321,7 @@ class StartupScreen {
 
   choose(mode, server) {
     const same = mode === BOOT.mode && (mode === 'local' || server === BOOT.server);
+    this.probe?.stop();
     window.removeEventListener('keydown', this.onKey);
     this.element.remove();
     window.__terraglideAsking = false;

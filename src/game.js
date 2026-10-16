@@ -1654,6 +1654,8 @@ export class Game {
       weather: this.weatherState,
       address: this.address,
       status: this.statusLine(),
+      // The connection's round trip, for the ping beside the frame rate.
+      net: this.session ? { status: this.session.net.status, rtt: this.session.net.rtt, lastPong: this.session.net.lastPong } : null,
       attribution: this.attributionLine(),
       freecam: this.rig.isFreecam,
       onWater: this.terrain.isWaterAt(player.position.x, player.position.z),

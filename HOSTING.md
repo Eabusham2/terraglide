@@ -58,7 +58,9 @@ minutes, for free, without touching your router.
 - **It also answers two small addresses** for monitoring:
   `/healthz` replies `ok`, and `/api/status` replies with the server's name,
   message, how many are online and whether it needs a join code — handy for an
-  uptime checker, and safe for anyone to read.
+  uptime checker, and safe for anyone to read. The game's startup screen asks
+  the main lobby's `/api/status` every two seconds while it is open, for the
+  lobby's up-or-down light, player count and ping.
 
 What it needs: a computer that stays on while people play, Node.js 18 or newer
 (22 is what this guide and the Docker image use), and about 100 MB of memory.

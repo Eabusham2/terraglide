@@ -283,8 +283,67 @@ body {
 }
 
 .startup-choice[disabled] {
-  opacity: 0.55;
   cursor: not-allowed;
+  background: rgba(46, 44, 40, 0.45);
+}
+
+/* Greyed out, but the light that says why stays bright: the words fade,
+   not the button. */
+.startup-choice[disabled] > strong,
+.startup-choice[disabled] > span:not(.startup-server) {
+  opacity: 0.5;
+}
+
+/* The main lobby, as it is right now: a light, a word, the ping and its bars. */
+.startup-server {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.startup-server b {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.startup-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--text-faint);
+}
+
+.startup-server[data-state="up"] .startup-dot {
+  background: #7fcf6a;
+}
+
+.startup-server[data-state="down"] .startup-dot {
+  background: #e5574c;
+  box-shadow: 0 0 0 3px rgba(229, 87, 76, 0.25);
+}
+
+.startup-server[data-state="down"] b {
+  color: #f08a80;
+}
+
+.startup-ping {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.startup-ping em {
+  font-style: normal;
 }
 
 .startup-other {
@@ -828,6 +887,67 @@ input[type='checkbox'] {
   font-size: 9px;
   line-height: 1.35;
   color: var(--text-dim);
+}
+
+/* The status line and, online, the ping after it - right after the frame
+   rate, which is the status line's last word. */
+.hud-statusrow {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.hud-net {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1.35;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* ---------- signal bars: the connection's quality, as a phone shows it ---------- */
+
+.signal {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 10px;
+  flex: none;
+  color: var(--text-faint);
+}
+
+.signal i {
+  width: 3px;
+  background: rgba(232, 228, 216, 0.22);
+  border-radius: 0.5px;
+}
+
+.signal i:nth-child(1) { height: 25%; }
+.signal i:nth-child(2) { height: 50%; }
+.signal i:nth-child(3) { height: 75%; }
+.signal i:nth-child(4) { height: 100%; }
+
+/* Two classes, so a panel's own text colour for spans cannot outrank them. */
+.signal.signal-good { color: #7fcf6a; }
+.signal.signal-fair { color: #e6c34a; }
+.signal.signal-poor,
+.signal.signal-down { color: #e5574c; }
+
+.signal[data-bars="1"] i:nth-child(-n + 1),
+.signal[data-bars="2"] i:nth-child(-n + 2),
+.signal[data-bars="3"] i:nth-child(-n + 3),
+.signal[data-bars="4"] i:nth-child(-n + 4) {
+  background: currentColor;
+}
+
+/* Nothing answering: every bar there, faintly, in red. */
+.signal.signal-down i {
+  background: rgba(229, 87, 76, 0.35);
 }
 
 .attribution {

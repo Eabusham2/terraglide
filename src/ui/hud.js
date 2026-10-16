@@ -16,6 +16,7 @@ import {
 } from '../core/units.js';
 import { HOTBAR, SLOTS } from '../player/player.js';
 import { escapeHtml } from './worldmap.js';
+import { formatPing, setSignal, signalLevel, signalMarkup } from './signal.js';
 
 /**
  * The heads-up display.
@@ -122,7 +123,10 @@ export class HUD {
 
       <div class="hud-bottomright">
         <div class="hud-voice" data-id="voice" hidden><i class="hud-voice-dot"></i><span data-id="voice-text"></span></div>
-        <div class="status-line" data-id="status">—</div>
+        <div class="hud-statusrow">
+          <div class="status-line" data-id="status">—</div>
+          <div class="hud-net" data-id="net" title="Ping to the server" hidden>${signalMarkup(signalLevel(NaN))}<span data-id="net-text">${formatPing(NaN)}</span></div>
+        </div>
         <div class="attribution" data-id="attribution">—</div>
       </div>
 
@@ -204,6 +208,23 @@ export class HUD {
         if (this.onAction) this.onAction(`slot:${slot.dataset.slot}`);
       });
     });
+  }
+
+  /**
+   * The ping to the server, after the frame rate, with its bars: online only.
+   * A connection that is down says so in red; one that has stopped answering
+   * its pings for three of them in a row turns red before it is noticed gone.
+   */
+  updateNet(net) {
+    const node = this.refs.net;
+    if (!node) return;
+    node.hidden = !net;
+    if (!net) return;
+    const up = net.status === 'open' || net.status === 'signedIn';
+    const heard = up && net.lastPong > 0;
+    const stale = heard && Date.now() - net.lastPong > 7000;
+    setSignal(node.querySelector('.signal'), signalLevel(heard ? net.rtt : NaN, { up, stale }));
+    this.setText('net-text', !up ? 'offline' : heard ? formatPing(net.rtt) : formatPing(NaN));
   }
 
   setText(id, value) {
@@ -374,6 +395,7 @@ export class HUD {
     this.updateAttack(player, state);
 
     this.setText('status', state.status || '');
+    this.updateNet(state.net);
     this.setText('attribution', state.attribution || '');
 
     if (state.debug) {
