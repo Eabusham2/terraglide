@@ -35,7 +35,7 @@ H = open(sys.argv[5]).read().split('\n')
 k = H.index('  async loadModel(base = ASSET_BASE) {')
 doc = H[k - 12:k]  # "   * reconstructs what it sees ..." through "   */": 12 lines, exactly the room there is
 assert doc[0].startswith('   * reconstructs what it sees') and doc[-1] == '   */', (doc[0], doc[-1])
-put(1841, doc + ["  /**", "   * Load the generated mesh, once: a second call while the first is still loading gets"], 'model doc')
+put(1841, doc + ["  /**", "   * Load the scanned body, once: a second call while the first is still loading gets"], 'model doc')  # as the Oct 9 20:53 view shows it
 assert F[1854].startswith('   * the same answer rather than starting another.')
 put(3951, V[3850:3924], 'poseScan tail and rocket doc (Oct 3 text)')
 assert F[4024] == '  /**'

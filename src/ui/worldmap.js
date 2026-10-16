@@ -52,7 +52,7 @@ export class WorldMap {
       <div class="panel-head">
         <h2>World map</h2>
         <div class="worldmap-search">
-          <input type="search" placeholder="Search a place" aria-label="Search a place" />
+          <input type="search" placeholder="${ON_EARTH ? 'Search a place' : `Search ${BODY.name}'s named features`}" aria-label="Search a place" />
           <button type="button" data-action="search">Go</button>
         </div>
         <button type="button" class="panel-close" data-action="close" title="Close">Close</button>
@@ -239,7 +239,7 @@ export class WorldMap {
         this.search();
         break;
       case 'teleport':
-        if (this.onTeleport && !ONLINE) this.onTeleport(this.centre.lat, this.centre.lon);
+        if (this.onTeleport) this.onTeleport(this.centre.lat, this.centre.lon);
         break;
       case 'rtp':
         if (this.onRandomTeleport) this.onRandomTeleport();

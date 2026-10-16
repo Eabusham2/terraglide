@@ -1553,11 +1553,11 @@ export class Game {
     // Nothing to extrude where Google is already handing us the real thing:
     // asking Overpass for footprints we are not going to draw is a request
     // against a shared community endpoint for nothing at all.
-    if (!photoreal) this.buildings.update(player.lat, player.lon, player.altitudeAboveGround);
+    if (surveyed && !photoreal) this.buildings.update(player.lat, player.lon, player.altitudeAboveGround);
     // Same reasoning: the scanned world already has its trees in the mesh, so
     // there is nothing for a canopy mask to improve and nothing worth asking
     // Overpass for.
-    this.woodland.enabled = !photoreal && settings.get('woodlandRelief');
+    this.woodland.enabled = surveyed && !photoreal && settings.get('woodlandRelief');
     this.woodland.update(this.camera);
     this.shared.uHasWood.value = this.woodland.painted && this.woodland.enabled ? 1 : 0;
     this.shared.uWoodMask.value = this.woodland.texture;
