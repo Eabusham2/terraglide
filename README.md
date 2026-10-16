@@ -198,7 +198,9 @@ firework burning while it does holds it up longer.
   travel. Zoom with `=`/`-` or the wheel, click it to open the big map.
 - **World map** (`G`): the same thing at any zoom, plus search, your waypoints,
   your drawn paths, and how much of the world you have covered. Drag to pan,
-  wheel to zoom.
+  wheel to zoom. At the top it shows the share of the world explored, by area,
+  as a percentage to seven decimal places, which moves while you fly: yours
+  when you play alone, everybody's together on a server, with yours under it.
 - **Your trail**: a thin line of everywhere you have been, recorded as you go
   and drawn on both maps. A teleport starts a new leg, so it never draws a line
   across an ocean you did not cross.
@@ -207,9 +209,16 @@ firework burning while it does holds it up longer.
 
 ## Playing with other people
 
-Press `K` (or **Play online** in the toolbar) and press **Play on the public
-server** — the one everybody plays on together — or type another server's
-address. Every player signs up with a username and a password the first time
+Every time the game starts it asks how you want to play: **Play locally**, on
+your own with everything kept in this browser, or **Play online with
+everyone**, which joins the main lobby: the public server everybody plays on
+together, where whatever anybody explores goes on one map, kept by the server
+for good. The first time, a few short cards come before it on what the game is
+and how to fly (*How it works* on that screen shows them again). A page opened
+from an invite link, or with `?local`, has already chosen and goes straight in.
+
+In the game, press `K` (or **Play online** in the toolbar) and press **Play on
+the public server**, or type another server's address. Every player signs up with a username and a password the first time
 and signs in after that; the server keeps the account, the session and everything the
 player does there. Playing alone and playing on a server are kept apart: what
 you explore, your trail and your waypoints on a server live on the server, and
@@ -663,7 +672,7 @@ src/
   camera/           camera rig, freecam, input and mouse modes
   ui/               HUD, minimap, world map, settings, cheats, help, waypoints,
                     exploration, touch controls, online panel, chat, players,
-                    teleport menu, worlds
+                    teleport menu, worlds, the startup screen
   net/              wire protocol, connection, other players, voice
 server/             the multiplayer server (Node, no dependencies) — see HOSTING.md
 assets/             optional generated textures — player kit only (+ manifest)

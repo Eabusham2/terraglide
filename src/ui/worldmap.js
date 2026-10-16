@@ -9,6 +9,7 @@ import { ONLINE } from '../core/boot.js';
 import { searchFeatures } from '../geo/gazetteer.js';
 import { haversine } from '../geo/mercator.js';
 import { drawMap, metresPerPixel, project, unproject, worldPixelSize } from './mapRenderer.js';
+import { formatCoverage } from './exploration.js';
 
 /**
  * How close a press has to be to a waypoint to pick it up, in pixels.
@@ -60,6 +61,11 @@ export class WorldMap {
       <div class="worldmap-body">
         <div class="worldmap-canvas-wrap">
           <canvas></canvas>
+          <div class="worldmap-coverage" title="How much of ${escapeHtml(BODY.name)} has been explored, by area">
+            <span class="worldmap-coverage-label">${escapeHtml(BODY.name)} explored</span>
+            <strong class="worldmap-coverage-value">${formatCoverage(0)}</strong>
+            <span class="worldmap-coverage-you" hidden></span>
+          </div>
           <div class="worldmap-hud">
             <span class="worldmap-centre">—</span>
             <span class="worldmap-scale"><i></i><em>—</em></span>
@@ -97,6 +103,9 @@ export class WorldMap {
     this.scaleLabel = this.element.querySelector('.worldmap-scale em');
     this.scaleBar = this.element.querySelector('.worldmap-scale i');
     this.statsBox = this.element.querySelector('.worldmap-stats');
+    this.coverageLabel = this.element.querySelector('.worldmap-coverage-label');
+    this.coverageValue = this.element.querySelector('.worldmap-coverage-value');
+    this.coverageYou = this.element.querySelector('.worldmap-coverage-you');
     this.searchInput = this.element.querySelector('.worldmap-search input');
     this.resultList = this.element.querySelector('.worldmap-results');
 
@@ -402,6 +411,7 @@ export class WorldMap {
     this.element.querySelector('[data-trail]').checked = settings.get('showTrail');
     this.element.querySelector('[data-drawn]').checked = settings.get('mapDrawnOnly');
     this.applyPermissions();
+    this.updateCoverage();
   }
 
   close() {
@@ -486,6 +496,9 @@ export class WorldMap {
     this.player = player;
     const wrap = this.canvas.parentElement;
     if (wrap.clientWidth !== this.width || wrap.clientHeight !== this.height) this.resize();
+    // Every frame, not only when the map is redrawn: it is the one thing on
+    // it that changes while you watch.
+    this.updateCoverage();
     if (!this.dirty) return;
     this.dirty = false;
 
@@ -535,6 +548,22 @@ export class WorldMap {
       <div><span>Waypoints</span><strong>${this.waypointStore.waypoints.length}</strong></div>
       <div><span>Trail</span><strong>${formatDistance(this.trail.length, units)}</strong></div>
     `;
+  }
+
+  /**
+   * How much of the world is explored, at the top of the map: on a server,
+   * what everybody there has explored between them, with your own share
+   * beside it; playing alone, yours.
+   */
+  updateCoverage() {
+    const everyone = ONLINE ? this.others?.everyone?.() ?? null : null;
+    const label = everyone ? `${BODY.name} explored by everyone` : `${BODY.name} explored`;
+    const value = formatCoverage((everyone ?? this.exploration).coverage());
+    const you = everyone ? `you ${formatCoverage(this.exploration.coverage())}` : '';
+    if (this.coverageLabel.textContent !== label) this.coverageLabel.textContent = label;
+    if (this.coverageValue.textContent !== value) this.coverageValue.textContent = value;
+    if (this.coverageYou.textContent !== you) this.coverageYou.textContent = you;
+    this.coverageYou.hidden = !you;
   }
 
   renderLists() {

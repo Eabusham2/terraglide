@@ -33,7 +33,7 @@ function recentServers() {
   }
 }
 
-function rememberServer(server) {
+export function rememberServer(server) {
   try {
     const list = [server, ...recentServers().filter((s) => s !== server)].slice(0, 6);
     globalThis.localStorage?.setItem(RECENT_KEY, JSON.stringify(list));

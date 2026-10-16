@@ -68,9 +68,16 @@ A Raspberry Pi is plenty for a group of friends.
 
 ## The public server
 
-The game is built for **one public server that everybody plays on**: the
-Online panel offers it first, as one button — *Play on the public server* —
-and everything anybody explores there is uncovered on everybody's map. Private
+The game is built for **one public server that everybody plays on**, the
+main lobby: every time the game starts it asks *Play locally* or *Play online
+with everyone*, and online goes straight there. The Online panel offers it
+first too, as one button — *Play on the public server* — and everything
+anybody explores there is uncovered on everybody's map, kept on the server's
+disk for good (`shared-<world>.json` in its data folder), with the share of the
+world explored between everybody counted live at the top of the world map.
+Until step 3 below is done the startup screen says the main lobby is not open
+yet, and only *Play locally* works from it. A server's own page (its address
+in a browser) is always that server's lobby. Private
 servers for a group of friends still work exactly as below; the public one is
 just the one the published game points at.
 

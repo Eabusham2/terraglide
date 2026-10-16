@@ -126,6 +126,187 @@ body {
   font-size: 12px;
 }
 
+/* ---------- startup: the first-time cards, and alone or online ---------- */
+
+.startup {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: #0d0f12;
+  overflow-y: auto;
+}
+
+.startup-card {
+  width: min(520px, 100%);
+  padding: 20px 22px 16px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+}
+
+.startup-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.startup-head h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.startup-skip {
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.startup-body {
+  min-height: 150px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.startup-body p {
+  margin: 0 0 10px;
+}
+
+.startup-dim {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.startup-keys,
+.startup-modes {
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.startup-keys li {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.startup-keys li > span:first-child {
+  display: flex;
+  gap: 3px;
+  color: var(--text-dim);
+}
+
+/* On a touch screen both sides are words, so they share the line evenly. */
+.startup-keys.startup-touch li {
+  grid-template-columns: 2fr 3fr;
+}
+
+.startup-modes li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.startup-modes strong {
+  display: inline-block;
+  min-width: 64px;
+  color: var(--accent);
+}
+
+.startup-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.startup-nav {
+  display: flex;
+  gap: 6px;
+}
+
+.startup-dots {
+  display: flex;
+  gap: 5px;
+}
+
+.startup-dots i {
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 1px;
+}
+
+.startup-dots i.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.startup-choices {
+  display: grid;
+  gap: 8px;
+}
+
+.startup-choice {
+  display: grid;
+  gap: 3px;
+  padding: 14px 16px;
+  text-align: left;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+}
+
+.startup-choice strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.startup-choice span {
+  color: var(--text-dim);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.startup-choice:hover:not([disabled]),
+.startup-choice:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.startup-choice[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.startup-other {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.startup button.link {
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Keys sit side by side here, not after a label. */
+.startup kbd {
+  margin-left: 0;
+  font-size: 11px;
+  color: var(--text);
+}
+
 /* ---------- common ---------- */
 
 button {
@@ -1109,6 +1290,47 @@ input[type='checkbox'] {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
+}
+
+/* How much of the world is explored, top middle of the map, live - just
+   under the compass's N, which the map draws about 19px from its top edge. */
+.worldmap-coverage {
+  position: absolute;
+  top: 38px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: calc(100% - 80px);
+  padding: 4px 12px 5px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.worldmap-coverage-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.worldmap-coverage-value {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.worldmap-coverage-you {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
 }
 
 .worldmap-scale {

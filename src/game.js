@@ -308,6 +308,8 @@ export class Game {
         marks: () => this.session?.partyWaypoints() ?? [],
         // What everybody on the server has explored: it lifts the fog too.
         shared: () => (this.session?.watchingAll.explored ? this.session.shared : null),
+        // The same map whether it is shown or not, for the world map's count.
+        everyone: () => this.session?.shared ?? null,
       },
     };
     this.minimap = new Minimap(ui, mapLayers);
@@ -1096,7 +1098,7 @@ export class Game {
           }
           if (Array.isArray(data.explored)) {
             for (const key of data.explored) exploration.cells.add(key);
-            exploration.detailCount = exploration.countAt(14);
+            exploration.recount();
             exploration.dirty = true;
             exploration.save();
           }
@@ -1619,7 +1621,10 @@ export class Game {
     this.avatar.rollSource = () => this.rig.roll;
     this.avatar.update(player, dt, this.camera);
 
-    exploration.visit(player.lat, player.lon, player.altitudeAboveGround, this.seenRadius());
+    const fresh = exploration.visit(player.lat, player.lon, player.altitudeAboveGround, this.seenRadius());
+    // Onto everybody's map at once as well, so its count on the world map moves
+    // as you fly; the server sends the same squares back, which add nothing.
+    if (fresh.length && this.session?.shared) this.session.shared.merge(fresh);
     exploration.tick(dt);
     trail.record(player.lat, player.lon);
     trail.tick(dt);

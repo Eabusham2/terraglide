@@ -315,7 +315,13 @@ export class OnlineSession extends Emitter {
     net.on('shared', (m) => {
       if (m.world !== BOOT.world) return;
       // Sent in parts; the first starts it afresh.
-      if (!m.part || !this.shared) this.shared = new Exploration({ circumference: WORLD_CIRCUMFERENCE, stored: false });
+      if (!m.part || !this.shared) {
+        this.shared = new Exploration({ circumference: WORLD_CIRCUMFERENCE, stored: false });
+        // Its coverage counted a part at a time as it arrives, not all at once
+        // the first time the world map is opened - which on a server a lot of
+        // people have flown over is millions of squares in one go.
+        this.shared.covered = 0;
+      }
       this.shared.merge(decodeCells(m.cells));
       this.emit('overlays');
     });
@@ -558,9 +564,12 @@ export class OnlineSession extends Emitter {
    * showing — a reconnect starts it afresh — so all of it is asked for again.
    */
   rewatch() {
-    for (const what of ['explored', 'trail']) {
-      if (this.watchingAll[what]) this.net.send({ t: 'watch', name: '*', explored: what === 'explored', trail: what === 'trail' });
-    }
+    // Everyone's discoveries are asked for whether they are shown or not: the
+    // world map counts how much of the world everybody has explored between
+    // them, and the server sends the map once a connection, so switching the
+    // setting off only stops it being drawn.
+    this.net.send({ t: 'watch', name: '*', explored: true, trail: false });
+    if (this.watchingAll.trail) this.net.send({ t: 'watch', name: '*', explored: false, trail: true });
     // Everyone you chose one by one, including from before this page loaded.
     for (const key of Object.keys(this.choices)) this.overlay(key);
     for (const overlay of this.overlays.values()) {
@@ -606,6 +615,7 @@ export class OnlineSession extends Emitter {
     // is not counted until you have moved a good way from it.
     exploration.lastVisit = null;
     exploration.coarseCache.clear();
+    exploration.covered = null;
     exploration.merge(decodeCells(m.explored ?? []));
     trail.legs = Array.isArray(m.trail) ? m.trail.map((leg) => leg.map(([lat, lon]) => ({ lat, lon }))) : [];
     trail.last = null;

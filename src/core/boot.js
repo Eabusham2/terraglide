@@ -179,7 +179,9 @@ function resolve() {
       /* file:// in some browsers; the saved choice still wins next time */
     }
   }
-  return Object.freeze({ mode, world, server, worlds: Object.freeze({ ...worlds }) });
+  // `linked`: the address chose the way to play (an invite link, ?local), so
+  // the startup screen does not ask it again - see ui/startup.js.
+  return Object.freeze({ mode, world, server, worlds: Object.freeze({ ...worlds }), linked: pickedMode });
 }
 
 /**
@@ -242,6 +244,18 @@ export function relaunch(next = {}) {
     }
   }
   globalThis.location?.reload();
+}
+
+/**
+ * Whether this page is one relaunch() reloaded into - a trip to the Moon, a
+ * switch of server - rather than one somebody opened. Looks without taking.
+ */
+export function relaunched() {
+  try {
+    return globalThis.sessionStorage?.getItem('terraglide.relaunch') != null;
+  } catch {
+    return false;
+  }
 }
 
 /** What relaunch() said it was doing, once, on the page it reloaded into. */
