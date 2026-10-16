@@ -321,6 +321,16 @@ const ROCKET_AXIS = new THREE.Vector3(0, 1, 0);
  * everywhere, and it snaps to the aim as soon as one is lit.
  */
 const HELD_REST = [0.049, 0.234];
+/**
+ * How far a lit firework is lifted off the thrust line, toward the sky, in
+ * flight (radians). Aimed exactly along the thrust it points straight away
+ * from the chase camera behind and straight at anyone in front - end-on from
+ * both, a red dot in the fist. Lifted, it reads as a firework from either.
+ * Only in the air: scaled by the glide, so a rocket held or fired on the
+ * ground is aimed as it was.
+ */
+const ROCKET_FLIGHT_LIFT = 0.6;
+const _liftUp = new THREE.Vector3();
 /** Scratch for that attitude and for the blend into the aimed one. */
 const _carry = new THREE.Vector3();
 const _carryQuat = new THREE.Quaternion();
@@ -3937,6 +3947,18 @@ export class Avatar {
     return out.set(cp * Math.sin(yaw), Math.sin(pitch), -cp * Math.cos(yaw));
   }
 
+  /** Where a lit firework is aimed: the look vector, lifted toward the sky in flight (ROCKET_FLIGHT_LIFT). */
+  flightAim(player, out) {
+    this.aimVector(player, out);
+    const lift = ROCKET_FLIGHT_LIFT * clamp(this.glideBlend ?? 0, 0, 1);
+    if (!(lift > 0.001)) return out;
+    // World up, less the part of it along the aim: the way to lift it.
+    _liftUp.set(0, 1, 0).addScaledVector(out, -out.y);
+    if (_liftUp.lengthSq() < 1e-6) return out;
+    _liftUp.normalize();
+    return out.multiplyScalar(Math.cos(lift)).addScaledVector(_liftUp, Math.sin(lift));
+  }
+
   poseScan(open = 0, player = null) {
     const bone = this.scanBones;
     if (!bone) return;
@@ -4888,7 +4910,7 @@ export class Avatar {
     this.root.updateMatrixWorld(true);
     bone.armR.getWorldQuaternion(_reachFrom);
     // What the firework is being asked to do, in the hand's own frame...
-    this.aimVector(player, _reachWant);
+    this.flightAim(player, _reachWant);
     _spinQuat.setFromUnitVectors(ROCKET_AXIS, _reachWant);
     _spinAim.copy(_reachFrom).invert().multiply(_spinQuat);
     // ...against what it does standing.
@@ -4921,12 +4943,7 @@ export class Avatar {
    */
   aimRocket(player) {
     const yaw = player.yaw ?? 0;
-    const cp = Math.cos(player.pitch ?? 0);
-    this._aim.set(
-      cp * Math.sin(yaw),
-      Math.sin(player.pitch ?? 0),
-      -cp * Math.cos(yaw),
-    );
+    this.flightAim(player, this._aim);
     this._aimQuat.setFromUnitVectors(ROCKET_AXIS, this._aim);
     // Only while it is pushing you. The rest of the time it is carried, on the
     // same signal that puts the arm forward — three seconds clear of the last
