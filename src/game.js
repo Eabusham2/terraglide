@@ -661,8 +661,20 @@ export class Game {
     });
 
     window.addEventListener('resize', () => this.resize());
+    // Back from the background, the game carries on from where it stopped:
+    // none of the time away is flown. The server is told, or it reads the
+    // tab's sleep as a pilot dawdling on a dive's speed (see OnlineSession.woke);
+    // and online a speed burst has run on meanwhile, as the server's has
+    // (Player.awayFor).
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) this.lastTime = performance.now();
+      if (document.hidden) {
+        this.hiddenAt = performance.now();
+        return;
+      }
+      const away = (performance.now() - (this.hiddenAt ?? performance.now())) / 1000;
+      this.lastTime = performance.now();
+      if (ONLINE) this.player.awayFor(away);
+      this.session?.woke();
     });
     window.addEventListener('beforeunload', () => {
       exploration.save();

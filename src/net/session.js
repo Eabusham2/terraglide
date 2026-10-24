@@ -115,7 +115,7 @@ function dropPrefUnsent(key) {
 function shownPrefs() {
   return Object.fromEntries(SOCIAL_PREFS.map((key) => [key, prefValue(key)]));
 }
-import { FLAG, ROCKET_STACK, encodeState, nameKey } from './protocol.js';
+import { FLAG, ROCKET_STACK, SPEED_MODE_COOLDOWN_S, encodeState, nameKey } from './protocol.js';
 
 /**
  * Playing on a server, from the page's side.
@@ -161,6 +161,8 @@ export class OnlineSession extends Emitter {
     this.seq = 0;
     this.lastSent = 0;
     this.lastSentKey = '';
+    /** Back from the background and not yet said so. See woke. */
+    this.waking = false;
     this.requests = new Map();
     this.sent = new Map();
     /** Other players' discoveries and trails, by account name. See maps. */
@@ -644,6 +646,11 @@ export class OnlineSession extends Emitter {
       player.stock = m.rockets.map((n) => Math.max(0, Math.min(ROCKET_STACK, Math.floor(Number(n) || 0))));
     }
     this.rocketsSent = player.stock.join();
+    // Nor a surge the server is still recharging: its clock is the account's.
+    const surgeIn = Number(m.surgeIn);
+    if (surgeIn > 0 && !player.speedActive) {
+      player.speedCooldown = Math.max(player.speedCooldown, Math.min(SPEED_MODE_COOLDOWN_S, surgeIn));
+    }
     this.arrived = false;
     const pos = m.pos ?? this.spawn;
     this.game.teleportTo(pos.lat, pos.lon, {
@@ -774,13 +781,23 @@ export class OnlineSession extends Emitter {
     return f;
   }
 
+  /**
+   * The tab is back from the background, where the game flies none of the
+   * time it was hidden: the next state says so. The server leaves that time
+   * out of what it judges a fall's speed by - as it does for a frame that took
+   * long to draw, but all of it - instead of reading it as a pilot who stopped.
+   */
+  woke() {
+    this.waking = true;
+  }
+
   sendState(force = false, input = null) {
     if (!this.signedIn || !this.arrived || this.leaving) return;
     const now = performance.now();
     const player = this.game.player;
     if (player.dead) return;
     const geo = this.game.frame.toGeo(player.position.x, player.position.z);
-    const flags = this.flags(player, input ?? this.lastInput);
+    const flags = this.flags(player, input ?? this.lastInput) | (this.waking ? FLAG.woke : 0);
     const state = {
       seq: ++this.seq,
       lat: geo.lat,
@@ -804,6 +821,7 @@ export class OnlineSession extends Emitter {
     if (!force && (since < SEND_MS || (key === this.lastSentKey && since < IDLE_SEND_MS))) return;
     this.lastSent = now;
     this.lastSentKey = key;
+    this.waking = false;
     this.net.send(encodeState(state));
   }
 

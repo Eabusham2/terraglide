@@ -217,6 +217,11 @@ export const FLAG = {
   /** Flips on every swing, so a swing between two snapshots is never lost. */
   swing: 512,
   hurt: 1024,
+  /**
+   * The first state from a tab back from the background, which flies none of
+   * the time it was hidden (src/game.js). See fadeReserve in server/game.mjs.
+   */
+  woke: 2048,
 };
 
 /**

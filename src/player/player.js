@@ -605,6 +605,32 @@ export class Player extends Emitter {
     return true;
   }
 
+  /**
+   * Seconds the game did not run - a tab in the background - on the one clock
+   * of the player's a server keeps as well: online the world's does not stop
+   * (Game.paused), and the server runs a speed burst out while the page sits
+   * still. Coming back with half a burst left, a page that had been away a
+   * quarter of a minute surged on past the end the server had seen and was
+   * put back. So a burst runs out while you are away, and what is left of
+   * one fades as the server has it fade; the cooldown starts as you come
+   * back, which is when the server sees the burst end - no sooner, or the
+   * next would be one the server is not ready for.
+   */
+  awayFor(seconds) {
+    if (!(seconds > 0) || cheats.speedFree) return;
+    let fading = seconds;
+    if (this.speedActive) {
+      this.speedRemaining -= seconds;
+      if (this.speedRemaining > 0) return;
+      fading = -this.speedRemaining;
+      this.speedActive = false;
+      this.speedRemaining = 0;
+      this.speedCooldown = SPEED_MODE_COOLDOWN_S;
+      this.emit('speed', false);
+    }
+    this.speedBlend = damp(this.speedBlend, 1, SURGE_BLEED_PER_S, fading);
+  }
+
   /** End the burst early. Only reachable with unlimited speed mode on. */
   stopSpeedMode() {
     if (!this.speedActive) return false;

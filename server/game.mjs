@@ -73,7 +73,10 @@ import { MAX_FRIENDS, Social } from './social.mjs';
 const TICK_MS = 100;
 /** Everyone within this sees you at the full rate; further out, once a second. */
 const NEAR_M = 6000;
-/** A client that has said nothing for this long is gone. */
+/**
+ * A client that has said nothing for this long, nor answered the server's own
+ * pings, is gone.
+ */
 const SILENT_MS = 45000;
 /** How long a world change may take before "left" is announced instead of "arrived". */
 const TRAVEL_GRACE_MS = 30000;
@@ -120,13 +123,20 @@ const SURGE_KEPT_SQ = SURGE_KEPT_MPS ** 2 - 180 ** 2;
 const UNUSED_FRACTION = 0.5;
 const UNUSED_FADE_S = 4;
 /**
- * How much of the time it was away a page flies in its first frame back from
- * a background tab - all of a shorter gap - and so how much of a pause was
- * flown and is judged like any other time (MAX_FRAME_S in src/core/perf.js).
- * See fadeReserve.
+ * How much of a pause a page has flown when it says nothing about it - all of
+ * a shorter one - and so how much is judged like any other time: a frame the
+ * page took that long over flies up to this much of it (MAX_FRAME_S in
+ * src/core/perf.js). A tab back from the background flies none of the time
+ * it was hidden, and says so (FLAG.woke). See fadeReserve.
  */
 const PAGE_CATCH_UP_S = 1.5;
-/** A pause this long after the last one is a page woken once, not one pausing on a rhythm. */
+/**
+ * A pause this long after the last one is a page woken once, not one pausing
+ * on a rhythm - from a page that has never said it woke (FLAG.woke), which an
+ * older one never does. One that says so may say it as often as it likes; no
+ * more than two such pauses in twice this long are left out whole. See
+ * fadeReserve.
+ */
 const PAUSE_APART_S = 5;
 /** A gap before a state this long, seconds, starts a burst. See onState. */
 const BURST_GAP_S = 0.25;
@@ -426,6 +436,11 @@ export class Game {
       const sent = client.pings?.get(key);
       if (sent === undefined) return;
       client.pings.delete(key);
+      // Heard, too. A browser answers these itself, however its own timers
+      // are held back: a tab five minutes in the background runs them once a
+      // minute (Chrome), and one sending nothing but its own pings at that
+      // pace was let go as silent, "left" for everybody, and back a minute later.
+      client.lastHeard = this.now();
       const rtt = this.now() - sent;
       if (!(rtt >= 0 && rtt < 10000)) return;
       client.rtts = [...(client.rtts ?? []).slice(-4), rtt];
@@ -721,6 +736,10 @@ export class Game {
       fadeBack: null,
       pausedMs: 0,
       lastPauseAt: -Infinity,
+      /** The last two pauses the page said it woke from, and whether it ever has. See fadeReserve. */
+      wokeAt: -Infinity,
+      prevWokeAt: -Infinity,
+      saidWoke: false,
       /** When the page was last put back, and the burst it is in. See onState. */
       correctedAt: -Infinity,
       burst: null,
@@ -799,6 +818,12 @@ export class Game {
       health: player.health,
       oxygen: player.oxygen,
       rockets: this.rocketsNow(record),
+      // Seconds until a surge is allowed again. Its clock is the account's
+      // (carried, above), but a reload, a second tab or a trip to another
+      // world starts the page's afresh: told nothing, it offered a surge the
+      // server was still recharging, and put the pilot back for flying it.
+      // One still on ends with the first state, which does not ask for it.
+      surgeIn: player.surge.on ? SPEED_MODE_COOLDOWN_S : Math.max(0, Math.ceil((player.surge.readyAt - this.now()) / 100) / 10),
       spawn,
       explored: encodeCells([...live.explored.cells]),
       trail: live.trail.legs,
@@ -1146,19 +1171,28 @@ export class Game {
    *
    * Except a pause: a gap with nothing behind it, in a page that is not
    * sending slowly - fewer than three gaps in two seconds. Nothing was sent in
-   * it because nothing happened - the page was asleep in a background tab,
-   * where the game stops - and the flight goes on afterwards at the speed it
-   * had. Its time is not judged, and is left out of the time a later second is
+   * it because the game was not running: a frame that took that long to draw,
+   * which flies up to a second and a half of it once it is drawn
+   * (PAGE_CATCH_UP_S), or a tab in the background, where the game stops and
+   * flies none of it on coming back - it starts its clock again
+   * (src/game.js) - and the flight goes on at the speed it had. What the page
+   * did not fly is not judged, and is left out of the time a later second is
    * measured over (`live`), so that second reads the speed actually flown.
-   * But only what the page slept through: waking, the game flies up to a
-   * second and a half of the time it was away in its first frame, and all of
-   * a shorter gap (PAGE_CATCH_UP_S). Left out whole, a pause every second
-   * between a few states sent at ten a second was time nobody judged, and
-   * what was flown in it read as flown in the tenths around it: a page
-   * crawling at a sixth of what keeps a dive's speed kept all of it. So a
-   * pause is left out whole when it is the first in five seconds - a page
-   * woken once - or the page is sending once a second anyway; any other
-   * only for what was longer than the game flies on waking. A
+   * A page back from the background says so on its first state (FLAG.woke),
+   * and that gap is a pause however the socket brings it and whatever gaps
+   * came before it: judged as a frame, a second and a half flown, two tab
+   * switches two seconds apart cost an honest pilot on the Moon a third of a
+   * dive's speed, and three put it back - and a hitch or a late state in the
+   * five seconds before took the place of the one pause there that was left
+   * out whole. Left out whole, a pause every
+   * second between a few states sent at ten a second was time nobody judged,
+   * and what was flown in it read as flown in the tenths around it: a page
+   * crawling at a sixth of what keeps a dive's speed kept all of it. So it is
+   * left out whole only when the page is sending once a second anyway, or
+   * says it woke and has not said so more than once in the ten seconds
+   * before; any other only for what was longer than a frame flies. A page
+   * that has never said it woke - one older than the flag - has the first
+   * pause in five seconds left out whole instead, as it always had. A
    * page that is slow is judged across all its gaps: taking out every gap
    * of a second or more let one hovering on a rhythm of long and short gaps
    * keep some of what only the short ones were judged on.
@@ -1166,28 +1200,43 @@ export class Game {
    * the background does; see HOSTING.md, "What it cannot check".
    *
    * @param {boolean} backlog this state arrived in the same moment as the one before, behind a gap
+   * @param {boolean} [woke] the page says this is its first state back from the background
    */
-  fadeReserve(player, body, dt, backlog, now) {
+  fadeReserve(player, body, dt, backlog, now, woke = false) {
     const air = aeroFactor(body);
     let fade = air > 0 ? Math.exp((-dt * air) / RESERVE_FADE_S) : 1;
     const bunch = player.fadeBunch;
     if (backlog) {
-      if (bunch) bunch.lone = false;
+      if (bunch) {
+        bunch.lone = false;
+        // Back from the background behind states a stall held from before
+        // the tab was hidden: the same pause, the gap the bunch ended.
+        if (woke && bunch.gapMs >= BURST_GAP_S * 1000) bunch.woke = true;
+      }
       player.fadePool += dt;
     } else {
       // The bunch before this state is over. A pause is taken out first:
-      // all of it from a page sending once a second, or one waking up after
-      // five seconds without a pause; from any other, only what was longer
-      // than the game flies on waking.
+      // all of it from a page sending once a second, or one back from the
+      // background with no more than one other in the ten seconds before
+      // (from a page that never says so, the first in five seconds); from
+      // any other, only what was longer than a frame flies.
       const end = player.history.at(-1);
-      if (bunch?.lone && bunch.pause) {
-        const whole = bunch.slow || bunch.at - (player.lastPauseAt ?? -Infinity) >= PAUSE_APART_S * 1000;
+      if ((bunch?.lone && bunch.pause) || bunch?.woke) {
+        const first = !player.saidWoke && bunch.lone && bunch.pause
+          && bunch.at - (player.lastPauseAt ?? -Infinity) >= PAUSE_APART_S * 1000;
+        const woken = bunch.woke && bunch.at - (player.prevWokeAt ?? -Infinity) >= 2 * PAUSE_APART_S * 1000;
+        const whole = (bunch.lone && bunch.slow) || first || woken;
         const flown = whole ? 0 : PAGE_CATCH_UP_S;
         const slept = Math.max(0, bunch.gapMs - flown * 1000);
         player.fadePool = Math.max(0, player.fadePool - Math.max(0, bunch.dt - flown));
         player.pausedMs += slept;
-        if (end?.t === bunch.at) end.live -= slept;
-        player.lastPauseAt = bunch.at;
+        // The pause's own state, and any its socket brought with it.
+        for (const h of player.history) if (h.t >= bunch.at) h.live -= slept;
+        if (bunch.lone && bunch.pause) player.lastPauseAt = bunch.at;
+        if (bunch.woke) {
+          player.prevWokeAt = player.wokeAt ?? -Infinity;
+          player.wokeAt = bunch.at;
+        }
       }
       // From a second before it - or, where the history no longer reaches
       // that far back, from the end of the bunch judged before it: the
@@ -1210,11 +1259,17 @@ export class Game {
       // With nothing to judge it by yet - just after arriving - it waits.
       player.fadePool = Math.min(CATCH_UP_MAX_S, player.fadePool + dt);
       const gapMs = now - player.lastStateAt;
-      const pause = gapMs >= BURST_GAP_S * 1000 && player.gapTimes.length < 3;
-      // Sending once a second: the state before came after a pause too.
+      const long = gapMs >= BURST_GAP_S * 1000;
+      const pause = long && player.gapTimes.length < 3;
+      // Sending once a second: the state before came after a pause too. A
+      // page saying it woke does not make itself one: that is two in ten
+      // seconds, and saying it of every state four times a second kept a
+      // reserve hovering as only a page sending once a second may.
       const slow = pause && !!(bunch?.lone && bunch.pause);
-      player.fadeBunch = { at: now, dt, gapMs, lone: true, pause, slow };
+      player.fadeBunch = { at: now, dt, gapMs, lone: true, pause, slow, woke: woke && long };
     }
+    // From now on only what it says it woke from: see `first` above.
+    if (woke) player.saidWoke = true;
     player.reserve *= fade;
     player.surgeKept = (player.surgeKept ?? 0) * fade;
   }
@@ -1308,7 +1363,7 @@ export class Game {
       player.gapTimes = (player.gapTimes ?? []).filter((t) => now - t < 2000);
       if (gap >= BURST_GAP_S) player.gapTimes.push(now);
       const backlog = player.burst && now - player.burst.at < BURST_SETTLE_MS && gap < BACKLOG_GAP_S;
-      this.fadeReserve(player, body, Math.min(CATCH_UP_MAX_S, gap), backlog, now);
+      this.fadeReserve(player, body, Math.min(CATCH_UP_MAX_S, gap), backlog, now, !!(s.flags & FLAG.woke));
       const account = [player.reserve, player.surgeKept, player.ceiling];
       const reserve = this.fallReserve(player, body, last, s, settled, now);
       // A surge stretches every tick 2.4 times, a fall's speed with the rest;
@@ -1560,7 +1615,7 @@ export class Game {
   accept(player, s, now, { leg = false } = {}) {
     const swungBefore = player.flags & FLAG.swing;
     player.state = s;
-    player.flags = s.flags & ~FLAG.dead & ~FLAG.hurt;
+    player.flags = s.flags & ~FLAG.dead & ~FLAG.hurt & ~FLAG.woke;
     if (swungBefore !== (s.flags & FLAG.swing)) {
       player.prevSwingAt = player.lastSwingAt;
       player.lastSwingAt = now;

@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import { clientAddress, startServer } from '../server/server.mjs';
 import { SURGE_ALLOWANCE } from '../server/game.mjs';
 import {
-  FLAG, MAX_HEALTH, PROTOCOL_VERSION, SWORD_SLOT, TPA_TIMEOUT_S, encodeState,
+  FLAG, MAX_HEALTH, PROTOCOL_VERSION, SPEED_MODE_COOLDOWN_S, SWORD_SLOT, TPA_TIMEOUT_S, encodeState,
 } from '../src/net/protocol.js';
 
 let failures = 0;
@@ -1518,9 +1518,10 @@ try {
     // on. Sending ten a second for three tenths and then nothing for a second,
     // over and over, a page crawling at a sixth of what keeps a dive's speed
     // kept all of it: every second it did not send was left out, and what it
-    // flew in it read as flown in the three tenths. A page that pauses as a
-    // background tab does - asleep ten seconds, a second and a half flown on
-    // waking - still keeps it, a hitch two seconds before or not.
+    // flew in it read as flown in the three tenths. A page whose frame took
+    // ten seconds - a second and a half of them flown once it is drawn - still
+    // keeps it, a hitch two seconds before or not; and so does one back from a
+    // background tab, which flies none of its time away and says so.
     const dive = (send, p) => {
       for (let i = 1; i <= 20; i++) send(250, 0, { alt: 10000 - i * 400 });
       return p.reserve;
@@ -1535,6 +1536,8 @@ try {
     });
     ok(`a page pausing a second at a time between bursts, crawling, does not keep a dive's speed  (${Math.round(crawler.kept)} of ${Math.round(crawler.fell)} kept)`,
       crawler.kept < crawler.fell * 0.05);
+    // A frame that stalled ten seconds flies a second and a half of them
+    // when it is drawn, and is judged on that.
     const sleeper = (hitch) => (send, p) => {
       const fell = dive(send, p);
       for (let i = 0; i < 30; i++) send(100, 25);
@@ -1548,9 +1551,108 @@ try {
     };
     for (const hitch of [false, true]) {
       const tab = await onClock(hitch ? 'Bea' : 'Cal', sleeper(hitch));
-      ok(`a page asleep in a background tab keeps a dive's speed${hitch ? ', after a hitch' : ''}  (${Math.round(tab.kept)} of ${Math.round(tab.fell)} kept)`,
+      ok(`a page whose frame stalled keeps a dive's speed${hitch ? ', after a hitch' : ''}  (${Math.round(tab.kept)} of ${Math.round(tab.fell)} kept)`,
         tab.putBack === 0 && tab.kept > tab.fell * 0.95, `${tab.putBack} put back`);
     }
+    // A tab in the background flies none of the time it was hidden - the
+    // game starts its clock again on coming back (src/game.js) - and its
+    // first state says so (FLAG.woke). Judged as a stalled frame, a second
+    // and a half flown, two tab switches two seconds apart cost an honest
+    // pilot a third of a dive's speed, and three put it back; and a hitch,
+    // a few gaps, or the next state arriving with it were enough before one.
+    // So was a socket stall the tab was hidden in: the states sent before it
+    // and the one back from it arrive together, the gap ahead of them all.
+    const away = (send, ms) => send(ms, 25, { flags: FLAG.elytra | FLAG.woke });
+    const level = (send, n, ms = 100) => { for (let i = 0; i < n; i++) send(ms, 25); };
+    const switches = [
+      ['Dax', 'for ten seconds', (send) => away(send, 10000)],
+      ['Eve', 'twice, two seconds apart', (send) => { away(send, 1000); level(send, 20); away(send, 1000); }],
+      ['Fox', 'two seconds after a hitch', (send) => { send(400, 100); level(send, 20); away(send, 1000); }],
+      ['Gil', 'just after two late states', (send) => { send(300, 75); level(send, 3); send(300, 75); level(send, 3); away(send, 1000); }],
+      ['Hap', 'with the next state arriving behind it', (send) => { away(send, 3000); send(0, 25); }],
+      ['Nia', 'while its socket held the states before it', (send) => {
+        send(2000, 25);
+        level(send, 2, 0);
+        send(0, 2, { flags: FLAG.elytra | FLAG.woke });
+        level(send, 7, 0);
+      }],
+    ];
+    for (const [name, how, plan] of switches) {
+      const tab = await onClock(name, (send, p) => {
+        const fell = dive(send, p);
+        level(send, 30);
+        plan(send);
+        level(send, 50);
+        return { fell, kept: p.reserve, shown: p.flags & FLAG.woke };
+      });
+      ok(`a page switched to another tab ${how} keeps a dive's speed  (${Math.round(tab.kept)} of ${Math.round(tab.fell)} kept)`,
+        tab.putBack === 0 && tab.kept > tab.fell * 0.95 && !tab.shown, `${tab.putBack} put back`);
+    }
+    // A page older than the flag never says it woke: its first pause in five
+    // seconds is still left out whole, as it always was.
+    const oldPage = await onClock('Oli', (send, p) => {
+      const fell = dive(send, p);
+      level(send, 30);
+      send(1000, 0);
+      level(send, 50);
+      return { fell, kept: p.reserve };
+    });
+    ok(`and a page too old to say so still does, the first time in five seconds  (${Math.round(oldPage.kept)} of ${Math.round(oldPage.fell)} kept)`,
+      oldPage.putBack === 0 && oldPage.kept > oldPage.fell * 0.95, `${oldPage.putBack} put back`);
+    // Which a page can say whenever it likes: a crawler saying it of every
+    // pause, or standing still in each and dashing in between, is still
+    // judged on all but two of them in ten seconds; and one hovering that
+    // says it of every state, four a second, is not a page sending once a
+    // second, which may keep a reserve hovering.
+    const sayWoke = { flags: FLAG.elytra | FLAG.woke };
+    const wokeCrawler = await onClock('Ike', (send, p) => {
+      const fell = dive(send, p);
+      for (let cycle = 0; cycle < 50; cycle++) {
+        for (let i = 0; i < 3; i++) send(100, 6);
+        send(1000, 60, sayWoke);
+      }
+      return { fell, kept: p.reserve };
+    });
+    const dasher = await onClock('Jem', (send, p) => {
+      const fell = dive(send, p);
+      for (let cycle = 0; cycle < 50; cycle++) {
+        for (let i = 0; i < 3; i++) send(100, 30);
+        send(1000, 0, sayWoke);
+      }
+      return { fell, kept: p.reserve };
+    });
+    const wokeHover = await onClock('Pip', (send, p) => {
+      const fell = dive(send, p);
+      for (let i = 0; i < 400; i++) send(300, 0, sayWoke);
+      return { fell, kept: p.reserve };
+    });
+    ok(`a page saying each of those pauses was a background tab does not keep it either  (${Math.round(wokeCrawler.kept)} of ${Math.round(wokeCrawler.fell)} kept; standing still in them, ${Math.round(dasher.kept)}; hovering, ${Math.round(wokeHover.kept)})`,
+      wokeCrawler.kept < wokeCrawler.fell * 0.05 && dasher.kept < dasher.fell * 0.05 && wokeHover.kept < wokeHover.fell * 0.05);
+    // A speed burst the tab was hidden in the middle of: the game's clocks stop
+    // there and the server's do not, so the page came back with half its burst
+    // left, surged on past the end the server had seen, and was put back. The
+    // game's own Player, flying at its own speed multiplier, now lets the
+    // burst run out while the tab is away (Player.awayFor), and fade as the
+    // server fades it.
+    const { Player } = await import('../src/player/player.js');
+    const page = new Player({ toLocal: () => ({ x: 0, z: 0 }), toGeo: () => ({ lat: 0, lon: 0 }) });
+    const flying = (send, n, extra = 0) => {
+      for (let i = 0; i < n; i++) {
+        page.tickTimers(0.1);
+        send(100, 17 * page.speedMultiplier, { flags: FLAG.elytra | (page.speedActive ? FLAG.surge : 0) | extra });
+      }
+    };
+    const burst = await onClock('Moe', (send) => {
+      flying(send, 40);
+      page.startSpeedMode();
+      flying(send, 20);
+      page.awayFor?.(16);
+      send(16000, 4, { flags: FLAG.elytra | FLAG.woke | (page.speedActive ? FLAG.surge : 0) });
+      flying(send, 120);
+      return { surging: page.speedActive };
+    });
+    ok('a speed burst left running in a background tab runs out there, as the server has it, and the page is not put back',
+      burst.putBack === 0, `${burst.putBack} put back${burst.surging ? ', still surging' : ''}`);
 
     // Who you were fighting survives a second tab of your own.
     const mia = await new Bot('Mia').open();
@@ -1572,6 +1674,40 @@ try {
     const credited = await ivo.next('chat', (m) => m.kind === 'death' && /Mia fled from Ivo/.test(m.text), 2000).catch(() => null);
     ok('and leaving from there is still a kill for whoever was winning', !!credited && g.record('ivo').stats.kills === ivoKills + 1);
     mia.close();
+
+    // A surge's recharge is the account's too, and the page starting afresh -
+    // reloaded, a second tab, a trip to another world - is told how long is
+    // left: told nothing, it offered a surge the server was still
+    // recharging, and put the pilot back for flying it.
+    server.accounts.signups.hits.clear();
+    const pim = await new Bot('Pim').open();
+    await pim.signup();
+    g.byKey.get('pim').surge.readyAt = g.now() + 20000;
+    const reloaded = await new Bot('Pim').open();
+    reloaded.send({ t: 'resume', token: pim.auth.token });
+    const recharging = await reloaded.next('auth');
+    g.byKey.get('pim').surge.on = true;
+    const midSurge = await new Bot('Pim').open();
+    midSurge.send({ t: 'resume', token: pim.auth.token });
+    const surging = await midSurge.next('auth');
+    ok(`a page signed in again while its surge recharges is told how long is left  (${recharging.surgeIn} s; in one, ${surging.surgeIn} s)`,
+      recharging.ok && recharging.surgeIn > 19 && recharging.surgeIn <= 20 && surging.ok && surging.surgeIn === SPEED_MODE_COOLDOWN_S);
+    for (const bot of [pim, reloaded, midSurge]) bot.close();
+
+    // A tab in the background says nothing of its own for a minute at a time
+    // (its timers held back), but its browser still answers the server's own
+    // pings: that is somebody there, not a socket gone quiet.
+    server.accounts.signups.hits.clear();
+    const qiu = await new Bot('Qiu').open();
+    await qiu.signup();
+    clearInterval(qiu.keepalive);
+    const qiuClient = g.byKey.get('qiu').client;
+    // Three seconds from being let go; the server pings every two.
+    qiuClient.lastHeard = g.now() - 42000;
+    await sleep(4500);
+    ok('a page answering the server\'s pings is not let go as silent, however long its own say nothing',
+      g.byKey.has('qiu') && qiu.ws.readyState === 1 && g.now() - qiuClient.lastHeard < 4000);
+    qiu.close();
 
     // Friend requests taken without being asked, for whoever wants that.
     server.accounts.signups.hits.clear();

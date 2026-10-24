@@ -921,6 +921,11 @@ A public server behind Caddy, accounts closed after everyone has joined:
 A browser that is already signed in comes back with its saved session and
 never touches the sign-in limits.
 
+A *silent* client is one the server has heard nothing from — no message, and
+no answer to the pings it sends every two seconds, which the browser gives by
+itself. A tab in the background, whose own timers the browser holds back to
+once a minute, still answers them and stays on.
+
 **"Per address" means per public address.** Everyone in one home, one school
 or one office usually reaches the internet through a single public address,
 so to your server they are one address: a group like that can make only
@@ -1287,11 +1292,14 @@ spot it was sent to (or up to 300 m above it) into the deepest ground. That is o
 speed, more than any single spot really offers since the server cannot see
 which spot it is — but one an arrival, however often it bounces, and it
 fades away unless it is actually being flown. Except over a pause: a page in
-a background tab stops the game and sends nothing, so a gap with nothing
-arriving behind it, from a page not otherwise sending slowly, is left out —
-all of it the first time in five seconds, and after that what is longer than
-the second and a half a page flies on coming back — and a page that only ever
-sends once a second keeps that speed for as long as it likes. How many rockets you have left
+a background tab stops the game, sends nothing and flies none of that time,
+and its first state back says so — that gap is left out whole, up to twice in
+ten seconds however often a page says it (from a page that never says it, the
+first gap in five seconds instead) — and any other gap with nothing
+arriving behind it, from a page not otherwise sending slowly, is left out for
+what is longer than the second and a half a page flies after a frame that
+long; and a page that only ever sends once a second keeps that speed for as
+long as it likes. How many rockets you have left
 is counted by the page, but
 however many you light the speed limit still holds. Players whose names
 look alike (`Alex` and `AIex`) are different accounts — check the colour.
