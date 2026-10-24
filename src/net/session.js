@@ -323,6 +323,10 @@ export class OnlineSession extends Emitter {
         this.shared.covered = 0;
         // Its land too, on Earth, the only world the land figure is for.
         if (ON_EARTH) this.shared.landCovered = 0;
+        // With your own ground in it, as your new ground goes in while you fly
+        // (game.js): past a day's share (the server's SHARED_PER_DAY) it is not
+        // on the server's copy, and everybody's figure read less than yours.
+        this.shared.merge(exploration.cells);
       }
       this.shared.merge(decodeCells(m.cells));
       this.emit('overlays');

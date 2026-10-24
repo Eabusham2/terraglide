@@ -595,6 +595,9 @@ export class Social {
     // gather or remove anybody until they came back.
     if (party.leader !== player.key && this.game.byKey.has(party.leader)) return this.game.tell(player, 'Only the party leader can hand it over', 'error');
     if (!key || key === party.leader) return this.game.tell(player, `${String(name ?? '').slice(0, 32)} is not in your party`, 'error');
+    // Nor to somebody who is not on: a party handed to a member who is away
+    // could not invite, gather or remove anybody until they came back.
+    if (!this.game.byKey.has(key)) return this.game.tell(player, `${this.who(key).name} is offline — hand the party to somebody who is on`, 'error');
     party.leader = key;
     this.tellParty(party, `${this.who(key).name} leads the party now`);
     this.sendParty(party);
@@ -825,9 +828,15 @@ export class Social {
       }
       if (!this.parties.has(party.id)) continue;
       // A leader away a while hands the party to the longest-standing member who
-      // is on, so the rest can still invite, gather and remove.
-      if (party.leaderAwaySince != null && now - party.leaderAwaySince > LEADER_AWAY_MS && !this.game.byKey.has(party.leader)) {
-        const next = party.members.find((k) => this.game.byKey.has(k));
+      // is on, so the rest can still invite, gather and remove. Timed from when
+      // the leader was first away, however that came about: gone offline
+      // (onLeave), not back after a restart, or left leading by one who left
+      // the party while everybody else was away (removeMember). Only the first
+      // started the clock, so after the other two the party stayed theirs for good.
+      if (this.game.byKey.has(party.leader)) party.leaderAwaySince = null;
+      else {
+        party.leaderAwaySince ??= now;
+        const next = now - party.leaderAwaySince > LEADER_AWAY_MS && party.members.find((k) => this.game.byKey.has(k));
         if (next) {
           party.leader = next;
           party.leaderAwaySince = null;

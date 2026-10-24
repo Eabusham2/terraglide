@@ -170,8 +170,8 @@ const PACE_BYTES = 256 * 1024;
 const SHARED_NEW_PER_MESSAGE = 20000;
 /** Runs to a part when the shared map is sent or saved in pieces. */
 const SHARED_PART_RUNS = 20000;
-/** New cells one player may add to a world's shared map in a day. See addShared. */
-const SHARED_PER_DAY = 150000;
+/** New cells one player may add to the shared maps in a day. See addShared. */
+const SHARED_PER_DAY = 1000000;
 /** The most cells a shared map holds. */
 const SHARED_MAX = 30000000;
 /**
@@ -2281,12 +2281,31 @@ export class Game {
 
   /**
    * New ground onto a world's shared map. A player adds at most
-   * SHARED_PER_DAY cells a day to it - more than a whole day of honest
-   * flying at full speed turns up - and the map stops growing at
-   * SHARED_MAX: a scripted account flying flat out round the clock could
-   * otherwise paint a million cells a day into the map everyone downloads.
-   * What they find past that is still their own (their record has it); it
-   * just is not everybody's.
+   * SHARED_PER_DAY cells a day to it, and the map stops growing at
+   * SHARED_MAX. What they find past that is still their own (their record
+   * has it, and their own page counts it among everybody's); it just is not
+   * on anybody else's.
+   *
+   * The cells are worked out here from moves the speed limits accepted, so
+   * nobody adds more in an hour than an honest page flying flat out does.
+   * Measured with the game's own flight model against this server (rockets
+   * every second, a surge whenever it is ready, nothing put back): 3,500
+   * to 6,000 km2 an hour on every world flown, but squares shrink towards
+   * the poles and on small worlds, so in cells an hour that is 11,000 on
+   * Earth's equator, 28,000 at 48 degrees, 40,000 at 57, 106,000 at 70 and
+   * 1.6 million at 85; 55,000 on Mars, 218,000 on the Moon, 10 million on
+   * Enceladus. SHARED_PER_DAY is more than a whole day of that on Earth up
+   * to 57 degrees (965,000) and on Venus, and lasts 18 hours on Mars, 9 at
+   * 70 degrees, 4.6 on the Moon, 38 minutes at 85 and 6 on the smallest
+   * worlds. It is no more because everybody on a world downloads its whole
+   * shared map and their page holds it at 55 to 100 bytes a cell: a million
+   * is 50 to 90 MB and a second or two to take in, five million 310 to 480
+   * MB and 7 to 8 seconds. With no daily limit one account at 85 degrees
+   * puts five million on every page on Earth in three hours (a day there
+   * is 38 million, past SHARED_MAX); at this one it takes five accounts a
+   * day, at the old 150,000 thirty-four. SHARED_MAX is what the server can
+   * keep - thirty million cells is at most 60 MB here as runs and a 40 MB
+   * file - and far more than a page can.
    */
   addShared(world, keys, player = null) {
     const shared = this.sharedMap(world);

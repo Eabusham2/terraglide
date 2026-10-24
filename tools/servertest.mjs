@@ -505,19 +505,27 @@ try {
     const back = cells.parts(20000).reduce((n, part) => n + decodeCells(part).length, 0);
     ok(`the shared map is kept as runs and goes out exactly  (${cells.size} cells)`,
       back === cells.size && cells.has('16/30000/20000') && !cells.has('16/30001/20000') && !cells.has('16/29999/20000'));
-    // One player adds at most a day's worth of honest flying to everybody's
-    // map: a script claiming to fly flat out all day is held to it.
-    const doraP = g.byKey.get('dora');
-    const before = g.sharedMap('earth').map.cells.size;
-    const flood = [];
-    for (let i = 0; i < 200000; i++) flood.push(`16/${i % 60000}/${40000 + Math.floor(i / 60000)}`);
-    g.addShared('earth', flood, doraP);
-    const grew = g.sharedMap('earth').map.cells.size - before;
-    ok(`one player adds at most a day's honest flying to the shared map  (${grew})`, grew === 150000);
-    dora.close();
+    // A whole day flying flat out at 57 degrees north - 965,352 new squares,
+    // flown with the game's own flight model against this server - all
+    // reaches everybody's map (150,000 did, five hours' flying at 48 degrees).
+    // On Venus, which nobody here is looking at.
+    const today = Math.floor(g.now() / 86400000);
+    const squares = (n, row) => Array.from({ length: n }, (_, i) => `16/${i % 60000}/${row + Math.floor(i / 60000)}`);
+    const alexP = g.byKey.get('alex');
+    g.sharedBudget.delete('alex');
+    const venus0 = g.sharedMap('venus').map.cells.size;
+    g.addShared('venus', squares(965352, 10000), alexP);
+    const venus1 = g.sharedMap('venus').map.cells.size;
+    ok(`a whole day flying flat out at 57 degrees north all goes onto the shared map  (${venus1 - venus0})`, venus1 - venus0 === 965352);
+    g.sharedBudget.delete('alex');
     // That is a lot of new ground at once for everybody looking: it reaches
     // them in pieces, and nobody looking is cut off for being sent it (Alex,
     // sent it in one five megabyte message, was dropped by the next position).
+    const doraP = g.byKey.get('dora');
+    const before = g.sharedMap('earth').map.cells.size;
+    g.addShared('earth', squares(150000, 40000), doraP);
+    const grew = g.sharedMap('earth').map.cells.size - before;
+    dora.close();
     const pieces = [];
     for (let total = 0; total < 150000;) {
       const piece = await alex.next('shared+', () => true, 4000).catch(() => null);
@@ -527,7 +535,15 @@ try {
     }
     await sleep(300);
     ok(`new ground on the shared map goes out in pieces, and the page looking keeps its connection  (${pieces.length} pieces, biggest ${Math.max(...pieces)})`,
-      pieces.reduce((a, b) => a + b, 0) >= 150000 && Math.max(...pieces) <= 20000 && g.players.has(alex.id) && alex.ws.readyState === 1);
+      grew === 150000 && pieces.reduce((a, b) => a + b, 0) >= 150000 && Math.max(...pieces) <= 20000 && g.players.has(alex.id) && alex.ws.readyState === 1);
+    // And no more than a million a day, on every world together: a script
+    // claiming to fly flat out round the clock is held to it (the last 50,000
+    // of Dora's day, on Mars, which nobody here is looking at).
+    g.sharedBudget.set('dora', { day: today, used: 1000000 - 50000 });
+    const mars0 = g.sharedMap('mars').map.cells.size;
+    g.addShared('mars', squares(100000, 20000), doraP);
+    const mars1 = g.sharedMap('mars').map.cells.size;
+    ok(`one player adds at most a million cells a day to the shared maps  (${mars1 - mars0} of the last 50000)`, mars1 - mars0 === 50000);
   }
 
   console.log('\ntravelling to another world');
@@ -929,6 +945,56 @@ try {
     server.game.tick();
     const ran = await back.next('partyInviteEnd', (m) => m.reason === 'expired');
     ok(`a party invite lasts ${invite.expiresIn} s and then runs out`, !!ran && invite.expiresIn === 60);
+    // A leader away 90 s hands the party on, however they came to be away.
+    // After a restart nobody is on, the leader included: one who did not come
+    // back kept the party for good, and nobody could invite, gather or remove
+    // (the party as server.json keeps it; Ivy is offline).
+    const social = server.game.social;
+    social.restore({ id: 9001, leader: 'ivy', members: ['ivy', 'gina'] });
+    social.tick(Date.now());
+    social.tick(Date.now() + 91000);
+    const handed = await gina.next('chat', (m) => m.kind === 'party' && /Gina leads the party now/.test(m.text), 2000).catch(() => null);
+    ok('a party restored with its leader away is handed on when they do not come back', !!handed && social.parties.get(9001)?.leader === 'gina');
+    // Nor to somebody offline, which left it the same way.
+    social.parties.get(9001).leader = 'gina';
+    server.game.chatTimes.delete('gina');
+    gina.send({ t: 'chat', text: '/party leader Ivy' });
+    const refused = await gina.next('chat', (m) => m.kind === 'error' && /Ivy is offline/.test(m.text), 2000).catch(() => null);
+    ok('and a leader cannot hand it to somebody who is offline', !!refused && social.parties.get(9001)?.leader === 'gina');
+    social.removeMember(social.parties.get(9001), 'gina');
+    // A leader who leaves while everybody else is away leaves one of them
+    // leading: the first of the rest back has it after the same 90 s.
+    const wren = await new Bot('Wren').open();
+    await wren.signup();
+    const ivyAgain = await new Bot('Ivy').open();
+    ivyAgain.send({ t: 'login', name: 'Ivy', password: 'hunter22' });
+    await ivyAgain.next('auth');
+    server.game.chatTimes.delete('gina');
+    for (const bot of [wren, ivyAgain]) {
+      gina.send({ t: 'chat', text: `/party invite ${bot.name}` });
+      await bot.next('partyInvite');
+      bot.send({ t: 'chat', text: '/party accept' });
+    }
+    await gina.next('party', (m) => m.party?.members.length === 3);
+    await wren.close();
+    await ivyAgain.close();
+    for (let i = 0; i < 100 && (server.game.byKey.has('wren') || server.game.byKey.has('ivy')); i++) await sleep(20);
+    gina.clear();
+    gina.send({ t: 'chat', text: '/party leave' });
+    await gina.next('party', (m) => m.party === null);
+    const left = social.partyFor('wren');
+    const away = left?.leader;
+    const backFirst = new Bot(away === 'wren' ? 'Ivy' : 'Wren');
+    await backFirst.open();
+    backFirst.send({ t: 'login', name: backFirst.name, password: 'hunter22' });
+    await backFirst.next('auth');
+    social.tick(Date.now());
+    social.tick(Date.now() + 91000);
+    ok(`a party whose leader left while the rest were away goes to the first one back  (left to ${away}, then ${left?.leader})`,
+      left?.leader === backFirst.name.toLowerCase());
+    backFirst.send({ t: 'chat', text: '/party leave' });
+    await backFirst.next('party', (m) => m.party === null);
+    backFirst.close();
     gina.close();
     back.close();
   }

@@ -916,7 +916,7 @@ A public server behind Caddy, accounts closed after everyone has joined:
 | Chat | 6 lines per 6 seconds per account, 256 characters each (commands count); reconnecting does not reset it |
 | Gathering a party | Once per 10 seconds |
 | Messages | 64 KB each; a client that stops reading is dropped past 2 MB of small messages (positions, chat) waiting in its connection — a big one on its way out, a map or a path, does not count — or 24 MB queued for it in all (big maps are sent a piece at a time, no faster than the connection takes them); a silent client is dropped after 45 seconds |
-| Shared map | One player adds at most 150,000 cells a day to everybody's explored map — more than a whole day of flying flat out finds; past that what they explore is still on their own map. A world's shared map stops growing at 30 million cells |
+| Shared map | One player adds at most 1,000,000 cells a day to everybody's explored map — more than a whole day of flying flat out on Earth up to 57° (965,000), about 9 hours of it at 70°, 4½ on the Moon, 40 minutes near the pole and a few on the smallest worlds, where the squares are smaller; past that what they explore that day is still on their own map (and in their own *explored by everyone*), not on anybody else's. Everybody on a world downloads its whole shared map and their page holds it, about 50–90 MB a million cells. A world's shared map stops growing at 30 million cells |
 
 A browser that is already signed in comes back with its saved session and
 never touches the sign-in limits.
@@ -1129,11 +1129,11 @@ start is unambiguous (`/tpa ale` for Alexandra).
 | `/friend accept [player]` / `/friend deny [player]` | Answer a friend request — the newest, or the one from that player. |
 | `/friend remove <player>` | Take somebody off your list (or take back a request). |
 | `/friend list` | Your friends, who is online and where, and who is asking. |
-| `/party invite <player>` | Invite somebody to your party (starting one if you have none). Up to 8; an invite lasts 60 s. `/party <player>` does the same. Also `/p`. |
+| `/party invite <player>` | Invite somebody who is on to your party (starting one if you have none; in a party, only its leader invites). Up to 8; an invite lasts 60 s. `/party <player>` does the same. Also `/p`. |
 | `/party accept [player]` / `/party deny [player]` | Answer a party invite. |
 | `/party leave` | Leave your party. The last but one leaving ends it. |
-| `/party kick <player>` / `/party leader <player>` | Leader: remove somebody, or hand the party over. |
-| `/party together on\|off` | Whether you teleport along when the leader does. On when you join. |
+| `/party kick <player>` / `/party leader <player>` | Leader: remove somebody, or hand the party over to somebody who is on. While the leader is offline anybody in the party can hand it over, and after 90 seconds it goes by itself to whoever has been in the party longest of those on. |
+| `/party together on\|off` | Whether you teleport along when the leader does. Off when you join: tick *teleport with the party* in the players list (`Tab`), or type this, to come along. |
 | `/party gather` | Leader: bring everyone with *together* on to where you are. |
 | `/party mark [name]` / `/party unmark <name>` | A party waypoint where you stand, or remove one. |
 | `/party list` | Who is in your party. |

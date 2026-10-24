@@ -301,7 +301,8 @@ export class PlayersPanel {
       const buttons = m.key === mine
         ? leading ? '' : `<label class="players-tick"><input type="checkbox" data-together ${m.together ? 'checked' : ''}/> teleport with the party</label>`
         : leading
-          ? `<button type="button" class="mini" data-action="party-leader" data-name="${escapeHtml(m.name)}">Make leader</button>
+          // Only somebody who is on can be handed the party (the server's promote).
+          ? `${m.online ? `<button type="button" class="mini" data-action="party-leader" data-name="${escapeHtml(m.name)}">Make leader</button>` : ''}
              <button type="button" class="mini" data-action="party-kick" data-name="${escapeHtml(m.name)}">Remove</button>`
           : '';
       return `<li style="--player:${escapeHtml(m.colour)}">
