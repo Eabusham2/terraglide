@@ -1230,12 +1230,22 @@ that matters:
   for a moment spend it all at once, and a stall's travel is lent back when
   the connection recovers. Both are let through as movement, but a sword hit
   within 0.8 s of either — or of a refused move, or of a drop faster than you
-  were already falling (five kilometres in one state onto somebody below) —
-  does not count. Moves a
+  were already falling (five kilometres in one state onto somebody below), or
+  of a rise the server let stand without judging it (the ground standing you
+  up, on your feet or just after arriving) — does not count, whatever the
+  page says it is doing — nor of getting further from where you were sent,
+  in the first half second after arriving, than half a second at the limit
+  carries you. Signing in again keeps the guard, and the sword's recharge,
+  where they were. Moves a
   page sent before it could have heard it was put back — within 0.3 s plus
   its round trip, at most 1 s — are refused without counting against it.
 - **Teleports are the server's.** The page is only ever moved somewhere the
-  server sent it, and must arrive within 400 m of where it was sent. A page
+  server sent it, and arrives exactly there — signing in again is an arrival
+  too, at the spot it left from. One that says it is up to 400 m off across
+  the ground, or at another height, is taken to be on the spot, and further
+  off is put there; sent to stand on the ground, a page stands on the ground
+  it has there, which may not have loaded yet, and getting from the spot to
+  it is a move like any other. A page
   that never says it has arrived is put there anyway after 20 seconds, so
   "still on the way" is not a way to be untouchable. Nobody is sent to
   somebody still arriving — by `/tpa` or an admin's `/tp` (*"… has not
@@ -1251,7 +1261,8 @@ that matters:
 - **Leaving a fight is losing it.** Closing the page — or `/kill` — while in a
   fight counts as dying, and the kill goes to whoever hit you last. You come
   back at the respawn and are told why. (Signing in again from another tab
-  is not leaving, nor is the server restarting.)
+  is not leaving, nor is the server restarting — but the fight goes with you,
+  and its ten seconds wait while the new page is still arriving.)
 - **Random teleports are chosen by the server** — a populated place on Earth, a
   named crater, mountain or plain elsewhere — so a page cannot "randomly"
   choose the spot it wanted.

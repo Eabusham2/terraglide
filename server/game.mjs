@@ -764,6 +764,14 @@ export class Game {
       player.lastHurtAt = carried.lastHurtAt ?? -Infinity;
       player.lastHitBy = carried.lastHitBy;
       player.surge = carried.surge;
+      // The sword's clock and the blink guard are the account's too: signing
+      // in again on a new socket - which takes a page a moment, and a page
+      // that keeps one open a single message - was a fully charged blade
+      // after every swing, and a hit straight after a dash, a drop or a
+      // refused move, where the guard (onState) says no.
+      player.lastAttackAt = carried.lastAttackAt ?? -Infinity;
+      player.lastSwingAt = carried.lastSwingAt;
+      player.blinkUntil = carried.blinkUntil ?? 0;
     }
     this.carried.delete(player.key);
     client.player = player;
@@ -777,6 +785,8 @@ export class Game {
     player.pending = {
       tid: 0, lat: pos.lat, lon: pos.lon, alt: pos.alt ?? null, world, since: this.now(),
       ceiling: Number.isFinite(pos.ceiling) ? pos.ceiling : null,
+      // Not somewhere new: the same spot, so the guard it left with stands.
+      blinkUntil: player.blinkUntil,
     };
 
     this.send(client, {
@@ -857,7 +867,7 @@ export class Game {
     // reloads, so the travel cooldown never applied at all.
     this.carried.set(player.key, {
       at: this.now(),
-      combatUntil: player.combatUntil,
+      combatUntil: this.combatEnds(player),
       lastRtpAt: player.lastRtpAt,
       lastSpawnAt: player.lastSpawnAt,
       lastTravelAt: player.lastTravelAt,
@@ -868,6 +878,9 @@ export class Game {
       // nobody was credited with.
       lastHitBy: player.lastHitBy,
       surge: player.surge,
+      lastAttackAt: player.lastAttackAt,
+      lastSwingAt: player.lastSwingAt,
+      blinkUntil: player.blinkUntil,
     });
     this.remember(player);
     player.record.stats.playSeconds += Math.round((this.now() - player.joinedAt) / 1000);
@@ -1222,7 +1235,22 @@ export class Game {
         this.correct(player, player.pending);
         return;
       }
-      this.arrive(player, s, now);
+      // Arrived exactly where it was sent, whatever the slack let it say:
+      // the page lands on the spot itself (Game.teleportTo), and the slack
+      // taken as a move was one nobody judged. Signing in arrives too, and
+      // costs a page that keeps a socket open nothing but a message - so a
+      // page that signed in again and again went four hundred metres each
+      // time, thousands of metres a second, and arrived beside somebody it
+      // had been hovering out of reach of, sword swinging. The height too,
+      // when it was sent one: a page sent into the air arrives at it (or
+      // higher, over ground it has higher there), and one sent to stand
+      // stands on whatever ground it has, which may not have loaded yet -
+      // so going from there to where it says it is is a move, judged from
+      // the spot with its next state (the blink guard, below), and not
+      // the page's word: a page that signed in again three kilometres over
+      // somebody said it had arrived at their height, sword swinging.
+      const { lat, lon, alt } = player.pending;
+      this.arrive(player, { ...s, lat, lon, alt: Number.isFinite(alt) ? alt : s.alt }, now);
       return;
     }
     if (player.dead) {
@@ -1435,14 +1463,28 @@ export class Game {
       // already dropping counts, the extra against the limit like any other
       // move - while a dive keeping the speed it has counts nothing, however
       // fast, or every honest dive on the Moon would be a blink.
-      const back = before(player.history, now - 500);
+      // Up and down whatever the page says it is doing, and in the arrival's
+      // half minute too. A climb the server lets stand without judging it -
+      // the ground loading in under you, there or on your feet - is no way to
+      // arrive beside somebody either, and the flags are the page's word: a
+      // page "standing" or "swimming" five kilometres up dropped onto a
+      // victim (critically, swimming), stood up into one flying overhead, and
+      // in any arrival's first half minute - signing in again is one - did
+      // both. An honest page stood up by the ground has 0.8 s without a hit.
+      // Just after arriving there is no half second behind to measure from,
+      // so the arrival is where it starts: measured only from half a second
+      // back, a page that signed in again three kilometres over somebody
+      // dropped onto them a tenth of a second later. Only then - the states
+      // a long stall held back arrive with nothing that old behind them
+      // either, carrying the stall's travel, which is lent for above.
+      const back = before(player.history, now - 500)
+        ?? (now - player.arrivedAt < 500 ? player.history[0] : null);
       if (back) {
         const span = Math.max(0.5, (now - back.t) / 1000);
         const across = separation({ lat: back.lat, lon: back.lon, alt: s.alt }, s, radius);
-        const flying = settled && !walking;
-        const up = flying ? Math.max(0, s.alt - back.alt) : 0;
+        const up = Math.max(0, s.alt - back.alt);
         let sooner = 0;
-        if (flying && back.alt > s.alt) {
+        if (back.alt > s.alt) {
           const earlier = before(player.history, back.t - 500);
           const falling = earlier ? Math.max(0, earlier.alt - back.alt) / Math.max(0.5, (back.t - earlier.t) / 1000) : 0;
           sooner = Math.max(0, back.alt - s.alt - falling * span);
@@ -1475,13 +1517,18 @@ export class Game {
     // ceiling the server worked out for whoever was there. See fallReserve.
     const earned = Number.isFinite(player.pending?.ceiling) ? player.pending.ceiling : null;
     const sentAlt = Number.isFinite(player.pending?.alt) ? player.pending.alt : null;
+    // The fight waited while nobody could hit it (inCombat).
+    player.combatUntil = this.combatEnds(player);
+    // Signing in again is the same spot, and keeps the guard it left with.
+    const guard = player.pending?.blinkUntil ?? 0;
     player.pending = null;
     player.lastStateAt = now;
     player.arrivedAt = now;
     player.airborneAt = now;
     player.budget = 0;
-    // Wherever it was in a hurry to before, it is somewhere new now and was sent.
-    player.blinkUntil = 0;
+    // Wherever it was in a hurry to before, it is somewhere new now and was
+    // sent - unless it is the same spot.
+    player.blinkUntil = guard;
     player.catchUp = 0;
     player.lastGap = null;
     player.heldUntil = 0;
@@ -1666,7 +1713,20 @@ export class Game {
   /* ------------------------------------------------------------ fighting */
 
   inCombat(player) {
-    return this.now() < player.combatUntil;
+    return this.now() < this.combatEnds(player);
+  }
+
+  /**
+   * When a player's fight is over. A page still arriving cannot be hit
+   * (onAttack), so while it arrives the tag waits rather than runs: signing
+   * in on a second tab - not a death, the fight goes with it - and never
+   * saying it had arrived let the ten seconds run out where nobody could
+   * reach it, and it then left the fight for free.
+   */
+  combatEnds(player) {
+    const pending = player.pending;
+    if (!pending || !(player.combatUntil > pending.since)) return player.combatUntil;
+    return player.combatUntil + Math.max(0, this.now() - pending.since);
   }
 
   nearSpawn(player) {

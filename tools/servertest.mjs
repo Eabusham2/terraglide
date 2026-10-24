@@ -1634,6 +1634,115 @@ try {
       !ivo.has('correct') && !pax.has('hit') && pauser.blinkUntil > Date.now() - 600);
     pax.close();
 
+    // Signing in again - a reload, a dropped socket, a second tab - is an
+    // arrival too, and one a page can have whenever it likes: no way into a
+    // fight either. Kai hovers out of Lux's reach and signs in again on a new
+    // socket with the token it has, as a page does.
+    server.accounts.signups.hits.clear();
+    const kai = await new Bot('Kai').open();
+    await kai.signup();
+    const lux = await new Bot('Lux').open();
+    await lux.signup();
+    const ring = { lat: FIELD.lat + 0.85, lon: FIELD.lon, alt: 3000 };
+    const luxP = await place(lux, ring.lat, ring.lon, ring.alt, FLAG.elytra);
+    const nextTo = ring.lat - metresNorth(2);
+    let kaiTab = kai;
+    // The same account on a new page: the server drops the old one. It has
+    // not arrived until it says so, at `arrive`.
+    const kaiAgain = async (arrive) => {
+      const tab = await new Bot('Kai').open();
+      tab.send({ t: 'resume', token: kai.auth.token });
+      tab.auth = await tab.next('auth');
+      tab.id = tab.auth.you.id;
+      tab.pos = { ...tab.auth.pos };
+      kaiTab = tab;
+      tab.send({ t: 'arrived', tid: 0 });
+      tab.state({ ...arrive, flags: FLAG.elytra });
+      await sleep(120);
+      return g.byKey.get('kai');
+    };
+    // Lux, ready to be hit: not just hit, and nowhere near dead.
+    const ready = () => { luxP.health = MAX_HEALTH; luxP.immuneUntil = 0; lux.clear(); };
+    const lands = async () => { kaiTab.strike(lux.id); await sleep(150); return lux.has('hit'); };
+    // Somewhere to be, half a second of it settled; the guard from before let go.
+    const hover = async (alt, flags = FLAG.elytra, settled = true) => {
+      const p = await place(kaiTab, nextTo, ring.lon, alt, FLAG.elytra);
+      if (settled) p.arrivedAt = long;
+      for (let i = 0; i < 6; i++) { kaiTab.state({ flags }); await sleep(100); }
+      p.blinkUntil = 0;
+      p.correctedAt = -Infinity;
+      return p;
+    };
+    let kp = await place(kai, ring.lat - metresNorth(390), ring.lon, ring.alt, FLAG.elytra);
+    kp.arrivedAt = long;
+    for (let i = 0; i < 6; i++) { kai.state({ flags: FLAG.elytra }); await sleep(100); }
+    const left = { ...kp.state };
+    kp = await kaiAgain({ lat: nextTo });
+    const signedIn = { ...kp.state };
+    ready();
+    ok(`signing in again lands you where you left, not up to 400 m off it  (${Math.round((signedIn.lat - left.lat) * 111320)} m)`,
+      Math.abs(signedIn.lat - left.lat) < metresNorth(1));
+    ok('so signing in again out of reach is not arriving beside somebody, sword swinging', !(await lands()));
+    await hover(ring.alt + 3000);
+    kp = await kaiAgain({ alt: ring.alt });
+    ready();
+    ok(`nor, three kilometres over them, saying it arrived at their height  (held ${Math.round(kp.state.alt - ring.alt)} m over them)`, !(await lands()));
+    kp = await hover(ring.alt + 3000, FLAG.elytra, false);
+    await place(kaiTab, nextTo, ring.lon, ring.alt + 3000, FLAG.elytra);
+    kaiTab.pos.alt = ring.alt;
+    ready();
+    ok('nor, just arrived three kilometres over them, being at their height a moment later', !(await lands()));
+    kp = await hover(ring.alt + 5000, FLAG.elytra, false);
+    kaiTab.state({ alt: ring.alt, flags: FLAG.elytra });
+    ready();
+    ok('nor dropping five kilometres onto them in the half minute after arriving', !(await lands()));
+    kp = await hover(ring.alt + 5000, FLAG.swim);
+    kp.airborneAt = long;
+    kaiTab.state({ alt: ring.alt, flags: FLAG.swim });
+    ready();
+    ok('nor "swimming" five kilometres up and dropping onto them', !(await lands()));
+    kp = await hover(ring.alt - 3000, FLAG.ground);
+    kp.airborneAt = long;
+    kaiTab.pos.alt = ring.alt;
+    ready();
+    ok('nor stood up three kilometres by "the ground loading in", into them overhead', !(await lands()));
+    kp = await hover(ring.alt + 5000);
+    kaiTab.state({ alt: ring.alt, flags: FLAG.elytra });
+    await sleep(100);
+    const guarded = kp.blinkUntil > Date.now();
+    kp = await kaiAgain({ alt: ring.alt });
+    ready();
+    ok('and signing in again straight after a guarded move keeps the guard', guarded && !(await lands()));
+    await sleep(700);
+    ready();
+    kaiTab.clear();
+    kaiTab.strike(lux.id);
+    const charged = await kaiTab.next('hitConfirm', () => true, 1500).catch(() => null);
+    kp = await kaiAgain({ alt: ring.alt });
+    ready();
+    kaiTab.strike(lux.id);
+    const recharged = await kaiTab.next('hitConfirm', () => true, 1500).catch(() => null);
+    ok(`and the sword's recharge  (${charged?.amount} then ${recharged?.amount})`, !!charged && !!recharged && recharged.amount < charged.amount);
+    // A fight waits for a page that signed in again and never says it arrived:
+    // nobody can hit it, so the ten seconds running out there was a way out.
+    await sleep(700);
+    ready();
+    kaiTab.strike(lux.id);
+    const fought = await lux.next('hit', () => true, 1500).catch(() => null);
+    const luxDeaths = g.record('lux').stats.deaths;
+    const luxTab = await new Bot('Lux').open();
+    luxTab.send({ t: 'resume', token: lux.auth.token });
+    await luxTab.next('auth');
+    const arriving = g.byKey.get('lux');
+    arriving.combatUntil = Date.now() + 300;
+    await sleep(600);
+    const still = g.inCombat(arriving);
+    luxTab.close();
+    const fledLux = await kaiTab.next('chat', (m) => m.kind === 'death' && /Lux fled from Kai/.test(m.text), 2000).catch(() => null);
+    ok('a fight waits for a second tab that never says it arrived, and leaving from there is still losing it',
+      !!fought && still && !!fledLux && g.record('lux').stats.deaths === luxDeaths + 1);
+    kaiTab.close();
+
     // What a page sent before it could have heard it was put back is refused
     // with it, not counted again.
     const lagger = await place(ivo, FIELD.lat + 0.9, FIELD.lon, 2000, FLAG.elytra);
