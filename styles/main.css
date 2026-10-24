@@ -1425,10 +1425,12 @@ input[type='checkbox'] {
 }
 
 /* How much of the world is explored, top middle of the map, live - just
-   under the compass's N, which the map draws about 19px from its top edge. */
+   under the compass's N. On a map wider than it is tall the N is drawn
+   about 19px from the top edge, and at 38px its halo touched the box; on a
+   taller one it is further down, and WorldMap.resize moves the box with it. */
 .worldmap-coverage {
   position: absolute;
-  top: 38px;
+  top: 46px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;

@@ -21,6 +21,9 @@ import { formatCoverage } from './exploration.js';
  */
 const WAYPOINT_GRAB_PX = 9;
 
+/** The compass letters round the map's edge, in pixels. See drawCompass. */
+const COMPASS_SIZE = 30;
+
 /**
  * The full-screen map: everything the minimap shows, at any zoom, plus the
  * places you have saved and the routes you have drawn. Drag to pan, wheel to
@@ -113,6 +116,7 @@ export class WorldMap {
     this.scaleLabel = this.element.querySelector('.worldmap-scale em');
     this.scaleBar = this.element.querySelector('.worldmap-scale i');
     this.statsBox = this.element.querySelector('.worldmap-stats');
+    this.coverageBox = this.element.querySelector('.worldmap-coverage');
     this.coverageLabel = this.element.querySelector('.worldmap-coverage-label');
     this.coverageFigures = [...this.element.querySelectorAll('.worldmap-coverage-figure')].map((element) => ({
       land: element.dataset.figure === 'land',
@@ -502,6 +506,11 @@ export class WorldMap {
     this.width = width;
     this.height = height;
     this.dirty = true;
+    // The explored box sits just under the compass's N, which is drawn round
+    // the largest circle that fits the map: on one taller than it is wide - a
+    // phone held upright - that N is well down from the top edge, and a box
+    // at a fixed height ran into it.
+    this.coverageBox.style.top = `${Math.round(Math.max(0, (height - width) / 2) + COMPASS_SIZE * 1.53)}px`;
   }
 
   update(player) {
@@ -543,7 +552,7 @@ export class WorldMap {
           playerSize: 9,
           pathWidth: 1.6,
           compass: true,
-          compassSize: 30,
+          compassSize: COMPASS_SIZE,
         },
       },
     );
