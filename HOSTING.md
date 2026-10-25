@@ -1211,7 +1211,8 @@ that matters:
   it during a surge, which the server times itself), across the ground and
   upwards — falls are free — with an allowance that absorbs a bad connection
   delivering updates in bunches, and that lends back the travel a connection
-  held up when it stalls for up to ten seconds. On foot the limit is walking
+  held up when it stalls for up to ten seconds — one stall, whether the
+  connection lets what it held go at once or in pieces. On foot the limit is walking
   pace, 25 m/s (60 in a surge), from two seconds after landing. Height starts counting 30
   seconds after arriving somewhere, once the ground has loaded under you.
 - **Speed you fell for is yours.** The limit goes up by what a fall the

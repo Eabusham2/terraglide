@@ -1628,6 +1628,111 @@ try {
     });
     ok(`a page saying each of those pauses was a background tab does not keep it either  (${Math.round(wokeCrawler.kept)} of ${Math.round(wokeCrawler.fell)} kept; standing still in them, ${Math.round(dasher.kept)}; hovering, ${Math.round(wokeHover.kept)})`,
       wokeCrawler.kept < wokeCrawler.fell * 0.05 && dasher.kept < dasher.fell * 0.05 && wokeHover.kept < wokeHover.fell * 0.05);
+    // A stall its socket lets go in two pieces: the first half second of its
+    // states when it ends, the rest half a second later, behind another loss.
+    // Judged on its own, the first piece - a fifth of the stall's travel over
+    // all of its time - read as a page standing still: the dive lost two
+    // fifths of its speed and was put back with the second piece. And a
+    // surge begun a second into the stall was dated from the first piece
+    // landing, a second after it began, and put back too.
+    const twoPieces = (surge) => (send, p) => {
+      const fell = dive(send, p);
+      for (let i = 0; i < 30; i++) send(100, 22);
+      const at = (i) => (surge && i >= 10 ? [60, { flags: FLAG.elytra | FLAG.rocket | FLAG.surge }] : [22, { flags: FLAG.elytra | FLAG.rocket }]);
+      for (let i = 0; i < 25; i++) send(i === 0 ? 2000 : i === 5 ? 500 : 0, ...at(i));
+      for (let i = 25; i < 55; i++) send(100, ...at(i));
+      return { fell, kept: p.reserve };
+    };
+    const split = await onClock('Dov', twoPieces(false));
+    ok(`a dive through a stall its socket lets go in two pieces keeps its speed  (${Math.round(split.kept)} of ${Math.round(split.fell)} kept)`,
+      split.putBack === 0 && split.kept > split.fell * 0.95, `${split.putBack} put back`);
+    const splitSurge = await onClock('Hal', twoPieces(true));
+    ok('and a surge begun inside that stall is not put back', splitSurge.putBack === 0, `${splitSurge.putBack} put back`);
+    // But the pieces are worth no more than the stall let go at once: a page
+    // that spends all the first piece may at once has the second's own time
+    // and no more - not the stall's lent time over again.
+    const spendAll = (gaps) => (send, p) => {
+      for (let i = 0; i < 20; i++) send(100, 0);
+      let moved = 0;
+      for (const ms of gaps) {
+        send(ms, 0);
+        send(0, 0);
+        const most = p.budget + p.catchUp + 20;
+        send(0, most);
+        moved += most;
+      }
+      return { moved };
+    };
+    const atOnce = await onClock('Ken', spendAll([2500]));
+    const inTwo = await onClock('Lev', spendAll([2000, 500]));
+    ok(`a stall let go in two pieces is worth no more than let go at once  (${Math.round(inTwo.moved)} m against ${Math.round(atOnce.moved)})`,
+      inTwo.putBack === 0 && atOnce.putBack === 0 && inTwo.moved <= atOnce.moved + 30);
+    // Nor does a hold sent in pieces save more than a stall lends: a page
+    // hovering through twenty seconds of them, the first after a second and
+    // six tenths and the rest half a second apart, a state behind each - and
+    // one sending once a second with nothing behind them is no hold at all,
+    // and saves what the allowance saves.
+    const hovering = (firstMs, gapMs, behind) => (send, p) => {
+      for (let i = 0; i < 20; i++) send(100, 0);
+      let most = 0;
+      for (let t = 0; t < 21000; t += gapMs) {
+        send(t === 0 ? firstMs : gapMs, 0);
+        for (let i = 0; i < behind; i++) send(0, 0);
+        most = Math.max(most, p.budget + p.catchUp);
+      }
+      return { most };
+    };
+    const stillTen = await onClock('Kip', (send, p) => {
+      for (let i = 0; i < 20; i++) send(100, 0);
+      send(10000, 0);
+      return { most: p.budget + p.catchUp };
+    });
+    const chain = await onClock('Lou', hovering(1600, 500, 1));
+    const onceASecond = await onClock('Ned', hovering(1000, 1000, 0));
+    ok(`and a hold sent in pieces saves no more than a stall lends  (${Math.round(chain.most)} m against ${Math.round(stillTen.most)})`,
+      chain.most <= stillTen.most + 1);
+    ok(`and a page sending once a second is no hold  (${Math.round(onceASecond.most)} m at once at most)`,
+      onceASecond.most <= g.maxSpeed('moon') * 1.5 + 1);
+    // A socket that lets a page's states go once a second, ten at a time: the
+    // time it held is the allowance's, not travel lent, so the sword counts
+    // between the bunches - a move that needed lent travel is not one to
+    // land a hit with.
+    const tenAtATime = await onClock('Rex', (send, p) => {
+      for (let i = 0; i < 30; i++) send(100, 15);
+      let blinked = 0;
+      for (let k = 0; k < 20; k++) {
+        send(1000, 15);
+        for (let i = 1; i < 10; i++) send(0, 15);
+        if (p.blinkUntil > g.now()) blinked++;
+      }
+      return { blinked };
+    });
+    ok(`a page whose socket lets its states go once a second keeps its sword between them  (${tenAtATime.blinked} of 20 bunches)`,
+      tenAtATime.putBack === 0 && tenAtATime.blinked === 0, `${tenAtATime.putBack} put back`);
+    // Nor does saying it woke in a stall let go in pieces keep more of a
+    // dive's speed than saying it woke: a pause the page woke from is left
+    // out, a stall let go in pieces is judged as one, and the two together
+    // leave out no more than the pause.
+    const wokeSplit = (inPieces) => (send, p) => {
+      const fell = dive(send, p);
+      for (let i = 0; i < 10; i++) send(100, 0);
+      const woke = { flags: FLAG.elytra | FLAG.woke };
+      if (inPieces) {
+        send(2000, 0, woke);
+        for (let i = 0; i < 4; i++) send(0, 0);
+        send(500, 0, woke);
+        for (let i = 0; i < 4; i++) send(0, 0);
+      } else {
+        send(2500, 0, woke);
+        for (let i = 0; i < 9; i++) send(0, 0);
+      }
+      for (let i = 0; i < 5; i++) send(100, 0);
+      return { kept: p.reserve / fell };
+    };
+    const wokeOnce = await onClock('Sal', wokeSplit(false));
+    const wokeInPieces = await onClock('Tam', wokeSplit(true));
+    ok(`and saying it woke in a stall let go in pieces keeps no more of a dive's speed than saying it woke  (${wokeInPieces.kept.toFixed(3)} against ${wokeOnce.kept.toFixed(3)})`,
+      wokeInPieces.kept <= wokeOnce.kept + 0.005);
     // A speed burst the tab was hidden in the middle of: the game's clocks stop
     // there and the server's do not, so the page came back with half its burst
     // left, surged on past the end the server had seen, and was put back. The

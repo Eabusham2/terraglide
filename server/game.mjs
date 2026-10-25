@@ -734,6 +734,7 @@ export class Game {
       fadePool: 0,
       fadeBunch: null,
       fadeBack: null,
+      fadeHeld: false,
       pausedMs: 0,
       lastPauseAt: -Infinity,
       /** The last two pauses the page said it woke from, and whether it ever has. See fadeReserve. */
@@ -1027,14 +1028,21 @@ export class Game {
       // by no more than the grace a surge's end has, which never costs an
       // honest surge its last seconds. One a second later is the page's own
       // from there. And never into the recharge it waited out.
+      // In a later piece of a hold (heldPiece) it may have begun as soon as
+      // the hold did - back by no more than that same grace. Dated from the
+      // piece before it landing, a surge begun a second into a two-second
+      // stall lost that second of itself, and the page was put back.
       const gapMs = now - player.lastStateAt;
       const burst = player.burst;
       const inBurst = burst && now <= burst.until;
       const sameMoment = gapMs < BACKLOG_GAP_S * 1000;
+      const graced = (gapFrom, hold) => (hold === undefined ? gapFrom : Math.min(gapFrom, Math.max(hold, now - SURGE_GRACE_S * 1000)));
       let from = now;
-      if (gapMs >= BURST_GAP_S * 1000) from = player.lastStateAt;
-      else if (inBurst && sameMoment && now - burst.at < BURST_SETTLE_MS) from = burst.from;
-      else if (inBurst && (sameMoment || now - burst.at < BURST_SETTLE_MS)) from = Math.max(burst.from, now - SURGE_GRACE_S * 1000);
+      if (gapMs >= BURST_GAP_S * 1000) {
+        const piece = this.heldPiece(player, now);
+        from = graced(player.lastStateAt, piece && (piece.shown || piece.bunched) ? piece.hold ?? piece.from : undefined);
+      } else if (inBurst && sameMoment && now - burst.at < BURST_SETTLE_MS) from = graced(burst.from, burst.hold);
+      else if (inBurst && (sameMoment || now - burst.at < BURST_SETTLE_MS)) from = Math.max(burst.shown ? burst.hold : burst.from, now - SURGE_GRACE_S * 1000);
       surge.since = Math.max(from, surge.readyAt);
       surge.states = 0;
     }
@@ -1079,6 +1087,28 @@ export class Game {
     let sum = 0;
     for (let i = 0; i < STEPS; i++) sum += limitFor(this.factorAt(surge, from + ((to - from) * (i + 0.5)) / STEPS));
     return sum / STEPS;
+  }
+
+  /**
+   * The burst whose hold a state's gap goes on with, if it does. A socket that
+   * held states back can let them go in more than one piece - the first when
+   * the hold ends, the rest half a second or a second after, behind another
+   * loss - and the states in a later piece were sent during the hold, not
+   * after it. A gap of a quarter second or more that began as a burst's last
+   * state landed, within the two seconds a stall's travel is lent, in a hold
+   * by then longer than the allowance covers and no longer than a stall is
+   * caught up on, is that hold going on. It counts as one (onState,
+   * surgeFactor) only once the socket has shown it was holding states, with
+   * a backlog in a piece before or in this one: a page sending once a second
+   * sends nothing behind each state. `hold` on a burst that goes on with
+   * one is when the hold began, and `shown` that it has shown it.
+   */
+  heldPiece(player, now) {
+    const held = player.burst;
+    if (!held || now > held.until || player.lastStateAt !== held.last || now - held.last < BURST_GAP_S * 1000) return null;
+    const hold = held.hold ?? held.from;
+    if (now - hold <= CATCH_UP_AFTER_S * 1000 || now - hold > CATCH_UP_MAX_S * 1000) return null;
+    return held;
   }
 
   /**
@@ -1206,7 +1236,9 @@ export class Game {
     const air = aeroFactor(body);
     let fade = air > 0 ? Math.exp((-dt * air) / RESERVE_FADE_S) : 1;
     const bunch = player.fadeBunch;
-    if (backlog) {
+    // While a stall's bunch waits to be judged (below), states arriving in
+    // the same moment are one bunch, however long after the stall they come.
+    if (backlog || (player.fadeHeld && now - player.lastStateAt < BACKLOG_GAP_S * 1000)) {
       if (bunch) {
         bunch.lone = false;
         // Back from the background behind states a stall held from before
@@ -1238,24 +1270,38 @@ export class Game {
           player.wokeAt = bunch.at;
         }
       }
-      // From a second before it - or, where the history no longer reaches
-      // that far back, from the end of the bunch judged before it: the
-      // history keeps a second and a half, so a page sending a state every
-      // nine tenths of a second never had one a second old to be judged by,
-      // and kept a fall's speed hovering, and a bunch after a long hold has
-      // nothing in it but itself.
-      const back = end && (before(player.history, end.t - 1000) ?? player.fadeBack);
-      if (back && back !== end) {
-        if (player.reserve + player.surgeKept > 0) {
-          const span = Math.max(0.1, (end.live - back.live) / 1000);
-          const across = separation({ lat: back.lat, lon: back.lon, alt: end.alt }, end, radiusOf(player.world));
-          const going = Math.hypot(across, end.alt - back.alt) / span;
-          const allowed = Math.sqrt(this.maxSpeed(player.world) ** 2 + RESERVE_MARGIN * (player.reserve + player.surgeKept));
-          if (going < allowed * UNUSED_FRACTION) fade *= Math.exp(-player.fadePool / UNUSED_FADE_S);
+      // Then it is judged - unless it is a stall's backlog, a bunch with
+      // states behind it after a gap the catch-up lends for, and not one the
+      // page woke from: that is judged with the bunch after it, once, from
+      // the bunch judged before the stall. A socket can let a stall go in
+      // more than one piece, and the first holds only what was sent before
+      // it held again - judged on its own, two seconds that brought half a
+      // second of travel, an honest dive read as standing still and lost two
+      // fifths of its speed. From before the stall, not from a state inside
+      // it, or what came after would be all that was judged.
+      const held = !player.fadeHeld && !!bunch && !bunch.lone && !bunch.woke && bunch.gapMs > CATCH_UP_AFTER_S * 1000;
+      if (!held) {
+        // From a second before it - or, where the history no longer reaches
+        // that far back, from the end of the bunch judged before it: the
+        // history keeps a second and a half, so a page sending a state every
+        // nine tenths of a second never had one a second old to be judged by,
+        // and kept a fall's speed hovering, and a bunch after a long hold has
+        // nothing in it but itself.
+        const second = end && before(player.history, end.t - 1000);
+        const back = player.fadeHeld ? player.fadeBack ?? second : second ?? player.fadeBack;
+        if (back && back !== end) {
+          if (player.reserve + player.surgeKept > 0) {
+            const span = Math.max(0.1, (end.live - back.live) / 1000);
+            const across = separation({ lat: back.lat, lon: back.lon, alt: end.alt }, end, radiusOf(player.world));
+            const going = Math.hypot(across, end.alt - back.alt) / span;
+            const allowed = Math.sqrt(this.maxSpeed(player.world) ** 2 + RESERVE_MARGIN * (player.reserve + player.surgeKept));
+            if (going < allowed * UNUSED_FRACTION) fade *= Math.exp(-player.fadePool / UNUSED_FADE_S);
+          }
+          player.fadePool = 0;
         }
-        player.fadePool = 0;
+        if (end) player.fadeBack = end;
       }
-      if (end) player.fadeBack = end;
+      player.fadeHeld = held;
       // With nothing to judge it by yet - just after arriving - it waits.
       player.fadePool = Math.min(CATCH_UP_MAX_S, player.fadePool + dt);
       const gapMs = now - player.lastStateAt;
@@ -1353,7 +1399,11 @@ export class Game {
       const wasOnFoot = (last.flags & (FLAG.ground | FLAG.swim)) && !(last.flags & FLAG.elytra);
       if (!onFoot || !wasOnFoot) player.airborneAt = now;
       const walking = onFoot && now - player.airborneAt > LANDING_GRACE_S * 1000;
+      // The hold this state's gap goes on with (heldPiece), worked out
+      // before the state starts a burst of its own.
+      const piece = gap >= BURST_GAP_S ? this.heldPiece(player, now) : null;
       const factor = this.surgeFactor(player, s.flags, now);
+      const surged = player.surge.on && player.surge.states === 1;
       // What a fall has given you to spend. See fallReserve. The fade is
       // time's and stands; the fall is kept only if the move is: a refused
       // one is put back, and so is what it claimed to fall.
@@ -1401,13 +1451,17 @@ export class Game {
       // nothing either: it is the gap's travel arriving.
       const cap = limit * 1.5;
       const over = now <= player.heldUntil && player.budget > cap;
+      // What the cap throws away of a later piece's own time (heldPiece).
+      let spilt = 0;
       if (gap >= BURST_GAP_S) {
         const close = player.lastGap && player.lastGap.at >= prevAt - CATCH_UP_MS && player.lastGap.gap < CATCH_UP_MAX_S;
         if (gap > CATCH_UP_AFTER_S && close) {
           player.budget = Math.min(cap, player.budget) + gapLimit * CATCH_UP_AFTER_S;
           player.heldUntil = now + CATCH_UP_MS;
         } else {
-          player.budget = over ? player.budget + gapLimit * dt : Math.min(cap, player.budget + gapLimit * dt);
+          const filled = player.budget + gapLimit * dt;
+          player.budget = over ? filled : Math.min(cap, filled);
+          if (piece) spilt = filled - player.budget;
         }
         player.lastGap = { at: now, gap };
       } else if (!backlog) {
@@ -1421,7 +1475,9 @@ export class Game {
       // of the gap is lent for a moment - no faster on average than the limit,
       // which is all the limit is.
       if (gap > CATCH_UP_AFTER_S) {
-        player.catchUp = gapLimit * (Math.min(CATCH_UP_MAX_S, gap) - CATCH_UP_AFTER_S);
+        // A later piece of a hold that has shown it is one keeps what the hold lent.
+        const kept = piece && (piece.shown || piece.bunched) && now <= player.catchUpUntil ? player.catchUp : 0;
+        player.catchUp = kept + gapLimit * (Math.min(CATCH_UP_MAX_S, gap) - CATCH_UP_AFTER_S);
         player.catchUpUntil = now + CATCH_UP_MS;
       } else if (now > player.catchUpUntil) {
         player.catchUp = 0;
@@ -1432,20 +1488,65 @@ export class Game {
       // a surge started while the socket was holding states back was judged
       // at the speed from before it, and a nine-second stall with a surge in
       // it put the page back thirty-nine times and disconnected it.
-      if (gap >= BURST_GAP_S) {
-        player.burst = { at: now, from: prevAt, until: now + CATCH_UP_MS, gap, limit: gapLimit };
-      } else if (player.burst && now <= player.burst.until) {
-        // Worked out again over the gap's own time, with what is known now -
-        // a surge first seen in the burst is dated back to the gap (surgeFactor).
-        const regap = this.averageLimit(player.surge, player.burst.from, player.burst.at, limitFor);
-        if (regap > player.burst.limit) {
-          const more = regap - player.burst.limit;
-          player.budget += more * Math.min(2, player.burst.gap);
-          if (player.burst.gap > CATCH_UP_AFTER_S) {
-            player.catchUp += more * (Math.min(CATCH_UP_MAX_S, player.burst.gap) - CATCH_UP_AFTER_S);
+      // Worked out again over the gap's own time, with what is known now -
+      // a surge first seen in the burst is dated back to the gap (surgeFactor),
+      // and in a later piece of a hold into the hold.
+      const regap = (burst) => {
+        const then = this.averageLimit(player.surge, burst.from, burst.at, limitFor);
+        if (then > burst.limit) {
+          const more = then - burst.limit;
+          player.budget += more * Math.min(2, burst.gap);
+          if (burst.gap > CATCH_UP_AFTER_S) {
+            player.catchUp += more * (Math.min(CATCH_UP_MAX_S, burst.gap) - CATCH_UP_AFTER_S);
             player.catchUpUntil = Math.max(player.catchUpUntil, now + CATCH_UP_MS);
           }
-          player.burst.limit = regap;
+          burst.limit = then;
+        }
+      };
+      // A later piece of a hold is the hold's time: what the cap threw away
+      // of it is kept, up to what that hold lends in all past the second and
+      // a half the allowance covers - so a page that has sent little of the
+      // hold's travel yet keeps the time for the rest of it, and one that has
+      // spent it all is filled no further than two gaps fill it. Once the
+      // socket has shown it was holding states: then, or with the piece's own
+      // backlog.
+      const keep = (burst) => {
+        const into = Math.max(0, Math.min(CATCH_UP_MAX_S, (burst.at - burst.hold) / 1000) - CATCH_UP_AFTER_S);
+        player.budget += Math.max(0, Math.min(burst.owed, cap + burst.limit * into - player.catchUp - player.budget));
+        burst.owed = 0;
+        burst.shown = true;
+      };
+      if (gap >= BURST_GAP_S) {
+        // `last` is when its last state arrived, the first or one in the
+        // backlog behind it (`bunched`, once one has); `prev` the burst whose
+        // hold it goes on with.
+        player.burst = { at: now, from: prevAt, until: now + CATCH_UP_MS, gap, limit: gapLimit, last: now };
+        if (piece) {
+          piece.prev = null;
+          Object.assign(player.burst, { prev: piece, hold: piece.hold ?? piece.from, owed: spilt });
+          if (piece.shown || piece.bunched) {
+            keep(player.burst);
+            regap(piece);
+          }
+        }
+      } else if (player.burst && now <= player.burst.until) {
+        const burst = player.burst;
+        if (backlog) {
+          burst.last = now;
+          burst.bunched = true;
+          if (burst.prev && !burst.shown) keep(burst);
+        }
+        // On the burst's own states: the rest of it, in the same moment, and
+        // one just behind it that a surge seen first in is dated back into
+        // the gap (surgeFactor). A live state after them is the page's own,
+        // and the limit it brings - a dive gathering speed - says nothing
+        // about the gap's: worked out again on each, a page that kept a
+        // dive's speed through a stall was lent a sliver of travel on every
+        // state for two seconds after it, to spend first, and its sword did
+        // not count.
+        if (gap < BACKLOG_GAP_S || (surged && now - burst.at < BURST_SETTLE_MS)) {
+          regap(burst);
+          if (burst.prev && burst.shown) regap(burst.prev);
         }
       }
       const room = player.budget + player.catchUp + SPEED_SLACK_M;
@@ -1609,6 +1710,7 @@ export class Game {
     player.fadePool = 0;
     player.fadeBunch = null;
     player.fadeBack = null;
+    player.fadeHeld = false;
     this.accept(player, s, now, { leg: true });
   }
 
