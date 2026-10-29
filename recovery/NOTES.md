@@ -3,7 +3,7 @@
 > Branch: `claude/main-recovery`, made from main (2c7ee70) with only the final recovered files on it. The early snapshots the recovery worked from (`recovery/partial/`, `recovery/pastes2/`, `recovery/pastes3/`, `PARTIAL.md`, `avatar.partial-diff.txt`) are superseded and are not on this branch. They are kept on the old branch `claude/world-exploration-game-962wpo`, and the pastes are also in the user's zips (`~/.claude/uploads`).
 
 ## OUTLINE (keep current: newest at the top of each list)
-### After the recovery: adversarial round 6b/6c (Oct 22-24)
+### After the recovery: adversarial rounds 6b-6d (Oct 22-29)
 - Run on the recovered code at the owner's request ("does it have an ac", "verify all from my prompt was done"): an
   attacker, a reviewer and a prompt-coverage critic, each finding reproduced and its fix checked by a skeptic before it
   went in. Four commits on `claude/main-recovery`, each with servertest checks that fail on the code before it:
@@ -21,19 +21,35 @@
     reload or world trip (auth surgeIn); a tab hidden over five minutes dropped as silent (Chrome runs its timers once
     a minute; a pong to the server's own ping now counts as heard). servertest 229 -> 240.
   - 8d9fa78: the world map's explored box kept clear of the compass N on wide and upright maps.
+  - 7620eab: a stall the socket lets go in two pieces is judged as one stall (the fade judged the first piece alone
+    as standing still and cut a dive's reserve, the budget cap threw away the second piece's refill, and a surge seen in
+    it was dated from the first piece): honest put-backs 76 of 1,680 in a matrix of 7 worlds -> 0, and the 6c attacker's
+    +16% surge-with-pause gain on Earth is gone. servertest 240 -> 247.
+  - 089d9ff: a drop after a quiet spell is judged from the last state before the silence (a page hovering over
+    somebody went quiet past the 1.5 s of history, then dropped 5 km in one state and landed a critical hit: 60 of 200
+    cases -> 0). servertest 247 -> 249. An independent attacker (round 6d) found nothing in either rule and no honest
+    cost: in the 6c honest batch corrections 1 -> 0 and guard states 11,426 -> 5,151.
+  - 339c9ce: explored squares sized for every world and latitude (per-world zooms from the circumference, one zoom
+    coarser at 60, 75.5 and 82.8 degrees, runs instead of Sets): 30 honest minutes on Enceladus went from 5.17M squares,
+    333 MB and 0.78 ms per move to about 6,000 squares, 13 MB and 4.7 us; Earth below 60 degrees bit-identical; old
+    records, saves and shared-map files converted with nothing lost (including saves the old page had trimmed); an old
+    page is told to reload before it signs in (PROTOCOL_VERSION 2); SHARED_PER_DAY 3.5M. Checked by a server skeptic
+    and a data skeptic, whose fixes are in the commit. selftest 1748 -> 1759, servertest 249 -> 259.
 - The coverage critic found all 18 requests in place and working (each with a test or a run), apart from the three
   fixed above. Only the owner can do the rest: merge to main, which publishes GitHub Pages (terraglide-online.html loads
   its modules from Pages, still the Oct 2 build without online mode), and deploy the public server and set
   TERRAGLIDE_PUBLIC_SERVER (HOSTING.md "The public server").
-- Still being finished (agents resumed after usage limits): explored squares the same size in metres on every world
-  and at every latitude (30 honest minutes on Enceladus were 5.17M cells and 333-417 MB on the server), and a rare
-  honest put-back on the Moon (a surge begun inside a 2 s network stall after a steep dive).
+- Players may notice after 339c9ce: the world map's "Explored" area now equals the coverage figure's ground, so it
+  moves for existing records (it read high from coarse squares); on small worlds the default minimap zoom is very close
+  (76 m across on Enceladus, as before), and the bigger squares show only at the edge of explored ground.
+- A host should know: a full world's shared map is 60-90 MB on the server for as long as it runs, so a 256 MB machine
+  holds about two full worlds (HOSTING's limits table); saving a full map that is still growing takes 0.6-0.9 s.
 - Looked at and left, with reasons: a slow /api/status body holds a socket until Node's 300 s requestTimeout (the same
   as any slow client; no per-address connection cap anywhere); the shared map's daily budget and the sign-up limiter
   live in memory, so a restart resets them (painting is still bounded by honest speed); the /tpa per-target cooldown
   and the voice budget reset on a reconnect (chat limits /tpa to 6 per 6 s).
-- Suites at 8d9fa78: check 101 modules ok, selftest 1748/1748, servertest 240/240; flightcheck 15/15 on the same tree
-  in the skeptics' copies.
+- Suites at 339c9ce: check 102 modules ok, selftest 1759/1759, servertest 259/259, flightcheck 15/15 (nothing put
+  back on any world). A reviewer is checking the data skeptic's fixes in 339c9ce independently.
 ### Last check (Oct 16, evening): the recovery is finished; nothing more can be recovered
 - Recovered state = commit bbd6276 on `claude/main-recovery`. Everything after it on that branch is the owner's own requests
   (sword and firework holds, the startup screen, the coverage figures, lobby status, ping and counts), each listed under
