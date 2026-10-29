@@ -735,6 +735,8 @@ export class Game {
       fadeBunch: null,
       fadeBack: null,
       fadeHeld: false,
+      /** The last state before the latest gap, and how fast it was falling. See onState. */
+      gapBack: null,
       pausedMs: 0,
       lastPauseAt: -Infinity,
       /** The last two pauses the page said it woke from, and whether it ever has. See fadeReserve. */
@@ -1402,6 +1404,15 @@ export class Game {
       // The hold this state's gap goes on with (heldPiece), worked out
       // before the state starts a burst of its own.
       const piece = gap >= BURST_GAP_S ? this.heldPiece(player, now) : null;
+      // Where the page was before a gap, and how fast it was falling there,
+      // while the history still has it (the burst check below): a later piece
+      // of a hold keeps the one from before the hold.
+      if (gap >= BURST_GAP_S && !piece) {
+        const end = player.history.at(-1);
+        const earlier = end && before(player.history, end.t - 500);
+        player.gapBack = end && { t: end.t, lat: end.lat, lon: end.lon, alt: end.alt,
+          falling: earlier ? Math.max(0, earlier.alt - end.alt) / Math.max(0.5, (end.t - earlier.t) / 1000) : 0 };
+      }
       const factor = this.surgeFactor(player, s.flags, now);
       const surged = player.surge.on && player.surge.states === 1;
       // What a fall has given you to spend. See fallReserve. The fade is
@@ -1630,22 +1641,39 @@ export class Game {
       // Just after arriving there is no half second behind to measure from,
       // so the arrival is where it starts: measured only from half a second
       // back, a page that signed in again three kilometres over somebody
-      // dropped onto them a tenth of a second later. Only then - the states
-      // a long stall held back arrive with nothing that old behind them
-      // either, carrying the stall's travel, which is lent for above.
+      // dropped onto them a tenth of a second later. After a gap there is
+      // none either - the history keeps a second and a half, and a quiet
+      // spell longer than that goes from it with the first state after it -
+      // so it is measured from the last state before the gap, at the rate it
+      // was falling there: a page that hovered over somebody, went quiet a
+      // second and a half, sent a state or two and then dropped five
+      // kilometres onto them landed a critical hit out of a clear sky, and a
+      // fall moves nothing across, so no lent travel was spent either. From
+      // before the gap, not from a state inside it: the states a stall held
+      // back carry its travel, which is no faster than the limit over the
+      // gap's own time.
       const back = before(player.history, now - 500)
-        ?? (now - player.arrivedAt < 500 ? player.history[0] : null);
+        ?? (now - player.arrivedAt < 500 ? player.history[0] : null)
+        ?? player.gapBack;
       if (back) {
         const span = Math.max(0.5, (now - back.t) / 1000);
         const across = separation({ lat: back.lat, lon: back.lon, alt: s.alt }, s, radius);
         const up = Math.max(0, s.alt - back.alt);
         let sooner = 0;
         if (back.alt > s.alt) {
-          const earlier = before(player.history, back.t - 500);
-          const falling = earlier ? Math.max(0, earlier.alt - back.alt) / Math.max(0.5, (back.t - earlier.t) / 1000) : 0;
+          const earlier = back.falling === undefined && before(player.history, back.t - 500);
+          const falling = back.falling ?? (earlier ? Math.max(0, earlier.alt - back.alt) / Math.max(0.5, (back.t - earlier.t) / 1000) : 0);
           sooner = Math.max(0, back.alt - s.alt - falling * span);
         }
-        if (Math.hypot(across, up, sooner) > limit * span + BLINK_SLACK_M) player.blinkUntil = now + BLINK_GUARD_MS;
+        // The sudden drop over its own short time, not the whole gap: a fall
+        // is free to make, and a page already falling keeps the speed it had
+        // (sooner is nil for it, whatever the span), but a hit from a drop is
+        // only as sudden as the page showed - so a page that hovered, went
+        // quiet, and dropped five kilometres is held to what the limit carries
+        // in a second and a half, not in the seconds it was silent.
+        const dropSpan = Math.min(span, CATCH_UP_AFTER_S);
+        if (Math.hypot(across, up, sooner) > limit * span + BLINK_SLACK_M
+          || sooner > limit * dropSpan + BLINK_SLACK_M) player.blinkUntil = now + BLINK_GUARD_MS;
       }
     }
     player.lastStateAt = now;
@@ -1711,6 +1739,7 @@ export class Game {
     player.fadeBunch = null;
     player.fadeBack = null;
     player.fadeHeld = false;
+    player.gapBack = null;
     this.accept(player, s, now, { leg: true });
   }
 

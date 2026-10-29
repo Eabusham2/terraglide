@@ -2128,6 +2128,48 @@ try {
     ria3.social.notices = ['Zed accepted your friend request — you are friends', 'Bob removed you from the party while you were away'];
     const kinds = g.social.social('ria').notices.map((n) => n.kind).join(',');
     ok('an older record\'s friend notice is told as a friend\'s, its party notice as a party\'s', kinds === 'friend,party', kinds);
+    // A drop onto somebody out of a clear sky after going quiet first. The
+    // guard looks back half a second, and the history keeps a second and a
+    // half, so a page that hovered out of reach, sent nothing for two seconds
+    // (its hover states aged out of the history), sent a state or two and then
+    // dropped five kilometres onto somebody had nothing behind the drop to
+    // measure it from, and the sudden drop the guard is for landed a critical
+    // hit. It still counts from the last state before the silence.
+    const fin = await new Bot('Fin').open();
+    await fin.signup();
+    const rob = await new Bot('Rob').open();
+    await rob.signup();
+    const robP = await place(rob, FIELD.lat + 0.09, FIELD.lon, 500, FLAG.ground);
+    const finP = await place(fin, FIELD.lat + 0.09 - metresNorth(2), FIELD.lon, 5500, FLAG.elytra);
+    finP.arrivedAt = long;
+    fin.state({ flags: FLAG.elytra });
+    await sleep(2000);
+    fin.state({ flags: FLAG.elytra });
+    await sleep(200);
+    fin.state({ flags: FLAG.elytra });
+    await sleep(100);
+    rob.clear();
+    fin.state({ alt: robP.state.alt + 2, flags: FLAG.elytra });
+    fin.strike(rob.id);
+    fin.strike(rob.id);
+    await sleep(150);
+    ok('a drop onto somebody out of a clear sky after going quiet first does not count',
+      !rob.has('hit') && finP.blinkUntil > Date.now());
+    // But a page that was already falling keeps the speed it had across the
+    // silence: it came down onto somebody no faster than it was descending, so
+    // its blow still lands.
+    await sleep(1100);
+    await place(fin, robP.state.lat - metresNorth(2), robP.state.lon, robP.state.alt + 702, FLAG.elytra);
+    finP.arrivedAt = long;
+    for (let i = 1; i <= 25; i++) { fin.state({ alt: robP.state.alt + 702 - i * 20, flags: FLAG.elytra }); await sleep(100); }
+    await sleep(1000);
+    rob.clear();
+    fin.state({ alt: robP.state.alt + 2, flags: FLAG.elytra });
+    fin.strike(rob.id);
+    const fellOn = await rob.next('hit', () => true, 1500).catch(() => null);
+    ok('but one already falling that keeps its pace still lands', !!fellOn && fellOn.by?.name === 'Fin');
+    fin.close();
+    rob.close();
     ria2.close();
     sol.close();
     ivo.close();
