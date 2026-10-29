@@ -219,6 +219,42 @@ export class CellRuns {
     return this.parts(Infinity)[0];
   }
 
+  /** How many runs there are, in all. */
+  runCount() {
+    let n = 0;
+    for (const rows of this.levels.values()) for (const runs of rows.values()) n += runs.length / 2;
+    return n;
+  }
+
+  /**
+   * The same parts as parts(), made one at a time as they are asked for and
+   * from the cells as they are then - for sending a big map down a slow
+   * connection without holding all of it as text meanwhile. A part ends at
+   * the end of a row once it has `maxRuns`, so a row goes whole, as it is at
+   * that moment. Cells added to rows already passed are not in it: whoever
+   * is being sent it is sent those as they are added (server/game.mjs,
+   * flushShared).
+   */
+  *streamParts(maxRuns = 20000) {
+    let current = { v: 2, runs: {} };
+    let inCurrent = 0;
+    for (const level of [...this.levels.keys()].sort((a, b) => a - b)) {
+      const rows = this.levels.get(level);
+      for (const row of [...rows.keys()].sort((a, b) => a - b)) {
+        if (inCurrent >= maxRuns) {
+          yield current;
+          current = { v: 2, runs: {} };
+          inCurrent = 0;
+        }
+        const runs = rows.get(row);
+        const out = (current.runs[level] ??= []);
+        for (let i = 0; i < runs.length; i += 2) out.push(row, runs[i], runs[i + 1]);
+        inCurrent += runs.length / 2;
+      }
+    }
+    yield current;
+  }
+
   /** Every key, for the rare caller that wants them one by one. */
   *keys() {
     for (const [level, rows] of this.levels) {

@@ -482,21 +482,25 @@ export class Game {
         // kick that sticks - the page reconnects and is sent what it needs.
         client.outbox = [];
         client.outboxBytes = 0;
+        client.sharedStream = null;
         client.ws.terminate();
         continue;
       }
       const box = client.outbox;
-      if (!box?.length) continue;
+      if (!box?.length && !client.sharedStream) continue;
       if (!client.ws.open) {
-        box.length = 0;
+        if (box) box.length = 0;
         client.outboxBytes = 0;
+        client.sharedStream = null;
         continue;
       }
-      while (box.length && client.ws.bufferedAmount < PACE_BYTES) {
+      while (box?.length && client.ws.bufferedAmount < PACE_BYTES) {
         const text = box.shift();
         client.outboxBytes -= text.length;
         client.ws.send(text);
       }
+      // A shared map on its way goes on once everything queued before it has.
+      this.pumpShared(client);
     }
   }
 
@@ -2517,7 +2521,9 @@ export class Game {
    * south tracks 5 km apart, the worst case for runs), where it was 1.6 to
    * 3 GB. Every account is held to the day's share, and accounts are cheap,
    * so what keeps a world's map in bounds is SHARED_MAX: up to 90 MB here as
-   * runs and a 60 MB file.
+   * runs and a 60 MB file - and reading that file in, or saving it, holds up
+   * to two and a half times as much again while it does (306 MB of heap at
+   * the top for a full map of north-south tracks).
    */
   addShared(world, keys, player = null) {
     const shared = this.sharedMap(world);
@@ -2548,11 +2554,61 @@ export class Game {
   sendSharedMap(viewer) {
     if (viewer.sharedSentWorld === viewer.world) return;
     viewer.sharedSentWorld = viewer.world;
-    const parts = this.sharedMap(viewer.world).map.cells.parts(SHARED_PART_RUNS);
-    const world = JSON.stringify(viewer.world);
-    parts.forEach((part, index) => {
-      this.sendPaced(viewer.client, `{"t":"shared","world":${world},"part":${index},"of":${parts.length},"cells":${JSON.stringify(part)}}`);
-    });
+    // A part at a time, made as the connection takes them (pumpShared), not
+    // all at once. A busy world's map is tens of megabytes as text, and
+    // queued whole for a page on a real connection it was over BACKLOG_MAX
+    // at the next tick, so the page was let go as soon as it asked for it -
+    // and again after every sign-in, since every page asks (session.js,
+    // rewatch): a world's map past about 24 MB (twelve to twenty million
+    // cells) and nobody there stayed connected. Made from the map as it is,
+    // and new ground found meanwhile goes to this page as it is found.
+    const cells = this.sharedMap(viewer.world).map.cells;
+    const client = viewer.client;
+    client.sharedStream = {
+      world: JSON.stringify(viewer.world),
+      parts: cells.streamParts(SHARED_PART_RUNS),
+      index: 0,
+      of: Math.max(1, Math.ceil(cells.runCount() / SHARED_PART_RUNS)),
+    };
+    // The first in line, now: the page takes the 'shared+' that follow only
+    // once it has the first part.
+    this.sendPaced(client, this.nextSharedPart(client.sharedStream));
+    this.pumpShared(client);
+  }
+
+  /**
+   * The next part of a shared map on its way to a page, as text. The count
+   * it is sent with was made when it started; the last part is everything
+   * left, and parts the map no longer needs are sent empty, so it is always
+   * exactly that many.
+   */
+  nextSharedPart(stream) {
+    let part;
+    if (stream.index >= stream.of - 1) {
+      part = { v: 2, runs: {} };
+      for (let next = stream.parts.next(); !next.done; next = stream.parts.next()) {
+        for (const [level, runs] of Object.entries(next.value.runs)) {
+          const out = (part.runs[level] ??= []);
+          for (const value of runs) out.push(value);
+        }
+      }
+    } else {
+      const next = stream.parts.next();
+      part = next.done ? { v: 2, runs: {} } : next.value;
+    }
+    const text = `{"t":"shared","world":${stream.world},"part":${stream.index},"of":${stream.of},"cells":${JSON.stringify(part)}}`;
+    stream.index += 1;
+    return text;
+  }
+
+  /** More of a shared map on its way, while the page keeps up with it and nothing else waits. */
+  pumpShared(client) {
+    const stream = client.sharedStream;
+    if (!stream) return;
+    while (stream.index < stream.of && client.ws.open && !client.outbox?.length && client.ws.bufferedAmount < PACE_BYTES) {
+      client.ws.send(this.nextSharedPart(stream));
+    }
+    if (stream.index >= stream.of || !client.ws.open) client.sharedStream = null;
   }
 
   /** New ground on the shared maps, to everyone looking, a couple of times a second at most. */

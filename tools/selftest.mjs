@@ -11746,6 +11746,30 @@ console.log('\nexplored squares are sized to the world');
     }
     ok(`a save an old page trimmed comes back with nothing lost at any zoom, on Mars at 65 degrees  (${asked} squares asked at zooms 0 to 16, ${lost} lost)`, lost === 0 && asked > 1000);
   }
+  // Carried once, it is a record of this version: flown on, saved and read
+  // again it comes back as it was. Carrying keeps an old square at a zoom it
+  // does not keep as it was where it is no finer than the finest - the old 8
+  // and 10 on Mars and Mercury, 8 on Charon, zooms kept nowhere there - and
+  // a record holding those was read as one from before at every read, so the
+  // ground flown since it was carried gained every coarser square any of its
+  // squares touched: drawn up to two and a half times as wide zoomed out.
+  {
+    const grew = [];
+    for (const [world, lat] of [['mars', 65], ['mercury', 70], ['charon', 65], ['callisto', 84]]) {
+      const radius = BODIES[world].radius;
+      const circumference = 2 * Math.PI * radius;
+      const along = (from, count) => Array.from({ length: count }, (_, i) => [lat, 40 + ((from + i) * 600) / (radius * Math.cos(lat * DEG)) / DEG]);
+      const record = new ex.Exploration({ circumference, stored: false });
+      record.load(ex.encodeCells(oldDiscs(circumference, along(0, 15))));
+      for (const [la, lo] of along(15, 60)) record.visit(la, lo, 1000, 2000);
+      const again = new ex.Exploration({ circumference, stored: false });
+      again.load(JSON.parse(JSON.stringify(record.encode())));
+      const was = new Set(record.cells);
+      const added = [...again.cells].filter((key) => !was.has(key)).length;
+      if (added || again.cells.size !== record.cells.size) grew.push(`${world} ${lat}: +${added}`);
+    }
+    ok(`a record carried from before, flown on and saved, comes back as it was when it is read again  (${grew.join(', ') || 'Mars, Mercury, Charon and Callisto: the same squares'})`, grew.length === 0);
+  }
   writeJSON('explored', kept ?? []);
 
   // Earth's figures below 60 degrees are exactly what they were: these

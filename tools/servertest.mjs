@@ -499,6 +499,52 @@ try {
     }
     ok(`a big shared map arrives in parts and the connection survives  (${parts} of ${of})`,
       of > 1 && parts === of && g.players.has(dora.id));
+    // Bigger than a page's whole queue (BACKLOG_MAX, 24 MB) and down a real
+    // connection - here one that takes 20 MB a second, reporting what is
+    // still on its way out as a socket does - a world's map still arrives
+    // whole, and the page stays connected. Queued whole it was over the
+    // limit at the next tick: the page was let go as soon as it asked, and
+    // every page asks when it signs in. Ganymede's, which nobody here is on:
+    // 2.2 million runs, about 28 MB as text.
+    {
+      const ganymede = g.sharedMap('ganymede').map.cells;
+      for (let row = 0; row < 1000; row++) for (let x = 0; x < 4400; x += 2) ganymede.addRun(15, 16000 + row, 10000 + x, 1);
+      const handlers = {};
+      const got = { parts: 0, of: 0, bytes: 0, dropped: false, auth: null, cells: 0 };
+      const slow = {
+        open: true, bufferedAmount: 0,
+        send(text) {
+          if (!this.open) return false;
+          this.bufferedAmount += text.length;
+          const m = JSON.parse(text);
+          if (m.t === 'auth') got.auth = m;
+          if (m.t === 'shared' && m.world === 'ganymede') { got.parts += 1; got.of = m.of; got.bytes += text.length; for (const runs of Object.values(m.cells.runs)) for (let i = 2; i < runs.length; i += 3) got.cells += runs[i]; }
+          return true;
+        },
+        on(event, fn) { handlers[event] = fn; },
+        close() { this.open = false; handlers.close?.(); },
+        terminate() { this.open = false; got.dropped = true; handlers.close?.(); },
+        ping() {},
+      };
+      const line = setInterval(() => { slow.bufferedAmount = Math.max(0, slow.bufferedAmount - 2 * 1048576); }, 100);
+      g.connect(slow, '127.0.0.77');
+      const say = (m) => handlers.message(JSON.stringify(m), false);
+      server.accounts.signups.hits.clear();
+      say({ t: 'hello', v: PROTOCOL_VERSION, client: 'test' });
+      say({ t: 'signup', name: 'Gaia', password: 'hunter22' });
+      for (let i = 0; i < 300 && !got.auth; i++) await sleep(10);
+      g.byKey.get('gaia').world = 'ganymede';
+      say({ t: 'watch', name: '*', explored: true, trail: false });
+      for (let i = 0; i < 300 && slow.open && !(got.of && got.parts === got.of); i++) {
+        await sleep(100);
+        say({ t: 'ping', c: Date.now() });
+      }
+      clearInterval(line);
+      ok(`a shared map bigger than a page's queue arrives whole down a real connection, and the page stays  (${got.parts} of ${got.of} parts, ${(got.bytes / 1048576).toFixed(1)} MB, ${got.cells} of ${ganymede.size} cells${got.dropped ? ', dropped' : ''})`,
+        !got.dropped && slow.open && got.of > 60 && got.parts === got.of && got.bytes > 24 * 1048576 && got.cells === ganymede.size);
+      slow.close();
+      g.shared.delete('ganymede');
+    }
     // Kept as runs, not a name per cell: it goes out whole and exactly.
     const cells = g.sharedMap('earth').map.cells;
     const { decodeCells } = await import('../src/ui/exploration.js');
@@ -709,6 +755,26 @@ try {
     const lostShared = missing(seen, ceresOld);
     ok(`a shared map saved the old way is carried too, nothing lost, and saved again  (${ceresOld.length} squares become ${ceres.size}, ${lostShared} lost)`,
       lostShared === 0 && ceres.size < ceresOld.length / 50 && g.store.dirty.has('shared-ceres.json'));
+
+    // Carried once, a record is one of this version's. On Mercury the old 8
+    // and 10 are kept as they were - zooms the world keeps nowhere - and a
+    // record holding them was taken for one from before every time it was
+    // read: at each sign-in, and its world's shared map at each start, the
+    // ground flown since it was carried gained every coarser square any of
+    // its squares touched (at 70 degrees, its zoom-11 squares 2.5 times over).
+    // Flown on, saved and read again, both come back as they were.
+    {
+      const { PlayerRecord } = await import('../server/records.mjs');
+      const olga = new PlayerRecord('olga', { world: 'mercury', worlds: { mercury: { explored: ex.encodeCells(oldDiscs('mercury', line('mercury', 70, 40, 15))) } } });
+      const flown = olga.on('mercury').explored;
+      for (const [lat, lon] of line('mercury', 70, 40, 75).slice(15)) flown.visit(lat, lon, 1000, 2000);
+      const reread = new PlayerRecord('olga', JSON.parse(JSON.stringify(olga.toJSON()))).on('mercury').explored;
+      writeFileSync(join(dir, 'shared-mercury.json'), JSON.stringify({ version: 2, parts: flown.cells.parts(20000) }));
+      const mercury = g.sharedMap('mercury').map.cells;
+      const extra = (cells) => [...cells].filter((key) => !flown.cells.has(key)).length;
+      ok(`a record carried from before and flown on comes back as it was when it is read again, and so does a shared map holding it  (record +${extra(reread.cells)}, shared map +${extra(mercury)} of ${flown.cells.size} squares)`,
+        reread.cells.size === flown.cells.size && extra(reread.cells) === 0 && mercury.size === flown.cells.size && extra(mercury) === 0);
+    }
 
     // "The same rule the game uses, on the same numbers": the squares the
     // server keeps are the ones the page records from the same moves, on

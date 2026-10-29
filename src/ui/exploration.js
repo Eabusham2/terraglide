@@ -145,8 +145,6 @@ export class ExplorationScheme {
       this.masks.push(this.levels.reduce((mask, level) => mask | (1 << Math.min(level, this.finest - band)), 0));
     }
     this.coarseMask = this.levels.filter((level) => level < this.align).reduce((mask, level) => mask | (1 << level), 0);
-    /** Every zoom kept somewhere on the world. A record holding another was written before (see carry). */
-    this.anyMask = this.masks.reduce((mask, band) => mask | band, 0);
     this.zoomLists = new Map();
   }
 
@@ -177,9 +175,23 @@ export class ExplorationScheme {
     return ((this.masks[this.bandAt(z, y)] >> z) & 1) === 1;
   }
 
-  /** Is zoom `z` one this world keeps nowhere - so a record holding it was written before the squares were sized to the world? */
+  /**
+   * Is zoom `z` finer than any this world keeps - so a record holding it was
+   * written before the squares were sized to the world?
+   *
+   * Every record from before holds its level-16 squares, finer than anything
+   * kept anywhere but on Earth and Venus, and carry never leaves one finer
+   * than the finest. Not "a zoom kept nowhere": carry leaves an old square at
+   * a zoom it does not keep as it was when it is no finer than the finest -
+   * the old 8 and 10 on Mars, Mercury, Ganymede, Callisto and Titan, 8 on
+   * Charon, zooms those worlds keep nowhere - so a record carried and saved
+   * by this version read as one from before every time it was read again,
+   * and the ground flown since it was carried gained, at every such read,
+   * every coarser square any of its squares touched: Mercury at 70 degrees
+   * drew a new flight two and a half times as wide at zoom 11.
+   */
   isOld(z) {
-    return !(z >= 0 && z <= 30 && ((this.anyMask >> z) & 1) === 1);
+    return !(z >= 0 && z <= this.finest);
   }
 
   /** Is this one of the squares coverage counts: the finest kept where it is? */
