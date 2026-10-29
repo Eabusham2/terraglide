@@ -9,7 +9,7 @@
  */
 
 import { BODIES } from '../src/geo/bodies.js';
-import { Exploration, decodeCells, encodeCells } from '../src/ui/exploration.js';
+import { Exploration } from '../src/ui/exploration.js';
 import { separation } from '../src/net/protocol.js';
 
 /** Trails: one point per this many metres, and a teleport starts a new leg. */
@@ -113,9 +113,13 @@ export class PlayerRecord {
     let live = this.live.get(world);
     if (live) return live;
     const saved = this.saved[world] ?? {};
-    const explored = new Exploration({ circumference: circumferenceOf(world), stored: false });
-    explored.cells = new Set(decodeCells(saved.explored ?? []));
-    explored.detailCount = explored.countAt(14);
+    // As runs: a few bytes a square, where a Set of their names was fifty to
+    // a hundred, and this is held for everybody online. Carried onto the
+    // world's squares if it was saved before they were sized to it (see
+    // ExplorationScheme in src/ui/exploration.js), and saved back that way the
+    // next time the record is.
+    const explored = new Exploration({ circumference: circumferenceOf(world), stored: false, compact: true });
+    explored.load(saved.explored ?? []);
     live = {
       pos: saved.pos ?? null,
       explored,
@@ -137,7 +141,7 @@ export class PlayerRecord {
     for (const [world, live] of this.live) {
       worlds[world] = {
         pos: live.pos,
-        explored: encodeCells([...live.explored.cells]),
+        explored: live.explored.encode(),
         trail: live.trail.legs,
         waypoints: live.waypoints,
         lander: live.lander,

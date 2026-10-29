@@ -17,8 +17,20 @@
  * read a capture by eye is worth far more on a hobby server than the bytes.
  */
 
-/** Bumped whenever a change would confuse an older client. */
-export const PROTOCOL_VERSION = 1;
+/**
+ * Bumped whenever a change would confuse an older client.
+ *
+ * 2: explored squares are sized to the world and coarser towards the poles
+ * (ExplorationScheme in ui/exploration.js), so off Earth and past 60 degrees
+ * the keys a server sends are not the ones an older page draws. A mix spoils
+ * nobody's record: the server works out its squares from the moves it
+ * accepts and never keeps a page's, a page online holds the server's only in
+ * memory, and this version carries older keys - an older server's, an older
+ * save's - onto the new squares. An older page is turned away, with a kick
+ * it understands telling it to reload (server/game.mjs, hello): let in, it
+ * drew none of that ground at the zooms its maps open at.
+ */
+export const PROTOCOL_VERSION = 2;
 
 /* ------------------------------------------------------------------ names */
 

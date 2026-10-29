@@ -4,7 +4,7 @@ import { BOOT, relaunch, serverId } from '../core/boot.js';
 import { readJSON, writeJSON } from '../core/storage.js';
 import { BODIES, BODY, ON_EARTH } from '../geo/bodies.js';
 import { WORLD_CIRCUMFERENCE } from '../geo/mercator.js';
-import { Exploration, decodeCells } from '../ui/exploration.js';
+import { Exploration } from '../ui/exploration.js';
 import { exploration } from '../ui/exploration.js';
 import { trail } from '../ui/trail.js';
 import { waypoints } from '../ui/waypoints.js';
@@ -310,15 +310,17 @@ export class OnlineSession extends Emitter {
     net.on('explored', (m) => {
       if (m.world !== BOOT.world) return;
       const overlay = this.overlay(m.name);
-      overlay.explored = new Exploration({ circumference: WORLD_CIRCUMFERENCE, stored: false });
-      overlay.explored.merge(decodeCells(m.cells));
+      overlay.explored = new Exploration({ circumference: WORLD_CIRCUMFERENCE, stored: false, compact: true });
+      overlay.explored.mergeCells(m.cells);
       this.emit('overlays');
     });
     net.on('shared', (m) => {
       if (m.world !== BOOT.world) return;
       // Sent in parts; the first starts it afresh.
       if (!m.part || !this.shared) {
-        this.shared = new Exploration({ circumference: WORLD_CIRCUMFERENCE, stored: false });
+        // As runs (ui/cellRuns.js): a busy server's map is millions of
+        // squares, and as a Set of their names that was 50 to 100 bytes each.
+        this.shared = new Exploration({ circumference: WORLD_CIRCUMFERENCE, stored: false, compact: true });
         // Its coverage counted a part at a time as it arrives, not all at once
         // the first time the world map is opened - which on a server a lot of
         // people have flown over is millions of squares in one go.
@@ -330,7 +332,7 @@ export class OnlineSession extends Emitter {
         // on the server's copy, and everybody's figure read less than yours.
         this.shared.merge(exploration.cells);
       }
-      this.shared.merge(decodeCells(m.cells));
+      this.shared.mergeCells(m.cells);
       this.emit('overlays');
     });
     net.on('shared+', (m) => {
@@ -625,7 +627,7 @@ export class OnlineSession extends Emitter {
     exploration.coarseCache.clear();
     exploration.covered = null;
     exploration.landCovered = null;
-    exploration.merge(decodeCells(m.explored ?? []));
+    exploration.mergeCells(m.explored ?? []);
     trail.legs = Array.isArray(m.trail) ? m.trail.map((leg) => leg.map(([lat, lon]) => ({ lat, lon }))) : [];
     trail.last = null;
     if (!this.waypointsUnsent) waypoints.import({ waypoints: m.waypoints ?? [] });

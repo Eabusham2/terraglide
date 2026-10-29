@@ -125,8 +125,13 @@ while they play or while somebody opens their map. Measured with 3,000 saved
 players who had each explored 60 km: about 75 MB on start and 130 MB with
 players signing in. The shared explored map grows with play rather than with
 players — a small entry for each patch of ground explored — and a big one
-(over a hundred hours of people gliding about) is under 10 MB. On Fly these
-live on the 1 GB volume, which they will not fill for a long time.
+(over a hundred hours of people gliding about) is under 10 MB. A player's own
+explored ground is held the same way while they play — twenty hours of flying
+flat out at 48° is 680,000 squares and 1.5 MB — and costs about the same per
+square kilometre on every world and at every latitude: the squares are about
+600 m on Earth's equator, sized to each world's radius, and made coarser
+again at 60°, 75½° and 82.8° towards the poles. On Fly these live on the 1 GB
+volume, which they will not fill for a long time.
 
 Add a [TURN server](#when-people-cannot-hear-each-other-turn) so voice works
 for everyone. The server is built to stay steady with a crowd: players far
@@ -916,7 +921,7 @@ A public server behind Caddy, accounts closed after everyone has joined:
 | Chat | 6 lines per 6 seconds per account, 256 characters each (commands count); reconnecting does not reset it |
 | Gathering a party | Once per 10 seconds |
 | Messages | 64 KB each; a client that stops reading is dropped past 2 MB of small messages (positions, chat) waiting in its connection — a big one on its way out, a map or a path, does not count — or 24 MB queued for it in all (big maps are sent a piece at a time, no faster than the connection takes them); a silent client is dropped after 45 seconds |
-| Shared map | One player adds at most 1,000,000 cells a day to everybody's explored map — more than a whole day of flying flat out on Earth up to 57° (965,000), about 9 hours of it at 70°, 4½ on the Moon, 40 minutes near the pole and a few on the smallest worlds, where the squares are smaller; past that what they explore that day is still on their own map (and in their own *explored by everyone*), not on anybody else's. Everybody on a world downloads its whole shared map and their page holds it, about 50–90 MB a million cells. A world's shared map stops growing at 30 million cells |
+| Shared map | One player adds at most 3,500,000 cells a day to everybody's explored map — a whole day of flying flat out, wherever it is flown: about 270,000 cells on Earth's equator, 1.4 million at most on Earth (just short of 75½°) and 3.2 million on the worlds whose squares are smallest (Pluto and Callisto at 75°); past that what they explore that day is still on their own map (and in their own *explored by everyone*), not on anybody else's. Everybody on a world downloads its whole shared map and their page holds it as runs: a million cells is about 2 MB to download and up to 8 MB to hold. A world's shared map stops growing at 30 million cells (up to 60 MB to download and 50 MB on a page — north-south tracks, the worst case for runs); on the server a full world's map is 60–90 MB, kept for as long as the server runs, so a 256 MB machine holds about two full worlds — give a busy public server 512 MB or more |
 
 A browser that is already signed in comes back with its saved session and
 never touches the sign-in limits.

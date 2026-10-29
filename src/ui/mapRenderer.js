@@ -46,6 +46,18 @@ const STREET_BLANK = '#eceae3';
 const FOG_FEATHER = 0.45;
 
 /**
+ * How many mask cells across one of the record's own squares is, at the
+ * middle of the map: one, except towards the poles, where the record keeps
+ * coarser squares than the level the mask is read at (ExplorationScheme in
+ * exploration.js). The feather is half a square of the record's, as it is on
+ * the equator, or the edge up there reads as a staircase.
+ */
+function cellsPerSquare(record, maskZoom, lat) {
+  const kept = record?.scheme?.finestAtLat?.(lat);
+  return Number.isFinite(kept) && maskZoom > kept ? 2 ** (maskZoom - kept) : 1;
+}
+
+/**
  * Scratch canvases for the fog composite, reused between draws. Both maps paint
  * synchronously on the same thread, so one pair is enough for both.
  */
@@ -310,7 +322,8 @@ export function drawMap(ctx, view, layers) {
     // compositing each in turn would have every cell erase its neighbour.
     photo.setTransform(1, 0, 0, 1, 0, 0);
     photo.globalCompositeOperation = 'destination-in';
-    const feather = Math.min(20, Math.max(1.5, cellPx * FOG_FEATHER * pixelRatio));
+    const squarePx = cellPx * cellsPerSquare(layers.exploration, maskZoom, view.centerLat);
+    const feather = Math.min(20, Math.max(1.5, squarePx * FOG_FEATHER * pixelRatio));
     photo.filter = `blur(${feather.toFixed(1)}px)`;
     photo.drawImage(pair.mask, 0, 0);
     photo.filter = 'none';
@@ -345,6 +358,7 @@ export function drawMap(ctx, view, layers) {
       minX, maxX, minY, maxY,
       tileCentre, tileScale, drawSize, tileCount, pixelRatio, width, height, rotation,
       pathWidth: options.pathWidth ?? 1.4,
+      centerLat: view.centerLat,
     });
   }
 
@@ -624,7 +638,8 @@ function drawOthersBelow(ctx, others, toScreen, view) {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = overlay.wash ?? 0.32;
-    ctx.filter = `blur(${Math.min(12, Math.max(1, cellPx * 0.35 * pixelRatio)).toFixed(1)}px)`;
+    const squarePx = cellPx * cellsPerSquare(overlay.explored, maskZoom, view.centerLat);
+    ctx.filter = `blur(${Math.min(12, Math.max(1, squarePx * 0.35 * pixelRatio)).toFixed(1)}px)`;
     ctx.drawImage(tint, 0, 0);
     ctx.filter = 'none';
     ctx.globalAlpha = 1;

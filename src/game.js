@@ -1109,8 +1109,9 @@ export class Game {
             trail.save();
           }
           if (Array.isArray(data.explored)) {
-            for (const key of data.explored) exploration.cells.add(key);
-            exploration.recount();
+            // Carried onto this world's squares if the save is older than
+            // them (ui/exploration.js), like the browser's own save.
+            exploration.mergeCells(data.explored);
             exploration.dirty = true;
             exploration.save();
           }

@@ -64,7 +64,7 @@ import {
   separation,
   snapshotRow,
 } from '../src/net/protocol.js';
-import { Exploration, decodeCells, encodeCells } from '../src/ui/exploration.js';
+import { explorationScheme, readCells } from '../src/ui/exploration.js';
 import { CellRuns } from './cells.mjs';
 import { MAX_WAYPOINTS, PlayerRecord, circumferenceOf, radiusOf } from './records.mjs';
 import { runCommand } from './commands.mjs';
@@ -181,7 +181,7 @@ const SHARED_NEW_PER_MESSAGE = 20000;
 /** Runs to a part when the shared map is sent or saved in pieces. */
 const SHARED_PART_RUNS = 20000;
 /** New cells one player may add to the shared maps in a day. See addShared. */
-const SHARED_PER_DAY = 1000000;
+const SHARED_PER_DAY = 3500000;
 /** The most cells a shared map holds. */
 const SHARED_MAX = 30000000;
 /**
@@ -519,6 +519,9 @@ export class Game {
   }
 
   receive(client, m) {
+    // Refused for its version (below): nothing it sends after counts, the
+    // sign-in it may already have on its way included.
+    if (client.refused) return;
     if (m.t === 'hello') {
       client.hello = true;
       this.send(client, {
@@ -530,7 +533,21 @@ export class Game {
         server: { ...this.publicInfo(), ...(isLoopback(client.address) ? { lan: lanAddresses() } : {}) },
       });
       if (Number(m.v) !== PROTOCOL_VERSION) {
-        this.send(client, { t: 'error', code: 'version', text: 'This server runs a different version of the game — reload the page' });
+        const text = Number(m.v) < PROTOCOL_VERSION
+          ? 'This server runs a newer version of the game — reload the page'
+          : 'This server runs an older version of the game';
+        this.send(client, { t: 'error', code: 'version', text });
+        // And no further. No page so far does anything with the error, so one
+        // from before carried on as if nothing were wrong - a tab left open
+        // across a restart reconnects by itself - and drew the explored ground
+        // it was sent with the squares of its own version: off Earth and past
+        // 60 degrees none of it at the zooms the maps open at, and 0%
+        // explored, without a word why. A kick it does understand: it shows
+        // the reason and stops reconnecting, as for "signed in from somewhere
+        // else".
+        this.send(client, { t: 'kick', reason: text });
+        client.refused = true;
+        client.ws.close(4001, 'version');
       }
       return;
     }
@@ -828,7 +845,7 @@ export class Game {
       // One still on ends with the first state, which does not ask for it.
       surgeIn: player.surge.on ? SPEED_MODE_COOLDOWN_S : Math.max(0, Math.ceil((player.surge.readyAt - this.now()) / 100) / 10),
       spawn,
-      explored: encodeCells([...live.explored.cells]),
+      explored: live.explored.encode(),
       trail: live.trail.legs,
       waypoints: live.waypoints,
       lander: live.lander,
@@ -2428,7 +2445,7 @@ export class Game {
       viewer.watching.set(key, now);
       const live = this.peek(key).on(viewer.world);
       if (now.explored && !before.explored) {
-        this.sendPaced(viewer.client, { t: 'explored', name: key, world: viewer.world, cells: encodeCells([...live.explored.cells]) });
+        this.sendPaced(viewer.client, { t: 'explored', name: key, world: viewer.world, cells: live.explored.encode() });
       }
       if (now.trail && !before.trail) {
         this.sendPaced(viewer.client, { t: 'trail', name: key, world: viewer.world, legs: live.trail.legs });
@@ -2450,18 +2467,24 @@ export class Game {
     // Kept as runs (see cells.mjs), not a Set of every cell's name.
     const cells = new CellRuns();
     const saved = this.store.read(`shared-${world}.json`, null);
+    // A map saved before the squares were sized to the world is carried onto
+    // them (ExplorationScheme in src/ui/exploration.js) and written back so.
+    const scheme = explorationScheme(circumferenceOf(world));
+    const add = (z, x, y, length) => cells.addRun(z, y, x, length);
+    let carried = 0;
     if (Array.isArray(saved?.parts)) {
-      for (const part of saved.parts) for (const key of decodeCells(part)) cells.add(key);
+      for (const part of saved.parts) carried += readCells(part, scheme, add);
     } else if (saved?.cells) {
-      for (const key of decodeCells(saved.cells)) cells.add(key);
+      carried += readCells(saved.cells, scheme, add);
     } else {
       // Read one at a time and let go: see loadIndex.
       for (const key of this.knownOn(world)) {
-        for (const cell of this.peek(key).on(world).explored.cells) cells.add(cell);
+        this.peek(key).on(world).explored.eachRun((z, y, x, length) => cells.addRun(z, y, x, length));
       }
     }
     shared = { map: { cells }, pending: new Set() };
     this.shared.set(world, shared);
+    if (carried > 0) this.store.mark(`shared-${world}.json`, () => ({ version: 2, parts: shared.map.cells.parts(SHARED_PART_RUNS) }));
     return shared;
   }
 
@@ -2475,23 +2498,26 @@ export class Game {
    * The cells are worked out here from moves the speed limits accepted, so
    * nobody adds more in an hour than an honest page flying flat out does.
    * Measured with the game's own flight model against this server (rockets
-   * every second, a surge whenever it is ready, nothing put back): 3,500
-   * to 6,000 km2 an hour on every world flown, but squares shrink towards
-   * the poles and on small worlds, so in cells an hour that is 11,000 on
-   * Earth's equator, 28,000 at 48 degrees, 40,000 at 57, 106,000 at 70 and
-   * 1.6 million at 85; 55,000 on Mars, 218,000 on the Moon, 10 million on
-   * Enceladus. SHARED_PER_DAY is more than a whole day of that on Earth up
-   * to 57 degrees (965,000) and on Venus, and lasts 18 hours on Mars, 9 at
-   * 70 degrees, 4.6 on the Moon, 38 minutes at 85 and 6 on the smallest
-   * worlds. It is no more because everybody on a world downloads its whole
-   * shared map and their page holds it at 55 to 100 bytes a cell: a million
-   * is 50 to 90 MB and a second or two to take in, five million 310 to 480
-   * MB and 7 to 8 seconds. With no daily limit one account at 85 degrees
-   * puts five million on every page on Earth in three hours (a day there
-   * is 38 million, past SHARED_MAX); at this one it takes five accounts a
-   * day, at the old 150,000 thirty-four. SHARED_MAX is what the server can
-   * keep - thirty million cells is at most 60 MB here as runs and a 40 MB
-   * file - and far more than a page can.
+   * every second, a surge whenever it is ready, nothing put back): 3,800
+   * to 6,700 km2 an hour on every world flown, and with the squares sized
+   * to the world (ExplorationScheme in src/ui/exploration.js) that is, in
+   * cells an hour, 11,000 on Earth's equator, 28,000 at 48 degrees, 40,000
+   * at 57 and 29,000 at 70 and at 85, the most just short of where the
+   * squares coarsen - 49,000 at 59.9 degrees, 57,000 at 75.5; 14,000 on the
+   * equators of the Moon and Mars, 12,000 to 20,000 on Enceladus, and at
+   * most 135,000 (3.2 million a day) on Pluto at 75 degrees, the world with
+   * the smallest squares. SHARED_PER_DAY is a whole day of that, so all an
+   * honest player explores in a day reaches everybody, wherever it is. It
+   * was a million when the squares shrank on small worlds and towards the
+   * poles (that was 6 minutes flat out on Enceladus and 38 near the pole)
+   * and a page held the map as a Set of names, 55 to 100 bytes a cell. Now
+   * a page holds it as runs (src/net/session.js): a million cells is up to
+   * 2 MB to download and 8 MB to hold, thirty million - SHARED_MAX - up to
+   * 60 MB to download, 50 MB to hold and 2 to 5 seconds to take in (north-
+   * south tracks 5 km apart, the worst case for runs), where it was 1.6 to
+   * 3 GB. Every account is held to the day's share, and accounts are cheap,
+   * so what keeps a world's map in bounds is SHARED_MAX: up to 90 MB here as
+   * runs and a 60 MB file.
    */
   addShared(world, keys, player = null) {
     const shared = this.sharedMap(world);

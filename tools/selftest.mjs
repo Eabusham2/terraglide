@@ -11565,12 +11565,15 @@ console.log('\nthe last review: flight off Earth, relief, players from a server'
 
 console.log('\nthe prompt check: maps, invites, discoveries');
 {
-  const { Exploration } = await import('../src/ui/exploration.js');
+  const { Exploration, explorationScheme } = await import('../src/ui/exploration.js');
   const radiusAt = (circumference, lat) => {
     const e = new Exploration({ circumference, stored: false });
     e.visit(lat, 7.9, 3000, 1e9);
-    const n = [...e.cells].filter((k) => k.startsWith('16/')).length;
-    const tile = (circumference / 65536) * Math.cos((lat * Math.PI) / 180);
+    // At the finest squares kept there, which are coarser on small worlds and
+    // towards the poles (ExplorationScheme); level 16 everywhere before.
+    const finest = explorationScheme ? explorationScheme(circumference).finestAtLat(lat) : 16;
+    const n = [...e.cells].filter((k) => k.startsWith(`${finest}/`)).length;
+    const tile = (circumference / 2 ** finest) * Math.cos((lat * Math.PI) / 180);
     return Math.sqrt((n * tile * tile) / Math.PI);
   };
   const samples = [[40075016.686, 0], [40075016.686, 46.6], [40075016.686, 70], [2 * Math.PI * 1737400, 30]]
@@ -11588,6 +11591,221 @@ console.log('\nthe prompt check: maps, invites, discoveries');
   ok('everyone\'s discoveries are on the map from the start, their paths when you want them',
     /othersDiscoveries: true,/.test(settingsSource) && /othersTrails: false,/.test(settingsSource));
   void DEFAULTS;
+}
+
+console.log('\nexplored squares are sized to the world');
+{
+  // They were Earth's squares on every world - level 16, 611 m on Earth's
+  // equator, 24 m on Enceladus, 53 m at 85 degrees north - so the same flight
+  // was a hundred or a thousand times the squares on a small world or near a
+  // pole, for the server, the page, the save and the shared map alike.
+  const ex = await import('../src/ui/exploration.js');
+  const { BODIES } = await import('../src/geo/bodies.js');
+  const DEG = Math.PI / 180;
+  const EARTH_SQUARE = 40075016.686 / 65536;
+  const sizes = [];
+  for (const [world, body] of Object.entries(BODIES)) {
+    const circumference = 2 * Math.PI * body.radius;
+    for (const lat of [0, 30, 59.9, 60.1, 75.4, 75.6, 82.7, 82.9, 84.5]) {
+      const e = new ex.Exploration({ circumference, stored: false });
+      e.visit(lat, 7.9, 1000, 2000);
+      let finest = 0;
+      for (const key of e.cells) finest = Math.max(finest, Number(key.slice(0, key.indexOf('/'))));
+      sizes.push({ world, lat, metres: (circumference / 2 ** finest) * Math.cos(lat * DEG) });
+    }
+  }
+  const smallest = sizes.reduce((a, b) => (b.metres < a.metres ? b : a));
+  const largest = sizes.reduce((a, b) => (b.metres > a.metres ? b : a));
+  ok(`the finest explored square is about Earth's on every world and at every latitude  (${Math.round(smallest.metres)} m on ${smallest.world} at ${smallest.lat} to ${Math.round(largest.metres)} m on ${largest.world} at ${largest.lat}; ${Math.round(EARTH_SQUARE)} m on Earth's equator)`,
+    smallest.metres > EARTH_SQUARE / 3 && largest.metres < EARTH_SQUARE * 1.5);
+
+  // And it is the same two kilometres round you: on average over spots, on
+  // every world and at every latitude, measured from the finest squares
+  // recorded, by their ground. One spot is within a square's width or so of
+  // it either way; the average is two kilometres.
+  let seed = 9;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  let worst = 0;
+  let worstSpot = 0;
+  for (const [world, body] of Object.entries(BODIES)) {
+    const circumference = 2 * Math.PI * body.radius;
+    const scheme = ex.explorationScheme?.(circumference);
+    for (const lat0 of [0, 45, 61, 76, 83]) {
+      const radii = [];
+      for (let i = 0; i < 8; i++) {
+        const e = new ex.Exploration({ circumference, stored: false });
+        const lat = lat0 + (rnd() - 0.5) * 0.4;
+        e.visit(lat, rnd() * 360 - 180, 3000, 1e9);
+        let area = 0;
+        for (const key of e.cells) {
+          const [z, , y] = key.split('/').map(Number);
+          if (scheme ? !scheme.isFinest(z, y) : z !== 16) continue;
+          const n = 2 ** z;
+          const side = (circumference / n) * Math.cos(Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 0.5)) / n))));
+          area += side * side;
+        }
+        radii.push(Math.sqrt(area / Math.PI));
+      }
+      const mean = radii.reduce((a, b) => a + b, 0) / radii.length;
+      worst = Math.max(worst, Math.abs(mean - 2000));
+      worstSpot = Math.max(worstSpot, ...radii.map((r) => Math.abs(r - 2000)));
+    }
+  }
+  ok(`and what you uncover is two kilometres round you everywhere  (averages within ${worst.toFixed(0)} m of 2,000 on every world from the equator to 83 degrees; one spot within ${worstSpot.toFixed(0)} m)`,
+    worst < 60 && worstSpot < 240);
+
+  // A save from before - the browser's own, and the file a save is exported
+  // to - is carried onto the world's squares with nothing in it lost: every
+  // old square is still explored at its own zoom, and so at every zoom.
+  const oldDiscs = (circumference, spots) => {
+    const keys = new Set();
+    for (const [lat, lon] of spots) {
+      const nx = (lon + 180) / 360;
+      const ny = 0.5 - Math.log(Math.tan(Math.PI / 4 + (lat * DEG) / 2)) / (2 * Math.PI);
+      const r = 2000 / Math.cos(lat * DEG);
+      for (const z of [8, 10, 12, 14, 16]) {
+        const n = 2 ** z;
+        const tile = circumference / n;
+        const reach = Math.ceil(r / tile);
+        const cx = Math.floor(nx * n);
+        const cy = Math.floor(ny * n);
+        for (let dy = -reach; dy <= reach; dy++) {
+          for (let dx = -reach; dx <= reach; dx++) {
+            if ((dx || dy) && Math.hypot(cx + dx + 0.5 - nx * n, cy + dy + 0.5 - ny * n) * tile > Math.max(r, tile / 2)) continue;
+            keys.add(`${z}/${(((cx + dx) % n) + n) % n}/${cy + dy}`);
+          }
+        }
+      }
+    }
+    return [...keys];
+  };
+  const { readJSON, writeJSON } = await import('../src/core/storage.js');
+  const kept = readJSON('explored', null);
+  const lostFrom = (record, keys) => keys.filter((key) => {
+    const [z, x, y] = key.split('/').map(Number);
+    return !record.isExplored(z, x, y);
+  }).length;
+  for (const [world, lat] of [['enceladus', 12], ['moon', 50], ['earth', 71]]) {
+    const circumference = 2 * Math.PI * BODIES[world].radius;
+    const spots = Array.from({ length: 25 }, (_, i) => [lat, 40 + (i * 600) / (BODIES[world].radius * Math.cos(lat * DEG)) / DEG]);
+    const oldKeys = oldDiscs(circumference, spots);
+    writeJSON('explored', ex.encodeCells(oldKeys));
+    const loaded = new ex.Exploration({ circumference, stored: true });
+    const lost = lostFrom(loaded, oldKeys);
+    loaded.save();
+    const again = new ex.Exploration({ circumference, stored: true });
+    const file = new ex.Exploration({ circumference, stored: false });
+    if (file.mergeCells) file.mergeCells(oldKeys);
+    else file.merge(oldKeys);
+    ok(`a save from before on ${BODIES[world].name} comes back on its squares with nothing lost, saved and exported alike  (${oldKeys.length} squares become ${loaded.cells.size}, ${lost} lost)`,
+      lost === 0 && loaded.cells.size < oldKeys.length / 2.5 && lostFrom(file, oldKeys) === 0
+      && [...again.cells].sort().join() === [...loaded.cells].sort().join() && !again.dirty
+      && [...file.cells].sort().join() === [...loaded.cells].sort().join());
+    // Nor drawn wider than it was: at a zoom the old save kept as well and
+    // that is not the finest here (8 to 12 on the Moon and at 71 north) its
+    // squares are the old ones, not every square a finer one touched - which
+    // drew old ground up to three times as wide zoomed out as it had been.
+    const scheme = loaded.scheme;
+    const wider = [];
+    for (const level of [8, 10, 12, 14]) {
+      if (level >= scheme.finestAtLat(lat) || !scheme.keeps(level, Math.floor(((0.5 - Math.log(Math.tan(Math.PI / 4 + (lat * DEG) / 2)) / (2 * Math.PI))) * 2 ** level))) continue;
+      const before = oldKeys.filter((key) => key.startsWith(`${level}/`)).length;
+      const after = [...loaded.cells].filter((key) => key.startsWith(`${level}/`)).length;
+      if (after !== before) wider.push(`${level}: ${before} -> ${after}`);
+    }
+    ok(`and on ${BODIES[world].name} it draws no wider than it did where the old zooms are still kept  (${wider.join(', ') || 'the same squares'})`, wider.length === 0);
+  }
+  // An old page let its oldest finest squares go to stay under MAX_ENTRIES -
+  // its own save's rule: the first level-16 squares recorded. What it kept of
+  // that ground still counts at every zoom: on Mars at 65 degrees the finest
+  // kept is 14, one of the old zooms, and 13, the map's at zoom 7, is not.
+  {
+    const circumference = 2 * Math.PI * BODIES.mars.radius;
+    const spots = Array.from({ length: 40 }, (_, i) => [65, 40 + (i * 600) / (BODIES.mars.radius * Math.cos(65 * DEG)) / DEG]);
+    const keys = oldDiscs(circumference, spots);
+    const sixteens = keys.filter((key) => key.startsWith('16/'));
+    const dropped = new Set(sixteens.slice(0, sixteens.length >> 1));
+    const trimmed = keys.filter((key) => !dropped.has(key));
+    writeJSON('explored', ex.encodeCells(trimmed));
+    const loaded = new ex.Exploration({ circumference, stored: true });
+    // What the old code called explored at every zoom: its own squares at 8,
+    // 10, 12, 14 and 16, and anything finer folded up at the zooms between.
+    let lost = 0;
+    let asked = 0;
+    for (let z = 0; z <= 16; z++) {
+      const tiles = new Set();
+      for (const key of trimmed) {
+        const [level, x, y] = key.split('/').map(Number);
+        if ([8, 10, 12, 14, 16].includes(z) ? level === z : level >= z) tiles.add(`${x >> (level - z)}/${y >> (level - z)}`);
+      }
+      for (const tile of tiles) {
+        const [x, y] = tile.split('/').map(Number);
+        asked++;
+        if (!loaded.isExplored(z, x, y)) lost++;
+      }
+    }
+    ok(`a save an old page trimmed comes back with nothing lost at any zoom, on Mars at 65 degrees  (${asked} squares asked at zooms 0 to 16, ${lost} lost)`, lost === 0 && asked > 1000);
+  }
+  writeJSON('explored', kept ?? []);
+
+  // Earth's figures below 60 degrees are exactly what they were: these
+  // flights are the same squares, and the same whole-Earth and land figures
+  // to the last bit, as before the squares were sized to the world.
+  const before = [
+    [46.5, 7.9, 16246, 0.000005194650273381945, 0.000018211399933094778],
+    [-33.9, 18.4, 11052, 0.000005205783143033181, 0.000013683011527694556],
+    [59.6, 10.7, 28459, 0.000004989487634591358, 0.000015065492676466388],
+    [1.3, 103.8, 7678, 0.000005200251938829053, 0.000003869006106323696],
+  ];
+  const changed = [];
+  for (const [lat0, lon0, cells, whole, land] of before) {
+    const e = new ex.Exploration({ stored: false });
+    e.coverage();
+    e.landCoverage();
+    let s = 1234;
+    const r = () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
+    let lat = lat0;
+    let lon = lon0;
+    let h = 0.7;
+    for (let i = 0; i < 1500; i++) {
+      h += (r() - 0.5) * 0.3;
+      lat = Math.max(-59.95, Math.min(59.95, lat + Math.cos(h) * 0.004));
+      lon += (Math.sin(h) * 0.004) / Math.cos(lat * DEG);
+      e.visit(lat, lon, 100 + r() * 2500, 1e9);
+    }
+    const live = [e.coverage(), e.landCoverage()];
+    e.recount();
+    if (e.cells.size !== cells || e.coverage() !== whole || e.landCoverage() !== land || live[0] !== whole || live[1] !== land) changed.push(lat0);
+  }
+  ok(`Earth's whole and land figures below 60 degrees are what they were, to the last bit  (${changed.length ? `not at ${changed.join(', ')}` : `${before.length} flights`})`,
+    changed.length === 0);
+
+  // Everybody's map, and anybody else's, are held on the page as runs: a
+  // million squares of north-south tracks - the worst case for runs - is a
+  // few MB, where as a Set of names it was over fifty.
+  const { setFlagsFromString } = await import('node:v8');
+  const { runInNewContext } = await import('node:vm');
+  setFlagsFromString('--expose_gc');
+  const gc = runInNewContext('gc');
+  const heap = () => {
+    gc();
+    gc();
+    return process.memoryUsage().heapUsed;
+  };
+  const tracks = { v: 2, runs: { 16: [] } };
+  // Rows of level 16 between about 59 degrees north and 49 south, where it is the finest kept.
+  for (let row = 20000; row < 46000; row++) for (let t = 0; t < 5; t++) tracks.runs[16].push(row, 1000 + t * 5000 + (row % 3), 8);
+  const h0 = heap();
+  const everybody = new ex.Exploration({ stored: false, compact: true });
+  everybody.covered = 0;
+  everybody.landCovered = 0;
+  if (everybody.mergeCells) everybody.mergeCells(tracks);
+  else everybody.merge(ex.decodeCells(tracks));
+  const held = (heap() - h0) / 1048576;
+  const session = readFileSync(new URL('../src/net/session.js', import.meta.url), 'utf8');
+  ok(`and the page holds everybody's map as runs  (${everybody.cells.size} squares, ${held.toFixed(1)} MB)`,
+    held < 12 && everybody.cells.size === 1040000
+    && /this\.shared = new Exploration\(\{ circumference: WORLD_CIRCUMFERENCE, stored: false, compact: true \}\)/.test(session));
 }
 
 console.log('\nevery module still parses');

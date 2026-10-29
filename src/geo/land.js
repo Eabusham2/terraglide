@@ -14,10 +14,8 @@ import { LAND_GRID } from './landData.js';
  */
 
 let bits = null;
-/** Each mercator row and column at TILE_LEVEL, as a grid row and column. See isLandTile. */
-let gridRowOf = null;
-let gridColumnOf = null;
-let tileLevel = -1;
+/** Per zoom, each mercator row and column of it as a grid row and column. See isLandTile. */
+const gridOf = new Map();
 
 /** How much of the planet the grid calls land, from 0 to 1; added up as it is decoded. */
 let landShare = 0;
@@ -88,23 +86,26 @@ export function isLandAt(lat, lon) {
 /**
  * Is the centre of this mercator square land? The squares of one level are
  * looked up again and again as a map fills in, so each row and column is
- * turned into the grid's once, for the level asked about.
+ * turned into the grid's once per level. Once per level, not once for the
+ * last level asked: towards the poles the explored record counts coarser
+ * squares (ui/exploration.js), and a record mixing them would otherwise
+ * rebuild the table at every change of level.
  */
 export function isLandTile(z, x, y) {
   const n = 2 ** z;
-  if (z !== tileLevel) {
+  let grid = gridOf.get(z);
+  if (!grid) {
     const { perDegree } = LAND_GRID;
-    gridRowOf = new Int32Array(n);
-    gridColumnOf = new Int32Array(n);
+    grid = { rows: new Int32Array(n), columns: new Int32Array(n) };
     for (let i = 0; i < n; i++) {
       const lat = (Math.atan(Math.sinh(Math.PI * (1 - (2 * (i + 0.5)) / n))) * 180) / Math.PI;
-      gridRowOf[i] = Math.floor((90 - lat) * perDegree);
-      gridColumnOf[i] = Math.floor((((i + 0.5) / n) * 360) * perDegree);
+      grid.rows[i] = Math.floor((90 - lat) * perDegree);
+      grid.columns[i] = Math.floor((((i + 0.5) / n) * 360) * perDegree);
     }
-    tileLevel = z;
+    gridOf.set(z, grid);
   }
   if (!(x >= 0 && x < n && y >= 0 && y < n)) return false;
-  return landAtCell(gridRowOf[y], gridColumnOf[x]);
+  return landAtCell(grid.rows[y], grid.columns[x]);
 }
 
 /** How much of the planet's surface the grid calls land, as a fraction of the whole. */

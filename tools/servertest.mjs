@@ -518,6 +518,17 @@ try {
     const venus1 = g.sharedMap('venus').map.cells.size;
     ok(`a whole day flying flat out at 57 degrees north all goes onto the shared map  (${venus1 - venus0})`, venus1 - venus0 === 965352);
     g.sharedBudget.delete('alex');
+    // And so does a whole day of it where it is most: Pluto at 75 degrees,
+    // whose squares are the smallest of any world's - 135,131 an hour, the
+    // same way (a million did, seven and a half hours of it).
+    const plenty = function* (n, row) {
+      for (let i = 0; i < n; i++) yield `16/${i % 60000}/${row + Math.floor(i / 60000)}`;
+    };
+    const pluto0 = g.sharedMap('pluto').map.cells.size;
+    g.addShared('pluto', plenty(3243144, 10000), alexP);
+    const pluto1 = g.sharedMap('pluto').map.cells.size;
+    ok(`and so does a whole day of it where the squares are smallest, Pluto at 75 degrees  (${pluto1 - pluto0})`, pluto1 - pluto0 === 3243144);
+    g.sharedBudget.delete('alex');
     // That is a lot of new ground at once for everybody looking: it reaches
     // them in pieces, and nobody looking is cut off for being sent it (Alex,
     // sent it in one five megabyte message, was dropped by the next position).
@@ -536,14 +547,220 @@ try {
     await sleep(300);
     ok(`new ground on the shared map goes out in pieces, and the page looking keeps its connection  (${pieces.length} pieces, biggest ${Math.max(...pieces)})`,
       grew === 150000 && pieces.reduce((a, b) => a + b, 0) >= 150000 && Math.max(...pieces) <= 20000 && g.players.has(alex.id) && alex.ws.readyState === 1);
-    // And no more than a million a day, on every world together: a script
-    // claiming to fly flat out round the clock is held to it (the last 50,000
-    // of Dora's day, on Mars, which nobody here is looking at).
-    g.sharedBudget.set('dora', { day: today, used: 1000000 - 50000 });
+    // And no more than three and a half million a day, on every world
+    // together: a script claiming to fly flat out round the clock is held to
+    // it (the last 50,000 of Dora's day, on Mars, which nobody here is
+    // looking at).
+    g.sharedBudget.set('dora', { day: today, used: 3500000 - 50000 });
     const mars0 = g.sharedMap('mars').map.cells.size;
     g.addShared('mars', squares(100000, 20000), doraP);
     const mars1 = g.sharedMap('mars').map.cells.size;
-    ok(`one player adds at most a million cells a day to the shared maps  (${mars1 - mars0} of the last 50000)`, mars1 - mars0 === 50000);
+    ok(`one player adds at most three and a half million cells a day to the shared maps  (${mars1 - mars0} of the last 50000)`, mars1 - mars0 === 50000);
+  }
+
+  console.log('\nexplored ground costs the same on every world');
+  {
+    // Explored ground was kept in Earth's squares on every world - level 16,
+    // 611 m on Earth's equator but 24 m on Enceladus and 53 m at 85 degrees
+    // north - so the same flight was hundreds of times the squares on a small
+    // world, and the server held them all as a Set of names. A square is now
+    // about Earth's size everywhere (ExplorationScheme in
+    // src/ui/exploration.js), the server keeps them as runs, and records and
+    // shared maps saved the old way are carried onto the new squares.
+    const g = server.game;
+    const { BODIES } = await import('../src/geo/bodies.js');
+    const ex = await import('../src/ui/exploration.js');
+    const { readFileSync, writeFileSync } = await import('node:fs');
+    const { setFlagsFromString } = await import('node:v8');
+    const { runInNewContext } = await import('node:vm');
+    setFlagsFromString('--expose_gc');
+    const gc = runInNewContext('gc');
+    const heap = () => {
+      gc();
+      gc();
+      return process.memoryUsage().heapUsed;
+    };
+    const DEG = Math.PI / 180;
+    let seed = 41;
+    const wobble = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648 - 0.5;
+    // Flying flat out - 400 m/s a kilometre up, about the most the game's own
+    // flight model makes of it against this server (395 m/s on Enceladus),
+    // ten states a second - with every state taken through accept(), where
+    // the server works out what you explored.
+    const fly = (p, world, lat0, minutes, turn) => {
+      const radius = BODIES[world].radius;
+      const home = p.world;
+      p.world = world;
+      let lat = lat0;
+      let lon = 3;
+      let heading = Math.PI / 2;
+      const step = 40 / radius / DEG;
+      const t0 = g.now();
+      for (let i = 0; i < minutes * 600; i++) {
+        heading += wobble() * turn;
+        lat += Math.cos(heading) * step;
+        if (Math.abs(lat - lat0) > 2) heading = Math.PI - heading;
+        lon = ((lon + (Math.sin(heading) * step) / Math.cos(lat * DEG) + 540) % 360) - 180;
+        g.accept(p, { lat, lon, alt: 1000, agl: 1000, vel: [0, 0, 0], yaw: 0, pitch: 0, roll: 0, flags: FLAG.elytra, item: 0 }, t0 + i * 100);
+      }
+      p.world = home;
+      // What the next tick does: new ground out to everybody looking, so what
+      // is left is what the server keeps.
+      g.flushShared();
+      return p.record.on(world).explored;
+    };
+    server.accounts.signups.hits.clear();
+    const enzo = await new Bot('Enzo').open();
+    await enzo.signup();
+    const enzoP = g.byKey.get('enzo');
+    // It was 5.2 million squares: 333 MB of heap after collection and 830 MB
+    // of process, past the 256 MB machine HOSTING suggests within a quarter
+    // of an hour of somebody flying there.
+    let before = heap();
+    const enceladus = fly(enzoP, 'enceladus', 0.3, 30, 0.004);
+    let cost = (heap() - before) / 1048576;
+    ok(`half an hour flying flat out on Enceladus costs the server under 5 MB  (${enceladus.cells.size} squares, ${cost.toFixed(1)} MB)`,
+      cost < 5 && enceladus.cells.size < 50000);
+    // A long explorer is held as runs, a few bytes a square: ten hours of it
+    // at 48 degrees on Venus, whose squares are Earth's, was 21 MB as names.
+    before = heap();
+    const venus = fly(enzoP, 'venus', 48, 600, 0.06);
+    cost = (heap() - before) / 1048576;
+    ok(`and ten hours of it at 48 degrees are a few MB, not tens  (${venus.cells.size} squares, ${cost.toFixed(1)} MB)`,
+      cost < 6 && venus.cells.size > 200000);
+    // Let go of both - nothing below looks at them - so that on a server from
+    // before, millions of names do not slow everything after this.
+    enzoP.record.live.delete('enceladus');
+    enzoP.record.live.delete('venus');
+    enzo.close();
+    heap();
+    await sleep(300);
+
+    // A record saved before: every world at levels 8 to 16, a 2 km disc round
+    // each spot - the rule the server used to keep.
+    const oldDiscs = (world, spots) => {
+      const circumference = 2 * Math.PI * BODIES[world].radius;
+      const keys = new Set();
+      for (const [lat, lon] of spots) {
+        const nx = (lon + 180) / 360;
+        const ny = 0.5 - Math.log(Math.tan(Math.PI / 4 + (lat * DEG) / 2)) / (2 * Math.PI);
+        const r = 2000 / Math.cos(lat * DEG);
+        for (const z of [8, 10, 12, 14, 16]) {
+          const n = 2 ** z;
+          const tile = circumference / n;
+          const reach = Math.ceil(r / tile);
+          const cx = Math.floor(nx * n);
+          const cy = Math.floor(ny * n);
+          for (let dy = -reach; dy <= reach; dy++) {
+            for (let dx = -reach; dx <= reach; dx++) {
+              const here = dx === 0 && dy === 0;
+              if (!here && Math.hypot(cx + dx + 0.5 - nx * n, cy + dy + 0.5 - ny * n) * tile > Math.max(r, tile / 2)) continue;
+              keys.add(`${z}/${(((cx + dx) % n) + n) % n}/${cy + dy}`);
+            }
+          }
+        }
+      }
+      return [...keys];
+    };
+    const line = (world, lat, lon, count) => Array.from({ length: count }, (_, i) => [lat, lon + (i * 600) / (BODIES[world].radius * Math.cos(lat * DEG)) / DEG]);
+    const oldOnes = {
+      earth: oldDiscs('earth', line('earth', 70.2, 20, 40)),
+      moon: oldDiscs('moon', line('moon', 40, -30, 40)),
+      enceladus: oldDiscs('enceladus', line('enceladus', 10, 50, 30)),
+    };
+    writeFileSync(join(dir, 'players', 'odin.json'), JSON.stringify({
+      version: 1,
+      world: 'earth',
+      worlds: Object.fromEntries(Object.entries(oldOnes).map(([world, keys]) => [world, { explored: ex.encodeCells(keys) }])),
+    }));
+    server.accounts.signups.hits.clear();
+    const odin = await new Bot('Odin').open();
+    const odinAuth = await odin.signup();
+    const odinRecord = g.record('odin');
+    const smaller = { earth: 2, moon: 5, enceladus: 50 };
+    const missing = (record, keys) => keys.filter((key) => {
+      const [z, x, y] = key.split('/').map(Number);
+      return !record.isExplored(z, x, y);
+    }).length;
+    for (const [world, keys] of Object.entries(oldOnes)) {
+      const record = odinRecord.on(world).explored;
+      const lost = missing(record, keys);
+      ok(`a record saved the old way is carried onto ${BODIES[world].name}'s squares with nothing lost  (${keys.length} squares become ${record.cells.size}, ${lost} lost)`,
+        lost === 0 && record.cells.size < keys.length / smaller[world]);
+    }
+    g.saveRecord(odinRecord);
+    g.store.flush();
+    const written = JSON.parse(readFileSync(join(dir, 'players', 'odin.json'), 'utf8'));
+    const same = Object.keys(oldOnes).every((world) =>
+      ex.decodeCells(written.worlds[world].explored).sort().join() === [...odinRecord.on(world).explored.cells].sort().join());
+    ok('and written back the new way, the same squares, and sent the page that way',
+      same && ex.decodeCells(odinAuth.explored).length === odinRecord.on('earth').explored.cells.size);
+    odin.close();
+
+    // A world's shared map saved the old way: Ceres, whose level 16 is 45 m.
+    const ceresOld = oldDiscs('ceres', line('ceres', -20, 30, 40));
+    writeFileSync(join(dir, 'shared-ceres.json'), JSON.stringify({ version: 2, parts: [ex.encodeCells(ceresOld)] }));
+    const ceres = g.sharedMap('ceres').map.cells;
+    const seen = new ex.Exploration({ circumference: 2 * Math.PI * BODIES.ceres.radius, stored: false, compact: true });
+    for (const part of ceres.parts(20000)) {
+      if (seen.mergeCells) seen.mergeCells(part);
+      else seen.merge(ex.decodeCells(part));
+    }
+    const lostShared = missing(seen, ceresOld);
+    ok(`a shared map saved the old way is carried too, nothing lost, and saved again  (${ceresOld.length} squares become ${ceres.size}, ${lostShared} lost)`,
+      lostShared === 0 && ceres.size < ceresOld.length / 50 && g.store.dirty.has('shared-ceres.json'));
+
+    // "The same rule the game uses, on the same numbers": the squares the
+    // server keeps are the ones the page records from the same moves, on
+    // every world - from the equator, and across 60 degrees north, where the
+    // squares coarsen.
+    server.accounts.signups.hits.clear();
+    const rhea = await new Bot('Rhea').open();
+    await rhea.signup();
+    const rheaP = g.byKey.get('rhea');
+    const disagree = [];
+    for (const world of Object.keys(BODIES)) {
+      const radius = BODIES[world].radius;
+      const page = new ex.Exploration({ circumference: 2 * Math.PI * radius, stored: false });
+      rheaP.world = world;
+      const t0 = g.now();
+      let i = 0;
+      for (const [lat0, north] of [[0.2, false], [59.99, true]]) {
+        for (let k = 0; k < 120; k++, i++) {
+          const lat = lat0 + (north ? (k * 40) / radius / DEG : 0);
+          const lon = 2 + (north ? 0 : (k * 40) / (radius * Math.cos(lat * DEG)) / DEG);
+          const agl = 300 + k * 10;
+          g.accept(rheaP, { lat, lon, alt: agl, agl, vel: [0, 0, 0], yaw: 0, pitch: 0, roll: 0, flags: FLAG.elytra, item: 0 }, t0 + i * 100);
+          // Session/game.js: visit(lat, lon, height above ground, what can be seen).
+          page.visit(lat, lon, agl, Math.max(240, Math.min(Math.sqrt(2 * radius * Math.max(2, agl)), 9000)));
+        }
+      }
+      if ([...rheaP.record.on(world).explored.cells].sort().join() !== [...page.cells].sort().join()) disagree.push(world);
+    }
+    rheaP.world = 'earth';
+    ok(`the page and the server work out the same squares from the same moves, on every world  (${disagree.length ? `not on ${disagree.join(', ')}` : `all ${Object.keys(BODIES).length}`})`,
+      disagree.length === 0);
+    rhea.close();
+
+    // The squares a server sends are not the ones an older page draws, and the
+    // version says so: a page from before is told to reload - in the one way
+    // pages from before take any notice of, a kick (they ignore the error) -
+    // and let go, its sign-in sent straight after hello not taken.
+    const elder = new WebSocket(URL_WS);
+    const heard = [];
+    const closed = await new Promise((resolve) => {
+      elder.onmessage = (event) => heard.push(JSON.parse(event.data));
+      elder.onopen = () => {
+        elder.send(JSON.stringify({ t: 'hello', v: 1, client: 'test' }));
+        elder.send(JSON.stringify({ t: 'login', name: 'Rhea', password: 'hunter22' }));
+      };
+      elder.onclose = (event) => resolve(event.code);
+      setTimeout(() => resolve(null), 3000);
+    });
+    const told = heard.find((m) => m.t === 'error' && m.code === 'version');
+    const kicked = heard.find((m) => m.t === 'kick');
+    ok(`a page from before the squares were sized to the world is told to reload, and let go  (${kicked?.reason ?? 'not kicked'}; closed ${closed})`,
+      !!told && /reload/.test(kicked?.reason ?? '') && closed === 4001 && !heard.some((m) => m.t === 'auth') && PROTOCOL_VERSION === 2);
   }
 
   console.log('\ntravelling to another world');
