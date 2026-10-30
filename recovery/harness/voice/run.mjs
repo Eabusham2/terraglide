@@ -1,6 +1,7 @@
 // Two (then four) real Chromium pages, the real TerraGlide server, the real
 // ProximityVoice. Prints PASS/FAIL lines with the numbers behind them.
-import { mkdtempSync, readFile, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFile, rmSync } from 'node:fs';
 import http from 'node:http';
 import { extname, join, normalize } from 'node:path';
 import { chromium } from '/home/user/terraglide/node_modules/playwright/index.mjs';
@@ -10,6 +11,10 @@ const HERE = new URL('.', import.meta.url).pathname;
 const ROOT = '/home/user/terraglide';
 const LAN = process.env.LAN_IP ?? '192.0.2.2';
 const dataDir = mkdtempSync(join(HERE, 'data-'));
+// The microphone Chromium is fed, written by speech.cjs and not kept in git.
+// Without it the fake capture is silence: the calls still connect, and every
+// check that listens for a voice fails.
+if (!existsSync(join(HERE, 'speech.wav'))) execFileSync(process.execPath, ['speech.cjs'], { cwd: HERE, stdio: 'ignore' });
 
 let failures = 0;
 const ok = (cond, msg, detail = '') => {

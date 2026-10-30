@@ -448,6 +448,9 @@ try {
   await b.page.evaluate(() => { window.terraglide.playersPanel.close(); document.activeElement?.blur?.(); });
   await b.page.keyboard.press('y');
   await until(a.page, () => window.terraglide.session.party?.members.length === 2, null, { timeout: 20000 });
+  // His page as well as hers: the party reaches the two a moment apart, and
+  // read on his straight after hers it was sometimes not there yet.
+  await until(b.page, () => window.terraglide.session.party?.members.length === 2, null, { timeout: 20000 });
   ok('and the accept key answers it: Ada and Bruno are a party', true);
   // "Teleport with the party" is a tick he makes, not one made for him.
   const unticked = await b.page.evaluate(() => window.terraglide.session.party.members.find((m) => m.name === 'Bruno')?.together === false);
