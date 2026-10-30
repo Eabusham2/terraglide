@@ -1491,9 +1491,13 @@ docker run -d --name terraglide --restart unless-stopped -p 8080:8080 -v terragl
 
 The data folder is never part of an update — accounts and players carry
 straight over. Keep the server up to date: the published game always runs the
-newest version, and if the server is older the page may say *"This server
-runs a different version of the game — reload the page"*. Players can always
-use the server's own page, which matches it.
+newest version. A page older than the server is told *"This server runs a
+newer version of the game — reload the page"* before it signs in, and one
+newer than the server *"This server runs an older version of the game"*. So
+on a public server whose players come from GitHub Pages, update the server
+first and merge to main (which republishes the online page) straight after —
+never the other way round. Players can always use the server's own page,
+which matches it.
 
 ---
 
@@ -1521,7 +1525,7 @@ use the server's own page, which matches it.
 | `EACCES: permission denied, mkdir '/data/players'` (Docker) | The container was started with `--user`, so it did not take ownership of `/data`, and that user cannot write there — or the mount refuses ownership changes (some network drives). Start it without `--user`, `sudo chown` the folder to that user, or use a named volume. |
 | Players are disconnected with *"Moving impossibly fast"* on a bad connection | Very rare with honest play. If it keeps happening, raise `maxSpeed` a little (220). |
 | *"Signed in from somewhere else"* | The same account was opened in another tab or device; the newest wins. |
-| *"This server runs a different version of the game"* | The page and the server are from different versions. [Update](#updating) the server, or play on the server's own page. |
+| *"This server runs a newer version of the game — reload the page"* or *"… an older version of the game"* | The page and the server are from different versions. Reload the page (a tab left open across an update), [update](#updating) the server, or play on the server's own page. |
 | After updating, the game looks unchanged | The bundle was not rebuilt: `node tools/bundle.mjs`, then reload the page. |
 
 ---

@@ -48,8 +48,17 @@
   as any slow client; no per-address connection cap anywhere); the shared map's daily budget and the sign-up limiter
   live in memory, so a restart resets them (painting is still bounded by honest speed); the /tpa per-target cooldown
   and the voice budget reset on a reconnect (chat limits /tpa to 6 per 6 s).
-- Suites at 339c9ce: check 102 modules ok, selftest 1759/1759, servertest 259/259, flightcheck 15/15 (nothing put
-  back on any world). A reviewer is checking the data skeptic's fixes in 339c9ce independently.
+  - 00b593d: an independent review of 339c9ce's own fixes found three more: converted records were taken for old ones
+    again at every read on six worlds and grew coarse squares (now: old means a zoom finer than the world's finest); a
+    shared map past about 24 MB queued whole dropped every page at sign-in (now sent a part at a time); and HOSTING's
+    memory row (loading or saving a full map peaks near 300 MB). A re-check by the data skeptic found nothing on
+    00b593d: 0 lost of 428.6M lookups over 22 real-flight cases, trimmed old saves lose nothing, no record misjudged in
+    120, shared maps arrive whole in a browser (2.2M cells in 1.9 s) and stop cleanly when a page leaves.
+- Suites at 00b593d: check 102 modules ok, selftest 1760/1760, servertest 261/261, flightcheck 15/15 (nothing put
+  back on any world).
+- Left as it is, on purpose: the server turns away a page of any other version, newer ones too, since it cannot know
+  what a later protocol changes (the last bump changed every key). HOSTING says to update a public server first and
+  merge to main straight after, so GitHub Pages is never newer than the server.
 ### Last check (Oct 16, evening): the recovery is finished; nothing more can be recovered
 - Recovered state = commit bbd6276 on `claude/main-recovery`. Everything after it on that branch is the owner's own requests
   (sword and firework holds, the startup screen, the coverage figures, lobby status, ping and counts), each listed under
