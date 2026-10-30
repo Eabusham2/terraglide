@@ -1,0 +1,60 @@
+# Fly.io configuration for the TerraGlide server. See HOSTING.md, "Fly.io".
+#
+# Put your own app name in `app` below (it must be unique across Fly) and the
+# region nearest your players in `primary_region`, then:
+#
+#   fly apps create <your-app-name>
+#   fly volumes create terraglide_data --size 1 --region <primary_region> -y
+#   fly deploy --ha=false
+#
+# The app is built from the Dockerfile beside this file. Accounts and players
+# live on the volume mounted at /data, so they survive deploys and restarts.
+# The game's state is held in one process, so run exactly one machine: a
+# second one would be a second, separate server with its own empty volume.
+
+app = "terraglide"
+primary_region = "lhr"
+
+# Stop the server with SIGINT and give it time to save. It saves on SIGTERM
+# too; this just says so explicitly.
+kill_signal = "SIGINT"
+kill_timeout = 15
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  DATA_DIR = "/data"
+  # Fly's proxy is in front of every connection: read the player's real
+  # address from the Fly-Client-IP header it sets, for the rate limits and
+  # bans. (Not X-Forwarded-For: Fly adds its own hop after the player's.)
+  TERRAGLIDE_TRUST_PROXY = "1"
+  TERRAGLIDE_PROXY_HEADER = "fly-client-ip"
+  # Secrets (TERRAGLIDE_JOIN_CODE, TURN_CREDENTIAL) go in `fly secrets set`,
+  # never in this file.
+
+[[mounts]]
+  source = "terraglide_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Stopped when nobody is connected, started again by the next visitor; the
+  # first page load after a quiet spell takes a few seconds longer. Set to
+  # "off" and min_machines_running = 1 to keep it running all the time.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

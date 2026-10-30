@@ -1,4 +1,5 @@
 import { Game } from './game.js';
+import { askHowToPlay } from './ui/startup.js';
 
 /**
  * Entry point. Starts the game, and if the browser cannot run it, says exactly
@@ -69,6 +70,9 @@ async function main() {
   }
 
   try {
+    // Alone or online, asked before anything is built: the answer decides
+    // which save everything reads, and a different one is a relaunch.
+    if (!(await askHowToPlay(document.getElementById('app') ?? document.body))) return;
     const game = new Game({ canvas, ui, onStatus: status });
     window.terraglide = game; // handy from the console; not required by anything
     await game.start();

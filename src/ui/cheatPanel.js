@@ -1,4 +1,6 @@
 import { CHEAT_DEFAULTS, cheats } from '../core/cheats.js';
+import { BODY, ON_EARTH } from '../geo/bodies.js';
+import { searchFeatures } from '../geo/gazetteer.js';
 import { PLACES } from '../world/places.js';
 import { waypoints } from './waypoints.js';
 
@@ -201,7 +203,7 @@ export class CheatPanel {
     const field = this.element.querySelector('[data-destination]');
     const place = resolvePlace(field.value);
     if (!place) {
-      this.notify('No such place — try coordinates, a waypoint or a city name');
+      this.notify(ON_EARTH ? 'No such place — try coordinates, a waypoint or a city name' : 'No such place — try coordinates, a waypoint or a named crater, mountain or plain');
       return;
     }
     if (kind === 'teleport') {
@@ -256,6 +258,12 @@ export function resolvePlace(raw) {
   const needle = text.toLowerCase();
   const waypoint = waypoints.waypoints.find((w) => w.name.toLowerCase() === needle);
   if (waypoint) return { lat: waypoint.lat, lon: waypoint.lon, label: waypoint.name };
+
+  // Off Earth the towns are not there, and the IAU's names are.
+  if (!ON_EARTH) {
+    const feature = searchFeatures(BODY.id, text, 1)[0];
+    return feature ? { lat: feature.lat, lon: feature.lon, label: feature.label } : null;
+  }
 
   const place =
     PLACES.find((p) => p[0].toLowerCase() === needle) ??

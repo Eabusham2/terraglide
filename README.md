@@ -82,6 +82,12 @@ map. Dive is held: it drops the nose in the air and takes you under in water.
 | `Q` | freecam · `F5` perspective (first / third / second) · `[` / `]` shrink / grow |
 | `L` | swap mouse mode · `F1` hide HUD · `F2` controls · `F3` debug · `F4` copy diagnostics · `Esc` settings |
 | `O` | pause — stop the world without opening anything |
+| `6` | the sword — click to swing; `E` still fires your last rocket |
+| `U` | other worlds — the Moon, Mars and the rest · `H` set your lander down (off Earth) |
+| `K` | play online — join a server and sign in |
+| `T` / `/` | chat / type a command (online) · `Tab` players list |
+| `J` | teleport menu (online) — pick TPA or TPA here, type part of a name, press Enter |
+| `Y` / `N` | accept / deny a teleport request · `Z` push to talk |
 
 Every one of those is rebindable in **Settings → Controls**.
 
@@ -185,15 +191,142 @@ firework burning while it does holds it up longer.
   with named roads and coastlines where you have not been, and photography
   where you have. The boundary is what you could actually see from where you
   were, worked out from the geometric horizon at your height rather than from
-  the square you were standing in, and it is feathered so it reads as a shape
+  the square you were standing in — but never more than 2 km from you, however
+  high you climb, so the map shows where you went and not everything you could
+  see from the top of a climb — and it is feathered so it reads as a shape
   you flew rather than a staircase of tiles. It fills in behind you as you
   travel. Zoom with `=`/`-` or the wheel, click it to open the big map.
 - **World map** (`G`): the same thing at any zoom, plus search, your waypoints,
   your drawn paths, and how much of the world you have covered. Drag to pan,
-  wheel to zoom.
+  wheel to zoom. At the top it shows how much of the world is explored, by
+  area, as percentages to seven decimal places that move while you fly: of the
+  **whole Earth** (poles and oceans included), and of its **land** on its own
+  (lakes count as water; from a seven-kilometre grid of Natural Earth's
+  coastlines). Yours when you play alone; everybody's together on a server,
+  with yours under each.
 - **Your trail**: a thin line of everywhere you have been, recorded as you go
   and drawn on both maps. A teleport starts a new leg, so it never draws a line
   across an ocean you did not cross.
+
+---
+
+## Playing with other people
+
+Every time the game starts it asks how you want to play: **Play locally**, on
+your own with everything kept in this browser, or **Play online with
+everyone**, which joins the main lobby: the public server everybody plays on
+together, where whatever anybody explores goes on one map, kept by the server
+for good. The online button says whether the main lobby is up, and beside its
+ping and signal bars (green, yellow or red) how many are playing there and, if
+you have signed in to it from this browser before, how many of your friends are
+on (*2/7 friends*), checked every two seconds; if the lobby is down the button
+greys out with a red light until it answers again. The first time, a few short cards come before it on what the
+game is and how to fly (*How it works* on that screen shows them again). A page
+opened from an invite link, or with `?local`, has already chosen and goes
+straight in.
+
+On a server your ping to it shows in the bottom-right corner, after the frame
+rate (*Settings → Show performance readout*), with the same bars: green under
+120 ms, yellow under 250, red beyond that or when the server stops answering,
+and *offline* when the connection is down. Beside it, live, how many are
+playing on the server and how many of your friends are on, of all of them.
+
+In the game, press `K` (or **Play online** in the toolbar) and press **Play on
+the public server**, or type another server's address. Every player signs up with a username and a password the first time
+and signs in after that; the server keeps the account, the session and everything the
+player does there. Playing alone and playing on a server are kept apart: what
+you explore, your trail and your waypoints on a server live on the server, and
+none of it touches your own offline save.
+
+On a server you get:
+
+- **Everybody else, in the world and on every map.** Each player gets a colour
+  of their own, used for their jacket and wings, their arrow on the minimap and
+  the world map, their mark on the compass and on the **locator bar** above your hearts
+  (bigger the closer they are, with a notch above or below when they are higher
+  or lower), and their name tag.
+- **What everybody has discovered, on one map.** Ground anyone on the server
+  has explored is uncovered on your maps too, with a faint wash over the parts
+  you have not been to yourself — on from the start (*Settings → Online →
+  Everyone's discoveries*). Paths are lines in each player's colour: tick
+  *Everyone's paths*, or *trail* / *discovered* next to anyone in the players
+  list (`Tab`) to see just theirs.
+- **Friends.** Press *Friend* next to someone in the players list, or type
+  their name in the box at the bottom of it, or `/friend add name`. You hear
+  when friends come online and go, and can let them teleport to you and pull
+  you into their party without asking — or take every friend request without
+  being asked (*Settings → Online*). A request sent to somebody offline waits
+  for them.
+- **Parties.** Press *Party* next to someone, or `/party invite name`: up to
+  eight of you, with a leader. A party talks on voice however far apart its
+  members are — on another world too, like a radio when they are out of
+  earshot — has its own chat (`/pc message`), its own **waypoints** (*Mark
+  here for the party* in the players list, or *Party waypoint at centre* on
+  the world map; they show on every member's maps and compass), and a tick,
+  *teleport with the party*: when the leader teleports, travels to another
+  world or presses *Gather the party*, everyone with it ticked comes along.
+  `/party leave`, `/party kick name`, `/party leader name`, `/party list`.
+- **Teleport requests, Minecraft-style.** `/tpa name` asks to go to someone,
+  `/tpahere name` asks them to come to you; they answer with `/tpaccept` or
+  `/tpdeny`, or with `Y` / `N` on the prompt that appears. A request lasts
+  forty seconds. Or press `J` for the **teleport menu**: pick *TPA* or *TPA
+  here* (`Tab` switches), type a few letters of the name — the list narrows as
+  you type — and press `Enter`. Admins also get the instant `/tp`.
+- **Chat**: `T` to talk, `/` for commands, `/msg` to whisper, `/near` for the
+  players within a few kilometres of you, `/help` for the rest.
+- **Proximity voice**, if you switch it on in *Settings → Online*: players near
+  you hear you from where you are, fading out with distance — push to talk on
+  `Z`, or always on.
+- **Swords.** Slot 6 is a sword. Click to swing, Minecraft's way: a full swing
+  every 0.625 s does full damage, a falling swing is a critical, and ten
+  hearts is a life. The server decides every hit, so nobody can reach
+  further or hit harder than the rules allow. Nobody can be hurt within a short
+  walk of the spawn, and a fight blocks teleporting away from it for ten
+  seconds.
+- **No cheats.** On a server the cheat panel, freecam, size changes and pause
+  are off; speed over the ground is checked (a surge is allowed only for as
+  long as a surge lasts); hits, damage, health, oxygen and the explored map
+  are the server's; teleports go only where the server sends you; and random
+  teleports are chosen by the server.
+
+To **host a server** — on your own computer for friends on the same wifi, or
+on the internet for anyone — see **[HOSTING.md](HOSTING.md)**. It is one Node
+process with nothing to install: `node server/server.mjs`, then open
+<http://localhost:8080>.
+
+---
+
+## Other worlds
+
+Press `U` for the worlds: the Moon, Mars, Mercury, Venus, Ceres, Vesta, Io,
+Europa, Ganymede, Callisto, Titan, Enceladus, Pluto and Charon. Each one is
+NASA's and the USGS's own photography over their own altimetry, at real size —
+and where a mission never measured the relief, the ground is flat rather than
+made up.
+
+- **Gravity is the world's own.** The Moon pulls a sixth as hard, so a jump
+  goes six times as high; on Enceladus, a hundredth.
+- **So is the air.** Wings need air to push on: on the Moon and every other
+  airless world they do nothing at all, you fall like a stone and keep whatever
+  speed a rocket gave you. Mars's air is a sixtieth of ours — a glide there is
+  a fall with opinions. Titan's is thick and its pull is weak, which makes it
+  the best gliding in the solar system.
+- **Your suit has five minutes of oxygen.** It refills at the landing site and
+  at your **lander**, which you can set down anywhere with `H`. Run out and you
+  start losing hearts.
+- **The sky is the right one.** Black in a vacuum with the real stars in it
+  (the Yale Bright Star Catalogue, every star to magnitude 5.5, at its real
+  place), butterscotch on Mars with a blue sunset, orange haze on Titan,
+  yellow overcast on Venus. The sun is where the world's orbit and rotation
+  really put it, and its size is right for the distance. Earth hangs still over
+  the Moon's near side — two thirds of the way up the sky from Tranquility
+  Base — and over Io, Jupiter is nearly forty times as wide as our full Moon.
+- **Places have their names.** The corner says where you are from the IAU's
+  gazetteer — *Mare Tranquillitatis*, *Jezero crater* — the world map's search
+  finds any named feature, and a random teleport lands on one.
+
+Earth's own extras — buildings, weather, the sea, street photography,
+addresses — stay on Earth.
 
 ---
 
@@ -468,7 +601,7 @@ field of view and the rest.
 ## Settings
 
 Providers · Graphics · Controls (including full key rebinding) · Player ·
-World · Minimap & HUD · Data.
+World · Minimap & HUD · Online · Data.
 
 Notable ones: metric or imperial units, whether random teleport may drop you at
 sea, whether it goes anywhere on Earth or stays within a distance of you, time of
@@ -503,19 +636,28 @@ takes it from there.
 
 **Escape pauses.** Any menu stops the world — movement, timers and the burn on
 a firework all freeze — while the frame is still drawn and tiles keep arriving,
-so the ground has finished loading by the time you close it.
+so the ground has finished loading by the time you close it. On a server
+nothing pauses: the world is everyone's, and its clock with it.
+
+**Online** has the locator bar, name tags, and proximity voice — off, push to
+talk, or always on — with its volume.
 
 Everything lives in this browser's local storage — settings, key bindings,
-explored ground, waypoints, paths and your last position. **Settings → Data**
-exports and imports all of it as a JSON file, and clears any of it.
+explored ground, waypoints, paths and your last position, each world's kept
+apart from the others'. **Settings → Data** exports and imports all of it as a
+JSON file, and clears any of it. On a server, your exploring is kept by the
+server instead, and never mixed into your own save.
 
 ---
 
 ## Checking it works
 
 ```sh
-node tools/check.mjs      # parse every module, verify every import resolves
-node tools/selftest.mjs   # 173 checks: projection, frame, flight, the avatar, climate, water, providers
+node tools/check.mjs        # parse every module, verify every import resolves
+node tools/selftest.mjs     # the pure maths and the rules, headlessly
+node tools/servertest.mjs   # the multiplayer server, driven by bots over real WebSockets
+node tools/onlinecheck.mjs  # two real browsers on one server: sign-up, chat, teleports, a sword fight
+node tools/flightcheck.mjs  # honest flying on every world, judged by the server's speed checks
 ```
 
 `tools/selftest.mjs` runs the pure maths headlessly — mercator round-trips, the
@@ -535,16 +677,21 @@ src/
   main.js           entry point and browser capability check
   game.js           wiring, frame loop, teleports, re-anchoring
   core/             settings, key bindings, units, storage, maths, perf, cheats
-  geo/              mercator, the local world frame, sun, climate, geocoding, water
+  geo/              mercator, the local world frame, sun, climate, geocoding, water,
+                    the worlds, their orbits and their place names
   tiles/            provider registry, worker, imagery streamer, elevation field
   world/            terrain quadtree, shaders, sky, weather, scenery, buildings,
                     panorama, teleport
   player/           state, walking and collision, elytra physics, autopilot, avatar
   camera/           camera rig, freecam, input and mouse modes
   ui/               HUD, minimap, world map, settings, cheats, help, waypoints,
-                    exploration, touch controls
+                    exploration, touch controls, online panel, chat, players,
+                    teleport menu, worlds, the startup screen
+  net/              wire protocol, connection, other players, voice
+server/             the multiplayer server (Node, no dependencies) — see HOSTING.md
 assets/             optional generated textures — player kit only (+ manifest)
-tools/              check.mjs, selftest.mjs
+tools/              check.mjs, selftest.mjs, servertest.mjs, onlinecheck.mjs, flightcheck.mjs, and
+                    the generators for the star catalogue, the place names and the land grid
 vendor/three/       three.js (MIT), vendored so there is nothing to install
 ```
 

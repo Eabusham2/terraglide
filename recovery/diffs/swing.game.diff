@@ -1,0 +1,23 @@
+--- a/server/game.mjs
++++ b/server/game.mjs
+@@ -530,7 +530,6 @@
+       case 's': return this.onState(player, m);
+       case 'chat': return this.onChat(player, m.text);
+       case 'attack': return this.onAttack(player, m);
+-      case 'swing': return this.onSwing(player);
+       case 'damage': return this.onSelfDamage(player, m);
+       case 'respawn': return this.respawn(player);
+       case 'travel': return this.travel(player, m.world);
+@@ -1484,12 +1483,6 @@
+       < (this.config.spawnProtectionM ?? 0);
+   }
+ 
+-  /** A swing on its own, as the swing bit in a state is (see accept): it resets the blade too. */
+-  onSwing(player) {
+-    player.prevSwingAt = player.lastSwingAt;
+-    player.lastSwingAt = this.now();
+-  }
+-
+   /**
+    * A swing landed, according to the page. Checked here before it counts:
+    * the sword is in hand, both of you are alive and on the same world, the

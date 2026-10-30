@@ -1,0 +1,10 @@
+@@ 105-112
+/**
+ * How loud a party member is over the radio, beside 1 for somebody next to
+ * you, and where the radio takes over from their voice in the world. The
+ * panner fades a voice evenly from VOICE_FULL_M out to VOICE_RANGE_M, so at
+ * RADIO_FROM_M it has fallen to exactly RADIO_GAIN: walking away, a party
+ * member fades as anybody does, then carries on over the radio at that level.
+ * No jump either way.
+ */
+@@end

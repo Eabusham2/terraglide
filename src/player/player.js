@@ -4,6 +4,22 @@ import { Emitter } from '../core/events.js';
 import { clamp, damp } from '../core/math.js';
 import { settings } from '../core/settings.js';
 import { rocketHoldPush, rocketPowerFor, rocketTicks, rocketTopSpeed } from './elytra.js';
+import { BODY } from '../geo/bodies.js';
+import {
+  MAX_HEALTH,
+  OXYGEN_REFILL_PER_S,
+  OXYGEN_SECONDS,
+  REGEN_DELAY_S,
+  REGEN_EVERY_S,
+  ROCKET_REFILL_S,
+  ROCKET_STACK,
+  SPEED_MODE_COOLDOWN_S,
+  SPEED_MODE_SECONDS,
+  SUFFOCATION_PER_S,
+  SURGE_BLEED_PER_S,
+  SURGE_FACTOR,
+  SWORD_SLOT,
+} from '../net/protocol.js';
 
 /**
  * Player state: where you are, how fast, how big, what is in the hotbar.
@@ -47,11 +63,11 @@ const MAX_LIT = 12;
  * satellite photographs — no gunpowder, no paper, no chest to go back to. A
  * slot recovers one rocket every few seconds, per slot, so a spent Rocket V is
  * a real cost paid over minutes while a Rocket I you barely touched is always
- * there. Turn it off in Settings and they are endless again.
+ * there. Turn it off in Settings and they are endless again. The numbers —
+ * how many, and seconds to earn one back in the slot it was spent from — live
+ * with the wire protocol, since a server keeps your stock: net/protocol.js.
  */
-export const ROCKET_STACK = 64;
-/** Seconds to earn one rocket back, in the slot it was spent from. */
-export const ROCKET_REFILL_S = 4;
+export { ROCKET_REFILL_S, ROCKET_STACK };
 
 export const ROCKET_COLOURS = ['#8fb8d8', '#74c47a', '#e8c54a', '#e08a35', '#d23f2f'];
 
@@ -69,6 +85,23 @@ export const HOTBAR = [1, 2, 3, 4, 5].map((duration) => ({
   topSpeed: rocketTopSpeed(duration),
 }));
 
+/**
+ * The sword, in the slot after the rockets.
+ *
+ * Not a rocket, so it carries no burn and no speed: what it has is what the
+ * HUD prints for it and what the attack uses. See net/protocol.js for the
+ * numbers it hits with — they live there because the server applies them.
+ */
+export const SWORD = {
+  sword: true,
+  label: 'Sword',
+  colour: '#d7dde4',
+  slot: SWORD_SLOT,
+};
+
+/** Every slot on the bar: the five rockets, then the sword. */
+export const SLOTS = [...HOTBAR, SWORD];
+
 /** The fastest any firework holds you, level: the biggest one's cruise. */
 const FASTEST_CRUISE = Math.max(...HOTBAR.map((item) => item.topSpeed));
 
@@ -83,32 +116,26 @@ const FASTEST_CRUISE = Math.max(...HOTBAR.map((item) => item.topSpeed));
 /**
  * Seconds of breath underwater, and how long you last after it runs out.
  *
- * Minecraft's own numbers: fifteen seconds of air, then damage every second.
- * Ten hearts at one heart a second is ten more seconds, which is what the
- * second constant stands in for — there is no health bar here, so running out
- * ends with a teleport somewhere you can breathe rather than a death screen.
+ * Minecraft's own numbers: fifteen seconds of air, then a heart of damage
+ * every second. Ten hearts at one heart a second is the ten seconds the second
+ * constant has always stood for — and now that there are hearts, that is
+ * literally what it is: drowning hurts, once a second, until you surface or
+ * the hearts run out.
  */
 export const AIR_SECONDS = 15;
 export const DROWNING_SECONDS = 10;
+/**
+ * Suffocation and the suit's tank: the numbers live with the wire protocol,
+ * because on a server the server counts the tank; see net/protocol.js.
+ */
+export { OXYGEN_REFILL_PER_S, OXYGEN_SECONDS, SUFFOCATION_PER_S };
 
 /**
- * Surge: what it is worth, how long it runs, and how long it takes back.
- *
- * It was called "speed mode", which is a label for a checkbox rather than a
- * name for a thing you spend. Surge is what it does — you get it, it runs out,
- * you wait.
- *
- * All three numbers moved together, because they only make sense together: a
- * fifth again on the boost and a fifth again on the burn, and a third off the
- * wait so it is something you use rather than something you hoard.
- *
- *   worth      2.0x  ->  2.4x
- *   runs for   10 s  ->  12 s
- *   recharges  45 s  ->  30 s
+ * Surge: what it is worth, how long it runs, and how long it takes back. The
+ * numbers live with the wire protocol, because on a server the server holds
+ * your surge to them; see net/protocol.js.
  */
-export const SURGE_FACTOR = 2.4;
-export const SPEED_MODE_SECONDS = 12;
-export const SPEED_MODE_COOLDOWN_S = 30;
+export { SPEED_MODE_COOLDOWN_S, SPEED_MODE_SECONDS, SURGE_FACTOR };
 
 export class Player extends Emitter {
   constructor(frame) {
@@ -162,6 +189,37 @@ export class Player extends Emitter {
      */
     this.airSeconds = AIR_SECONDS;
     this.drowned = false;
+    /**
+     * The suit's tank, seconds. Only spent where the air cannot be breathed —
+     * see OXYGEN_SECONDS. `oxygenSource` is set while you stand at your
+     * lander, which is where it fills back up.
+     */
+    this.oxygen = OXYGEN_SECONDS;
+    this.oxygenSource = false;
+    this.needsSuit = !BODY.breathable;
+
+    /**
+     * Hearts, Minecraft's twenty half-hearts.
+     *
+     * There was no health here at all: drowning ended in a teleport, and
+     * nothing else could hurt you. Fighting is what changed that — on a server
+     * people can now hit each other — and an empty tank on the Moon has to
+     * cost something real. Locally your own machine keeps the count; online
+     * the server does (`authority`), and this only mirrors what it says, so a
+     * modified page cannot heal itself.
+     */
+    this.health = MAX_HEALTH;
+    this.maxHealth = MAX_HEALTH;
+    this.dead = false;
+    /** 'local' counts its own damage; 'server' asks for it and waits to be told. */
+    this.authority = 'local';
+    this.clock = 0;
+    this.lastHurtAt = -Infinity;
+    this.regenTimer = 0;
+    this.suffocateTimer = 0;
+    /** Swings of the sword since the start, so a remote copy can see every one. */
+    this.swings = 0;
+    this.lastSwingAt = -Infinity;
 
     /**
      * Every firework still burning, not just the last one lit.
@@ -259,6 +317,77 @@ export class Player extends Emitter {
     return HOTBAR[this.selectedSlot];
   }
 
+  /** Is the sword in your hand rather than a rocket? */
+  get holdingSword() {
+    return this.selectedSlot === SWORD_SLOT;
+  }
+
+  /**
+   * Take damage. Returns how much was actually taken.
+   *
+   * @param {number} amount half-hearts
+   * @param {{cause?: string, by?: string}} [how]
+   */
+  damage(amount, how = {}) {
+    if (this.dead || !(amount > 0)) return 0;
+    if (this.authority === 'server') {
+      // Asked for, not taken: the server keeps the count online, and says
+      // what it came to. Drowning and an empty tank still happen here — the
+      // server cannot see water or know where your lander is — so this is how
+      // it hears about them.
+      this.emit('damageRequest', { amount, ...how });
+      return 0;
+    }
+    const taken = Math.min(this.health, amount);
+    this.health -= taken;
+    this.lastHurtAt = this.clock;
+    this.regenTimer = 0;
+    this.emit('hurt', { amount: taken, health: this.health, ...how });
+    if (this.health <= 0) this.die(how);
+    return taken;
+  }
+
+  /** Mirror the server's count. Online only. */
+  setHealth(health, how = {}) {
+    const next = clamp(Number(health) || 0, 0, this.maxHealth);
+    const lost = this.health - next;
+    this.health = next;
+    if (lost > 0) {
+      this.lastHurtAt = this.clock;
+      this.emit('hurt', { amount: lost, health: next, ...how });
+    }
+    if (next <= 0 && !this.dead) this.die(how);
+  }
+
+  die(how = {}) {
+    if (this.dead) return;
+    this.health = 0;
+    this.dead = true;
+    this.stopRockets();
+    this.emit('died', how);
+  }
+
+  /** Back on your feet with full hearts and a full tank. */
+  revive() {
+    this.dead = false;
+    this.health = this.maxHealth;
+    this.airSeconds = AIR_SECONDS;
+    this.oxygen = OXYGEN_SECONDS;
+    this.drowned = false;
+    this.lastHurtAt = -Infinity;
+    this.suffocateTimer = 0;
+    this.stock = HOTBAR.map(() => ROCKET_STACK);
+    this.emit('revived', {});
+  }
+
+  /** A knock, metres a second, added straight onto how you are moving. */
+  knock(x, y, z) {
+    this.velocity.x += x;
+    this.velocity.y += y;
+    this.velocity.z += z;
+    if (y > 0) this.onGround = false;
+  }
+
   /**
    * How far a second of movement carries you. Speed mode, then any cheat.
    *
@@ -285,7 +414,7 @@ export class Player extends Emitter {
    * bleed, and the bleed is what the rocket is multiplied by.
    */
   get rocketPower() {
-    const slot = this.selectedItem;
+    const slot = HOTBAR[this.rocketSlot];
     return (slot ? slot.power : 1) * this.speedBlend * cheats.rocketPower;
   }
 
@@ -343,14 +472,15 @@ export class Player extends Emitter {
   }
 
   selectSlot(index) {
-    const next = clamp(index, 0, HOTBAR.length - 1);
+    const next = clamp(index, 0, SLOTS.length - 1);
     if (next === this.selectedSlot) return;
+    if (this.selectedSlot < HOTBAR.length) this.lastRocketSlot = this.selectedSlot;
     this.selectedSlot = next;
     this.emit('hotbar', next);
   }
 
   cycleSlot(delta) {
-    const count = HOTBAR.length;
+    const count = SLOTS.length;
     this.selectSlot((((this.selectedSlot + delta) % count) + count) % count);
   }
 
@@ -411,21 +541,35 @@ export class Player extends Emitter {
    */
   /** How many of the selected rocket are left, or Infinity when endless. */
   get rocketsLeft() {
-    if (settings.get('rocketSupply') === 'unlimited' || cheats.rocketFree) return Infinity;
-    return this.stock[this.selectedSlot] ?? 0;
+    // On a server every rocket counts: endless ones there are an advantage
+    // over everybody else in the air, which makes them a cheat, not a taste.
+    if ((settings.get('rocketSupply') === 'unlimited' && this.authority !== 'server') || cheats.rocketFree) {
+      return Infinity;
+    }
+    return this.stock[this.rocketSlot] ?? 0;
+  }
+
+  /**
+   * Which rocket fires when you light one.
+   *
+   * The one in your hand, or — with the sword in your hand — the last rocket
+   * you held, so you can boost out of a fight without putting the blade away.
+   */
+  get rocketSlot() {
+    return this.holdingSword ? (this.lastRocketSlot ?? 0) : this.selectedSlot;
   }
 
   fireRocket() {
-    const item = this.selectedItem;
+    const item = HOTBAR[this.rocketSlot];
     const duration = item ? item.duration : 2;
     if (!this.elytraDeployed) return false;
     // You have to have one. Spending the last of a slot is allowed; spending
     // one you do not have is not, and it says so rather than failing silently.
     if (this.rocketsLeft <= 0) {
-      this.emit('outOfRockets', { slot: this.selectedSlot });
+      this.emit('outOfRockets', { slot: this.rocketSlot });
       return false;
     }
-    if (Number.isFinite(this.rocketsLeft)) this.stock[this.selectedSlot] -= 1;
+    if (Number.isFinite(this.rocketsLeft)) this.stock[this.rocketSlot] -= 1;
     const total = rocketTicks(duration);
     // Its own power, taken now: a firework in flight is the one you lit, not
     // whichever slot you have scrolled to since.
@@ -461,6 +605,32 @@ export class Player extends Emitter {
     return true;
   }
 
+  /**
+   * Seconds the game did not run - a tab in the background - on the one clock
+   * of the player's a server keeps as well: online the world's does not stop
+   * (Game.paused), and the server runs a speed burst out while the page sits
+   * still. Coming back with half a burst left, a page that had been away a
+   * quarter of a minute surged on past the end the server had seen and was
+   * put back. So a burst runs out while you are away, and what is left of
+   * one fades as the server has it fade; the cooldown starts as you come
+   * back, which is when the server sees the burst end - no sooner, or the
+   * next would be one the server is not ready for.
+   */
+  awayFor(seconds) {
+    if (!(seconds > 0) || cheats.speedFree) return;
+    let fading = seconds;
+    if (this.speedActive) {
+      this.speedRemaining -= seconds;
+      if (this.speedRemaining > 0) return;
+      fading = -this.speedRemaining;
+      this.speedActive = false;
+      this.speedRemaining = 0;
+      this.speedCooldown = SPEED_MODE_COOLDOWN_S;
+      this.emit('speed', false);
+    }
+    this.speedBlend = damp(this.speedBlend, 1, SURGE_BLEED_PER_S, fading);
+  }
+
   /** End the burst early. Only reachable with unlimited speed mode on. */
   stopSpeedMode() {
     if (!this.speedActive) return false;
@@ -493,6 +663,7 @@ export class Player extends Emitter {
   }
 
   tickTimers(dt) {
+    this.clock += dt;
     this.tickRefill(dt);
     // Speed mode comes on like a switch and goes off like momentum. Dropping
     // it used to halve your ground speed between one frame and the next, which
@@ -500,7 +671,7 @@ export class Player extends Emitter {
     // a few seconds, and a firework still burning holds it up while it does —
     // so a well-timed rocket carries some of the boost past the end of it.
     const target = this.speedActive ? SURGE_FACTOR : 1;
-    const rate = target > this.speedBlend ? 8 : this.rocketTicksLeft > 0 ? 0.25 : 0.8;
+    const rate = target > this.speedBlend ? 8 : this.rocketTicksLeft > 0 ? SURGE_BLEED_PER_S : 0.8;
     this.speedBlend = damp(this.speedBlend, target, rate, dt);
     // An exponential never quite arrives; a per cent is under the noise floor.
     if (Math.abs(this.speedBlend - target) < 0.01) this.speedBlend = target;
@@ -521,6 +692,61 @@ export class Player extends Emitter {
     }
 
     this.tickBreath(dt);
+    this.tickOxygen(dt);
+    this.tickRegen(dt);
+  }
+
+  /**
+   * Hearts come back once you have been out of trouble for a while.
+   *
+   * Minecraft heals from a full hunger bar; there is no food here, so it is
+   * simply time — half a heart every few seconds after a quiet spell. Only on
+   * your own machine's count: online the server heals you and says so.
+   */
+  tickRegen(dt) {
+    if (this.dead || this.authority !== 'local' || this.health >= this.maxHealth) {
+      this.regenTimer = 0;
+      return;
+    }
+    if (this.clock - this.lastHurtAt < REGEN_DELAY_S) return;
+    this.regenTimer += dt;
+    while (this.regenTimer >= REGEN_EVERY_S && this.health < this.maxHealth) {
+      this.regenTimer -= REGEN_EVERY_S;
+      this.health = Math.min(this.maxHealth, this.health + 1);
+      this.emit('healed', { health: this.health });
+    }
+  }
+
+  /**
+   * The suit's tank, wherever there is nothing to breathe.
+   *
+   * Drains a second a second, twice that in a surge; fills at the lander.
+   * Empty, it hurts exactly as drowning does, because it is the same thing.
+   */
+  tickOxygen(dt) {
+    if (!this.needsSuit || this.dead) return;
+    if (this.oxygenSource) {
+      this.oxygen = Math.min(OXYGEN_SECONDS, this.oxygen + dt * OXYGEN_REFILL_PER_S);
+      this.suffocateTimer = 0;
+      return;
+    }
+    this.oxygen = Math.max(0, this.oxygen - dt * (this.speedActive ? 2 : 1));
+    // On a server the tank is the server's: it counts it, corrects this one
+    // every second, and does the suffocating itself.
+    if (this.oxygen > 0 || this.authority === 'server') {
+      this.suffocateTimer = 0;
+      return;
+    }
+    this.suffocate(dt, 'suffocated');
+  }
+
+  /** A heart a second while there is nothing to breathe. */
+  suffocate(dt, cause) {
+    this.suffocateTimer += dt;
+    while (this.suffocateTimer >= 1 && !this.dead) {
+      this.suffocateTimer -= 1;
+      this.damage(SUFFOCATION_PER_S, { cause });
+    }
   }
 
   /**
@@ -540,15 +766,12 @@ export class Player extends Emitter {
       return;
     }
     const burn = this.speedActive ? 4 : 1;
-    this.airSeconds -= dt * burn;
-    if (this.airSeconds > -DROWNING_SECONDS) return;
-    // Out of air and out of time. There is no health bar here, so this ends
-    // with getting you somewhere you can breathe rather than a death screen.
-    this.airSeconds = AIR_SECONDS;
-    if (!this.drowned) {
-      this.drowned = true;
-      this.emit('drowned', {});
-    }
+    this.airSeconds = Math.max(-DROWNING_SECONDS, this.airSeconds - dt * burn);
+    if (this.airSeconds > 0) return;
+    // Out of air: a heart a second until you surface or run out of hearts,
+    // which from full is the ten seconds DROWNING_SECONDS always said.
+    this.drowned = true;
+    this.suffocate(dt, 'drowned');
   }
 
   /** Is your head under the water, rather than merely your feet? */

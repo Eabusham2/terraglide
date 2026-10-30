@@ -1,4 +1,4 @@
-import { latToNormY, lonToNormX, wrapTileX } from '../geo/mercator.js';
+import { WORLD_CIRCUMFERENCE, latToNormY, lonToNormX, wrapTileX } from '../geo/mercator.js';
 import { LEVELS } from './exploration.js';
 
 /**
@@ -44,6 +44,18 @@ const STREET_BLANK = '#eceae3';
  * not so much that the shape you actually flew is lost.
  */
 const FOG_FEATHER = 0.45;
+
+/**
+ * How many mask cells across one of the record's own squares is, at the
+ * middle of the map: one, except towards the poles, where the record keeps
+ * coarser squares than the level the mask is read at (ExplorationScheme in
+ * exploration.js). The feather is half a square of the record's, as it is on
+ * the equator, or the edge up there reads as a staircase.
+ */
+function cellsPerSquare(record, maskZoom, lat) {
+  const kept = record?.scheme?.finestAtLat?.(lat);
+  return Number.isFinite(kept) && maskZoom > kept ? 2 ** (maskZoom - kept) : 1;
+}
 
 /**
  * Scratch canvases for the fog composite, reused between draws. Both maps paint
@@ -198,6 +210,8 @@ export function drawMap(ctx, view, layers) {
   // because with no photograph on the map there is nothing left to reveal.
   const drawnOnly = !!options.drawnOnly && !!layers.street;
   const fogged = !drawnOnly && options.fog !== false && !!layers.exploration && !!layers.street;
+  // On a server, ground anybody has explored is uncovered for everyone.
+  const shared = layers.others?.shared?.() ?? null;
   const pair = fogged
     ? scratchPair(Math.round(width * pixelRatio), Math.round(height * pixelRatio))
     : null;
@@ -284,7 +298,8 @@ export function drawMap(ctx, view, layers) {
           let runStart = -1;
           for (let i = 0; i <= sub; i++) {
             const on = i < sub
-              && layers.exploration.isExplored(maskZoom, wrappedX * sub + i, ty * sub + j);
+              && (layers.exploration.isExplored(maskZoom, wrappedX * sub + i, ty * sub + j)
+                || !!shared?.isExplored(maskZoom, wrappedX * sub + i, ty * sub + j));
             if (on) {
               if (runStart < 0) runStart = i;
               continue;
@@ -307,7 +322,8 @@ export function drawMap(ctx, view, layers) {
     // compositing each in turn would have every cell erase its neighbour.
     photo.setTransform(1, 0, 0, 1, 0, 0);
     photo.globalCompositeOperation = 'destination-in';
-    const feather = Math.min(20, Math.max(1.5, cellPx * FOG_FEATHER * pixelRatio));
+    const squarePx = cellPx * cellsPerSquare(layers.exploration, maskZoom, view.centerLat);
+    const feather = Math.min(20, Math.max(1.5, squarePx * FOG_FEATHER * pixelRatio));
     photo.filter = `blur(${feather.toFixed(1)}px)`;
     photo.drawImage(pair.mask, 0, 0);
     photo.filter = 'none';
@@ -334,6 +350,18 @@ export function drawMap(ctx, view, layers) {
     return { x: dx, y: p.y - centre.y };
   };
 
+  // Other players' discoveries and trails, in their colours, under your own.
+  if (layers.others) {
+    drawOthersBelow(ctx, layers.others, toScreen, {
+      zoom,
+      tileZoom,
+      minX, maxX, minY, maxY,
+      tileCentre, tileScale, drawSize, tileCount, pixelRatio, width, height, rotation,
+      pathWidth: options.pathWidth ?? 1.4,
+      centerLat: view.centerLat,
+    });
+  }
+
   if (options.trail && layers.trail) {
     drawTrail(ctx, layers.trail, toScreen, options.pathWidth ?? 1.4);
   }
@@ -342,9 +370,34 @@ export function drawMap(ctx, view, layers) {
     drawWaypoints(ctx, layers.waypointStore, toScreen, options.labels !== false);
   }
 
+  // The party's waypoints: diamonds, in the colour of whoever put them down.
+  const partyMarks = options.waypoints ? layers.others?.marks?.() ?? [] : [];
+  if (partyMarks.length) drawPartyMarks(ctx, partyMarks, toScreen, options.labels !== false);
+
+  // Everyone else, as an arrow in their colour with their name, then you on top.
+  //
+  // Headings are bearings, and the canvas is already turned by the map's own
+  // rotation, so an arrow is drawn at its bearing and nothing more: a map that
+  // turns with you then shows your arrow pointing up and everyone else's
+  // relative to it. Subtracting the rotation as well turned each arrow twice —
+  // invisible with north up, which is the default, and wrong the moment the
+  // map rotates.
+  //
+  // Names first and every arrow after, so in a crowd a name box never hides
+  // somebody's arrow.
+  if (layers.others) {
+    const others = layers.others.list().map((other) => ({ other, p: toScreen(other.lat, other.lon) }));
+    if (options.labels !== false) {
+      for (const { other, p } of others) drawName(ctx, p.x, p.y, other.name, other.colour, rotation);
+    }
+    for (const { other, p } of others) {
+      drawPlayer(ctx, p.x, p.y, other.heading, (options.playerSize ?? 7) * 0.9, other.colour);
+    }
+  }
+
   if (layers.player) {
     const p = toScreen(layers.player.lat, layers.player.lon);
-    drawPlayer(ctx, p.x, p.y, layers.player.heading - rotation, options.playerSize ?? 7);
+    drawPlayer(ctx, p.x, p.y, layers.player.heading, options.playerSize ?? 7);
   }
 
   ctx.restore();
@@ -464,7 +517,32 @@ function drawWaypoints(ctx, store, toScreen, labels) {
   }
 }
 
-function drawPlayer(ctx, x, y, heading, size) {
+function drawPartyMarks(ctx, marks, toScreen, labels) {
+  ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
+  ctx.textBaseline = 'middle';
+  for (const mark of marks) {
+    const p = toScreen(mark.lat, mark.lon);
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = mark.colour ?? '#9fd3ff';
+    ctx.fillRect(-4.5, -4.5, 9, 9);
+    ctx.strokeStyle = '#f2f4f6';
+    ctx.lineWidth = 1.4;
+    ctx.strokeRect(-4.5, -4.5, 9, 9);
+    ctx.restore();
+    if (labels && mark.name) {
+      const text = `${mark.name} · party`;
+      const w = ctx.measureText(text).width;
+      ctx.fillStyle = 'rgba(12,14,18,0.72)';
+      ctx.fillRect(p.x + 8, p.y - 8, w + 8, 16);
+      ctx.fillStyle = '#dfe3e8';
+      ctx.fillText(text, p.x + 12, p.y);
+    }
+  }
+}
+
+function drawPlayer(ctx, x, y, heading, size, colour = '#f2f4f6') {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(heading);
@@ -474,7 +552,7 @@ function drawPlayer(ctx, x, y, heading, size) {
   ctx.lineTo(0, size * 0.34);
   ctx.lineTo(-size * 0.66, size * 0.72);
   ctx.closePath();
-  ctx.fillStyle = '#f2f4f6';
+  ctx.fillStyle = colour;
   ctx.fill();
   ctx.strokeStyle = 'rgba(15,17,20,0.9)';
   ctx.lineWidth = 1.2;
@@ -482,7 +560,123 @@ function drawPlayer(ctx, x, y, heading, size) {
   ctx.restore();
 }
 
+/**
+ * A name beside another player's arrow, kept upright whatever the map's turn
+ * — the canvas is rotated under it, so the label is turned back the other way.
+ */
+function drawName(ctx, x, y, name, colour, rotation) {
+  ctx.save();
+  ctx.translate(x, y);
+  if (rotation) ctx.rotate(-rotation);
+  ctx.font = '600 11px ui-sans-serif, system-ui, sans-serif';
+  ctx.textBaseline = 'middle';
+  const w = ctx.measureText(name).width;
+  ctx.fillStyle = 'rgba(12,14,18,0.72)';
+  ctx.fillRect(9, -8, w + 8, 16);
+  ctx.fillStyle = colour;
+  ctx.fillRect(9, -8, 2, 16);
+  ctx.fillStyle = '#eef1f4';
+  ctx.fillText(name, 14, 0);
+  ctx.restore();
+}
+
+/**
+ * Other players' discoveries and trails, where you have switched them on.
+ *
+ * Each one's explored ground is a wash of their colour, feathered at the edge
+ * the same way your own fog is, so overlapping explorers mix rather than
+ * stack into a solid block; each trail is a line in their colour. Drawn below
+ * your own trail and every marker, because they are the background to where
+ * you are rather than the subject of the map.
+ */
+function drawOthersBelow(ctx, others, toScreen, view) {
+  const list = others.overlays?.() ?? [];
+  if (!list.length) return;
+  const {
+    tileZoom, minX, maxX, minY, maxY, tileCentre, tileScale, drawSize, tileCount, pixelRatio, width, height, rotation,
+  } = view;
+  // Discoveries: the same level choice as the fog above, so a stranger's
+  // explored ground is drawn at the resolution yours is.
+  const wanted = Math.min(LEVELS[LEVELS.length - 1], tileZoom + 6);
+  let level = LEVELS[0];
+  for (const candidate of LEVELS) if (candidate <= wanted) level = candidate;
+  const sub = Math.max(1, Math.pow(2, level - tileZoom));
+  const maskZoom = tileZoom + Math.round(Math.log2(sub));
+  const cellPx = drawSize / sub;
+  const tint = scratchTint(Math.round(width * pixelRatio), Math.round(height * pixelRatio));
+  for (const overlay of list) {
+    if (!overlay.showExplored || !overlay.explored || !tint) continue;
+    const t = tint.getContext('2d');
+    t.setTransform(1, 0, 0, 1, 0, 0);
+    t.clearRect(0, 0, tint.width, tint.height);
+    t.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    t.translate(width / 2, height / 2);
+    if (rotation) t.rotate(rotation);
+    t.fillStyle = overlay.colour;
+    for (let ty = minY; ty <= maxY; ty++) {
+      if (ty < 0 || ty >= tileCount) continue;
+      for (let tx = minX; tx <= maxX; tx++) {
+        const wrappedX = wrapTileX(tx, tileZoom);
+        const screenX = (tx * TILE_PX - tileCentre.x) * tileScale;
+        const screenY = (ty * TILE_PX - tileCentre.y) * tileScale;
+        for (let j = 0; j < sub; j++) {
+          let runStart = -1;
+          for (let i = 0; i <= sub; i++) {
+            const on = i < sub && overlay.explored.isExplored(maskZoom, wrappedX * sub + i, ty * sub + j)
+              && !overlay.exclude?.isExplored(maskZoom, wrappedX * sub + i, ty * sub + j);
+            if (on) {
+              if (runStart < 0) runStart = i;
+              continue;
+            }
+            if (runStart < 0) continue;
+            t.fillRect(screenX + runStart * cellPx, screenY + j * cellPx, (i - runStart) * cellPx, cellPx);
+            runStart = -1;
+          }
+        }
+      }
+    }
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = overlay.wash ?? 0.32;
+    const squarePx = cellPx * cellsPerSquare(overlay.explored, maskZoom, view.centerLat);
+    ctx.filter = `blur(${Math.min(12, Math.max(1, squarePx * 0.35 * pixelRatio)).toFixed(1)}px)`;
+    ctx.drawImage(tint, 0, 0);
+    ctx.filter = 'none';
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+  for (const overlay of list) {
+    if (!overlay.showTrail || !overlay.legs) continue;
+    ctx.strokeStyle = overlay.colour;
+    ctx.globalAlpha = 0.9;
+    ctx.lineWidth = view.pathWidth * 1.15;
+    ctx.lineJoin = 'round';
+    for (const leg of overlay.legs) {
+      if (leg.length < 2) continue;
+      ctx.beginPath();
+      leg.forEach((point, index) => {
+        const p = toScreen(point.lat, point.lon);
+        if (index === 0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      });
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+let tintCanvas = null;
+function scratchTint(width, height) {
+  if (typeof document === 'undefined') return null;
+  tintCanvas ??= document.createElement('canvas');
+  if (tintCanvas.width !== width || tintCanvas.height !== height) {
+    tintCanvas.width = width;
+    tintCanvas.height = height;
+  }
+  return tintCanvas;
+}
+
 /** Metres per screen pixel at a latitude and zoom — used for the scale bar. */
 export function metresPerPixel(lat, zoom) {
-  return (40075016.686 * Math.cos((lat * Math.PI) / 180)) / worldPixelSize(zoom);
+  return (WORLD_CIRCUMFERENCE * Math.cos((lat * Math.PI) / 180)) / worldPixelSize(zoom);
 }

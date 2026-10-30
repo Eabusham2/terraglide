@@ -1177,13 +1177,242 @@ console.log('\nyour own legs are there when you look down mid-glide');
     !/this\.legL\.pivot\.visible = !prone;/.test(avatar));
   ok('they are drawn in first person like the mod this copies',
     /this\.legL\.pivot\.visible = true;\n\s*this\.legR\.pivot\.visible = true;/.test(avatar));
-  // The arms stay off in a glide: that one really is inside the camera.
+  // The arms stay off in a glide: that one really is inside the camera. And
+  // on foot with the sword out in first person the view model is the arm
+  // that holds it, as it is the arm that holds the firework in a glide.
   ok('and the arms are still the view model in a glide',
-    /this\.armL\.pivot\.visible = !prone;/.test(avatar)
-    && /this\.viewModel\.visible = prone;/.test(avatar));
+    /const handed = prone \|\| sworded;/.test(avatar)
+    && /this\.armL\.pivot\.visible = !handed;/.test(avatar)
+    && /this\.viewModel\.visible = handed;/.test(avatar));
+  ok('and with the sword out on foot, in first person',
+    /const sworded = this\.firstPerson && player\.selectedSlot === SWORD_SLOT && !player\.dead;/.test(avatar));
   // Guarded anyway, for the attitude no pose number predicts.
   ok('with the in-your-eye backstop extended to cover them',
     /for \(const leg of \[this\.legL, this\.legR\]\)/.test(avatar));
+}
+
+console.log('\nthe sword swing: wound back, then brought down through');
+{
+  const THREE = await import('../vendor/three/three.module.js');
+  const { Avatar } = await import('../src/player/avatar.js');
+  const { SWORD_SLOT } = await import('../src/net/protocol.js');
+  const avatar = new Avatar(new THREE.Scene());
+  avatar.setVisible(true);
+  const player = {
+    position: new THREE.Vector3(), renderPosition: new THREE.Vector3(), velocity: new THREE.Vector3(),
+    height: 1.83, scale: 1, pitch: 0, yaw: 0, mode: 'walk', onGround: true,
+    swimming: false, groundSlope: 0, elytraDeployed: false, horizontalSpeed: 0,
+    selectedSlot: SWORD_SLOT, rocketsFired: 0, swings: 0,
+  };
+  // Standing, sword out, settled into the carry pose.
+  for (let i = 0; i < 60; i += 1) avatar.update(player, 1 / 60);
+  // Where the blade points and where the hand is, in the body's own frame,
+  // at a moment of the swing: the pose for the frame, then the swing on it,
+  // in a frame too short to move the swing on.
+  const at = (t) => {
+    avatar.swingTime = t;
+    avatar.update(player, 1e-6);
+    avatar.root.updateMatrixWorld(true);
+    const toBody = new THREE.Matrix4().copy(avatar.root.matrixWorld).invert();
+    const m = new THREE.Matrix4().multiplyMatrices(toBody, avatar.sword.matrixWorld);
+    const blade = new THREE.Vector3(0, 1, 0).transformDirection(m);
+    const hand = new THREE.Vector3().setFromMatrixPosition(m);
+    return { blade, hand };
+  };
+  const rest = at(1);
+  // Forward is wherever the blade points at rest, flattened: it is carried
+  // the way the firework is, nose out the front.
+  const forward = new THREE.Vector3(rest.blade.x, 0, rest.blade.z).normalize();
+  const wound = at(0.35);
+  const struck = at(0.65);
+  const along = (v) => v.dot(forward);
+  ok('held, the blade lies out in front, near level',
+    Math.abs(rest.blade.y) < 0.5, `y ${rest.blade.y.toFixed(2)}`);
+  ok('wound back, the arm comes up in front - not out behind you',
+    along(wound.hand) > along(rest.hand) + 0.02 && wound.hand.y > rest.hand.y,
+    `forward ${along(rest.hand).toFixed(3)} -> ${along(wound.hand).toFixed(3)}, up ${rest.hand.y.toFixed(3)} -> ${wound.hand.y.toFixed(3)}`);
+  ok('and the blade goes up and back over the shoulder',
+    wound.blade.y > 0.5 && along(wound.blade) < 0.3, `y ${wound.blade.y.toFixed(2)}, forward ${along(wound.blade).toFixed(2)}`);
+  ok('then comes down through, in front and below where it was held',
+    struck.blade.y < -0.3 && along(struck.blade) > 0.2, `y ${struck.blade.y.toFixed(2)}, forward ${along(struck.blade).toFixed(2)}`);
+  ok('and is back where it started when the swing is over',
+    at(1).blade.distanceTo(rest.blade) < 1e-6);
+
+  // In first person the blade turns about the screen's level, whatever way
+  // the hand is turned to sit in the corner: across the screen it does not
+  // move, it only goes back toward you and down away.
+  avatar.handR.rotation.set(0.4, -0.6, 0.9);
+  const inView = (t) => {
+    avatar.swingTime = t;
+    avatar.holdSword(player, 0);
+    const q = avatar.handR.quaternion.clone().multiply(avatar.handSword.quaternion);
+    return new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+  };
+  const still = inView(1);
+  const back = inView(0.35);
+  const down = inView(0.65);
+  ok('in first person the blade swings about the screen\'s level, not the hand\'s own axis',
+    Math.abs(back.x - still.x) < 1e-6 && Math.abs(down.x - still.x) < 1e-6 && back.z > still.z && down.z < still.z,
+    `x ${still.x.toFixed(3)}/${back.x.toFixed(3)}/${down.x.toFixed(3)}, z ${still.z.toFixed(2)}/${back.z.toFixed(2)}/${down.z.toFixed(2)}`);
+
+  const src = readFileSync(new URL('../src/player/avatar.js', import.meta.url), 'utf8');
+  const gameSrc = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  // The generated sword, for the generated body: loaded, measured for its
+  // grip, and fitted to the scanned fist the way the firework is.
+  ok('the generated sword is loaded alongside the generated firework',
+    /async loadSwordModelNow\(base = ASSET_BASE\)/.test(src) && /`\$\{base\}sword\.glb`/.test(src)
+    && /this\.loadingSword \?\?= this\.loadSwordModelNow\(base\)/.test(src)
+    && /this\.avatar\.loadSwordModel\(\);/.test(gameSrc)
+    && /this\.avatar\.loadSwordModel\(\)\.then\(\(\) => this\.avatar\.applySwordModel\(\)\)/.test(gameSrc));
+  ok('its grip is found on the mesh, not guessed',
+    /const grip = measureSwordGrip\(mesh\);/.test(src) && /function measureSwordGrip\(root\)/.test(src));
+  ok('and in a scanned fist it is sized as the firework is, in the world and in first person',
+    /if \(this\.swordModelShown\) this\.sword\.scale\.copy\(this\.rocket\.scale\);/.test(src)
+    && /if \(this\.swordModelShown\) this\.handSword\.scale\.copy\(this\.handRocket\.scale\);/.test(src));
+  ok('the scanned arm swings with it, not only the built one',
+    /bone\.quaternion\.multiply\(_swingArm\.setFromAxisAngle\(_swingAxis, lift \* SWING_ARM\)\)/.test(src));
+  const manifest = JSON.parse(readFileSync(new URL('../assets/manifest.json', import.meta.url), 'utf8'));
+  ok('and the manifest says where the sword came from and what was done to it',
+    manifest.model?.sword === 'sword.glb' && /glb-unplate/.test(manifest.model?.swordNote ?? '')
+    && existsSync(new URL('../assets/sword.glb', import.meta.url)) && existsSync(new URL('./glb-unplate.py', import.meta.url)));
+}
+
+console.log('\nthe shared map, kept as runs');
+{
+  const { CellRuns } = await import('../server/cells.mjs');
+  const { decodeCells, encodeCells } = await import('../src/ui/exploration.js');
+  const cells = new CellRuns();
+  const keys = ['16/10/5', '16/12/5', '16/11/5', '16/14/5', '14/3/2', '16/10/6'];
+  const added = keys.map((k) => cells.add(k));
+  ok('a cell is added once, and its neighbours join it into one run',
+    added.every(Boolean) && !cells.add('16/11/5') && cells.size === 6 && cells.levels.get(16).get(5).join() === '10,3,14,1');
+  ok('it knows what it has and what it has not', cells.has('16/12/5') && !cells.has('16/13/5') && !cells.has('15/12/5'));
+  ok('rubbish is not a cell', !cells.add('16/x/5') && !cells.add('16/-1/5') && !cells.add('16/70000/5') && !cells.add(42));
+  const decoded = cells.parts(2).flatMap((part) => decodeCells(part)).sort();
+  ok('cut into parts it decodes to exactly the cells, in the format the page reads',
+    decoded.join() === [...keys].sort().join() && cells.parts(2).length === 2 && cells.parts(1).length === 4);
+  ok('the same encoding the page itself makes', JSON.stringify(cells.parts()[0]) === JSON.stringify(encodeCells(keys)));
+  ok('and it counts per level, for the detail count', cells.countAt(16) === 5 && cells.countAt(14) === 1);
+}
+
+console.log('\nparties and friends, on the page');
+{
+  const gameSrc = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  const sessionSrc = readFileSync(new URL('../src/net/session.js', import.meta.url), 'utf8');
+  const panelSrc = readFileSync(new URL('../src/ui/playersPanel.js', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../styles/main.css', import.meta.url), 'utf8');
+  ok('party waypoints stand in the world as beams, not only on the maps',
+    /this\.partyBeacons = ONLINE \? new Beacons\(/.test(gameSrc) && /this\.partySites\.waypoints = \(this\.session\?\.partyWaypoints\(\)/.test(gameSrc));
+  ok('a party waypoint is named when it is made, from the panel and from the map',
+    /this\.session\.partyMark\(askMarkName\(\), here\.lat, here\.lon\)/.test(panelSrc) && /this\.session\.partyMark\(askMarkName\(\), lat, lon\)/.test(gameSrc));
+  ok('a party that ends leaves its waypoints with its members', /net\.on\('partyKept'/.test(sessionSrc));
+  ok('the panel\'s friend and party buttons have a budget of their own, not chat\'s',
+    /t: 'social', cmd: 'party'/.test(sessionSrc) && /t: 'social', cmd: 'friend'/.test(sessionSrc));
+  ok('the account\'s auto-accept choices win over a fresh browser\'s, except one changed here and not yet confirmed',
+    /for \(const key of Object\.keys\(lot\)\) if \(accountValue\(key, m\.prefs\) === lot\[key\]\) delete lot\[key\];/.test(sessionSrc)
+    && /if \(key in unsent\) continue;/.test(sessionSrc)
+    // Another account's leftovers are dropped at sign-in; those made signed in
+    // as nobody go to whoever signs in, never into another account's lot.
+    && /const prefs = \{ \.\.\.\(was\.account === this\.accountKey \? was\.prefs : \{\}\), \.\.\.was\.next \};/.test(sessionSrc)
+    && /if \(account\) \{\s*if \(was\.account !== account\) \{/.test(sessionSrc) && /\} else \{\s*was\.next\[key\] = prefValue\(key\);/.test(sessionSrc));
+  ok('only the friend choices changed here are sent, and a reset or import counts only for the ones it changed',
+    /this\.net\.send\(\{ t: 'socialPrefs', \.\.\.fields \}\)/.test(sessionSrc)
+    && /for \(const key of SOCIAL_PREFS\) if \(now\[key\] !== choices\[key\]\) markPrefUnsent\(key\);/.test(gameSrc)
+    && /const before = shown;\s*shown = shownPrefs\(\);/.test(sessionSrc) && /if \(shown\[key\] === before\[key\]\) continue;/.test(sessionSrc)
+    && !/if \(!account \|\| accountValue/.test(sessionSrc));
+  ok('party voice can be switched on from the party itself', /data-action="voice-on"/.test(panelSrc));
+  const settingsSrc = readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8');
+  const settingsPanelSrc = readFileSync(new URL('../src/ui/settingsPanel.js', import.meta.url), 'utf8');
+  ok('friend requests can be accepted automatically, kept by the server with the rest',
+    /friendsAutoAccept: false/.test(settingsSrc) && /key: 'friendsAutoAccept'/.test(settingsPanelSrc)
+    && /friendsAutoAccept: 'autoFriends'/.test(sessionSrc) && /export const SOCIAL_PREFS = Object\.keys\(PREF_OF\)/.test(sessionSrc));
+  const remoteSrc = readFileSync(new URL('../src/net/remotePlayers.js', import.meta.url), 'utf8');
+  ok('with the scanned body on, the nearest players are drawn with it, sword and all, chosen again as people move',
+    /\.filter\(\(p\) => !p\.scanAsked && p\.avatar && p\.visible && p\.distance < SCAN_NEAR_M\)\s*\.sort\(\(a, b\) => a\.distance - b\.distance\)/.test(remoteSrc)
+    && /p\.distance > furthest\.distance \* SCAN_SWAP_SHARE - SCAN_SWAP_M\) break;/.test(remoteSrc)
+    && /p\.trail\?\.dispose\(\);\s*p\.trail = null;/.test(remoteSrc)
+    && /p\.avatar\.lastSwings = p\.pose\.swings \?\? 0;/.test(remoteSrc)
+    && /p\.avatar\.lastRockets = p\.pose\.rocketsFired \?\? 0;/.test(remoteSrc)
+    && /const MAX_SCANNED = 6;/.test(remoteSrc) && /const SCAN_NEAR_M = 400;/.test(remoteSrc)
+    && /p\.avatar\.applySwordModel\(\);/.test(remoteSrc));
+  ok('a scan is given up by somebody no longer among the nearest, and its pictures freed',
+    /now - p\.scanOutSince > SCAN_RELEASE_MS\) this\.dropAvatar\(p\);/.test(remoteSrc) && /if \(value\?\.isTexture\) value\.dispose\(\);/.test(remoteSrc));
+  ok('switching the scan on loads it for people already met, and a hit flashes on it',
+    /if \(p\.scanAsked\) this\.requestScan\(p\);/.test(remoteSrc) && /this\.applyBody\(p\);[\s\S]{0,200}this\.paint\(p\);/.test(remoteSrc));
+  ok('the detailed player model says what it does now: animates, holds the sword, first person, others',
+    /it walks, glides, swings and holds a firework or the generated sword/.test(settingsPanelSrc)
+    && /In first person you see its hands\. Online, the players nearest you are drawn with it too\./.test(settingsPanelSrc));
+  ok('the world map keeps its buttons on a narrow screen',
+    /@media \(max-width: 900px\)[\s\S]{0,900}\.worldmap-side > :not\(\.worldmap-actions\) \{\s*display: none;/.test(css));
+}
+
+console.log('\na host sets the server from its environment');
+{
+  const { DEFAULTS, loadConfig } = await import('../server/config.mjs');
+  // A host that builds from the repository has no config.json, so the server
+  // is set up from its environment alone. Warnings to the log are for hosts.
+  const log = console.warn;
+  console.warn = () => {};
+  const set = loadConfig({
+    file: new URL('./no-such-config.json', import.meta.url).pathname,
+    env: {
+      TERRAGLIDE_MOTD: 'Welcome to the Moon', TERRAGLIDE_MAX_PLAYERS: '12', TERRAGLIDE_PVP: 'off',
+      TERRAGLIDE_OPEN_SIGNUPS: 'no', TERRAGLIDE_SIGNUPS_PER_HOUR: 'lots',
+      TERRAGLIDE_CONFIG: '{"rtpCooldownS": 30, "maxPlayers": 99}',
+    },
+  });
+  console.warn = log;
+  ok('the message of the day, the player limit, PvP and sign-ups each have a variable',
+    set.motd === 'Welcome to the Moon' && set.maxPlayers === 12 && set.pvp === false && set.openSignups === false);
+  ok('any other setting goes in as JSON, under the single variables', set.rtpCooldownS === 30 && set.maxPlayers === 12);
+  ok('and a variable that is not a number is ignored, not set to NaN', set.signupsPerHour === DEFAULTS.signupsPerHour);
+  const guide = readFileSync(new URL('../HOSTING.md', import.meta.url), 'utf8');
+  ok('the guide lists them', ['MOTD', 'MAX_PLAYERS', 'MAX_ACCOUNTS', 'SIGNUPS_PER_HOUR', 'OPEN_SIGNUPS', 'FIRST_ACCOUNT_ADMIN', 'PVP', 'ALLOWED_ORIGINS', 'CONFIG']
+    .every((name) => guide.includes(`\`TERRAGLIDE_${name}\``)));
+  const server = readFileSync(new URL('../server/server.mjs', import.meta.url), 'utf8');
+  ok('a server from a fresh checkout builds the online single file the guide says it hands out',
+    /terraglide-online\.html/.test(server) && /tools\/online\.mjs/.test(server) && /terraglide-online\.html/.test(guide));
+}
+
+console.log('\narriving on another world, and its air');
+{
+  const gameSrc = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  ok('arrivals are floored at sea level on Earth only',
+    /const ground = ON_EARTH \? Math\.max\(0, sampled\) : sampled;/.test(gameSrc));
+  // Put down 1.2 m over a datum the Moon's landing site is 1,926 m under, the
+  // hand-over was a thirty-second fall; once the ground is real it is onto it.
+  ok('and a hold that ends on real ground puts you on it, not two kilometres above it',
+    /if \(!this\.holdInAir && this\.groundIsReal\) \{\s*this\._holdY = this\.terrain\.heightAt\(/.test(gameSrc));
+  // Filled where the server fills it, or the gauge and the server disagree.
+  ok('the suit refills on the ground only, as the server has it',
+    /nearAir\(player\) \{[\s\S]{0,400}if \(!player\.onGround\) return false;/.test(gameSrc));
+  ok('the tank says so as it runs down: a minute, half a minute, ten seconds, empty',
+    /const OXYGEN_WARNINGS = \[60, 30, 10, 0\];/.test(gameSrc) && /this\.warnOxygen\(player\);/.test(gameSrc));
+  ok('and dead off Earth, a reload brings you back where you would get up, with a full tank',
+    /const at = player\.dead && !ON_EARTH \? this\.lander \?\? BODY\.spawn : player;/.test(gameSrc)
+    && /oxygen: player\.dead \? OXYGEN_SECONDS : player\.oxygen/.test(gameSrc));
+}
+
+console.log('\na panel with the keyboard keeps it');
+{
+  const gameSrc = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  const playersSrc = readFileSync(new URL('../src/ui/playersPanel.js', import.meta.url), 'utf8');
+  const menuSrc = readFileSync(new URL('../src/ui/teleportMenu.js', import.meta.url), 'utf8');
+  const chatSrc = readFileSync(new URL('../src/ui/chat.js', import.meta.url), 'utf8');
+  // A click in the list gave the keyboard back to the page: B and R reached the game behind it.
+  ok('while a panel with keys of its own is up, only the keys that work panels reach the game',
+    /if \(this\.panelHasKeys && !this\.player\.dead && !PANEL_KEYS\.has\(id\)\) return;/.test(gameSrc));
+  ok('and a click in the players list leaves the keyboard with the list',
+    /button\.blur\(\);[\s\S]{0,200}this\.element\.focus\(\{ preventScroll: true \}\);/.test(playersSrc));
+  ok('Escape closes the menu or the list before it opens the settings',
+    /else if \(this\.teleportMenu\?\.open\) this\.teleportMenu\.close\(\);\s*else if \(this\.playersPanel\?\.open\) this\.playersPanel\.close\(\);/.test(gameSrc));
+  ok('the menu\'s notice is the server\'s answer, not a guess that it was sent', /session\.on\('requestSent'/.test(menuSrc));
+  ok('a /password line is not kept in the chat history', /if \(!\/\^\\\/password\\b\/i\.test\(text\)\)/.test(chatSrc));
+  ok('Tab in the chat box goes on to the next match rather than adding a space',
+    /event\.key === 'Tab'\) \{\s*event\.preventDefault\(\);\s*this\.complete\(\);/.test(chatSrc));
+  const touchSrc = readFileSync(new URL('../src/ui/touch.js', import.meta.url), 'utf8');
+  ok('and typing into a box on a touch screen leaves the controls where they are',
+    /if \(event\.target\?\.closest\?\.\('input, textarea, \[contenteditable="true"\]'\)\) return;/.test(touchSrc));
 }
 
 console.log('\nwings that hold the body up, not hang off it');
@@ -3321,12 +3550,18 @@ console.log('\nThe HUD fits the window');
 
   // The touch hotbar used to run across the top, where the minimap is. On a
   // 390x844 phone the two overlapped by 133x44px, which hid rockets four and
-  // five completely — they could not be selected at all — and at 360 wide the
-  // bar ran eleven pixels off the left edge as well.
-  ok('the touch hotbar sits above the controls, not across the minimap',
-    /body\.touch-active \.hud-hotbar \{[\s\S]{0,160}bottom: 182px/.test(css));
-  ok('and five slots are sized to the window rather than to a fixed width',
-    /body\.touch-active \.hud-hotbar \.slot \{[\s\S]{0,120}width: min\(74px, calc\(\(100vw - 28px\) \/ 5\)\)/.test(css));
+  // five completely, and at 360 wide the bar ran off the left edge as well.
+  ok('the touch hotbar sits above the controls, however many rows of them there are, not across the minimap',
+    /body\.touch-active \.hud-hotbar \{[\s\S]{0,200}bottom: max\(182px, calc\(var\(--touch-rows, 2\) \* 60px \+ 30px\)\)/.test(css));
+  // Six slots now, the sword with the rockets: sized for five, the sixth ran
+  // off the edge of a phone. The count comes from the page.
+  ok('and every slot is sized to share the window, however many there are',
+    /body\.touch-active \.hud-hotbar \.slot \{[\s\S]{0,120}width: min\(74px, calc\(\(100vw - 28px\) \/ var\(--slots, 6\)\)\)/.test(css)
+    && /host\.style\.setProperty\('--slots', String\(SLOTS\.length\)\)/.test(readFileSync(new URL('../src/ui/hud.js', import.meta.url), 'utf8')));
+  // Steering by the stick there is nothing to aim, so touch hides the cross;
+  // with the blade out there is.
+  ok('and the crosshair is back whenever the sword is out',
+    /body\.touch-active:not\(\.sword-out\) \.hud-crosshair/.test(css));
 
   // A phone on its side is 390px tall and the four things wanting the left
   // edge came to 431px of content, so they overlapped instead of overflowing:
@@ -5213,9 +5448,11 @@ console.log('\nComing back puts you where you were, doing what you were doing');
   // spawn took "arrive in the sky" at its word and threw everybody into the air
   // with the wings out every single time. That is "why is it forcing me to fly".
   ok('what you were doing is saved with where you were',
-    /flying: !this\.player\.onGround \|\| this\.player\.elytraDeployed/.test(game));
+    /flying: !player\.dead && \(!player\.onGround \|\| player\.elytraDeployed\)/.test(game));
   ok('and the spawn is told it', /reason: 'spawn', quiet: true, flying: wasFlying/.test(game));
-  ok('teleportTo takes it', /async teleportTo\(lat, lon, \{ reason = 'manual', quiet = false, flying \} = \{\}\)/.test(game));
+  // And where you were sent to, when that is beside somebody in the air: the
+  // height, and the way they were facing.
+  ok('teleportTo takes it', /async teleportTo\(lat, lon, \{ reason = 'manual', quiet = false, flying, altitude, yaw \} = \{\}\)/.test(game));
 
   // Reproduce the decision on every combination that reaches it.
   const arrives = (setting, reason, standingHere, saved) => {
@@ -5776,6 +6013,11 @@ console.log('\nThe minimap is whatever shape you want it');
   ok(`the control offers four  (${values.join(', ')})`, values.length === 4);
   ok('and the stylesheet knows every one of them',
     values.every((v) => v === 'rounded' || css.includes(`data-shape='${v}'`)));
+  // Wherever it sits, the compass under it keeps clear on a narrow screen: the
+  // minimap says how far down the top-right corner it reaches.
+  ok('and on a narrow screen the compass keeps clear of it',
+    /setProperty\('--minimap-top-right'/.test(minimap)
+    && /top: calc\(var\(--minimap-top-right, 0px\) \+ 14px\)/.test(css));
 }
 
 // ---------------------------------------------------------------------------
@@ -6755,8 +6997,10 @@ console.log('\nArrival waits for ground, not for a stopwatch');
   // Held above the ground rather than at an absolute altitude: four hundred
   // metres up it makes no difference whether the ground is sea level or an
   // alp, right up until the ground is 3,656 m of ice and you are inside it.
+  // Or at the height it was sent to, beside a friend in the air - but never
+  // inside the ground either way.
   ok('the airborne hold keeps its distance from the ground',
-    /const above = ground \+ SPAWN_HEIGHT_M;/.test(game)
+    /Math\.max\(this\.holdAltitude, ground \+ 20\)\s*: ground \+ SPAWN_HEIGHT_M;/.test(game)
     && /Math\.abs\(this\._holdY - above\) > GROUND_JUMP_M/.test(game));
   ok('and a small refinement does not slide the world past you',
     /const GROUND_JUMP_M = 30;/.test(game));
@@ -6907,8 +7151,9 @@ console.log('\nA wood reads as a canopy');
     /const float CROWN_HEIGHT_M = 8\.0;/.test(shaders));
   ok('and the photograph\u2019s own crown contrast is added again in full',
     /const float CROWN_DEPTH = 1\.0;/.test(shaders));
+  // Nor anywhere but Earth: a wood is a survey of Earth, as a building is.
   ok('the scanned world is left alone, and so is Overpass',
-    /this\.woodland\.enabled = !photoreal && settings\.get\('woodlandRelief'\)/.test(wiring));
+    /this\.woodland\.enabled = surveyed && !photoreal && settings\.get\('woodlandRelief'\)/.test(wiring));
   ok('and it can be turned off', /woodlandRelief: true/.test(
     readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8')));
   // Off has to mean off. The toggle only ever governed the survey half, so
@@ -6916,8 +7161,10 @@ console.log('\nA wood reads as a canopy');
   // photograph's own canopy score went on bumping the trees with the setting
   // switched off. It governs the strength the shader multiplies by, which is
   // both halves.
+  // And off Earth there is nothing surveyed to lift, so it is off there too,
+  // as the buildings are.
   ok('and turning it off stops the photograph half as well',
-    /uWoodStrength\.value = !photoreal && settings\.get\('woodlandRelief'\) \? 1 : 0/.test(wiring)
+    /uWoodStrength\.value = surveyed && !photoreal && settings\.get\('woodlandRelief'\) \? 1 : 0/.test(wiring)
     && /float amount = wood \* uWoodStrength;/.test(shaders));
 }
 
@@ -8172,6 +8419,430 @@ console.log('\nElevation that arrives as numbers rather than pixels');
     !ELEVATION_PROVIDERS.some((p) => p.id === 'google-elevation'));
 }
 
+// ---------------------------------------------------------------------------
+console.log('\nOther worlds: NASA\u2019s maps moved into the game\u2019s tiles');
+{
+  /*
+    Every planetary source is equirectangular — a pixel is a fixed number of
+    degrees each way — and the game is a mercator quadtree. The two agree
+    across a tile and disagree down it, so the pictures and the heights are
+    fetched in their own projection and have their rows moved before anything
+    else sees them. All of it is plain arithmetic in tiles/planetary.js, and
+    all of it is checked here without a network or a canvas: the live checks
+    against NASA and USGS are in the planetary work's report, run from Node and
+    from a real browser worker.
+  */
+  const P = await import('../src/tiles/planetary.js');
+  const { createBodySources, TileSource } = await import('../src/tiles/providers.js');
+  const { BODIES } = await import('../src/geo/bodies.js');
+  const tileAt = (lat, lon, z) => {
+    const n = 2 ** z;
+    return { z, x: Math.floor(lonToNormX(lon) * n), y: Math.floor(latToNormY(lat) * n) };
+  };
+
+  // --- the picture plan -----------------------------------------------------
+  const moonPics = P.PLANETARY_SOURCES.moon.imagery[0];
+  const T = moonPics.layers[0].tileSize;
+  const levelOf = (url) => Number(url.split('/').slice(-3)[0]);
+  // The Moon's picture is Kaguya drawn over WAC, which fills Kaguya's holes;
+  // the sharp layer is the last one.
+  const top = (p) => p.layers[p.layers.length - 1];
+  ok('on the Moon, Kaguya is drawn over the complete WAC mosaic, so its holes are not black',
+    moonPics.layers.length === 2 && /LRO_WAC/.test(moonPics.layers[0].template)
+    && /Kaguya/.test(moonPics.layers[1].template) && moonPics.layers[1].optional === true
+    && /C3-MDIR/.test(P.PLANETARY_SOURCES.venus.imagery[0].layers[0].template));
+
+  // A mercator tile at zoom z is exactly as wide as an equirectangular tile at
+  // level z - 1, so its columns are that tile's columns and only rows move.
+  const jez = tileAt(18.4447, 77.4508, 9);
+  const plan = P.eqImageryPlan(moonPics, jez);
+  const layer = top(plan);
+  ok('a picture is drawn from the level one above its own zoom',
+    layer.level === 8 && layer.sources.every((s) => levelOf(s.url) === 8));
+  ok('from the same column, uncropped, with one or two rows of tiles',
+    layer.sx === 0 && near(layer.sw, T, 1e-9) && layer.sources.length >= 1 && layer.sources.length <= 2
+    && layer.sources.every((s) => s.url.endsWith(`/${jez.x}.png`)),
+    `${layer.sources.length} source tile(s), sx ${layer.sx}, sw ${layer.sw}`);
+
+  // Every output pixel is drawn from the place in the source tiles that shows
+  // its own ground: exactly its longitude across, and down to within half the
+  // tile's thinnest output row of its latitude — the rows go through an
+  // intermediate spaced evenly in latitude, smoothed, and each output row
+  // takes the one nearest its own latitude. Worked back from the source
+  // tiles' own row and column in their URLs, across zooms, at the equator and
+  // at 80 degrees, where the stretch is largest.
+  let worst = 0;
+  let checked = 0;
+  for (const [lat, lon, z] of [[0.3, 23.4, 3], [18.4, 77.4, 9], [79.9, -120.2, 6], [-79.9, 10.1, 11], [45, 179.9, 5]]) {
+    const t = tileAt(lat, lon, z);
+    const full = P.eqImageryPlan(moonPics, t);
+    const p = top(full);
+    const deg = 180 / 2 ** p.level;
+    // The stack's west and north edges, from the first source tile's own column and row.
+    const [firstRow, firstCol] = p.sources[0].url.split('/').slice(-2).map((v) => parseInt(v, 10));
+    const stackWest = -180 + firstCol * deg;
+    const stackNorth = 90 - firstRow * deg;
+    const lats = P.rowLatitudes(t, full.size);
+    let thinnest = Infinity;
+    for (let j = 0; j < full.size; j++) {
+      thinnest = Math.min(thinnest, normYToLat((t.y + j / full.size) / 2 ** z)
+        - normYToLat((t.y + (j + 1) / full.size) / 2 ** z));
+    }
+    for (let j = 0; j < full.size; j += 17) {
+      const shownLat = stackNorth - ((p.sy + ((full.rowY[j] + 0.5) / full.midH) * p.sh) / T) * deg;
+      for (let i = 0; i < full.size; i += 17) {
+        const lon = ((t.x + (i + 0.5) / full.size) / 2 ** z) * 360 - 180;
+        const shownLon = stackWest + ((p.sx + ((i + 0.5) / full.size) * p.sw) / T) * deg;
+        const off = Math.abs(shownLon - lon) > 1e-9 || Math.abs(shownLat - lats[j]) > thinnest / 2 + 1e-9;
+        worst += off ? 1 : 0;
+        checked++;
+      }
+    }
+  }
+  ok(`every output pixel is drawn from the ground under it  (${checked} checked)`, worst === 0,
+    `${worst} landed elsewhere`);
+  // And the rows are smoothed before they are moved, so a stretched picture —
+  // 1/cos of latitude, or Viking cropped under CTX — is not drawn in bands.
+  const stretched = P.eqImageryPlan(P.PLANETARY_SOURCES.mars.imagery[0], tileAt(70, 10, 13));
+  ok('a stretched picture is smoothed into a taller intermediate, never duplicated row for row',
+    stretched.midH >= stretched.size && stretched.layers[0].sh < stretched.midH / 8
+    && stretched.rowY.every((y, j, all) => j === 0 || y > all[j - 1]),
+    `Viking ${stretched.layers[0].sh.toFixed(1)} source rows into ${stretched.midH}`);
+
+  // Past the layer's last level the deepest tile is cropped instead, and the
+  // level asked for never goes past it: one level too deep is a 404 with no
+  // CORS header, which a browser reports as a CORS failure.
+  const deep = top(P.eqImageryPlan(moonPics, tileAt(0.5, 23.5, 13)));
+  ok('past the last level the deepest tile is cropped, a quarter of it at two levels on',
+    deep.level === 10 && near(deep.sw, T / 4, 1e-9) && [0, 64, 128, 192].includes(Math.round(deep.sx)),
+    `level ${deep.level}, sx ${deep.sx}, sw ${deep.sw}`);
+  let tooDeep = 0;
+  let asked = 0;
+  for (const [id, entry] of Object.entries(P.PLANETARY_SOURCES)) {
+    for (const d of entry.imagery.filter((x) => x.kind === 'eq')) {
+      for (let z = 0; z <= d.maxZoom + 3; z++) {
+        const p = P.eqImageryPlan(d, tileAt(BODIES[id].spawn.lat, BODIES[id].spawn.lon, z));
+        const active = d.layers.filter((l) => !(l.fromZoom > z));
+        p.layers.forEach((l, k) => {
+          for (const s of l.sources) {
+            asked++;
+            if (levelOf(s.url) > active[k].maxLevel) tooDeep++;
+          }
+        });
+      }
+      if (d.maxZoom !== Math.max(...d.layers.map((l) => l.maxLevel)) + 1) tooDeep++;
+    }
+  }
+  ok(`no picture is ever asked for deeper than its layer goes  (${asked} requests planned)`, tooDeep === 0);
+
+  // Mars's sharp grey CTX goes over Viking's colour only where Viking is
+  // already magnified; above that it washes Viking's craters out.
+  const marsPics = P.PLANETARY_SOURCES.mars.imagery[0];
+  const marsCoarse = P.eqImageryPlan(marsPics, tileAt(18.44, 77.45, 7));
+  const marsDeep = P.eqImageryPlan(marsPics, tileAt(18.44, 77.45, 9));
+  ok('on Mars, CTX is laid over Viking from zoom 9 and not before',
+    marsCoarse.layers.length === 1 && marsCoarse.size === 256
+    && marsDeep.layers.length === 2 && marsDeep.size === 512 && marsDeep.layers[1].blend === 'luminosity');
+
+  // The whole world at zoom 0 is both level-0 tiles side by side.
+  const world = P.eqImageryPlan(moonPics, { z: 0, x: 0, y: 0 }).layers[0];
+  ok('zoom 0 is both halves of level 0, side by side',
+    world.sources.length === 2 && world.sources[1].x === T && near(world.sw, 2 * T, 1e-9));
+
+  // Titan: every Trek layer runs 0 to 360 east while saying -180 to 180, so
+  // true longitude L is asked for as L - 180.
+  const titan = P.PLANETARY_SOURCES.titan;
+  const huygens = tileAt(-10.573, 167.665, 4);
+  const tp = P.eqImageryPlan(titan.imagery[0], huygens).layers[0];
+  const tcol = Number(tp.sources[0].url.split('/').slice(-1)[0].split('.')[0]);
+  const deg3 = 180 / 2 ** 3;
+  ok('Titan\u2019s pictures are asked for half a turn round',
+    tcol === Math.floor((167.665 - 180 + 180) / deg3), `column ${tcol}`);
+  const titanGrid = P.arcgisGridPlan(titan.elevation, huygens, 65, { offset: -BODIES.titan.radius });
+  ok('and so is its relief',
+    titanGrid.west < 167.665 - 180 && titanGrid.east > 167.665 - 180 && titanGrid.lonOffset === -180);
+
+  // The map server: one box, the tile's own, with the rows then moved.
+  const pluto = P.eqImageryPlan(P.PLANETARY_SOURCES.pluto.imagery[0], tileAt(20, 175, 5));
+  const box = new URL(pluto.layers[0].sources[0].url).searchParams.get('bbox').split(',').map(Number);
+  ok('a map-server picture asks for exactly the tile\u2019s box',
+    near(box[0], pluto.west, 1e-6) && near(box[1], pluto.south, 1e-6)
+    && near(box[2], pluto.east, 1e-6) && near(box[3], pluto.north, 1e-6));
+  const rowsDown = pluto.rowY.every((y, j, all) => j === 0 || y >= all[j - 1]);
+  ok('and its rows are moved, never reordered', rowsDown && pluto.rowY[0] < pluto.rowY[255]
+    && Number(new URL(pluto.layers[0].sources[0].url).searchParams.get('height')) === pluto.midH);
+
+  // --- the relief plan --------------------------------------------------------
+  const lola = P.PLANETARY_SOURCES.moon.elevation;
+  const g = P.arcgisGridPlan(lola, tileAt(0.674, 23.473, 10), 65, {});
+  const gb = P.mercatorBounds(g.tile);
+  const dx = (g.east - g.west) / g.width;
+  const dy = (g.north - g.south) / g.height;
+  ok('the box is grown half a pixel so the samples sit on the tile\u2019s corners',
+    near(g.west + dx / 2, gb.west, 1e-9) && near(g.east - dx / 2, gb.east, 1e-9)
+    && near(g.north - dy / 2, gb.north, 1e-9) && near(g.south + dy / 2, gb.south, 1e-9));
+  ok('with at least as many rows as the terrain has, never fewer', g.height >= 65 && g.width === 65,
+    `${g.width} by ${g.height}`);
+  ok('and the request is raw Float32 with the box taken as given',
+    /format=bsq/.test(g.url) && /pixelType=F32/.test(g.url) && /adjustAspectRatio=false/.test(g.url)
+    && /bboxSR=4326/.test(g.url));
+  const big = P.arcgisGridPlan(lola, tileAt(0.674, 23.473, 5), 65, {});
+  ok('a wide box goes to the service with overviews, a small one to the sharp one',
+    big.url.includes('128ppd_v04') && g.url.includes('256ppd_v06'));
+  let crossed = 0;
+  let boxes = 0;
+  for (const d of [lola, titan.elevation]) {
+    for (const z of [3, 4, 6, 9]) {
+      const n = 2 ** z;
+      for (const x of [0, 1, n / 2 - 1, n / 2, n - 1]) {
+        const b = P.arcgisGridPlan(d, { z, x, y: n / 2 }, 65, {});
+        boxes++;
+        if (b.west < -180 - 1e-9 || b.east > 180 + 1e-9) crossed++;
+      }
+    }
+  }
+  ok(`no box ever crosses the antimeridian  (${boxes} boxes, Titan\u2019s shifted ones included)`, crossed === 0);
+
+  // A synthetic answer in the server's exact layout: floats little-endian,
+  // row 0 north, then one validity bit per pixel, most significant first.
+  const bsq = (w, h, valueAt, validAt) => {
+    const n = w * h;
+    const buf = new ArrayBuffer(P.arcgisExpectedBytes(w, h));
+    const view = new DataView(buf);
+    for (let i = 0; i < n; i++) {
+      const ok2 = validAt(i % w, Math.floor(i / w));
+      view.setFloat32(i * 4, ok2 ? valueAt(i % w, Math.floor(i / w)) : -3.4028234663852886e38, true);
+      if (ok2) view.setUint8(n * 4 + (i >> 3), view.getUint8(n * 4 + (i >> 3)) | (0x80 >> (i & 7)));
+    }
+    return buf;
+  };
+  ok('the answer is exactly the floats and one bit each, as measured',
+    P.arcgisExpectedBytes(64, 64) === 16896 && P.arcgisExpectedBytes(65, 65) === 17429
+    && P.arcgisExpectedBytes(1, 1) === 5);
+  const decoded = P.decodeArcgisF32(bsq(5, 3, (x, y) => y * 10 + x, (x) => x !== 2), 5, 3);
+  ok('values are read row by row from the north-west', decoded.values[0] === 0 && decoded.values[14] === 24);
+  ok('and a cleared bit marks a cell that is not ground',
+    decoded.valid[2] === 0 && decoded.valid[7] === 0 && decoded.valid[3] === 1);
+  let refusedHtml = null;
+  try {
+    P.decodeArcgisF32(new TextEncoder().encode('<html>Error exporting image</html>').buffer, 5, 3);
+  } catch (err) { refusedHtml = err; }
+  ok('an error page in place of the floats is refused, and marked worth retrying',
+    refusedHtml?.transient === true);
+
+  ok('a height above the body\u2019s own sphere is used as it is', P.heightOffset(lola, BODIES.moon.radius) === 0);
+  ok('Vesta\u2019s and Titan\u2019s are distances from the centre, so the radius comes off',
+    P.heightOffset(P.PLANETARY_SOURCES.vesta.elevation, BODIES.vesta.radius) === -262700
+    && P.heightOffset(titan.elevation, BODIES.titan.radius) === -2574730);
+  ok('Io\u2019s sphere is 110 m smaller than the game\u2019s, and the difference goes back',
+    P.heightOffset(P.PLANETARY_SOURCES.io.elevation, BODIES.io.radius) === -110);
+
+  const values = Float32Array.from([10, 20, 30, 99999, 50]);
+  const valid = Uint8Array.from([1, 0, 1, 1, 1]);
+  const real = P.applyHeightTransform(values, valid, { offset: -5, reach: [0, 1000] });
+  ok('the datum comes off, and a value past the body\u2019s range is not ground',
+    real === 3 && values[0] === 5 && valid[3] === 0 && values[1] === 20);
+  P.fillInvalid(values, valid, 5, 1, 'neighbours');
+  ok('a hole between measurements is filled from both sides', near(values[1], 15, 1e-6) && near(values[3], 35, 1e-6),
+    `${values[1]}, ${values[3]}`);
+  const flat = Float32Array.from([7, 7, 7]);
+  P.fillInvalid(flat, Uint8Array.from([1, 0, 1]), 3, 1, 'datum');
+  ok('where the map has half a world missing, the hole is flat at the datum', flat[1] === 0);
+
+  // Rows evenly spaced in latitude, moved to the terrain's mercator rows: a
+  // grid whose value is its own latitude must read back the mercator row's
+  // latitude exactly, which is the whole of the remap.
+  const remapTile = tileAt(70, 10, 6);
+  const rg = P.arcgisGridPlan(lola, remapTile, 65, {});
+  const latGrid = new Float32Array(rg.width * rg.height);
+  const lonGrid = new Float32Array(rg.width * rg.height);
+  for (let y = 0; y < rg.height; y++) {
+    for (let x = 0; x < rg.width; x++) {
+      latGrid[y * rg.width + x] = rg.north - (y + 0.5) * ((rg.north - rg.south) / rg.height);
+      lonGrid[y * rg.width + x] = rg.west + (x + 0.5) * ((rg.east - rg.west) / rg.width);
+    }
+  }
+  const latOut = P.sampleToMercator(latGrid, rg, 65);
+  const lonOut = P.sampleToMercator(lonGrid, rg, 65);
+  const lats = P.rowLatitudes(rg.tile, 65, true);
+  const rb = P.mercatorBounds(rg.tile);
+  let latErr = 0;
+  let lonErr = 0;
+  for (let j = 0; j < 65; j++) {
+    for (let i = 0; i < 65; i++) {
+      latErr = Math.max(latErr, Math.abs(latOut[j * 65 + i] - lats[j]));
+      lonErr = Math.max(lonErr, Math.abs(lonOut[j * 65 + i] - (rb.west + ((rb.east - rb.west) * i) / 64)));
+    }
+  }
+  ok('latitude-spaced rows land on the terrain\u2019s mercator rows', latErr < 1e-4,
+    `worst ${latErr.toExponential(1)} degrees at 70\u00b0N`);
+  ok('and the columns on its corners', lonErr < 1e-4, `worst ${lonErr.toExponential(1)} degrees`);
+  ok('the first and last rows are the tile\u2019s own edges, so neighbours share them',
+    near(latOut[0], rb.north, 1e-4) && near(latOut[64 * 65], rb.south, 1e-4));
+
+  // End to end, from bytes: a datum taken off and a hole filled.
+  const vestaGrid = P.arcgisGridPlan(P.PLANETARY_SOURCES.vesta.elevation, tileAt(8.98, -20.45, 7), 65,
+    { offset: -262700, reach: BODIES.vesta.reach });
+  const vestaBytes = bsq(vestaGrid.width, vestaGrid.height, () => 262700 + 1234, (x, y) => !(x === 30 && y === 30));
+  const vh = P.arcgisHeights(vestaBytes, vestaGrid, 65);
+  ok('a radius map becomes heights above the body, and its holes are filled',
+    vh.length === 65 * 65 && vh.every((v) => near(v, 1234, 1e-3)));
+
+  // --- Pluto and Charon, read out of the GeoTIFF by rows -----------------------
+  const plutoDem = P.PLANETARY_SOURCES.pluto.elevation;
+  const rowsPlan = P.tiffRowsPlan(plutoDem, tileAt(20, 175, 9), 65, {});
+  ok('a deep tile reads one range per row, each the tile\u2019s columns',
+    rowsPlan.ranges.length === rowsPlan.rows.length && rowsPlan.ranges.length <= 66
+    && rowsPlan.ranges.every(([a, b]) => b - a + 1 === (rowsPlan.c1 - rowsPlan.c0 + 1) * 2),
+    `${rowsPlan.ranges.length} reads`);
+  const coarsePlan = P.tiffRowsPlan(plutoDem, tileAt(20, 175, 4), 65, {});
+  ok('a coarse one reads two rows a sample, and never more than 130',
+    coarsePlan.ranges.length <= 130 && coarsePlan.sampleRows.every((r) => r[2] === 0.5),
+    `${coarsePlan.ranges.length} reads`);
+  // The seam: Pluto's file starts at 0 east, which is a tile edge. The tile
+  // ending there must read the last column of the file, not wrap to the first.
+  const seam = P.tiffRowsPlan(plutoDem, { z: 9, x: 255, y: 200 }, 65, {});
+  const colBuffers = seam.ranges.map(([a, b]) => {
+    const buf = new ArrayBuffer(b - a + 1);
+    const view = new DataView(buf);
+    for (let c = 0; c <= seam.c1 - seam.c0; c++) view.setInt16(c * 2, Math.round((seam.c0 + c) / 10), true);
+    return buf;
+  });
+  const seamHeights = P.tiffRowsHeights(colBuffers, seam, 65);
+  ok('the tile ending at Pluto\u2019s 0\u00b0 seam reads the file\u2019s last column there',
+    seamHeights[64] > seamHeights[0] && seamHeights[64] > (plutoDem.width - 80) / 10,
+    `east edge reads column ${Math.round(seamHeights[64] * 10)} of ${plutoDem.width}`);
+  const holes = P.tiffRowsHeights(seam.ranges.map(([a, b]) => {
+    const buf = new ArrayBuffer(b - a + 1);
+    const view = new DataView(buf);
+    for (let c = 0; c < (b - a + 1) / 2; c++) view.setInt16(c * 2, -32768, true);
+    return buf;
+  }), seam, 65);
+  ok('ground New Horizons never saw in stereo is flat', holes.every((v) => v === 0));
+
+  // --- the sources the game is handed ----------------------------------------
+  const ids = ['moon', 'mars', 'mercury', 'venus', 'ceres', 'vesta', 'io', 'europa', 'ganymede',
+    'callisto', 'titan', 'enceladus', 'pluto', 'charon'];
+  const sets = ids.map((id) => [id, createBodySources(id, {})]);
+  ok(`every world has its own sources  (${ids.length})`,
+    sets.every(([, s]) => s && s.imagery instanceof TileSource && s.imagery.decode === 'eq'
+      && s.streetFallback === null && typeof s.attribution === 'string' && s.attribution.length > 20));
+  ok('Europa, Ganymede and Callisto are flat, because nobody has measured them',
+    sets.filter(([, s]) => s.elevation === null).map(([id]) => id).join() === 'europa,ganymede,callisto');
+  ok('and the list of worlds with relief says the same',
+    P.BODIES_WITH_ELEVATION.length === 11 && !P.BODIES_WITH_ELEVATION.includes('europa'));
+  ok('Earth is not one of them', createBodySources('earth', {}) === null);
+  const moonSet = sets[0][1];
+  const job = moonSet.imagery.jobFor(tileAt(0.674, 23.473, 9));
+  ok('a planetary picture job carries its plan and skips the woodland measure',
+    job.eq?.layers?.length === 2 && job.canopy === false);
+  ok('and the plan survives being posted to a worker', JSON.stringify(structuredClone(job.eq)) === JSON.stringify(job.eq));
+  const vestaJob = sets[5][1].elevation.jobFor(tileAt(8.98, -20.45, 8), 65);
+  ok('a relief job carries the datum and the body\u2019s range, worked out on the page',
+    vestaJob.grid.offset === -BODIES.vesta.radius && vestaJob.grid.reach.join() === BODIES.vesta.reach.join());
+  ok('and every source still answers urlFor with a string',
+    sets.every(([id, s]) => [s.imagery, ...s.standbys, s.elevation].filter(Boolean).every((src) => {
+      const t = tileAt(BODIES[id].spawn.lat, BODIES[id].spawn.lon, Math.min(src.maxZoom, 9));
+      return typeof src.urlFor(t) === 'string';
+    })));
+  ok('an Earth provider\u2019s job is exactly what it was', new TileSource({ id: 'x', kind: 'xyz', template: 'a/{z}/{x}/{y}' }, {}).jobFor({ z: 3, x: 1, y: 1 }) === null);
+
+  // A fault is asked again; an answer is not.
+  let tries = 0;
+  const flaky = await P.withRetries(async () => {
+    tries++;
+    if (tries < 3) { const e = new Error('502'); e.transient = true; throw e; }
+    return 'arrived';
+  }, null, [0, 0]);
+  ok('a fault is retried until it clears', flaky === 'arrived' && tries === 3);
+  let told = 0;
+  try {
+    await P.withRetries(async () => { told++; throw P.refusal(404); }, null, [0, 0]);
+  } catch (err) { told += err.noImageryHere ? 10 : 0; }
+  ok('and "nothing here" is believed the first time', told === 11);
+  ok('a refused status is sorted the way the worker sorts it',
+    P.refusal(502).transient === true && P.refusal(404).noImageryHere === true && !P.refusal(400).transient);
+
+  // Composition, with a stand-in canvas: an optional layer that has a gap is
+  // left out, anything else failing is the tile failing.
+  const draws = [];
+  const fakeCanvas = (w, h) => ({ w, h, getContext: () => ({
+    drawImage: (...a) => draws.push(a.length), globalCompositeOperation: 'source-over',
+  }) });
+  const marsPlan = P.eqImageryPlan(P.PLANETARY_SOURCES.mars.imagery[0], tileAt(18.44, 77.45, 10));
+  const gap = (url) => (url.includes('astro.arcgis.com')
+    ? Promise.reject(Object.assign(new Error('HTTP 404'), { noImageryHere: true }))
+    : Promise.resolve({ width: 256, height: 256, close() {} }));
+  const composed = await P.composeEqImage(marsPlan, gap, fakeCanvas);
+  ok('CTX missing over a square leaves Viking\u2019s colour, not a hole', composed.w === 512);
+  let lost = null;
+  try {
+    await P.composeEqImage(marsPlan, (url) => (url.includes('trek.nasa.gov')
+      ? Promise.reject(Object.assign(new Error('HTTP 502'), { transient: true }))
+      : Promise.resolve({ width: 512, height: 512, close() {} })), fakeCanvas);
+  } catch (err) { lost = err; }
+  ok('but the colour layer failing is the tile failing, as a fault', lost?.transient === true);
+  const moonDeepPlan = P.eqImageryPlan(moonPics, tileAt(0.674, 23.473, 11));
+  const baseless = await P.composeEqImage(moonDeepPlan, (url) => (url.includes('LRO_WAC')
+    ? Promise.reject(Object.assign(new Error('HTTP 404'), { noImageryHere: true }))
+    : Promise.resolve({ width: 256, height: 256, close() {} })), fakeCanvas);
+  ok('and a base map with nothing here does not throw away the picture drawn over it', baseless.w === 256);
+
+  // The map server answers ground its mosaic does not cover with a good JPEG
+  // of one flat colour — measured at 85°S on the Moon: 692 bytes, every
+  // pixel 0. That is "nothing here", like Kaguya's blank file, not ground.
+  const px = (r, gr, b, n = 4) => Uint8ClampedArray.from({ length: n * 4 }, (_, i) => [r, gr, b, 255][i % 4]);
+  ok('a picture of nothing but the server’s black or white fill is no picture',
+    P.isFillColour(px(0, 0, 0)) && P.isFillColour(px(255, 255, 255)) && P.isFillColour(px(1, 0, 2))
+    && !P.isFillColour(px(72, 72, 72)) && !P.isFillColour(Uint8ClampedArray.from([0, 0, 0, 255, 40, 40, 40, 255])));
+  const fillCanvas = (w, h) => ({ w, h, getContext: () => ({
+    drawImage() {},
+    globalCompositeOperation: 'source-over',
+    getImageData: (x, y, gw, gh) => ({ data: new Uint8ClampedArray(gw * gh * 4) }),
+  }) });
+  let filled = null;
+  try {
+    await P.composeEqImage(pluto, () => Promise.resolve({ width: 256, height: pluto.midH, close() {} }), fillCanvas);
+  } catch (err) { filled = err; }
+  ok('so a box that comes back as fill moves the square on, rather than drawing a black one',
+    filled?.noImageryHere === true);
+
+  // Europa, Ganymede and Callisto have no elevation source at all. Their
+  // ground is flat and that is the whole answer — not a gap still loading,
+  // which is what "no source" means on Earth and what the arrival hold waits
+  // out.
+  const { ElevationField } = await import('../src/tiles/elevation.js');
+  const flatField = new ElevationField({ postMessage() {}, addEventListener() {} });
+  flatField.setSource(null, { flat: true });
+  flatField.ensureAround(0.3, 0.4, 10, 1);
+  ok('a world nobody has measured is flat and known to be, so nothing waits on it',
+    flatField.hasDataAt(0.3, 0.4) && flatField.hasData(0.3, 0.4) && flatField.zoomAt(0.3, 0.4) === flatField.maxZoom
+    && flatField.sampleNorm(0.3, 0.4) === 0 && flatField.hasRelief);
+  ok('and nothing is queued for a source that does not exist', flatField.queue.length === 0 && flatField.tiles.size === 0);
+  const unsetField = new ElevationField({ postMessage() {}, addEventListener() {} });
+  unsetField.setSource(null);
+  ok('while no source without that still means nothing has arrived yet', !unsetField.hasDataAt(0.3, 0.4));
+
+  // --- where it is wired in -----------------------------------------------------
+  const jobsSrc = readFileSync(new URL('../src/tiles/tileJobs.js', import.meta.url), 'utf8');
+  const planetSrc = readFileSync(new URL('../src/tiles/planetary.js', import.meta.url), 'utf8');
+  ok('the worker decides nothing about which world it is on',
+    !/geo\/bodies\.js|core\/boot\.js/.test(jobsSrc) && !/geo\/bodies\.js|core\/boot\.js/.test(planetSrc));
+  const planetBranch = jobsSrc.slice(jobsSrc.indexOf("msg.decode === 'arcgis-f32' || msg.decode === 'tiff-rows'"),
+    jobsSrc.indexOf("msg.decode === 'bing-elevation'"));
+  ok('and Earth\u2019s despike and Earth\u2019s height limits are not run on another world',
+    planetBranch.length > 0 && !/despike|fillImpossible|decodeHeights/.test(planetBranch.replace(/\/\*[\s\S]*?\*\//g, '')));
+  ok('a planetary picture is drawn in the worker without the canopy measure',
+    /if \(msg\.eq\)/.test(jobsSrc) && /msg\.canopy === false/.test(jobsSrc));
+  ok('one controller per job, so cancelling stops every request in it', /function jobSignal\(jobKey\)/.test(jobsSrc));
+  const streamerSrc = readFileSync(new URL('../src/tiles/streamer.js', import.meta.url), 'utf8');
+  const elevationSrc = readFileSync(new URL('../src/tiles/elevation.js', import.meta.url), 'utf8');
+  ok('the streamer and the elevation field post the plan with the job',
+    /source\.jobFor\?\.\(tile\)/.test(streamerSrc) && /this\.source\.jobFor\?\.\(entry\.tile, GRID\)/.test(elevationSrc));
+  const mapSrc = readFileSync(new URL('../src/ui/mapTiles.js', import.meta.url), 'utf8');
+  ok('and the flat maps draw the same plan with the same code', /composeEqImage\(plan/.test(mapSrc));
+}
+
 console.log('\nDive and zoom: what a pull-up is worth');
 {
   const look = (pitch) => ({ x: 0, y: Math.sin(pitch), z: -Math.cos(pitch) });
@@ -8204,7 +8875,7 @@ console.log('\nDive and zoom: what a pull-up is worth');
   {
     const controller = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');
     ok('and the controller has exactly one wing to call',
-      /stepGlide\(player\.velocity, this\.look, player\.pitch\)/.test(controller) &&
+      /stepGlide\(player\.velocity, this\.look, player\.pitch, this\.env\)/.test(controller) &&
       !/glideModel/.test(controller));
   }
 }
@@ -10679,6 +11350,488 @@ console.log('\nEvery hand-written shader writes depth on the same scale');
 }
 
 // ---------------------------------------------------------------------------
+console.log('\nother worlds: the sun where the orbit puts it, and the stars');
+{
+  // The sun is where the world's own orbit puts it and the sky turns the way
+  // the world does (src/geo/ephemeris.js: JPL's elements, the IAU's poles and
+  // spins). Checked against what anyone can look up: the Moon's phases are the
+  // time of day on its near side, Earth stands still in its sky, and the two
+  // stars everybody knows are where they belong.
+  const { skyFrame } = await import('../src/geo/ephemeris.js');
+  const { STARS_BASE64, STAR_COUNT, MAG_MIN, MAG_STEP } = await import('../src/world/starCatalogue.js');
+  const starsSrc = readFileSync(new URL('../src/world/stars.js', import.meta.url), 'utf8');
+  const deg = 180 / Math.PI;
+  const { BODIES } = await import('../src/geo/bodies.js');
+  // The phases of January 2024, from the almanac. The middle of the near side
+  // faces Earth, so a full moon is noon there and a new moon midnight, and the
+  // first quarter is sunrise.
+  const full = skyFrame(BODIES.moon, new Date('2024-01-25T17:54:00Z'), 0, 0);
+  ok(`full moon is noon in the middle of the near side  (${full.hour.toFixed(2)} h)`, Math.abs(full.hour - 12) < 0.5);
+  const fresh = skyFrame(BODIES.moon, new Date('2024-01-11T11:57:00Z'), 0, 0);
+  ok(`and new moon is midnight there  (${fresh.hour.toFixed(2)} h)`, Math.min(fresh.hour, 24 - fresh.hour) < 0.5);
+  const quarter = skyFrame(BODIES.moon, new Date('2024-01-18T03:53:00Z'), 0, 0);
+  ok(`first quarter is sunrise  (${quarter.hour.toFixed(2)} h)`, Math.abs(quarter.hour - 6) < 0.5);
+  // Earth does not move in the Moon's sky. From Tranquility Base, 23.5 degrees
+  // east of the middle of the near side and barely north of it, it stands
+  // 90 - 23.5 = 66.5 degrees up, over to the west.
+  const base = skyFrame(BODIES.moon, new Date(), BODIES.moon.spawn.lat, BODIES.moon.spawn.lon);
+  const up = Math.asin(base.parent.y) * deg;
+  ok('Earth hangs 66.5 degrees up over Tranquility Base, in the west',
+    Math.abs(up - 66.5) < 1 && base.parent.x < 0);
+  // A star from its right ascension and declination, through the frame, to
+  // altitude and azimuth in degrees (azimuth clockwise from north).
+  const place = ([ra, dec], frame) => {
+    const r = ra / deg, d = dec / deg;
+    const v = [Math.cos(d) * Math.cos(r), Math.cos(d) * Math.sin(r), Math.sin(d)];
+    const m = frame.toScene;
+    const x = m[0] * v[0] + m[1] * v[1] + m[2] * v[2];
+    const y = m[3] * v[0] + m[4] * v[1] + m[5] * v[2];
+    const z = m[6] * v[0] + m[7] * v[1] + m[8] * v[2];
+    return [Math.asin(y) * deg, (Math.atan2(x, -z) * deg + 360) % 360];
+  };
+  // J2000 places from the Yale catalogue the stars are drawn from.
+  const polaris = [37.95, 89.264];
+  const sirius = [101.287, -16.716];
+  const p = place(polaris, skyFrame(BODIES.earth, new Date('2024-06-21T22:00:00Z'), 51.5, 0));
+  ok(`Polaris from London stands at its latitude, due north  (${p[0].toFixed(1)}, ${p[1].toFixed(1)})`,
+    Math.abs(p[0] - 51.5) < 1 && Math.min(p[1], 360 - p[1]) < 2);
+  const s = place(sirius, skyFrame(BODIES.earth, new Date('2024-01-01T00:00:00Z'), 51.5, 0));
+  ok(`Sirius culminates in the south at midnight on New Year  (${s[0].toFixed(1)}, ${s[1].toFixed(1)})`,
+    Math.abs(s[0] - (90 - 51.5 - 16.7)) < 1.5 && Math.abs(s[1] - 180) < 5);
+  // The time-of-day setting turns the world under the sun rather than the sun
+  // round the sky: it is that hour where you stand, on any world.
+  const mars = skyFrame(BODIES.mars, new Date(), 18.44, 77.45, 10.5);
+  ok('the time-of-day setting means the local hour on Mars', Math.abs(mars.hour - 10.5) < 1e-6);
+  const venus = skyFrame(BODIES.venus, new Date(), 0, 0, 9);
+  const moon = skyFrame(BODIES.moon, new Date(), 0, 0, 9);
+  ok('on Venus the morning sun is in the west, on the Moon in the east', venus.sun.x < 0 && moon.sun.x > 0);
+  ok('and every world but Earth has a pole, a spin and an orbit to be worked out from',
+    Object.values(BODIES).every((b) => Array.isArray(b.pole) && Array.isArray(b.spin) && typeof b.orbit === 'string'));
+  // The catalogue: six bytes a star, brightest first.
+  const text = atob(STARS_BASE64);
+  ok(`the catalogue ships every star to magnitude 5.5  (${STAR_COUNT})`, text.length === STAR_COUNT * 6 && STAR_COUNT > 2800);
+  const firstRa = (((text.charCodeAt(0) << 8) | text.charCodeAt(1)) / 65535) * 360;
+  const firstMag = MAG_MIN + text.charCodeAt(4) * MAG_STEP;
+  ok(`brightest first, and the brightest is Sirius  (RA ${firstRa.toFixed(1)}, mag ${firstMag.toFixed(2)})`,
+    Math.abs(firstRa - 101.3) < 0.2 && Math.abs(firstMag + 1.46) < 0.05);
+  // Added over the dome, not marked transparent: three draws those last of all.
+  ok('the stars stay out of the transparent pass, so the ground covers them',
+    /transparent: false,/.test(starsSrc) && /renderOrder = -999/.test(starsSrc));
+}
+
+console.log('\nother worlds: gravity and air');
+{
+  const { BODIES, aeroFactor, gravityRatio } = await import('../src/geo/bodies.js');
+  const env = (id) => ({ gravity: gravityRatio(BODIES[id]), air: aeroFactor(BODIES[id]) });
+  ok('Earth is one and one, so the flight model is untouched there',
+    env('earth').gravity === 1 && env('earth').air === 1);
+  // A level glide for twenty seconds, from 30 m/s.
+  const level = (e, ticks = 400) => {
+    const v = { x: 0, y: 0, z: -30 };
+    const look = { x: 0, y: 0, z: -1 };
+    for (let t = 0; t < ticks; t++) stepGlide(v, look, 0, e);
+    return { speed: Math.hypot(v.x, v.z), sink: -v.y, v };
+  };
+  const earth = level(env('earth'));
+  ok(`Earth's glide is still Minecraft's: 30 m/s for 3 m/s of sink  (${earth.speed.toFixed(1)}, ${earth.sink.toFixed(2)})`,
+    Math.abs(earth.speed - 30) < 1 && Math.abs(earth.sink - 3) < 0.1);
+  const moon = level(env('moon')).v;
+  ok(`on the Moon the wings do nothing: speed is kept exactly and the fall never slows  (${(-moon.z).toFixed(2)}, ${(-moon.y).toFixed(1)})`,
+    Math.abs(moon.z + 30) < 1e-9 && moon.x === 0);
+  const expected = 0.08 * env('moon').gravity * 400 * 20;
+  ok('and the fall is exactly the Moon’s gravity, tick for tick', Math.abs(-moon.y - expected) < 1e-6);
+  const titan = level(env('titan'));
+  ok(`Titan glides as flat as Earth and sinks a tenth as fast  (${(titan.speed / titan.sink).toFixed(1)} : 1 at ${titan.sink.toFixed(2)} m/s)`,
+    Math.abs(titan.speed / titan.sink - earth.speed / earth.sink) < 1 && titan.sink < earth.sink / 5);
+  // The controller walks and falls by the same numbers the glide uses, so a
+  // fall off a cliff on the Moon is the Moon's fall too.
+  const controller = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');
+  ok('walking and falling use the same gravity and air',
+    /GRAVITY \* this\.env\.gravity \* step/.test(controller)
+    && /Math\.pow\(1 - \(1 - FALL_DRAG_PER_TICK\) \* this\.env\.air, step \/ TICK\)/.test(controller));
+}
+
+console.log('\nother worlds: nothing of Earth’s comes along');
+{
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  const terrain = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  const shaders = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
+  ok('only Earth has a sea level to clamp the ground to', /const ground = ON_EARTH \? Math\.max\(0, sampled\) : sampled;/.test(game));
+  ok('and nowhere else is deep enough to swim in', /if \(!BODY\.water\) return Infinity;/.test(terrain));
+  ok('the ground is only ever shaded as water on Earth', /wet \*= \$\{ON_EARTH \? '1\.0' : '0\.0'\};/.test(shaders));
+  // Every service that only knows about Earth is only asked on Earth.
+  for (const [what, guard] of [
+    ['the weather service', /if \(ON_EARTH\) \{\s*observedWeather\.fetch\(/],
+    ['photogrammetry', /if \(ON_EARTH && settings\.get\('world3d'\) !== 'off'/],
+    ['buildings, woods and street photographs', /const surveyed = ON_EARTH;/],
+    ['the sea floor', /this\.seaFloor\.mesh\.visible = ON_EARTH;/],
+    ['street addresses', /this\.address = ON_EARTH\s*\? geocoder\.lookup\(/],
+  ]) ok(`${what} stay on Earth`, guard.test(game));
+}
+
+console.log('\nother worlds: the names on them');
+{
+  const { describePlace, featuresOn, randomFeature, searchFeatures } = await import('../src/geo/gazetteer.js');
+  const { BODIES } = await import('../src/geo/bodies.js');
+  ok('Tranquility Base is Statio Tranquillitatis', describePlace('moon', 0.67416, 23.47232)?.label === 'Statio Tranquillitatis');
+  ok('Perseverance landed in Jezero crater', describePlace('mars', 18.4447, 77.4508)?.label === 'Jezero crater');
+  ok('a crater on a mare is the crater, not the mare', describePlace('moon', 25.77, -20.99)?.label === 'Lambert crater');
+  ok('the map search finds Olympus Mons', searchFeatures('mars', 'olympus mons')[0]?.label === 'Olympus Mons');
+  ok('and Tycho', searchFeatures('moon', 'tycho')[0]?.label === 'Tycho crater');
+  const unnamed = Object.values(BODIES).filter((b) => b.id !== 'earth' && !describePlace(b.id, b.spawn.lat, b.spawn.lon));
+  ok(`every landing site has a named place by it  (${unnamed.map((b) => b.id).join(', ') || 'all'})`, unnamed.length === 0);
+  const wide = Object.values(BODIES).filter((b) => b.id !== 'earth').every((b) => featuresOn(b.id).every((f) => [...f.name].every((ch) => ch.codePointAt(0) <= 0xff)));
+  ok('every name is drawable in any font (Latin-1)', wide);
+  let calls = 0;
+  const picked = randomFeature('moon', 5, () => (calls++, 0.5));
+  ok('a random teleport off Earth lands on a named feature', !!picked?.label && Number.isFinite(picked.lat) && calls === 1);
+}
+
+console.log('\nthe teleport menu');
+{
+  const { matchRank } = await import('../src/ui/teleportMenu.js');
+  ok('an exact name beats a prefix, a prefix beats the middle of a name',
+    matchRank('Al', 'al') < matchRank('Alex', 'al') && matchRank('Alex', 'al') < matchRank('Sal', 'al'));
+  ok('and a name without the letters is not on the list', matchRank('Bruno', 'zq') === Infinity);
+  ok('with nothing typed, everybody is', Number.isFinite(matchRank('Bruno', '  ')));
+  const menu = readFileSync(new URL('../src/ui/teleportMenu.js', import.meta.url), 'utf8');
+  ok('it sends the same commands chat does', /`\/tpa \$\{name\}`/.test(menu) && /`\/tpahere \$\{name\}`/.test(menu));
+  ok('and only an admin is offered the ones that do not ask', /this\.session\.you\?\.admin \? \[\.\.\.MODES, \.\.\.ADMIN_MODES\] : MODES/.test(menu));
+}
+
+console.log('\nthe last review: flight off Earth, relief, players from a server');
+{
+  const { BODIES, aeroFactor, gravityRatio, terminalSpeed } = await import('../src/geo/bodies.js');
+  const env = (id, limit) => ({ gravity: gravityRatio(BODIES[id]), air: aeroFactor(BODIES[id]), glideLimit: limit });
+  // Ten minutes of level glide, the fall held at terminal as the controller holds it.
+  const glide = (e, terminal, ticks = 20 * 600) => {
+    const v = { x: 0, y: 0, z: -30 };
+    const look = { x: 0, y: 0, z: -1 };
+    let top = 0;
+    for (let t = 0; t < ticks; t++) {
+      stepGlide(v, look, 0, e);
+      if (v.y < -terminal) v.y = -terminal;
+      top = Math.max(top, Math.hypot(v.x, v.z));
+    }
+    return { v, top };
+  };
+  const mars = terminalSpeed(BODIES.mars);
+  const capped = glide(env('mars', mars), mars);
+  const uncapped = glide(env('mars', Infinity), mars);
+  ok(`a long glide on Mars stops at its terminal speed  (${capped.top.toFixed(0)} m/s, ${uncapped.top.toFixed(0)} without the limit)`,
+    capped.top <= mars + 0.5 && uncapped.top > 2 * mars);
+  const a = glide(env('earth', Infinity), Infinity, 400).v;
+  const b = glide({ gravity: 1, air: 1 }, Infinity, 400).v;
+  ok('and Earth\'s glide is the same to the last bit', a.x === b.x && a.y === b.y && a.z === b.z);
+  // Titan's air holds a fall to 23.5 m/s. A rocket aimed down goes past that
+  // while it burns, and the air takes the extra back after, over a second or so.
+  const { PlayerController } = await import('../src/player/controller.js');
+  const hold = PlayerController.prototype.holdTerminal;
+  const titan = { terminal: 23.5 };
+  const diving = { velocity: { y: -71.5 }, rocketTicksLeft: 12 };
+  hold.call(titan, diving);
+  ok('a rocket aimed down through Titan\'s air goes where it is aimed', diving.velocity.y === -71.5);
+  const burnt = [diving.velocity.y];
+  diving.rocketTicksLeft = 0;
+  for (let t = 0; t < 60; t++) { hold.call(titan, diving); burnt.push(diving.velocity.y); }
+  ok(`and the air takes the extra back over a second or two  (${burnt[0].toFixed(1)} m/s, then ${burnt[60].toFixed(1)})`,
+    burnt[1] < -60 && burnt[20] < -24 && Math.abs(burnt[60] + 23.5) < 0.01);
+  const falling = { velocity: { y: -60 }, rocketTicksLeft: 0 };
+  hold.call({ terminal: 23.5 }, falling);
+  ok('while a plain fall stops at terminal at once', falling.velocity.y === -23.5);
+  const earthFall = { velocity: { y: -500 }, rocketTicksLeft: 0 };
+  hold.call({ terminal: Infinity }, earthFall);
+  ok('and Earth\'s is left to its own drag', earthFall.velocity.y === -500);
+  const controllerSource = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');
+  ok('a banked wing turns nothing in a vacuum', /const bite = Math\.min\(1, player\.horizontalSpeed \/ 28\) \* Math\.min\(1, this\.env\.air\);/.test(controllerSource));
+
+  const { tiffRowsHeights } = await import('../src/tiles/planetary.js');
+  const row = new DataView(new ArrayBuffer(10));
+  [100, 200, 9000, 400, -32768].forEach((v, i) => row.setInt16(i * 2, v, true));
+  const plan = { c0: 0, c1: 4, rows: [0], fa: 0, fb: 4, noData: -32768, offset: 0, reach: [-15000, 7500], sampleRows: Array(5).fill([0, 0, 0]) };
+  const heights = [...tiffRowsHeights([row.buffer], plan, 5)].slice(0, 5);
+  ok(`a value out of reach takes its height from its row, a hole goes to the datum  (${heights.join(', ')})`,
+    heights.join() === '100,200,300,400,0');
+  ok('Charon\'s reach covers its deepest basin and highest peak', BODIES.charon.reach[0] <= -14200 && BODIES.charon.reach[1] >= 6700);
+  ok('and Venus\'s covers Maxwell Montes', BODIES.venus.reach[1] >= 11700);
+
+  const { cleanPlayer } = await import('../src/net/remotePlayers.js');
+  const hostile = cleanPlayer({ id: '1"><img src=x onerror=alert(1)>', name: 'x', colour: 'red' });
+  const fine = cleanPlayer({ id: '7', name: 'A'.repeat(80), colour: 'red;background:url(x)', world: 'moon' });
+  ok('a player id from a server that is not a number is not drawn at all', hostile === null);
+  ok('a name is cut short and a colour that is not one is replaced',
+    fine.id === 7 && fine.name.length === 32 && fine.colour === '#9aa4b2' && fine.world === 'moon');
+}
+
+console.log('\nthe prompt check: maps, invites, discoveries');
+{
+  const { Exploration, explorationScheme } = await import('../src/ui/exploration.js');
+  const radiusAt = (circumference, lat) => {
+    const e = new Exploration({ circumference, stored: false });
+    e.visit(lat, 7.9, 3000, 1e9);
+    // At the finest squares kept there, which are coarser on small worlds and
+    // towards the poles (ExplorationScheme); level 16 everywhere before.
+    const finest = explorationScheme ? explorationScheme(circumference).finestAtLat(lat) : 16;
+    const n = [...e.cells].filter((k) => k.startsWith(`${finest}/`)).length;
+    const tile = (circumference / 2 ** finest) * Math.cos((lat * Math.PI) / 180);
+    return Math.sqrt((n * tile * tile) / Math.PI);
+  };
+  const samples = [[40075016.686, 0], [40075016.686, 46.6], [40075016.686, 70], [2 * Math.PI * 1737400, 30]]
+    .map(([c, lat]) => radiusAt(c, lat));
+  ok(`what you uncover is 2 km round you at full detail, at any latitude and on any world  (${samples.map((r) => r.toFixed(0)).join(', ')} m)`,
+    samples.every((r) => Math.abs(r - 2000) < 120));
+  const renderer = readFileSync(new URL('../src/ui/mapRenderer.js', import.meta.url), 'utf8');
+  ok('on a map that turns with you, arrows are drawn at their bearing, not turned twice',
+    /drawPlayer\(ctx, p\.x, p\.y, other\.heading,/.test(renderer) && /drawPlayer\(ctx, p\.x, p\.y, layers\.player\.heading,/.test(renderer));
+  const { ownPage } = await import('../src/ui/onlinePanel.js');
+  ok('a plain server is invited to by its own page', ownPage('ws://192.168.1.20:8080/ws') === 'http://192.168.1.20:8080/');
+  ok('and a secure one likewise', ownPage('wss://play.example.com/ws') === 'https://play.example.com/');
+  const { DEFAULTS } = await import('../src/core/settings.js').catch(() => ({}));
+  const settingsSource = readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8');
+  ok('everyone\'s discoveries are on the map from the start, their paths when you want them',
+    /othersDiscoveries: true,/.test(settingsSource) && /othersTrails: false,/.test(settingsSource));
+  void DEFAULTS;
+}
+
+console.log('\nexplored squares are sized to the world');
+{
+  // They were Earth's squares on every world - level 16, 611 m on Earth's
+  // equator, 24 m on Enceladus, 53 m at 85 degrees north - so the same flight
+  // was a hundred or a thousand times the squares on a small world or near a
+  // pole, for the server, the page, the save and the shared map alike.
+  const ex = await import('../src/ui/exploration.js');
+  const { BODIES } = await import('../src/geo/bodies.js');
+  const DEG = Math.PI / 180;
+  const EARTH_SQUARE = 40075016.686 / 65536;
+  const sizes = [];
+  for (const [world, body] of Object.entries(BODIES)) {
+    const circumference = 2 * Math.PI * body.radius;
+    for (const lat of [0, 30, 59.9, 60.1, 75.4, 75.6, 82.7, 82.9, 84.5]) {
+      const e = new ex.Exploration({ circumference, stored: false });
+      e.visit(lat, 7.9, 1000, 2000);
+      let finest = 0;
+      for (const key of e.cells) finest = Math.max(finest, Number(key.slice(0, key.indexOf('/'))));
+      sizes.push({ world, lat, metres: (circumference / 2 ** finest) * Math.cos(lat * DEG) });
+    }
+  }
+  const smallest = sizes.reduce((a, b) => (b.metres < a.metres ? b : a));
+  const largest = sizes.reduce((a, b) => (b.metres > a.metres ? b : a));
+  ok(`the finest explored square is about Earth's on every world and at every latitude  (${Math.round(smallest.metres)} m on ${smallest.world} at ${smallest.lat} to ${Math.round(largest.metres)} m on ${largest.world} at ${largest.lat}; ${Math.round(EARTH_SQUARE)} m on Earth's equator)`,
+    smallest.metres > EARTH_SQUARE / 3 && largest.metres < EARTH_SQUARE * 1.5);
+
+  // And it is the same two kilometres round you: on average over spots, on
+  // every world and at every latitude, measured from the finest squares
+  // recorded, by their ground. One spot is within a square's width or so of
+  // it either way; the average is two kilometres.
+  let seed = 9;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  let worst = 0;
+  let worstSpot = 0;
+  for (const [world, body] of Object.entries(BODIES)) {
+    const circumference = 2 * Math.PI * body.radius;
+    const scheme = ex.explorationScheme?.(circumference);
+    for (const lat0 of [0, 45, 61, 76, 83]) {
+      const radii = [];
+      for (let i = 0; i < 8; i++) {
+        const e = new ex.Exploration({ circumference, stored: false });
+        const lat = lat0 + (rnd() - 0.5) * 0.4;
+        e.visit(lat, rnd() * 360 - 180, 3000, 1e9);
+        let area = 0;
+        for (const key of e.cells) {
+          const [z, , y] = key.split('/').map(Number);
+          if (scheme ? !scheme.isFinest(z, y) : z !== 16) continue;
+          const n = 2 ** z;
+          const side = (circumference / n) * Math.cos(Math.atan(Math.sinh(Math.PI * (1 - (2 * (y + 0.5)) / n))));
+          area += side * side;
+        }
+        radii.push(Math.sqrt(area / Math.PI));
+      }
+      const mean = radii.reduce((a, b) => a + b, 0) / radii.length;
+      worst = Math.max(worst, Math.abs(mean - 2000));
+      worstSpot = Math.max(worstSpot, ...radii.map((r) => Math.abs(r - 2000)));
+    }
+  }
+  ok(`and what you uncover is two kilometres round you everywhere  (averages within ${worst.toFixed(0)} m of 2,000 on every world from the equator to 83 degrees; one spot within ${worstSpot.toFixed(0)} m)`,
+    worst < 60 && worstSpot < 240);
+
+  // A save from before - the browser's own, and the file a save is exported
+  // to - is carried onto the world's squares with nothing in it lost: every
+  // old square is still explored at its own zoom, and so at every zoom.
+  const oldDiscs = (circumference, spots) => {
+    const keys = new Set();
+    for (const [lat, lon] of spots) {
+      const nx = (lon + 180) / 360;
+      const ny = 0.5 - Math.log(Math.tan(Math.PI / 4 + (lat * DEG) / 2)) / (2 * Math.PI);
+      const r = 2000 / Math.cos(lat * DEG);
+      for (const z of [8, 10, 12, 14, 16]) {
+        const n = 2 ** z;
+        const tile = circumference / n;
+        const reach = Math.ceil(r / tile);
+        const cx = Math.floor(nx * n);
+        const cy = Math.floor(ny * n);
+        for (let dy = -reach; dy <= reach; dy++) {
+          for (let dx = -reach; dx <= reach; dx++) {
+            if ((dx || dy) && Math.hypot(cx + dx + 0.5 - nx * n, cy + dy + 0.5 - ny * n) * tile > Math.max(r, tile / 2)) continue;
+            keys.add(`${z}/${(((cx + dx) % n) + n) % n}/${cy + dy}`);
+          }
+        }
+      }
+    }
+    return [...keys];
+  };
+  const { readJSON, writeJSON } = await import('../src/core/storage.js');
+  const kept = readJSON('explored', null);
+  const lostFrom = (record, keys) => keys.filter((key) => {
+    const [z, x, y] = key.split('/').map(Number);
+    return !record.isExplored(z, x, y);
+  }).length;
+  for (const [world, lat] of [['enceladus', 12], ['moon', 50], ['earth', 71]]) {
+    const circumference = 2 * Math.PI * BODIES[world].radius;
+    const spots = Array.from({ length: 25 }, (_, i) => [lat, 40 + (i * 600) / (BODIES[world].radius * Math.cos(lat * DEG)) / DEG]);
+    const oldKeys = oldDiscs(circumference, spots);
+    writeJSON('explored', ex.encodeCells(oldKeys));
+    const loaded = new ex.Exploration({ circumference, stored: true });
+    const lost = lostFrom(loaded, oldKeys);
+    loaded.save();
+    const again = new ex.Exploration({ circumference, stored: true });
+    const file = new ex.Exploration({ circumference, stored: false });
+    if (file.mergeCells) file.mergeCells(oldKeys);
+    else file.merge(oldKeys);
+    ok(`a save from before on ${BODIES[world].name} comes back on its squares with nothing lost, saved and exported alike  (${oldKeys.length} squares become ${loaded.cells.size}, ${lost} lost)`,
+      lost === 0 && loaded.cells.size < oldKeys.length / 2.5 && lostFrom(file, oldKeys) === 0
+      && [...again.cells].sort().join() === [...loaded.cells].sort().join() && !again.dirty
+      && [...file.cells].sort().join() === [...loaded.cells].sort().join());
+    // Nor drawn wider than it was: at a zoom the old save kept as well and
+    // that is not the finest here (8 to 12 on the Moon and at 71 north) its
+    // squares are the old ones, not every square a finer one touched - which
+    // drew old ground up to three times as wide zoomed out as it had been.
+    const scheme = loaded.scheme;
+    const wider = [];
+    for (const level of [8, 10, 12, 14]) {
+      if (level >= scheme.finestAtLat(lat) || !scheme.keeps(level, Math.floor(((0.5 - Math.log(Math.tan(Math.PI / 4 + (lat * DEG) / 2)) / (2 * Math.PI))) * 2 ** level))) continue;
+      const before = oldKeys.filter((key) => key.startsWith(`${level}/`)).length;
+      const after = [...loaded.cells].filter((key) => key.startsWith(`${level}/`)).length;
+      if (after !== before) wider.push(`${level}: ${before} -> ${after}`);
+    }
+    ok(`and on ${BODIES[world].name} it draws no wider than it did where the old zooms are still kept  (${wider.join(', ') || 'the same squares'})`, wider.length === 0);
+  }
+  // An old page let its oldest finest squares go to stay under MAX_ENTRIES -
+  // its own save's rule: the first level-16 squares recorded. What it kept of
+  // that ground still counts at every zoom: on Mars at 65 degrees the finest
+  // kept is 14, one of the old zooms, and 13, the map's at zoom 7, is not.
+  {
+    const circumference = 2 * Math.PI * BODIES.mars.radius;
+    const spots = Array.from({ length: 40 }, (_, i) => [65, 40 + (i * 600) / (BODIES.mars.radius * Math.cos(65 * DEG)) / DEG]);
+    const keys = oldDiscs(circumference, spots);
+    const sixteens = keys.filter((key) => key.startsWith('16/'));
+    const dropped = new Set(sixteens.slice(0, sixteens.length >> 1));
+    const trimmed = keys.filter((key) => !dropped.has(key));
+    writeJSON('explored', ex.encodeCells(trimmed));
+    const loaded = new ex.Exploration({ circumference, stored: true });
+    // What the old code called explored at every zoom: its own squares at 8,
+    // 10, 12, 14 and 16, and anything finer folded up at the zooms between.
+    let lost = 0;
+    let asked = 0;
+    for (let z = 0; z <= 16; z++) {
+      const tiles = new Set();
+      for (const key of trimmed) {
+        const [level, x, y] = key.split('/').map(Number);
+        if ([8, 10, 12, 14, 16].includes(z) ? level === z : level >= z) tiles.add(`${x >> (level - z)}/${y >> (level - z)}`);
+      }
+      for (const tile of tiles) {
+        const [x, y] = tile.split('/').map(Number);
+        asked++;
+        if (!loaded.isExplored(z, x, y)) lost++;
+      }
+    }
+    ok(`a save an old page trimmed comes back with nothing lost at any zoom, on Mars at 65 degrees  (${asked} squares asked at zooms 0 to 16, ${lost} lost)`, lost === 0 && asked > 1000);
+  }
+  // Carried once, it is a record of this version: flown on, saved and read
+  // again it comes back as it was. Carrying keeps an old square at a zoom it
+  // does not keep as it was where it is no finer than the finest - the old 8
+  // and 10 on Mars and Mercury, 8 on Charon, zooms kept nowhere there - and
+  // a record holding those was read as one from before at every read, so the
+  // ground flown since it was carried gained every coarser square any of its
+  // squares touched: drawn up to two and a half times as wide zoomed out.
+  {
+    const grew = [];
+    for (const [world, lat] of [['mars', 65], ['mercury', 70], ['charon', 65], ['callisto', 84]]) {
+      const radius = BODIES[world].radius;
+      const circumference = 2 * Math.PI * radius;
+      const along = (from, count) => Array.from({ length: count }, (_, i) => [lat, 40 + ((from + i) * 600) / (radius * Math.cos(lat * DEG)) / DEG]);
+      const record = new ex.Exploration({ circumference, stored: false });
+      record.load(ex.encodeCells(oldDiscs(circumference, along(0, 15))));
+      for (const [la, lo] of along(15, 60)) record.visit(la, lo, 1000, 2000);
+      const again = new ex.Exploration({ circumference, stored: false });
+      again.load(JSON.parse(JSON.stringify(record.encode())));
+      const was = new Set(record.cells);
+      const added = [...again.cells].filter((key) => !was.has(key)).length;
+      if (added || again.cells.size !== record.cells.size) grew.push(`${world} ${lat}: +${added}`);
+    }
+    ok(`a record carried from before, flown on and saved, comes back as it was when it is read again  (${grew.join(', ') || 'Mars, Mercury, Charon and Callisto: the same squares'})`, grew.length === 0);
+  }
+  writeJSON('explored', kept ?? []);
+
+  // Earth's figures below 60 degrees are exactly what they were: these
+  // flights are the same squares, and the same whole-Earth and land figures
+  // to the last bit, as before the squares were sized to the world.
+  const before = [
+    [46.5, 7.9, 16246, 0.000005194650273381945, 0.000018211399933094778],
+    [-33.9, 18.4, 11052, 0.000005205783143033181, 0.000013683011527694556],
+    [59.6, 10.7, 28459, 0.000004989487634591358, 0.000015065492676466388],
+    [1.3, 103.8, 7678, 0.000005200251938829053, 0.000003869006106323696],
+  ];
+  const changed = [];
+  for (const [lat0, lon0, cells, whole, land] of before) {
+    const e = new ex.Exploration({ stored: false });
+    e.coverage();
+    e.landCoverage();
+    let s = 1234;
+    const r = () => (s = (s * 1103515245 + 12345) % 2147483648) / 2147483648;
+    let lat = lat0;
+    let lon = lon0;
+    let h = 0.7;
+    for (let i = 0; i < 1500; i++) {
+      h += (r() - 0.5) * 0.3;
+      lat = Math.max(-59.95, Math.min(59.95, lat + Math.cos(h) * 0.004));
+      lon += (Math.sin(h) * 0.004) / Math.cos(lat * DEG);
+      e.visit(lat, lon, 100 + r() * 2500, 1e9);
+    }
+    const live = [e.coverage(), e.landCoverage()];
+    e.recount();
+    if (e.cells.size !== cells || e.coverage() !== whole || e.landCoverage() !== land || live[0] !== whole || live[1] !== land) changed.push(lat0);
+  }
+  ok(`Earth's whole and land figures below 60 degrees are what they were, to the last bit  (${changed.length ? `not at ${changed.join(', ')}` : `${before.length} flights`})`,
+    changed.length === 0);
+
+  // Everybody's map, and anybody else's, are held on the page as runs: a
+  // million squares of north-south tracks - the worst case for runs - is a
+  // few MB, where as a Set of names it was over fifty.
+  const { setFlagsFromString } = await import('node:v8');
+  const { runInNewContext } = await import('node:vm');
+  setFlagsFromString('--expose_gc');
+  const gc = runInNewContext('gc');
+  const heap = () => {
+    gc();
+    gc();
+    return process.memoryUsage().heapUsed;
+  };
+  const tracks = { v: 2, runs: { 16: [] } };
+  // Rows of level 16 between about 59 degrees north and 49 south, where it is the finest kept.
+  for (let row = 20000; row < 46000; row++) for (let t = 0; t < 5; t++) tracks.runs[16].push(row, 1000 + t * 5000 + (row % 3), 8);
+  const h0 = heap();
+  const everybody = new ex.Exploration({ stored: false, compact: true });
+  everybody.covered = 0;
+  everybody.landCovered = 0;
+  if (everybody.mergeCells) everybody.mergeCells(tracks);
+  else everybody.merge(ex.decodeCells(tracks));
+  const held = (heap() - h0) / 1048576;
+  const session = readFileSync(new URL('../src/net/session.js', import.meta.url), 'utf8');
+  ok(`and the page holds everybody's map as runs  (${everybody.cells.size} squares, ${held.toFixed(1)} MB)`,
+    held < 12 && everybody.cells.size === 1040000
+    && /this\.shared = new Exploration\(\{ circumference: WORLD_CIRCUMFERENCE, stored: false, compact: true \}\)/.test(session));
+}
+
 console.log('\nevery module still parses');
 {
   /*

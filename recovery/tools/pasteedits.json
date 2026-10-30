@@ -1,0 +1,223 @@
+[
+ {
+  "paste": "hosting.txt",
+  "path": "/home/user/terraglide/HOSTING.md",
+  "old": "Share the address exactly like that — `http://address:8080` — not\n`…/index.html`, which the current version does not join correctly.\n\n",
+  "new": ""
+ },
+ {
+  "paste": "hosting.txt",
+  "path": "/home/user/terraglide/HOSTING.md",
+  "old": "They are a speed bump for casual abuse, not a wall: someone determined can\ncome from many addresses, and on hosts whose proxy adds the real address to\nthe end of `X-Forwarded-For` rather than replacing the header (Cloudflare\ndocuments that it does, and many cloud proxies do the same), can put a\nmade-up address at the front, which is the entry the server reads. Caddy and\nthe nginx block above replace the header, so behind them it holds.",
+  "new": "They are a speed bump for casual abuse, not a wall: someone determined can\ncome from many addresses. What they cannot do is pick their address: a\nvisitor can start `X-Forwarded-For` with anything they like, so the server\nreads the **last** entry — the one your proxy added — never the first. Behind\nCloudflare you can name its own header instead with `proxyHeader:\n\"cf-connecting-ip\"` (or `TERRAGLIDE_PROXY_HEADER=cf-connecting-ip`); only do\nthat behind Cloudflare, because anyone can send that header to a server that\nis not."
+ },
+ {
+  "paste": "hosting.txt",
+  "path": "/home/user/terraglide/HOSTING.md",
+  "old": "| `signupsPerHour` | `5` | New accounts allowed per address per hour. Everyone behind one public address shares it — a household, a school, an office — so a class making accounts together from school needs it raised for the day (say `40`). `0` does **not** mean \"no limit\": it refuses every sign-up (with a confusing *\"try again in NaN s\"*); use `openSignups: false` to stop sign-ups and a large number such as `1000` for no practical limit. |",
+  "new": "| `signupsPerHour` | `5` | New accounts allowed per address per hour. Everyone behind one public address shares it — a household, a school, an office — so a class making accounts together from school needs it raised for the day (say `40`). `0` means no limit; to stop sign-ups altogether use `openSignups: false`. |"
+ },
+ {
+  "paste": "hosting.txt",
+  "path": "/home/user/terraglide/HOSTING.md",
+  "old": "| `trustProxy` | `false` | Read the player's address from the first entry of the `X-Forwarded-For` header (or Cloudflare's `CF-Connecting-IP` when there is no `X-Forwarded-For`). Without it, behind a tunnel or proxy every player looks like the proxy — `127.0.0.1` for a tunnel on the same machine — and they all share one set of rate limits and bans. Turn on **only** behind a tunnel or reverse proxy; directly on the internet it would let anyone claim any address. |",
+  "new": "| `trustProxy` | `false` | Read the player's address from what the proxy reports — the **last** entry of `X-Forwarded-For`, the one the proxy added, or `proxyHeader` if set. Without it, behind a tunnel or proxy every player looks like the proxy — `127.0.0.1` for a tunnel on the same machine — and they all share one set of rate limits and bans. Turn on **only** behind a tunnel or reverse proxy; directly on the internet it would let anyone claim any address. |\n| `proxyHeader` | `\"\"` | With `trustProxy` on, a header your proxy names the visitor in, which then wins over `X-Forwarded-For` — `\"cf-connecting-ip\"` behind Cloudflare. Leave it empty anywhere else: a header your proxy does not set, anyone can send. |"
+ },
+ {
+  "paste": "hosting.txt",
+  "path": "/home/user/terraglide/HOSTING.md",
+  "old": "| `TERRAGLIDE_TRUST_PROXY` | `trustProxy` | `1` for on, `0` for off. **Any value other than `0` means on** — even `false`. |",
+  "new": "| `TERRAGLIDE_TRUST_PROXY` | `trustProxy` | `1` for on, `0` for off. **Any value other than `0` means on** — even `false`. |\n| `TERRAGLIDE_PROXY_HEADER` | `proxyHeader` | e.g. `cf-connecting-ip`. |"
+ },
+ {
+  "paste": "hosting.txt",
+  "path": "/home/user/terraglide/HOSTING.md",
+  "old": "| Opening `http://HOST:8080/index.html` never connects | Use `http://HOST:8080/` — the current version does not join from the `/index.html` address. |\n",
+  "new": ""
+ },
+ {
+  "paste": "hosting.txt",
+  "path": "/home/user/terraglide/HOSTING.md",
+  "old": "| *\"Too many new accounts from here — try again in NaN s\"* | `signupsPerHour` is `0`, which refuses every sign-up. Set a number; use `openSignups: false` if you meant to close sign-ups. |\n",
+  "new": ""
+ },
+ {
+  "paste": "hosting.txt",
+  "path": "HOSTING.md",
+  "old": "from where they are: full volume within 40 m, fading to silence at 800 m, up\nto the 16 nearest at once. Only players on the same world hear each other.\n\n**How it works.** The sound goes straight from browser to browser (WebRTC).\nThe server only introduces them: it passes their connection details between\ntwo players on the same world within about 1.5 km of each other.",
+  "new": "from where they are: full volume within 40 m, fading to silence at 800 m, up\nto the 16 nearest at once. Only players on the same world hear each other —\nexcept a **party**, whose members hear each other wherever they are, on any\nworld: from where they stand when they are near, like a radio when they are\nnot (*Party voice* in Settings → Online). Party members are never the ones\ndropped to make room for a stranger.\n\n**How it works.** The sound goes straight from browser to browser (WebRTC).\nThe server only introduces them: it passes their connection details between\ntwo players on the same world within about 1.5 km of each other, or between\ntwo members of the same party anywhere."
+ },
+ {
+  "paste": "readf.txt",
+  "path": "README.md",
+  "old": "  where you have. The boundary is what you could actually see from where you\n  were, worked out from the geometric horizon at your height rather than from\n  the square you were standing in, and it is feathered so it reads as a shape\n  you flew rather than a staircase of tiles.",
+  "new": "  where you have. The boundary is what you could actually see from where you\n  were, worked out from the geometric horizon at your height rather than from\n  the square you were standing in — but never more than 2 km from you, however\n  high you climb, so the map shows where you went and not everything you could\n  see from the top of a climb — and it is feathered so it reads as a shape\n  you flew rather than a staircase of tiles."
+ },
+ {
+  "paste": "readf.txt",
+  "path": "README.md",
+  "old": "Press `K` (or **Play online** in the toolbar) and type a server's address. Every\nplayer signs up with a username and a password the first time and signs in\nafter that;",
+  "new": "Press `K` (or **Play online** in the toolbar) and press **Play on the public\nserver** — the one everybody plays on together — or type another server's\naddress. Every player signs up with a username and a password the first time\nand signs in after that;"
+ },
+ {
+  "paste": "readf.txt",
+  "path": "README.md",
+  "old": "- **What they have discovered.** In the players list (`Tab`) tick *trail* or\n  *discovered* next to anyone — or *everyone* — to draw their trail and the\n  ground they have uncovered on your maps, in their colour.",
+  "new": "- **What everybody has discovered, on one map.** Ground anyone on the server\n  has explored is uncovered on your maps too, with a faint wash over the parts\n  you have not been to yourself — on from the start (*Settings → Online →\n  Everyone's discoveries*). Paths are lines in each player's colour: tick\n  *Everyone's paths*, or *trail* / *discovered* next to anyone in the players\n  list (`Tab`) to see just theirs.\n- **Friends.** Press *Friend* next to someone in the players list, or type\n  their name in the box at the bottom of it, or `/friend add name`. You hear\n  when friends come online and go, and can let them teleport to you and pull\n  you into their party without asking (*Settings → Online*). A request sent\n  to somebody offline waits for them.\n- **Parties.** Press *Party* next to someone, or `/party invite name`: up to\n  eight of you, with a leader. A party talks on voice however far apart its\n  members are — on another world too, like a radio when they are out of\n  earshot — has its own chat (`/pc message`), its own **waypoints** (*Mark\n  here for the party* in the players list, or *Party waypoint at centre* on\n  the world map; they show on every member's maps and compass), and a tick,\n  *teleport with the party*: when the leader teleports, travels to another\n  world or presses *Gather the party*, everyone with it ticked comes along.\n  `/party leave`, `/party kick name`, `/party leader name`, `/party list`."
+ },
+ {
+  "paste": "readf.txt",
+  "path": "README.md",
+  "old": "- **No cheats.** On a server the cheat panel, freecam, size changes and pause\n  are off, speed is checked, and random teleports are chosen by the server.",
+  "new": "- **No cheats.** On a server the cheat panel, freecam, size changes and pause\n  are off; speed over the ground is checked (a surge is allowed only for as\n  long as a surge lasts); hits, damage, health, oxygen and the explored map\n  are the server's; teleports go only where the server sends you; and random\n  teleports are chosen by the server."
+ },
+ {
+  "paste": "readf.txt",
+  "path": "/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party/src/ui/help.js",
+  "old": "  ['Players \\u2014 teleport requests, trails, discoveries (online)', ['players']],",
+  "new": "  ['Players \\u2014 friends, party, teleport requests, trails, discoveries (online)', ['players']],"
+ },
+ {
+  "paste": "readf.txt",
+  "path": "/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party/src/ui/help.js",
+  "old": "  ['Accept / deny a teleport request (online)', ['acceptRequest', 'denyRequest']],",
+  "new": "  ['Accept / deny a teleport request or party invite (online)', ['acceptRequest', 'denyRequest']],"
+ },
+ {
+  "paste": "shell-log.txt",
+  "path": "/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party/.github/workflows/deploy-gh-pages.yml",
+  "old": "      - name: Build the two single-file downloads\n        run: |",
+  "new": "      # The public server everybody plays on: set the repository variable\n      # TERRAGLIDE_PUBLIC_SERVER (Settings, Secrets and variables, Actions,\n      # Variables) to its wss:// address and every published copy offers it\n      # first. Only a plain wss:// address is accepted.\n      - name: Point the game at the public server\n        env:\n          PUBLIC_SERVER: ${{ vars.TERRAGLIDE_PUBLIC_SERVER }}\n        run: |\n          if [ -n \"$PUBLIC_SERVER\" ]; then\n            [[ \"$PUBLIC_SERVER\" =~ ^wss://[A-Za-z0-9.-]+(:[0-9]+)?(/[A-Za-z0-9._/-]*)?$ ]] || { echo \"TERRAGLIDE_PUBLIC_SERVER must be a wss:// address\"; exit 1; }\n            sed -i \"s|^export const PUBLIC_SERVER = .*|export const PUBLIC_SERVER = '$PUBLIC_SERVER';|\" src/net/publicServer.js\n            grep -q \"PUBLIC_SERVER = '$PUBLIC_SERVER'\" src/net/publicServer.js\n          fi\n\n      - name: Build the two single-file downloads\n        run: |"
+ },
+ {
+  "paste": "shell-log.txt",
+  "path": "/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party/src/ui/onlinePanel.js",
+  "old": "import { BOOT, hostedServer, normaliseServer, relaunch, serverId } from '../core/boot.js';",
+  "new": "import { BOOT, hostedServer, normaliseServer, relaunch, serverId } from '../core/boot.js';\nimport { PUBLIC_SERVER } from '../net/publicServer.js';"
+ },
+ {
+  "paste": "shell-log.txt",
+  "path": "/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party/src/ui/onlinePanel.js",
+  "old": "  renderLocal() {\n    const recent = recentServers();\n    return `\n      <p class=\"online-intro\">You are playing locally: everything you explore is kept in this browser.\n        Join a server to fly with other people — your local save stays exactly as it is,\n        and nothing you do online is written into it.</p>\n      <form data-form=\"join\" class=\"online-form\">",
+  "new": "  renderLocal() {\n    const recent = recentServers();\n    const publicServer = normaliseServer(PUBLIC_SERVER);\n    return `\n      <p class=\"online-intro\">You are playing locally: everything you explore is kept in this browser.\n        Join a server to fly with other people — your local save stays exactly as it is,\n        and nothing you do online is written into it.</p>\n      ${publicServer ? `<div class=\"online-public\">\n        <button type=\"button\" class=\"primary\" data-action=\"public\">Play on the public server</button>\n        <span>Everybody's discoveries on one map, parties and friends, voice. ${escapeHtml(serverId(publicServer))}</span>\n      </div>\n      <p class=\"online-or\">or join another server</p>` : ''}\n      <form data-form=\"join\" class=\"online-form\">"
+ },
+ {
+  "paste": "shell-log.txt",
+  "path": "/tmp/claude-0/-home-user-terraglide/8985411a-491b-549e-9d82-8d44b4f321b8/scratchpad/party/src/ui/onlinePanel.js",
+  "old": "      case 'pick':\n        this.element.querySelector('input[name=server]').value = button.dataset.server;\n        break;",
+  "new": "      case 'pick':\n        this.element.querySelector('input[name=server]').value = button.dataset.server;\n        break;\n      case 'public': {\n        const server = normaliseServer(PUBLIC_SERVER);\n        if (!server) break;\n        rememberServer(server);\n        relaunch({ mode: 'online', server, reason: 'Joining the public server' });\n        break;\n      }"
+ },
+ {
+  "paste": "shell-log.txt",
+  "path": "src/net/publicServer.js",
+  "content": "/**\n * The public server: the one everybody plays on together unless they choose\n * another. The Online panel offers it first, as one button.\n *\n * Its socket address — wss://your-app.fly.dev/ws, say — once it is running;\n * see HOSTING.md, \"The public server\". The GitHub Pages build fills it in\n * from the repository variable TERRAGLIDE_PUBLIC_SERVER, so it can be set\n * without touching the code. Empty means there is none yet, and the panel\n * asks for an address instead.\n */\nexport const PUBLIC_SERVER = '';\n"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "const MAX_NOTICES = 10;",
+  "new": "const MAX_NOTICES = 10;\n/** After a no, how long before the same person may ask to be friends again. */\nconst DENIED_MS = 10 * 60 * 1000;"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "      notices: (Array.isArray(s.notices) ? s.notices.filter((n) => typeof n === 'string') : []).slice(-MAX_NOTICES),\n    };",
+  "new": "      notices: (Array.isArray(s.notices) ? s.notices.filter((n) => typeof n === 'string') : []).slice(-MAX_NOTICES),\n      // Who this player said no to, and when: they wait a while to ask again.\n      denied: Object.fromEntries(Object.entries(s.denied && typeof s.denied === 'object' ? s.denied : {})\n        .filter(([k, at]) => typeof k === 'string' && Number.isFinite(at) && Date.now() - at < DENIED_MS)\n        .slice(-MAX_PENDING)),\n    };"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "  account(name) {\n    const key = nameKey(String(name ?? ''));\n    if (!key) return null;\n    const online = this.game.findPlayer(name);\n    if (online) return online.key;\n    return this.game.accounts.get(key) ? key : null;\n  }",
+  "new": "  account(name) {\n    const key = nameKey(String(name ?? ''));\n    if (!key) return null;\n    // The account of exactly that name first. Asking who is online first\n    // took \"Ben\" to mean Benji whenever Benji was on and Ben was not - so\n    // removing Ben removed Benji.\n    if (this.game.accounts.get(key)) return key;\n    return this.game.findPlayer(name)?.key ?? null;\n  }\n\n  /** Somebody in one of your lists by name: the exact one, else the only one it begins. */\n  inList(list, name) {\n    const key = nameKey(String(name ?? ''));\n    if (!key) return null;\n    if (list.includes(key)) return key;\n    const starts = list.filter((k) => k.startsWith(key));\n    return starts.length === 1 ? starts[0] : null;\n  }"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "    if (mine.friends.includes(key)) return this.game.tell(player, `${them.name} is already your friend`, 'error');\n    // They asked first: this is the answer.\n    if (mine.incoming.includes(key)) return this.acceptFriend(player, them.name);",
+  "new": "    if (mine.friends.includes(key)) return this.game.tell(player, `${them.name} is already your friend`, 'error');\n    // They asked first: this is the answer.\n    if (mine.incoming.includes(key)) return this.acceptFriend(player, them.name);\n    // Asked already: once is a request, the twelfth is spam.\n    if (mine.outgoing.includes(key) && theirs.incoming.includes(player.key)) {\n      return this.game.tell(player, `Already asked — waiting for ${them.name} to answer`, 'error');\n    }\n    if (Date.now() - (theirs.denied[player.key] ?? -Infinity) < DENIED_MS) {\n      return this.game.tell(player, `${them.name} said no not long ago — ask again later`, 'error');\n    }"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "    const mine = this.social(player.key);\n    const key = name ? this.account(name) : mine.incoming[mine.incoming.length - 1];\n    if (!key || !mine.incoming.includes(key)) {\n      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');\n    }\n    const theirs = this.social(key);\n    mine.incoming = mine.incoming.filter((k) => k !== key);\n    theirs.outgoing = theirs.outgoing.filter((k) => k !== player.key);\n    if (mine.friends.length >= MAX_FRIENDS",
+  "new": "    const mine = this.social(player.key);\n    const key = name ? this.inList(mine.incoming, name) : mine.incoming[mine.incoming.length - 1];\n    if (!key || !mine.incoming.includes(key)) {\n      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');\n    }\n    const theirs = this.social(key);\n    mine.incoming = mine.incoming.filter((k) => k !== key);\n    theirs.outgoing = theirs.outgoing.filter((k) => k !== player.key);\n    if (mine.friends.length >= MAX_FRIENDS"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "    const online = this.game.byKey.get(key);\n    if (online) this.game.tell(online, `${player.name} accepted — you are friends`, 'friend');\n    this.sendFriends(player.key);\n    this.sendFriends(key);\n  }",
+  "new": "    const online = this.game.byKey.get(key);\n    if (online) this.game.tell(online, `${player.name} accepted — you are friends`, 'friend');\n    else {\n      // Away: told when they are back, not never.\n      theirs.notices.push(`${player.name} accepted your friend request — you are friends`);\n      this.save(key);\n    }\n    this.sendFriends(player.key);\n    this.sendFriends(key);\n  }"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "    const mine = this.social(player.key);\n    const key = name ? this.account(name) : mine.incoming[mine.incoming.length - 1];\n    if (!key || !mine.incoming.includes(key)) {\n      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');\n    }\n    mine.incoming = mine.incoming.filter((k) => k !== key);\n    const theirs = this.social(key);",
+  "new": "    const mine = this.social(player.key);\n    const key = name ? this.inList(mine.incoming, name) : mine.incoming[mine.incoming.length - 1];\n    if (!key || !mine.incoming.includes(key)) {\n      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');\n    }\n    mine.incoming = mine.incoming.filter((k) => k !== key);\n    mine.denied[key] = Date.now();\n    const theirs = this.social(key);"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "  removeFriend(player, name) {\n    const key = this.account(name);\n    const mine = this.social(player.key);",
+  "new": "  removeFriend(player, name) {\n    const mine = this.social(player.key);\n    const key = this.inList([...mine.friends, ...mine.outgoing], name);"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "    if (quiet) return;\n    for (const key of s.friends) {\n      const friend = this.game.byKey.get(key);\n      if (!friend) continue;\n      this.sendFriends(key);\n      if (this.social(key).prefs.notify) {",
+  "new": "    for (const key of s.friends) {\n      const friend = this.game.byKey.get(key);\n      if (!friend) continue;\n      // Their list says where you are now - after a trip to another world\n      // too, which is a quiet join; only the \"is online\" line waits on that.\n      this.sendFriends(key);\n      if (quiet) continue;\n      if (this.social(key).prefs.notify) {"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "const MAX_NOTICES = 10;",
+  "new": "const MAX_NOTICES = 10;\n/** After a no, how long before the same person may ask to be friends again. */\nconst DENIED_MS = 10 * 60 * 1000;"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "      notices: (Array.isArray(s.notices) ? s.notices.filter((n) => typeof n === 'string') : []).slice(-MAX_NOTICES),\n    };",
+  "new": "      notices: (Array.isArray(s.notices) ? s.notices.filter((n) => typeof n === 'string') : []).slice(-MAX_NOTICES),\n      // Who this player said no to, and when: they wait a while to ask again.\n      denied: Object.fromEntries(Object.entries(s.denied && typeof s.denied === 'object' ? s.denied : {})\n        .filter(([k, at]) => typeof k === 'string' && Number.isFinite(at) && Date.now() - at < DENIED_MS)\n        .slice(-MAX_PENDING)),\n    };"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "  account(name) {\n    const key = nameKey(String(name ?? ''));\n    if (!key) return null;\n    const online = this.game.findPlayer(name);\n    if (online) return online.key;\n    return this.game.accounts.get(key) ? key : null;\n  }",
+  "new": "  account(name) {\n    const key = nameKey(String(name ?? ''));\n    if (!key) return null;\n    // The account of exactly that name first. Asking who is online first\n    // took \"Ben\" to mean Benji whenever Benji was on and Ben was not - so\n    // removing Ben removed Benji.\n    if (this.game.accounts.get(key)) return key;\n    return this.game.findPlayer(name)?.key ?? null;\n  }\n\n  /** Somebody in one of your lists by name: the exact one, else the only one it begins. */\n  inList(list, name) {\n    const key = nameKey(String(name ?? ''));\n    if (!key) return null;\n    if (list.includes(key)) return key;\n    const starts = list.filter((k) => k.startsWith(key));\n    return starts.length === 1 ? starts[0] : null;\n  }"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "    if (mine.friends.includes(key)) return this.game.tell(player, `${them.name} is already your friend`, 'error');\n    // They asked first: this is the answer.\n    if (mine.incoming.includes(key)) return this.acceptFriend(player, them.name);",
+  "new": "    if (mine.friends.includes(key)) return this.game.tell(player, `${them.name} is already your friend`, 'error');\n    // They asked first: this is the answer.\n    if (mine.incoming.includes(key)) return this.acceptFriend(player, them.name);\n    // Asked already: once is a request, the twelfth is spam.\n    if (mine.outgoing.includes(key) && theirs.incoming.includes(player.key)) {\n      return this.game.tell(player, `Already asked — waiting for ${them.name} to answer`, 'error');\n    }\n    if (Date.now() - (theirs.denied[player.key] ?? -Infinity) < DENIED_MS) {\n      return this.game.tell(player, `${them.name} said no not long ago — ask again later`, 'error');\n    }"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "    const mine = this.social(player.key);\n    const key = name ? this.account(name) : mine.incoming[mine.incoming.length - 1];\n    if (!key || !mine.incoming.includes(key)) {\n      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');\n    }\n    const theirs = this.social(key);\n    mine.incoming = mine.incoming.filter((k) => k !== key);\n    theirs.outgoing = theirs.outgoing.filter((k) => k !== player.key);\n    if (mine.friends.length >= MAX_FRIENDS",
+  "new": "    const mine = this.social(player.key);\n    const key = name ? this.inList(mine.incoming, name) : mine.incoming[mine.incoming.length - 1];\n    if (!key || !mine.incoming.includes(key)) {\n      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');\n    }\n    const theirs = this.social(key);\n    mine.incoming = mine.incoming.filter((k) => k !== key);\n    theirs.outgoing = theirs.outgoing.filter((k) => k !== player.key);\n    if (mine.friends.length >= MAX_FRIENDS"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "    const online = this.game.byKey.get(key);\n    if (online) this.game.tell(online, `${player.name} accepted — you are friends`, 'friend');\n    this.sendFriends(player.key);\n    this.sendFriends(key);\n  }",
+  "new": "    const online = this.game.byKey.get(key);\n    if (online) this.game.tell(online, `${player.name} accepted — you are friends`, 'friend');\n    else {\n      // Away: told when they are back, not never.\n      theirs.notices.push(`${player.name} accepted your friend request — you are friends`);\n      this.save(key);\n    }\n    this.sendFriends(player.key);\n    this.sendFriends(key);\n  }"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "    const mine = this.social(player.key);\n    const key = name ? this.account(name) : mine.incoming[mine.incoming.length - 1];\n    if (!key || !mine.incoming.includes(key)) {\n      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');\n    }\n    mine.incoming = mine.incoming.filter((k) => k !== key);\n    const theirs = this.social(key);",
+  "new": "    const mine = this.social(player.key);\n    const key = name ? this.inList(mine.incoming, name) : mine.incoming[mine.incoming.length - 1];\n    if (!key || !mine.incoming.includes(key)) {\n      return this.game.tell(player, name ? `No friend request from ${String(name).slice(0, 32)}` : 'No friend requests', 'error');\n    }\n    mine.incoming = mine.incoming.filter((k) => k !== key);\n    mine.denied[key] = Date.now();\n    const theirs = this.social(key);"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "  removeFriend(player, name) {\n    const key = this.account(name);\n    const mine = this.social(player.key);",
+  "new": "  removeFriend(player, name) {\n    const mine = this.social(player.key);\n    const key = this.inList([...mine.friends, ...mine.outgoing], name);"
+ },
+ {
+  "paste": "social.txt",
+  "path": "server/social.mjs",
+  "old": "    if (quiet) return;\n    for (const key of s.friends) {\n      const friend = this.game.byKey.get(key);\n      if (!friend) continue;\n      this.sendFriends(key);\n      if (this.social(key).prefs.notify) {",
+  "new": "    for (const key of s.friends) {\n      const friend = this.game.byKey.get(key);\n      if (!friend) continue;\n      // Their list says where you are now - after a trip to another world\n      // too, which is a quiet join; only the \"is online\" line waits on that.\n      this.sendFriends(key);\n      if (quiet) continue;\n      if (this.social(key).prefs.notify) {"
+ }
+]
