@@ -54,8 +54,10 @@
     memory row (loading or saving a full map peaks near 300 MB). A re-check by the data skeptic found nothing on
     00b593d: 0 lost of 428.6M lookups over 22 real-flight cases, trimmed old saves lose nothing, no record misjudged in
     120, shared maps arrive whole in a browser (2.2M cells in 1.9 s) and stop cleanly when a page leaves.
-- Suites at 00b593d: check 102 modules ok, selftest 1760/1760, servertest 261/261, flightcheck 15/15 (nothing put
-  back on any world).
+- Suites at 59fb94c (the code as at 00b593d, plus HOSTING wording and two test-harness fixes): check 102 modules ok,
+  selftest 1760/1760, servertest 261/261, flightcheck 15/15 (nothing put back on any world), onlinecheck 43/43, voice
+  50/50. The voice harness now writes its own speech.wav (it was never in git; without it the fake microphone is
+  silence and three listening checks fail), and onlinecheck waits for both pages' party (a race under load).
 - Left as it is, on purpose: the server turns away a page of any other version, newer ones too, since it cannot know
   what a later protocol changes (the last bump changed every key). HOSTING says to update a public server first and
   merge to main straight after, so GitHub Pages is never newer than the server.
