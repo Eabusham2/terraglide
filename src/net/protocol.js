@@ -37,7 +37,7 @@
  * - the published game joins servers that update when they like - would
  * count a newer page's new thing against it.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /* ------------------------------------------------------------------ names */
 

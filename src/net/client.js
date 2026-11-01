@@ -232,8 +232,9 @@ export class NetClient extends Emitter {
     this.emit(m.t, m);
   }
 
-  signup(name, password, code) {
-    this.sendOrQueue({ t: 'signup', name, password, code });
+  /** `adminCode` only for a name the server keeps for an admin: see the server's Accounts.signup. */
+  signup(name, password, code, adminCode = '') {
+    this.sendOrQueue({ t: 'signup', name, password, code, ...(adminCode ? { adminCode } : {}) });
   }
 
   login(name, password) {

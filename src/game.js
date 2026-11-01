@@ -64,6 +64,7 @@ import { OnlineSession, SOCIAL_PREFS, markPrefUnsent } from './net/session.js';
 import { findTarget } from './player/combat.js';
 import { ChatBox } from './ui/chat.js';
 import { DeathScreen } from './ui/deathScreen.js';
+import { AdminPanel } from './ui/adminPanel.js';
 import { OnlinePanel } from './ui/onlinePanel.js';
 import { PlayersPanel, RequestPrompts, askMarkName } from './ui/playersPanel.js';
 import { TeleportMenu } from './ui/teleportMenu.js';
@@ -358,6 +359,12 @@ export class Game {
         this.chat.show(`/msg ${name} `);
       };
       this.requestPrompts = new RequestPrompts(ui, this.session);
+      // An admin's: see ui/adminPanel.js. Opened from the Online panel.
+      this.adminPanel = new AdminPanel(ui, this.session);
+      this.onlinePanel.onAdmin = () => {
+        this.onlinePanel.close();
+        this.adminPanel.show();
+      };
       // TPA or TPA here, and a name found by typing part of it. See
       // ui/teleportMenu.js.
       this.teleportMenu = new TeleportMenu(ui, this.session, () => ({ lat: this.player.lat, lon: this.player.lon }));
@@ -1337,6 +1344,7 @@ export class Game {
         || this.travelPanel.open
         || this.chat?.open
         || this.playersPanel?.open
+        || this.adminPanel?.open
         || this.teleportMenu?.open
         || this.deathScreen.open,
     );
@@ -2493,6 +2501,7 @@ export class Game {
         else if (this.cheatPanel.open) this.cheatPanel.close();
         else if (this.teleportMenu?.open) this.teleportMenu.close();
         else if (this.playersPanel?.open) this.playersPanel.close();
+        else if (this.adminPanel?.open) this.adminPanel.close();
         else if (this.travelPanel.open) this.travelPanel.close();
         // A sign-in the server is waiting for stays up; Esc is no way out of
         // that one. See onlinePanel.mustStay.

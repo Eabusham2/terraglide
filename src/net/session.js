@@ -282,6 +282,15 @@ export class OnlineSession extends Emitter {
       else this.game.player.die(how);
     });
     net.on('hitConfirm', (m) => this.emit('hitConfirm', m));
+    // The admin panel's answers (ui/adminPanel.js): unlocked, locked, and
+    // what it shows. Unlocked is the admin's powers, which the teleport menu
+    // and the rest read from `you.admin`.
+    net.on('admin', (m) => {
+      if (!this.you) return;
+      if (m.op === 'unlock' && m.ok === true) this.you = { ...this.you, admin: true };
+      if (m.op === 'locked') this.you = { ...this.you, admin: false };
+      this.emit('admin', m);
+    });
     // The answer to a new password, from the form or /password.
     net.on('password', (m) => this.emit('password', {
       ok: m.ok === true,
@@ -890,6 +899,11 @@ export class OnlineSession extends Emitter {
   /** Online players on this world and elsewhere, for the panel and the maps. */
   players() {
     return this.remote.list();
+  }
+
+  /** The admin panel asking the server: unlock, lock, state or settings. See the server's onAdmin. */
+  admin(op, fields = {}) {
+    this.net.send({ t: 'admin', op, ...fields });
   }
 
   /** A new password, sent whole: see the server's onPassword. */

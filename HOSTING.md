@@ -95,12 +95,16 @@ Running it is one deploy and one setting — in this order:
    free plan is not: it forgets every account whenever it sleeps — use a paid
    instance with a disk if you prefer Render. Give it a name people will see:
    `TERRAGLIDE_NAME="TerraGlide"`.
-2. **Make yourself its admin, before anybody else can find it.** Open
-   `https://<your-app>.fly.dev` and make your account: on a fresh server the
-   first account made is an admin. Do this *before* step 3 — once the game
-   points at the server, whoever signs up first gets it. (Or set
-   `TERRAGLIDE_ADMINS=yourname` and make that account straight away, for the
-   same reason.) As admin you can kick, ban and move the spawn.
+2. **Make yourself its admin, with an access code.** `fly.toml` and
+   `render.yaml` name the owner's account as the admin
+   (`TERRAGLIDE_ADMINS=Eabusham2`; put your own name there on your own copy).
+   Set the admin access code as a secret — `fly secrets set
+   TERRAGLIDE_ADMIN_CODE=<code>`, or Render asks for it when the Blueprint is
+   applied — and never write it in a file in the repository, which is public.
+   With a code set, nobody can make an account with the admin's name without
+   it, so it does not matter who reaches the server first; open
+   `https://<your-app>.fly.dev`, choose *Make an account* with the admin's
+   name and the code, and the [admin panel](#the-admin-panel) is yours.
 3. **Point the game at it.** On GitHub, open the repository's *Settings →
    Secrets and variables → Actions → Variables* and add
    `TERRAGLIDE_PUBLIC_SERVER` = `wss://<your-app>.fly.dev/ws`. The next
@@ -819,7 +823,8 @@ committed without giving them away.
 | `joinCode` | `""` | If set, making an account needs this code — a private server for friends. Signing in to an existing account does not. |
 | `signupsPerHour` | `5` | New accounts allowed per address per hour. Everyone behind one public address shares it — a household, a school, an office — so a class making accounts together from school needs it raised for the day (say `40`). `0` means no limit; to stop sign-ups altogether use `openSignups: false`. |
 | `admins` | `[]` | Account names that are admins, e.g. `["Alex", "Sam"]` (any case). See the warning under [Admins](#admins). |
-| `firstAccountIsAdmin` | `true` | Whether the very first account on a server with no accounts becomes an admin. |
+| `adminCode` | `""` | The admin access code. When set, an admin's powers — the [admin panel](#the-admin-panel) and the admin commands — are locked until they type it into the panel, and a name in `admins` can only be made into an account with it. A secret: put it in `config.json` or `TERRAGLIDE_ADMIN_CODE` on the server, never in the repository. |
+| `firstAccountIsAdmin` | `true` | Whether the very first account on a server with no accounts becomes an admin — only while `admins` is empty: with admins named, the first account is anybody's. |
 | `pvp` | `true` | Whether players can hurt each other with swords. |
 | `spawnProtectionM` | `64` | No fighting within this many metres of a world's spawn, measured along the ground, so new arrivals are not ambushed. |
 | `rtpCooldownS` | `60` | Seconds between random teleports, per player. |
@@ -842,6 +847,7 @@ committed without giving them away.
 | `TERRAGLIDE_NAME` | `name` | |
 | `TERRAGLIDE_JOIN_CODE` | `joinCode` | |
 | `TERRAGLIDE_ADMINS` | `admins` | Comma-separated: `Alex,Sam`. Replaces the list from the file. |
+| `TERRAGLIDE_ADMIN_CODE` | `adminCode` | A secret: `fly secrets set`, or the host's dashboard. |
 | `TERRAGLIDE_TRUST_PROXY` | `trustProxy` | `1` for on, `0` for off. **Any value other than `0` means on** — even `false`. |
 | `TERRAGLIDE_PROXY_HEADER` | `proxyHeader` | e.g. `cf-connecting-ip`. |
 | `TERRAGLIDE_MOTD` | `motd` | |
@@ -967,18 +973,60 @@ already name the right header for their hosts.
 
 ### Admins
 
-Admins get the [admin commands](#commands-and-rules) and see them in `/help`.
+Admins get the [admin panel](#the-admin-panel) and the
+[admin commands](#commands-and-rules), and see them in `/help`.
 Ways to make one:
 
-- **The first account** on a new server, automatically (`firstAccountIsAdmin`).
 - **The `admins` list** in `config.json` or `TERRAGLIDE_ADMINS`. Applied when
-  they sign in. **Make the account before you list its name**: a listed name
-  that does not exist yet makes whoever signs up with it first an admin.
+  they sign in. With an [access code](#the-admin-access-code) set, a listed
+  name can only be made into an account with the code. **Without one, make
+  the account before you list its name**: a listed name that does not exist
+  yet makes whoever signs up with it first an admin.
+- **The first account** on a new server, automatically (`firstAccountIsAdmin`)
+  — unless the `admins` list names somebody already.
 - **From the command line**, for an existing account:
 
   ```sh
   node server/server.mjs --admin NAME
   ```
+
+#### The admin access code
+
+Set `adminCode` (`TERRAGLIDE_ADMIN_CODE`) and an admin's powers are locked
+behind it: they sign in as usual, with their *(admin)* badge, but the admin
+panel opens on a box for the code and the admin commands answer *"needs the
+admin panel unlocked"* until it is typed. Once it is, that browser stays
+unlocked until it signs out or the server restarts; another browser — or
+anybody who learnt the password — has to type it too. And a name in `admins`
+can only be made into an account by somebody who has the code, so nobody can
+take the admin's name on a public server by getting there first.
+
+A wrong code costs a try: five a quarter of an hour from one address, twenty
+an hour for the account from everywhere — a four-digit code would take years
+to guess. Every unlock and every wrong code is written to the server's log
+with the address it came from. Keep the code out of the repository: it is a
+secret, like a password, and the repository is public.
+
+#### The admin panel
+
+*Online* (`K`) → *Admin panel*, for an admin's account. It shows:
+
+- **The server**: who is on of how many, accounts, time up, explored squares
+  per world; **PvP** and **new accounts** on or off, and the **welcome
+  message** — changed at once and kept over a restart (in `server.json`,
+  standing over `config.json` and the environment until changed again).
+  Turning PvP on or off is announced to everyone.
+- **Announce** to everyone (`/say`), **Set spawn here** (`/setspawn`), and
+  **Lock panel**, which locks your powers again until the code is typed.
+- **Players online**, with their world, hearts and anti-cheat score: *Go to*,
+  *Bring here*, *Heal*, *Kick* and *Ban* (twice, to be sure), with an optional
+  reason; *Record* and *Pardon* for anyone the anti-cheat holds something
+  against.
+- **Bans**, yours and the anti-cheat's with the time left, each with *Unban*.
+- **The anti-cheat**, its latest lines, newest first.
+
+Its buttons send the admin commands, exactly as typed in chat, and their
+answers show in the panel and the chat alike.
 
 To take admin away, stop the server, set `"admin": false` for that account in
 `server/data/accounts.json`, remove the name from `admins` if it is there, and
@@ -1635,6 +1683,9 @@ which matches it.
 | Voice: two players near each other hear nothing | Both must have voice on (Settings → Online) and be within 800 m on the same world, and neither muted the other in the players list. If all that is true, their networks cannot connect directly: add a [TURN server](#when-people-cannot-hear-each-other-turn). |
 | Voice: people hear themselves | Someone is on speakers. Headphones fix it. |
 | Forgot the admin password | [Reset it](#resetting-a-password), or make another account an admin with `--admin`. |
+| An admin's commands say *"needs the admin panel unlocked"* | The server has an [admin access code](#the-admin-access-code). *Online* (`K`) → *Admin panel*, and type it. |
+| *"That name is kept for an admin — enter the admin access code to make it"* | That name is in `admins` and the server has an access code: only somebody with the code can make it. The sign-up form shows a box for it. |
+| Forgot the admin access code | It is whatever `TERRAGLIDE_ADMIN_CODE` (or `adminCode` in `config.json`) says on the server: look there, or set a new one and restart. |
 | A password reset or `--admin` "did nothing" | It was run while the server was running, which wrote over it. Stop the server first — see the note under [Admins](#admins). |
 | The log says `[store] accounts.json could not be read (…); kept as …accounts.json.broken-1759…` | The file was damaged (a full disk, a hand edit with a typo). The server kept it, renamed, and started **without it** — so for now there are no accounts, and with `firstAccountIsAdmin` on the next person to sign up becomes an admin. Stop the server at once, then fix the JSON in the `.broken-…` file (or take `accounts.json` from a backup), rename it back to `accounts.json`, and start again. The same goes for `server.json` (bans, spawns) and `players/<name>.json` (one player's record). |
 | *"server/config.json is not valid JSON: …"* | A typo in the config file — usually a trailing comma or a comment. Fix it; the message says where. |

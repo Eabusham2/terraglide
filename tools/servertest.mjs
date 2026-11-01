@@ -835,7 +835,7 @@ try {
     const told = heard.find((m) => m.t === 'error' && m.code === 'version');
     const kicked = heard.find((m) => m.t === 'kick');
     ok(`a page from before the squares were sized to the world is told to reload, and let go  (${kicked?.reason ?? 'not kicked'}; closed ${closed})`,
-      !!told && /reload/.test(kicked?.reason ?? '') && closed === 4001 && !heard.some((m) => m.t === 'auth') && PROTOCOL_VERSION === 2);
+      !!told && /reload/.test(kicked?.reason ?? '') && closed === 4001 && !heard.some((m) => m.t === 'auth') && PROTOCOL_VERSION >= 2);
   }
 
   console.log('\ntravelling to another world');
@@ -1050,6 +1050,132 @@ try {
     ok('while somebody else with the right code still gets in', !!rightful.account && !rightful.error);
     await gated.stop();
     void gatedAt;
+  }
+
+  console.log('\nthe admin access code');
+  {
+    // A server whose admin is named and locked behind a code, the way the
+    // public one is: TERRAGLIDE_ADMINS and TERRAGLIDE_ADMIN_CODE.
+    const where = mkdtempSync(join(tmpdir(), 'terraglide-admin-'));
+    const CODE = '4321';
+    let locked = startServer({ port: 0, host: '127.0.0.1', dataDir: where, admins: ['Boss'], adminCode: CODE, saveEveryS: 3600 });
+    let at = await locked.ready;
+    const url = () => `ws://127.0.0.1:${at.port}/ws`;
+    // Bots for this server, not the main one.
+    const connect = async (name) => {
+      const bot = new Bot(name);
+      bot.ws = new WebSocket(url());
+      bot.ws.onmessage = (event) => {
+        const m = JSON.parse(event.data);
+        bot.inbox.push(m);
+        for (const w of [...bot.waiters]) {
+          if (w.match(m)) {
+            bot.waiters.splice(bot.waiters.indexOf(w), 1);
+            m.taken = true;
+            w.resolve(m);
+            break;
+          }
+        }
+      };
+      bot.closed = new Promise((resolve) => { bot.ws.onclose = (e) => resolve(e); });
+      await new Promise((resolve, reject) => { bot.ws.onopen = resolve; bot.ws.onerror = reject; });
+      bot.send({ t: 'hello', v: PROTOCOL_VERSION, client: 'test' });
+      await bot.next('welcome');
+      return bot;
+    };
+    const early = await connect('Early');
+    const earlyAuth = await early.signup();
+    ok('with admins named, the first account made is not an admin', earlyAuth.ok && !earlyAuth.you.admin && !earlyAuth.you.adminRole);
+
+    const squatter = await connect('Boss');
+    squatter.send({ t: 'signup', name: 'Boss', password: 'hunter22' });
+    const noCode = await squatter.next('auth');
+    ok(`nobody can make an admin's name without the code  (${noCode.error})`, !noCode.ok && noCode.needAdminCode === true && /kept for an admin/.test(noCode.error));
+    squatter.send({ t: 'signup', name: 'Boss', password: 'hunter22', adminCode: '0000' });
+    const wrongCode = await squatter.next('auth');
+    ok('nor with a wrong one', !wrongCode.ok && wrongCode.needAdminCode === true);
+    squatter.send({ t: 'signup', name: 'Boss', password: 'hunter22', adminCode: CODE });
+    const made = await squatter.next('auth');
+    ok('with it, the admin makes their account', made.ok === true && made.you.adminRole === true);
+    ok('which signs in an admin with its powers locked', made.you.admin === false && made.you.adminCode === true);
+    const boss = squatter;
+    boss.auth = made;
+    await boss.land();
+    const kickWhileLocked = await (async () => {
+      boss.send({ t: 'chat', text: '/kick Early' });
+      return boss.next('chat', (m) => m.kind === 'error', 2000).catch(() => null);
+    })();
+    ok(`an admin command waits for the code  (${kickWhileLocked?.text})`, /unlocked/.test(kickWhileLocked?.text ?? '') && locked.game.byKey.has('early'));
+    boss.send({ t: 'admin', op: 'state' });
+    ok('and so does the panel', (await boss.next('admin')).op === 'locked');
+    boss.send({ t: 'admin', op: 'unlock', code: '1111' });
+    const wrong = await boss.next('admin', (m) => m.op === 'unlock');
+    ok('a wrong code is refused', wrong.ok === false && /Wrong access code/.test(wrong.error));
+    // Guessed at: five wrong a quarter of an hour from one address.
+    const bossAccount = locked.accounts.get('Boss');
+    let heldAt = 0;
+    for (let i = 0; i < 8 && !heldAt; i++) {
+      const reply = locked.accounts.checkAdminCode(bossAccount, `9${i}99`, '203.0.113.50');
+      if (/Too many/.test(reply.error ?? '')) heldAt = i + 1;
+    }
+    ok(`wrong codes run out after a few tries  (held on try ${heldAt})`, heldAt === 6);
+    ok('even the right one, from there, until the wait is over',
+      /Too many/.test(locked.accounts.checkAdminCode(bossAccount, CODE, '203.0.113.50').error ?? ''));
+    boss.send({ t: 'admin', op: 'unlock', code: CODE });
+    const opened = await boss.next('admin', (m) => m.op === 'unlock');
+    const state = await boss.next('admin', (m) => m.op === 'state');
+    ok('the right code opens it', opened.ok === true && locked.game.byKey.get('boss').admin === true);
+    ok(`and the panel shows the server and who is on  (${state.players.map((p) => p.name).join(', ')})`,
+      state.server.online === 2 && state.server.code === true && state.players.some((p) => p.name === 'Early') && Array.isArray(state.bans));
+    boss.send({ t: 'chat', text: '/heal Early' });
+    ok('then the commands work', !!(await boss.next('chat', (m) => /Healed Early/.test(m.text ?? ''), 2000).catch(() => null)));
+    // Settings: changed at once, kept over a restart.
+    boss.send({ t: 'admin', op: 'settings', pvp: false, motd: 'Be kind\u0007 up there' });
+    const changed = await boss.next('admin', (m) => m.op === 'state' && m.server.pvp === false);
+    ok('PvP can be turned off from the panel', locked.game.config.pvp === false && changed.server.pvp === false);
+    ok('and the welcome message changed, as one line', changed.server.motd === 'Be kind  up there');
+    const heard = await early.next('chat', (m) => /turned PvP off/.test(m.text ?? ''), 2000).catch(() => null);
+    ok('with everyone told PvP is off', !!heard);
+    // Not an admin: the panel is not theirs, and asking is a page no game sends.
+    early.send({ t: 'admin', op: 'state' });
+    early.send({ t: 'admin', op: 'unlock', code: CODE });
+    await sleep(200);
+    ok('a player who is no admin gets nothing from it', !early.has('admin') && locked.game.byKey.get('early').admin === false);
+    ok('and asking is counted as a message no page sends', (locked.game.cheats.entry('early')?.kinds?.message ?? 0) > 0);
+    // The same browser coming back keeps it open; another one does not.
+    const token = made.token;
+    const reload = await connect('Boss');
+    reload.send({ t: 'resume', token });
+    const back = await reload.next('auth');
+    ok('the same browser coming back is still unlocked', back.ok && back.you.admin === true);
+    const elsewhere = await connect('Boss');
+    elsewhere.send({ t: 'login', name: 'Boss', password: 'hunter22' });
+    const there = await elsewhere.next('auth');
+    ok('another browser with the password is locked till it has the code', there.ok && there.you.admin === false && there.you.adminRole === true);
+    const replaced = await reload.next('kick', () => true, 2000).catch(() => null);
+    ok('and signing in there let the other one go', /somewhere else/.test(replaced?.reason ?? ''));
+    elsewhere.close();
+    early.close();
+    await locked.stop();
+    // A restart: the settings stand, the unlock does not.
+    locked = startServer({ port: 0, host: '127.0.0.1', dataDir: where, admins: ['Boss'], adminCode: CODE, saveEveryS: 3600 });
+    at = await locked.ready;
+    ok('the panel\'s settings outlast a restart', locked.game.config.pvp === false && locked.game.config.motd === 'Be kind  up there');
+    const after = await connect('Boss');
+    after.send({ t: 'resume', token });
+    const restarted = await after.next('auth');
+    ok('and after one the code is asked for again', restarted.ok && restarted.you.admin === false);
+    after.close();
+    await locked.stop();
+    // No code set: an admin is an admin as they sign in, as it always was.
+    const open = startServer({ port: 0, host: '127.0.0.1', dataDir: mkdtempSync(join(tmpdir(), 'terraglide-nocode-')), admins: ['Boss'], saveEveryS: 3600 });
+    at = await open.ready;
+    const plain = await connect('Boss');
+    const plainAuth = await plain.signup();
+    ok('without a code, a named admin has their powers at once', plainAuth.ok && plainAuth.you.admin === true && plainAuth.you.adminCode === false);
+    plain.close();
+    await open.stop();
+    rmSync(where, { recursive: true, force: true });
   }
 
   console.log('\nbans');

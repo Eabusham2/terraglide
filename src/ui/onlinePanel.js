@@ -51,6 +51,10 @@ export class OnlinePanel {
     this.session = session;
     this.open = false;
     this.mode = 'login';
+    /** Set by the game: open the admin panel. */
+    this.onAdmin = null;
+    /** The server asked for the admin access code with the name being made. See renderJoin. */
+    this.needAdminCode = false;
     this.element = document.createElement('div');
     this.element.className = 'panel online-panel';
     this.element.hidden = true;
@@ -86,6 +90,7 @@ export class OnlinePanel {
       session.on('authFailed', (m) => {
         this.error = m.error;
         this.busy = false;
+        if (m.needAdminCode) this.needAdminCode = true;
         this.show();
         this.render();
       });
@@ -207,6 +212,7 @@ export class OnlinePanel {
           <input name="password" type="password" autocomplete="${signup ? 'new-password' : 'current-password'}" minlength="${PASSWORD_MIN}" />
         </label>
         ${signup && info?.joinCode ? `<label>Join code <input name="code" type="text" autocomplete="off" /></label>` : ''}
+        ${signup && this.needAdminCode ? `<label>Admin access code <input name="adminCode" type="password" inputmode="numeric" autocomplete="off" maxlength="64" /></label>` : ''}
         ${signup ? '<p class="online-hint">3–16 letters, numbers or _. Other players use it to /tpa you. You get a colour of your own.</p>' : ''}
         <button type="submit" class="primary" ${this.busy ? 'disabled' : ''}>${this.busy ? 'One moment…' : signup ? 'Make account and play' : 'Sign in'}</button>
       </form>
@@ -225,7 +231,8 @@ export class OnlinePanel {
         <em>${others + 1} online · you are on ${escapeHtml(BODY.name)}</em>
       </div>
       <p class="online-you"><i style="--player:${escapeHtml(you.colour)}"></i>
-        Signed in as <strong>${escapeHtml(you.name)}</strong>${you.admin ? ' (admin)' : ''}</p>
+        Signed in as <strong>${escapeHtml(you.name)}</strong>${you.adminRole ? ' (admin)' : ''}
+        ${you.adminRole ? '<button type="button" class="mini" data-action="admin">Admin panel</button>' : ''}</p>
       <p class="online-hint">Invite someone: <code>${escapeHtml(inviteLink(s.net.info))}</code>
         <button type="button" class="mini" data-action="copy-invite">copy</button></p>
       ${onlyHere(inviteLink(s.net.info)) ? `<p class="online-note">That address only works on this computer. Friends on your
@@ -281,6 +288,9 @@ export class OnlinePanel {
       case 'signout':
         this.session?.leaveServer({ forget: true });
         break;
+      case 'admin':
+        this.onAdmin?.();
+        break;
       case 'copy-invite':
         navigator.clipboard?.writeText(inviteLink(this.session?.net.info)).then(() => { button.textContent = 'copied'; }, () => {});
         break;
@@ -332,7 +342,7 @@ export class OnlinePanel {
     this.busy = true;
     this.error = '';
     this.render();
-    if (kind === 'signup') this.session.net.signup(name, password, data.get('code') ?? '');
+    if (kind === 'signup') this.session.net.signup(name, password, data.get('code') ?? '', String(data.get('adminCode') ?? '').trim());
     else this.session.net.login(name, password);
   }
 }

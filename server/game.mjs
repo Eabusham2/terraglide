@@ -295,6 +295,17 @@ export class Game {
     const saved = store.read('server.json', {});
     this.bans = saved.bans ?? {};
     this.spawns = { ...(saved.spawns ?? {}) };
+    /**
+     * What an admin changed in the admin panel - PvP, new accounts, the
+     * welcome message - which stands over config.json and the environment
+     * until changed there again. See adminSettings.
+     */
+    this.settings = {};
+    const kept = saved.settings && typeof saved.settings === 'object' ? saved.settings : {};
+    if (typeof kept.pvp === 'boolean') this.settings.pvp = this.config.pvp = kept.pvp;
+    if (typeof kept.openSignups === 'boolean') this.settings.openSignups = this.config.openSignups = kept.openSignups;
+    if (typeof kept.motd === 'string') this.settings.motd = this.config.motd = kept.motd.slice(0, 200);
+    this.startedAt = now();
     /** What each account has done that no page can, and the kicks and bans it has cost them. See detect(). */
     // On the game's clock, whatever that is by then (the checks replace it).
     this.cheats = new AntiCheat({ store, now: () => this.now() });
@@ -310,7 +321,7 @@ export class Game {
   }
 
   saveServer() {
-    this.store.mark('server.json', () => ({ bans: this.bans, spawns: this.spawns, parties: this.social.toJSON() }));
+    this.store.mark('server.json', () => ({ bans: this.bans, spawns: this.spawns, settings: this.settings, parties: this.social.toJSON() }));
   }
 
   /* ------------------------------------------------------------ records */
@@ -642,6 +653,7 @@ export class Game {
       case 'partyUnmark': return this.social.unmark(player, m);
       case 'password': return this.onPassword(player, m);
       case 'social': return this.onSocial(player, m);
+      case 'admin': return this.onAdmin(player, m);
       case 'logout':
         if (client.token) this.accounts.closeSession(client.token);
         this.send(client, { t: 'loggedOut' });
@@ -734,12 +746,15 @@ export class Game {
         result = account ? { account } : { error: 'Signed out — sign in again', expired: true };
         if (account) token = text(m.token);
       } else if (m.t === 'signup') {
-        result = await this.accounts.signup(text(m.name), text(m.password), client.address, text(m.code));
+        result = await this.accounts.signup(text(m.name), text(m.password), client.address, text(m.code), text(m.adminCode));
       } else {
         result = await this.accounts.login(text(m.name), text(m.password), client.address);
       }
       if (result.error) {
-        this.send(client, { t: 'auth', ok: false, error: result.error, expired: !!result.expired });
+        this.send(client, {
+          t: 'auth', ok: false, error: result.error, expired: !!result.expired,
+          ...(result.needAdminCode ? { needAdminCode: true } : {}),
+        });
         return;
       }
       const account = result.account;
@@ -810,7 +825,15 @@ export class Game {
       key: account.key,
       name: account.name,
       colour: account.colour,
-      admin: !!account.admin || this.accounts.isConfiguredAdmin(account.name),
+      /**
+       * An admin's account, and whether its powers are unlocked: with an
+       * admin access code set (config.adminCode), only once this browser has
+       * typed it (onAdmin). Everything an admin may do asks `admin`; what an
+       * admin is spared - the anti-cheat's bans - and the badge others see
+       * ask `adminRole`.
+       */
+      adminRole: this.accounts.isAdmin(account),
+      admin: this.accounts.isAdmin(account) && (!this.config.adminCode || this.accounts.isUnlocked(token)),
       account,
       client,
       record,
@@ -931,7 +954,10 @@ export class Game {
       t: 'auth',
       ok: true,
       token,
-      you: { id: player.id, name: player.name, colour: player.colour, admin: player.admin },
+      you: {
+        id: player.id, name: player.name, colour: player.colour,
+        admin: player.admin, adminRole: player.adminRole, adminCode: player.adminRole && !!this.config.adminCode,
+      },
       world,
       pos,
       health: player.health,
@@ -976,7 +1002,7 @@ export class Game {
   }
 
   rosterEntry(p) {
-    return { id: p.id, name: p.name, colour: p.colour, world: p.world, admin: p.admin, dead: p.dead };
+    return { id: p.id, name: p.name, colour: p.colour, world: p.world, admin: p.adminRole, dead: p.dead };
   }
 
   disconnect(client, { quiet = false, replaced = false } = {}) {
@@ -2723,11 +2749,11 @@ export class Game {
     const worst = kinds[0]?.[0] ?? 'speed';
     const says = CHEATS[worst].says;
     const strikes = this.cheats.strike(player.key);
-    const step = player.admin ? 0 : BAN_STEPS_MS[Math.min(strikes, BAN_STEPS_MS.length) - 1];
+    const step = player.adminRole ? 0 : BAN_STEPS_MS[Math.min(strikes, BAN_STEPS_MS.length) - 1];
     const own = player.client.address;
     const shared = [...this.players.values()].some((p) => p !== player && p.client.address === own);
     const usable = own && !shared && !isLoopback(own) ? own : null;
-    if (usable && !player.admin) this.cheats.kickedFrom(usable, player.key);
+    if (usable && !player.adminRole) this.cheats.kickedFrom(usable, player.key);
     let address = null;
     if (step > 0) {
       address = usable;
@@ -2739,13 +2765,13 @@ export class Game {
       kind: 'kick', name: player.name, key: player.key, reason: says, score: Math.round(score * 10) / 10,
       kinds: Object.fromEntries(kinds.map(([kind, value]) => [kind, Math.round(value * 10) / 10])),
       strikes, ...(length ? { ban: length, until: new Date(now + step).toISOString(), address: !!address } : {}),
-      ...(player.admin && strikes > 1 ? { admin: true } : {}),
+      ...(player.adminRole && strikes > 1 ? { admin: true } : {}),
     });
     // On disk now: a ban that a hard stop forgot would be no ban.
     this.store.flush();
     const tail = length
       ? ` and banned for ${length} (kick ${strikes} this week${address ? '; new accounts from their address held too' : ''})`
-      : player.admin && strikes > 1 ? ` (kick ${strikes} this week; not banned: an admin)` : ` (kick ${strikes} this week)`;
+      : player.adminRole && strikes > 1 ? ` (kick ${strikes} this week; not banned: an admin)` : ` (kick ${strikes} this week)`;
     this.tellAdmins(`Anti-cheat: ${player.name} was kicked for ${says}${tail} — score ${Math.round(score)}: ${counts}. /cheats ${player.name}, /pardon ${player.name}`, player);
     const reason = `${says[0].toUpperCase()}${says.slice(1)}${length ? ` — banned for ${length}` : ''}`;
     this.kick(player, reason);
@@ -2808,6 +2834,132 @@ export class Game {
         this.sendPaced(viewer.client, { t: 'trail', name: key, world: viewer.world, legs: live.trail.legs });
       }
     }
+  }
+
+  /* ------------------------------------------------------------- admin */
+
+  /**
+   * The admin panel (src/ui/adminPanel.js). What it does to players - kick,
+   * ban, teleport, heal, announce - is the admin commands, sent as typed, so
+   * there is one path for both; this is the rest: unlocking it with the
+   * access code, what it shows, and the server's settings.
+   */
+  onAdmin(player, m) {
+    const op = typeof m.op === 'string' ? m.op : '';
+    // Only an admin's page has the panel.
+    if (!player.adminRole) return this.detect(player, 'message', { why: 'admin panel, not an admin' });
+    const client = player.client;
+    switch (op) {
+      case 'unlock': {
+        if (player.admin) {
+          this.send(client, { t: 'admin', op: 'unlock', ok: true });
+          return this.send(client, this.adminState());
+        }
+        const code = typeof m.code === 'string' ? m.code.slice(0, 64) : '';
+        const result = this.accounts.checkAdminCode(player.account, code, client.address);
+        if (!result.ok) {
+          console.log(`[terraglide] admin: a wrong access code for ${player.name} from ${client.address}`);
+          return this.send(client, { t: 'admin', op: 'unlock', ok: false, error: result.error });
+        }
+        player.admin = true;
+        this.accounts.unlock(client.token);
+        console.log(`[terraglide] admin: ${player.name} unlocked the admin panel from ${client.address}`);
+        this.send(client, { t: 'admin', op: 'unlock', ok: true });
+        return this.send(client, this.adminState());
+      }
+      case 'lock':
+        // Nothing to lock without a code: it would only open again.
+        if (!this.config.adminCode) return this.send(client, this.adminState());
+        player.admin = false;
+        this.accounts.lock(client.token);
+        return this.send(client, { t: 'admin', op: 'locked' });
+      case 'state':
+        return this.send(client, player.admin ? this.adminState() : { t: 'admin', op: 'locked' });
+      case 'settings':
+        if (!player.admin) return this.send(client, { t: 'admin', op: 'locked' });
+        return this.adminSettings(player, m);
+      default:
+        this.detect(player, 'message', { why: 'admin op', op: op.slice(0, 24) });
+    }
+  }
+
+  /** Everything the admin panel shows, now. */
+  adminState() {
+    const now = this.now();
+    const players = [...this.players.values()]
+      .map((p) => ({
+        name: p.name,
+        world: p.world,
+        health: Math.max(0, Math.round(p.health)),
+        dead: !!p.dead,
+        admin: !!p.adminRole,
+        // What the anti-cheat holds against them, out of KICK_AT.
+        score: Math.round(this.cheats.score(p.key) * 10) / 10,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const bans = [];
+    for (const [key, ban] of Object.entries(this.bans)) {
+      bans.push({ name: ban.name ?? key, reason: ban.reason ?? '', by: ban.by ?? '', at: ban.at ?? 0, kind: 'admin' });
+    }
+    for (const key of this.cheats.book.keys()) {
+      const ban = this.cheats.banOf(key);
+      if (ban) bans.push({ name: this.accounts.get(key)?.name ?? key, reason: ban.reason ?? '', leftS: Math.ceil((ban.until - now) / 1000), kind: 'anticheat' });
+    }
+    const explored = {};
+    for (const [world, shared] of this.shared) explored[world] = shared.map.cells.size;
+    return {
+      t: 'admin',
+      op: 'state',
+      server: {
+        name: this.config.name,
+        motd: this.config.motd,
+        pvp: !!this.config.pvp,
+        signups: !!this.config.openSignups,
+        online: this.players.size,
+        max: this.config.maxPlayers,
+        accounts: this.accounts.all().length,
+        upS: Math.round((now - this.startedAt) / 1000),
+        code: !!this.config.adminCode,
+        explored,
+      },
+      players,
+      bans: bans.slice(0, 200),
+      kickAt: KICK_AT,
+      // The anti-cheat's latest lines, newest first.
+      log: this.cheats.recentLines(15),
+    };
+  }
+
+  /**
+   * PvP, new accounts and the welcome message, from the admin panel: changed
+   * now, and kept (server.json) over config.json and the environment.
+   */
+  adminSettings(player, m) {
+    const said = [];
+    if (typeof m.pvp === 'boolean' && m.pvp !== !!this.config.pvp) {
+      this.settings.pvp = this.config.pvp = m.pvp;
+      said.push(`PvP ${m.pvp ? 'on' : 'off'}`);
+      this.announce(`An admin turned PvP ${m.pvp ? 'on' : 'off'}`);
+    }
+    if (typeof m.signups === 'boolean' && m.signups !== !!this.config.openSignups) {
+      this.settings.openSignups = this.config.openSignups = m.signups;
+      said.push(m.signups ? 'new accounts open' : 'new accounts closed');
+    }
+    if (typeof m.motd === 'string') {
+      // One line: control characters out, as chat does.
+      const motd = m.motd.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 200);
+      if (motd !== this.config.motd) {
+        this.settings.motd = this.config.motd = motd;
+        said.push('the welcome message changed');
+      }
+    }
+    if (said.length) {
+      this.saveServer();
+      this.store.flush();
+      console.log(`[terraglide] admin: ${player.name}: ${said.join(', ')}`);
+      this.tellAdmins(`${player.name}: ${said.join(', ')}`, player);
+    }
+    this.send(player.client, this.adminState());
   }
 
   /* --------------------------------------------------------- shared map */

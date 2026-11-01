@@ -35,7 +35,19 @@ export const DEFAULTS = {
   signupsPerHour: 5,
   /** Names that are admins: /kick, /ban, /tp straight to someone, /heal, /setspawn. */
   admins: [],
-  /** The very first account made on a fresh server is an admin, so its owner is. */
+  /**
+   * The admin access code. When set, an admin's powers - the admin panel, the
+   * admin commands - are locked until they type it into the panel, once per
+   * browser they sign in on; and a name in `admins` can only be made into an
+   * account with it, so nobody else can sign up as an admin before they do.
+   * A secret: set it in config.json or TERRAGLIDE_ADMIN_CODE on the server,
+   * never in a file anyone can read. Empty: admins are admins as they sign in.
+   */
+  adminCode: '',
+  /**
+   * The very first account made on a fresh server is an admin, so its owner
+   * is - unless `admins` names who the admins are already.
+   */
   firstAccountIsAdmin: true,
   /** Can players hurt each other? */
   pvp: true,
@@ -132,6 +144,7 @@ export function loadConfig({ file = join(HERE, 'config.json'), env = process.env
   if (env.DATA_DIR) config.dataDir = env.DATA_DIR;
   if (env.TERRAGLIDE_NAME) config.name = env.TERRAGLIDE_NAME;
   if (env.TERRAGLIDE_JOIN_CODE) config.joinCode = env.TERRAGLIDE_JOIN_CODE;
+  if (env.TERRAGLIDE_ADMIN_CODE) config.adminCode = env.TERRAGLIDE_ADMIN_CODE;
   if (env.TERRAGLIDE_ADMINS) config.admins = env.TERRAGLIDE_ADMINS.split(',').map((s) => s.trim()).filter(Boolean);
   if (env.TERRAGLIDE_TRUST_PROXY) config.trustProxy = env.TERRAGLIDE_TRUST_PROXY !== '0';
   if (env.TERRAGLIDE_PROXY_HEADER) config.proxyHeader = env.TERRAGLIDE_PROXY_HEADER;

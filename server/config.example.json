@@ -10,6 +10,7 @@
   "joinCode": "",
   "signupsPerHour": 5,
   "admins": [],
+  "adminCode": "",
   "firstAccountIsAdmin": true,
   "pvp": true,
   "spawnProtectionM": 64,

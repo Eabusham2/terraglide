@@ -37,8 +37,16 @@ services:
         value: cf-connecting-ip
       - key: TERRAGLIDE_NAME
         value: TerraGlide server
-      # Render sets PORT itself; the server reads it. Add a join code, admins
-      # and TURN settings in the dashboard (Environment), not in this file.
+      # The owner's account is the admin - put your own name here on your own
+      # copy - and its powers open with an access code (the admin panel,
+      # HOSTING.md "Admins"). The code is a secret: Render asks for it when the
+      # Blueprint is applied, and it is never written in this file.
+      - key: TERRAGLIDE_ADMINS
+        value: Eabusham2
+      - key: TERRAGLIDE_ADMIN_CODE
+        sync: false
+      # Render sets PORT itself; the server reads it. Add a join code and TURN
+      # settings in the dashboard (Environment), not in this file.
       # - key: DATA_DIR
       #   value: /var/data
     # disk:

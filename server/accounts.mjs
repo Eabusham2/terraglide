@@ -45,6 +45,14 @@ async function checkPassword(password, stored) {
   return key.length === expected.length && timingSafeEqual(key, expected);
 }
 
+/** Two codes the same, in a time that does not say how much of one was right. */
+function sameCode(given, expected) {
+  if (typeof given !== 'string' || !given) return false;
+  const a = createHash('sha256').update(given).digest();
+  const b = createHash('sha256').update(String(expected)).digest();
+  return timingSafeEqual(a, b);
+}
+
 function tokenHash(token) {
   return createHash('sha256').update(String(token)).digest('base64url');
 }
@@ -112,6 +120,19 @@ export class Accounts {
     // Wrong current passwords when changing it, per account: a session left
     // signed in is not a way to guess the password at a try every two seconds.
     this.changeFailures = new Limiter(5, 15 * 60 * 1000);
+    // Wrong admin access codes, per account and per address. A code is short
+    // - four digits is ten thousand guesses - so five wrong a quarter of an
+    // hour is a year and more to try them all from one place, and an account
+    // guessed at from everywhere is held at twenty an hour all told.
+    this.codeFailures = new Limiter(5, 15 * 60 * 1000);
+    this.accountCodeFailures = new Limiter(20, 60 * 60 * 1000);
+    /**
+     * Sessions whose browser has typed the admin access code since the server
+     * started, by the hash of their token: a reload or a dropped connection
+     * keeps the panel open, another browser - or a stolen password - does not.
+     * Only in memory, so a restart asks for the code again.
+     */
+    this.unlocked = new Set();
     this.pruneSessions();
   }
 
@@ -135,11 +156,22 @@ export class Accounts {
    * @param {string} address who is asking, for the rate limit
    * @param {string} [code] the server's join code, when it has one
    */
-  async signup(name, password, address, code) {
+  async signup(name, password, address, code, adminCode) {
     const nameError = nameProblem(name);
     if (nameError) return { error: nameError };
     const passwordError = passwordProblem(password);
     if (passwordError) return { error: passwordError };
+    // A name kept for an admin is theirs: with an access code set, nobody can
+    // make it without the code - or whoever reached the server first would
+    // be its admin.
+    if (this.config.adminCode && this.isConfiguredAdmin(name) && !this.get(name)) {
+      const wait = Math.max(this.codeFailures.wait(address), this.failures.wait(address));
+      if (wait > 0) return { error: `Too many tries — wait ${wait} s`, needAdminCode: true };
+      if (!sameCode(adminCode, this.config.adminCode)) {
+        if (adminCode) this.codeFailures.allow(address);
+        return { error: 'That name is kept for an admin — enter the admin access code to make it', needAdminCode: true };
+      }
+    }
     if (this.config.joinCode) {
       // A wrong code costs a try, the way a wrong password does — or the code
       // could be guessed at line speed, and on a fresh server the first
@@ -174,7 +206,10 @@ export class Accounts {
       hash,
       created: Date.now(),
       lastSeen: Date.now(),
-      admin: this.isConfiguredAdmin(name) || this.all().length === 0 && this.config.firstAccountIsAdmin !== false,
+      // The first account, when nobody has been named: with `admins` set, the
+      // owner is known, and on a public server the first to arrive is anybody.
+      admin: this.isConfiguredAdmin(name)
+        || (this.all().length === 0 && this.config.firstAccountIsAdmin !== false && !(this.config.admins ?? []).length),
     };
     this.accounts[key] = account;
     this.save();
@@ -183,6 +218,49 @@ export class Accounts {
 
   isConfiguredAdmin(name) {
     return (this.config.admins ?? []).map(nameKey).includes(nameKey(name));
+  }
+
+  /** Is this account an admin, by the list or by its own flag? */
+  isAdmin(account) {
+    return !!account && (!!account.admin || this.isConfiguredAdmin(account.name));
+  }
+
+  /**
+   * The admin access code, typed by `account` from `address`. Resolves to
+   * { ok } or { error }, rate limited per account and address the way
+   * passwords are. True straight away when the server has no code.
+   */
+  checkAdminCode(account, code, address) {
+    if (!this.config.adminCode) return { ok: true };
+    const pair = `${account.key}\n${address}`;
+    const wait = Math.max(this.codeFailures.wait(pair), this.codeFailures.wait(address));
+    if (wait > 0) return { error: `Too many wrong codes — wait ${wait} s` };
+    // Guessed at from all over: only an address that has not got it wrong
+    // lately may still try, which is the admin at home.
+    if (this.accountCodeFailures.wait(account.key) > 0 && this.codeFailures.count(pair) > 0) {
+      return { error: `Too many wrong codes — wait ${this.accountCodeFailures.wait(account.key)} s` };
+    }
+    if (!sameCode(code, this.config.adminCode)) {
+      this.codeFailures.allow(pair);
+      this.codeFailures.allow(address);
+      this.accountCodeFailures.allow(account.key);
+      return { error: 'Wrong access code' };
+    }
+    this.codeFailures.clear(pair);
+    return { ok: true };
+  }
+
+  /** The browser holding `token` has typed the access code. */
+  unlock(token) {
+    if (token) this.unlocked.add(tokenHash(token));
+  }
+
+  lock(token) {
+    if (token) this.unlocked.delete(tokenHash(token));
+  }
+
+  isUnlocked(token) {
+    return !!token && this.unlocked.has(tokenHash(token));
   }
 
   /** Resolves to { account } or { error }. */
@@ -271,6 +349,7 @@ export class Accounts {
 
   closeSession(token) {
     delete this.sessions[tokenHash(token)];
+    this.unlocked.delete(tokenHash(token));
     this.save();
   }
 
@@ -278,7 +357,10 @@ export class Accounts {
   closeAllSessions(account, except = null) {
     const keep = except ? tokenHash(except) : null;
     for (const [id, session] of Object.entries(this.sessions)) {
-      if (session.key === account.key && id !== keep) delete this.sessions[id];
+      if (session.key === account.key && id !== keep) {
+        delete this.sessions[id];
+        this.unlocked.delete(id);
+      }
     }
     this.save();
   }

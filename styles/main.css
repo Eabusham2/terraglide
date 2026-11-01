@@ -3370,8 +3370,141 @@ body.touch-active:not(.sword-out) .hud-crosshair {
 }
 
 /* Focusable to keep the keyboard (see playersPanel.js); no ring for that. */
-.players-panel:focus {
+.players-panel:focus,
+.admin-panel:focus {
   outline: none;
+}
+
+/* The admin panel (adminPanel.js): the players panel's shape, a column of
+   sections, the server's settings at the top. */
+.admin-panel {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(680px, calc(100vw - 32px));
+  max-height: 88vh;
+  z-index: 31;
+}
+
+.admin-body {
+  padding: 10px 14px 14px;
+  overflow-y: auto;
+}
+
+/* Hidden means hidden: the code box is an .online-form, whose display: flex
+   would otherwise outrank the attribute and leave it over the open panel. */
+.admin-panel [hidden] {
+  display: none !important;
+}
+
+.admin-body h3 {
+  margin: 14px 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.admin-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.admin-line {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.admin-line span {
+  display: flex;
+  gap: 6px;
+}
+
+.admin-line input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  background: rgba(10, 10, 8, 0.6);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.admin-line input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.admin-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 0;
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.admin-score {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--warn);
+}
+
+.admin-score.high {
+  color: var(--bad);
+}
+
+.admin-note {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--text);
+  background: var(--panel-raised);
+  border-left: 2px solid var(--good);
+}
+
+.admin-note.bad {
+  border-left-color: var(--bad);
+  color: var(--bad);
+}
+
+.admin-log {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 180px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-dim);
+  background: rgba(10, 10, 8, 0.45);
+}
+
+.online-you .mini {
+  margin-left: 8px;
 }
 
 /* Who is on each world, by the names you know, and the line that says the

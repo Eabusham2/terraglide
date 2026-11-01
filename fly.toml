@@ -31,8 +31,12 @@ kill_timeout = 15
   # bans. (Not X-Forwarded-For: Fly adds its own hop after the player's.)
   TERRAGLIDE_TRUST_PROXY = "1"
   TERRAGLIDE_PROXY_HEADER = "fly-client-ip"
-  # Secrets (TERRAGLIDE_JOIN_CODE, TURN_CREDENTIAL) go in `fly secrets set`,
-  # never in this file.
+  # The owner's account is the admin - put your own name here on your own
+  # copy. Its powers open with an access code (the admin panel, HOSTING.md
+  # "Admins"), set as a secret: fly secrets set TERRAGLIDE_ADMIN_CODE=<code>
+  TERRAGLIDE_ADMINS = "Eabusham2"
+  # Secrets (TERRAGLIDE_ADMIN_CODE, TERRAGLIDE_JOIN_CODE, TURN_CREDENTIAL) go
+  # in `fly secrets set`, never in this file.
 
 [[mounts]]
   source = "terraglide_data"

@@ -570,6 +570,93 @@ try {
     ok('played locally there is no teleport menu and no button for one', !local.menu && !local.game && !local.button, JSON.stringify(local));
     await context.close();
   }
+
+  console.log('\nthe admin panel, behind its access code');
+  {
+    // Last, with Ada's and Bruno's pages closed (above): two software-rendered
+    // pages left running slow a third to a frame a second and more.
+    // A server set up as the public one is: its admin named, their powers
+    // behind a code. A test code - the real one is a secret on the server.
+    const CODE = 'test-code-77';
+    const guarded = startServer({
+      port: 0, host: '127.0.0.1', dataDir: mkdtempSync(join(tmpdir(), 'terraglide-guarded-')), saveEveryS: 3600, admins: ['Boss'], adminCode: CODE,
+    });
+    const at = await guarded.ready;
+    const G = `http://127.0.0.1:${at.port}/`;
+    const visit = async () => {
+      const context = await browser.newContext({ viewport: { width: 900, height: 600 } });
+      const page = await context.newPage();
+      await page.route('**/*', (route) => (route.request().url().startsWith(G) ? route.continue() : relay(route)));
+      await page.addInitScript(() => {
+        try {
+          localStorage.setItem('terraglide.settings', JSON.stringify({ graphics: 'low', autoTier: 'low', resolutionScale: 0.5, buildings: false, weather: false }));
+          localStorage.setItem('terraglide.help-seen', 'true');
+        } catch {}
+      });
+      await page.goto(G, { waitUntil: 'domcontentloaded', timeout: 90000 });
+      await until(page, () => window.__terraglideStarted === true, null, { timeout: 90000 });
+      await page.waitForSelector('.online-panel:not([hidden]) .online-tabs', { timeout: 90000, polling: 250 });
+      return { context, page };
+    };
+    const boss = await visit();
+    await boss.page.click('[data-action="tab-signup"]', { timeout: 60000 });
+    await boss.page.fill('.online-form input[name="name"]', 'Boss');
+    await boss.page.fill('.online-form input[name="password"]', 'correct horse');
+    await boss.page.click('.online-form button[type="submit"]', { timeout: 60000 });
+    const asked = await until(boss.page, () => !!document.querySelector('.online-form input[name="adminCode"]'), null, { timeout: 20000 })
+      .then(() => boss.page.$eval('.online-error', (e) => e.textContent), () => '');
+    ok(`making the admin's account asks for the access code  (${asked})`, /kept for an admin/.test(asked));
+    await boss.page.fill('.online-form input[name="password"]', 'correct horse');
+    await boss.page.fill('.online-form input[name="adminCode"]', CODE);
+    await boss.page.click('.online-form button[type="submit"]', { timeout: 60000 });
+    await until(boss.page, () => window.terraglide.session?.signedIn === true, null, { timeout: 20000 });
+    const you = await boss.page.evaluate(() => window.terraglide.session.you);
+    ok('and with it the admin is signed in, powers locked', you.adminRole === true && you.admin === false);
+    await boss.page.evaluate(() => document.activeElement?.blur?.());
+    await boss.page.keyboard.press('k');
+    await boss.page.waitForSelector('.online-panel:not([hidden]) [data-action="admin"]', { timeout: 20000 });
+    await boss.page.click('[data-action="admin"]', { timeout: 60000 });
+    await boss.page.waitForSelector('.admin-panel:not([hidden]) .admin-lock:not([hidden])', { timeout: 20000 });
+    await boss.page.fill('.admin-lock input[name="code"]', 'not-it');
+    await boss.page.click('.admin-lock button[type="submit"]', { timeout: 60000 });
+    const wrong = await until(boss.page, () => !document.querySelector('.admin-lock-error').hidden && document.querySelector('.admin-lock-error').textContent, null, { timeout: 20000 })
+      .catch(() => '');
+    ok(`the admin panel opens on a box for the code, and a wrong one is refused  (${wrong})`, /Wrong access code/.test(wrong));
+    await boss.page.fill('.admin-lock input[name="code"]', CODE);
+    await boss.page.click('.admin-lock button[type="submit"]', { timeout: 60000 });
+    const listed = await until(boss.page, () => !document.querySelector('.admin-main').hidden
+      && [...document.querySelectorAll('.admin-players .players-name')].map((e) => e.textContent.trim()).join(', '), null, { timeout: 20000 }).catch(() => '');
+    ok(`the right code opens it on who is online  (${listed})`, /Boss/.test(listed));
+    // Hidden, not just marked so: the box is a flex form, and flex outranks the attribute.
+    const shown = await boss.page.evaluate(() => ['.admin-lock', '.admin-main'].map((q) => getComputedStyle(document.querySelector(q)).display));
+    ok(`and the box for the code is gone from it  (${shown.join(', ')})`, shown[0] === 'none' && shown[1] !== 'none');
+    await boss.page.screenshot({ path: join(OUT, 'admin-panel.png'), timeout: 120000 });
+    await boss.page.click('.admin-settings input[name="pvp"]', { timeout: 60000 });
+    await until(boss.page, () => true);
+    const pvpOff = await (async () => {
+      for (let i = 0; i < 40 && guarded.game.config.pvp !== false; i++) await sleep(100);
+      return guarded.game.config.pvp === false;
+    })();
+    ok('and its PvP switch turns PvP off on the server', pvpOff);
+    // Signing in again somewhere else lets the first page go, for good.
+    const again = await visit();
+    await again.page.fill('.online-form input[name="name"]', 'Boss');
+    await again.page.fill('.online-form input[name="password"]', 'correct horse');
+    await again.page.click('.online-form button[type="submit"]', { timeout: 60000 });
+    await until(again.page, () => window.terraglide.session?.signedIn === true, null, { timeout: 20000 });
+    const dropped = await until(boss.page, () => window.terraglide.session.net.status === 'closed' && window.terraglide.session.net.statusDetail, null, { timeout: 20000 })
+      .catch(() => '');
+    await sleep(6000);
+    const stays = await boss.page.evaluate(() => window.terraglide.session.net.status);
+    ok(`signing in a second time lets the first page go  (${dropped})`, /somewhere else/.test(dropped));
+    ok('and it stays gone rather than signing back in over the second', stays === 'closed'
+      && [...guarded.game.players.values()].filter((p) => p.key === 'boss').length === 1
+      && await again.page.evaluate(() => window.terraglide.session.signedIn));
+    ok('the second browser, with the password and not the code, is locked', (await again.page.evaluate(() => window.terraglide.session.you)).admin === false);
+    await boss.context.close();
+    await again.context.close();
+    await guarded.stop();
+  }
 } catch (error) {
   failures++;
   console.log(`  FAIL ${error.message.split('\n')[0]}`);

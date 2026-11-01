@@ -16,7 +16,11 @@ import { radiusOf } from './records.mjs';
 export function runCommand(game, player, command) {
   const spec = findCommand(command.name);
   if (!spec) return game.tell(player, `Unknown command /${command.name} — /help lists them`, 'error');
-  if (spec.admin && !player.admin) return game.tell(player, `/${spec.name} is for admins`, 'error');
+  if (spec.admin && !player.admin) {
+    return game.tell(player, player.adminRole
+      ? `/${spec.name} needs the admin panel unlocked — Online (K), Admin panel, and your access code`
+      : `/${spec.name} is for admins`, 'error');
+  }
   const [first] = command.args;
   const target = () => {
     if (!first) {
