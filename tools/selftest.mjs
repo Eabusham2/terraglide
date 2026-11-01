@@ -9306,7 +9306,7 @@ console.log('\nphotograph where you have been, drawn map where you have not');
   // because the record is kept on a grid and what it records is not.
   ok('the photograph is cut to the explored shape',
     /globalCompositeOperation = 'destination-in'/.test(renderer)
-    && /layers\.exploration\.isExplored\(maskZoom/.test(renderer));
+    && /layers\.exploration\.share\(maskZoom/.test(renderer));
   ok('with a soft edge rather than a staircase of squares',
     /const FOG_FEATHER = 0\.45;/.test(renderer) && /filter = `blur\(/.test(renderer));
   ok('the mask is blurred once, composited once',
@@ -9351,8 +9351,102 @@ console.log('\nphotograph where you have been, drawn map where you have not');
     ok(`and every zoom claims less ground than it did  (${tighter.join('x, ')}x tighter)`,
       tighter.every((t) => t >= 16));
     ok('the renderer picks the level rather than a fixed sixteen subdivisions',
-      /const wanted = Math\.min\(LEVELS\[LEVELS\.length - 1\], tileZoom \+ 6\)/.test(renderer)
+      /const level = Math\.min\(LEVELS\[LEVELS\.length - 1\], tileZoom \+ 6\)/.test(renderer)
       && !/Math\.min\(16, Math\.pow\(2, 16 - tileZoom\)\)/.test(renderer));
+  }
+
+  // And the same ground at every zoom. Even read at a level the record
+  // keeps, a square was explored if anything in it was, and every zoom out
+  // is a bigger square: a 1,650 km2 flight from Paris drew as 2,700 km2 at map
+  // zoom 6, 11,000 at 4 and 53,000 from 3 out - "the explored area changes
+  // when I change zoom". Each square is drawn by how much of it the finest
+  // squares cover instead.
+  {
+    const { Exploration, LEVELS } = await import('../src/ui/exploration.js');
+    const { WORLD_CIRCUMFERENCE } = await import('../src/geo/mercator.js');
+    const finest = LEVELS[LEVELS.length - 1];
+    const fly = (record) => {
+      let lat = 48.85;
+      let lon = 2.35;
+      for (let i = 0; i < 3000; i++) { record.visit(lat, lon, 500, 2000); lon += 0.0014; }
+      for (let i = 0; i < 1000; i++) { record.visit(lat, lon, 500, 2000); lat += 0.0009; }
+    };
+    const ground = (z, y) => {
+      const n = 2 ** z;
+      const t = (k) => Math.tanh(Math.PI * (1 - (2 * k) / n));
+      return (t(y) - t(y + 1)) / (2 * n);
+    };
+    // What the fog draws at a map zoom, in km2, by `read(z, x, y)` from 0 to 1.
+    const drawn = (tileZoom, read) => {
+      const z = Math.min(finest, tileZoom + 6);
+      const n = 2 ** z;
+      let sum = 0;
+      for (let y = Math.floor(n * 0.33); y < Math.ceil(n * 0.36); y++) {
+        for (let x = Math.floor(n * 0.5); x < Math.ceil(n * 0.52); x++) sum += read(z, x, y) * ground(z, y);
+      }
+      return (sum * WORLD_CIRCUMFERENCE ** 2) / Math.PI / 1e6;
+    };
+    const zooms = [0, 2, 3, 4, 6, 8, 10, 12];
+    for (const compact of [false, true]) {
+      const record = new Exploration({ stored: false, compact });
+      fly(record);
+      const truth = record.areaKm2();
+      const now = zooms.map((z) => drawn(z, (zz, x, y) => record.share(zz, x, y)));
+      const was = zooms.map((z) => {
+        let level = LEVELS[0];
+        for (const candidate of LEVELS) if (candidate <= Math.min(finest, z + 6)) level = candidate;
+        return drawn(level - 6, (zz, x, y) => (record.isExplored(zz, x, y) ? 1 : 0));
+      });
+      const kind = compact ? 'a record kept as runs' : 'your own record';
+      ok(`${kind}: the map drew ${Math.round(Math.max(...was) / truth)}x the ground explored when zoomed out  (${was.map((a) => Math.round(a)).join(', ')} km2 against ${Math.round(truth)})`,
+        Math.max(...was) > truth * 10);
+      ok(`and now draws the same ground at every zoom, within 5%  (${now.map((a) => Math.round(a)).join(', ')} km2)`,
+        now.every((a) => Math.abs(a - truth) < truth * 0.05));
+      // Kept up square by square once asked, as a record read afresh would say.
+      const later = new Exploration({ stored: false, compact });
+      fly(later);
+      for (const z of zooms) drawn(z, (zz, x, y) => later.share(zz, x, y));
+      let lat = 49.75;
+      let lon = 6.55;
+      for (let i = 0; i < 800; i++) { later.visit(lat, lon, 500, 2000); lat -= 0.0006; lon += 0.0011; }
+      const reread = new Exploration({ stored: false, compact });
+      reread.load(later.encode());
+      ok(`${kind}: what it draws after flying on is what the record read afresh draws`,
+        zooms.every((z) => Math.abs(drawn(z, (zz, x, y) => later.share(zz, x, y)) - drawn(z, (zz, x, y) => reread.share(zz, x, y))) < 1e-6 * truth));
+    }
+    // A square is never more than wholly explored, nor any of it at all
+    // where nothing was, and at or past the finest it is that square.
+    const record = new Exploration({ stored: false, compact: true });
+    fly(record);
+    // Zoom 14: squares of 2.4 km, some of them inside a 4 km swath. Which
+    // of them hold any of the finest squares, worked out here.
+    const holding = new Set();
+    record.eachRun((z, y, x0, length) => {
+      if (z !== finest) return;
+      for (let x = x0; x < x0 + length; x++) holding.add(`${x >> (finest - 14)}/${y >> (finest - 14)}`);
+    });
+    const n = 2 ** 14;
+    let most = 0;
+    let wrong = 0;
+    for (let y = Math.floor(n * 0.33); y < Math.ceil(n * 0.36); y++) {
+      for (let x = Math.floor(n * 0.5); x < Math.ceil(n * 0.52); x++) {
+        const a = record.share(14, x, y);
+        most = Math.max(most, a);
+        if ((a > 0) !== holding.has(`${x}/${y}`)) wrong++;
+      }
+    }
+    ok(`no square is more than wholly explored, and none is where nothing was  (most ${most}, ${holding.size} squares)`,
+      most === 1 && wrong === 0 && holding.size > 100);
+    let agree = true;
+    record.eachRun((z, y, x0, length) => {
+      if (z !== finest) return;
+      for (let x = x0; x < x0 + length && agree; x++) {
+        agree = record.share(finest, x, y) === 1 && record.share(finest + 2, x * 4 + 1, y * 4 + 3) === 1;
+      }
+    });
+    ok('at the finest square and past it, a square is all or nothing', agree && record.share(finest, 0, 0) === 0);
+    ok('and the other players\' ground on the map is read the same way',
+      /overlay\.explored\.share\(maskZoom/.test(renderer) && !/isExplored\(maskZoom/.test(renderer));
   }
 
   // No tile grid over the photograph. It is the seams of the fetching machinery

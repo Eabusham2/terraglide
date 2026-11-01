@@ -620,13 +620,11 @@ export class OnlineSession extends Emitter {
     // Your record, as the server keeps it, replaces whatever this page had.
     this.applying = true;
     exploration.cells.clear();
-    exploration.detailCount = 0;
+    // Counts, sums and the maps' answers about it, all from nothing.
+    exploration.recount();
     // And forget where the last visit was, or the ground round where you stand
     // is not counted until you have moved a good way from it.
     exploration.lastVisit = null;
-    exploration.coarseCache.clear();
-    exploration.covered = null;
-    exploration.landCovered = null;
     exploration.mergeCells(m.explored ?? []);
     trail.legs = Array.isArray(m.trail) ? m.trail.map((leg) => leg.map(([lat, lon]) => ({ lat, lon }))) : [];
     trail.last = null;

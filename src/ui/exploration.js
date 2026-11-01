@@ -72,6 +72,15 @@ const MAX_ENTRIES = 2000000;
 export const MAX_REVEAL_M = 2000;
 
 /**
+ * Squares a side in one block of share()'s answers: a map tile's worth at the
+ * zoom the maps read it at (mapRenderer.js reads six zooms finer than the
+ * tiles it draws, and 2^6 is 64).
+ */
+const SHARE_BLOCK = 64;
+/** Blocks of share()'s answers kept per record, the least lately asked going first: 16 KB each, 4 MB in all. */
+const SHARE_BLOCKS = 256;
+
+/**
  * The squares explored ground is kept in on one world: which zooms, where.
  *
  * They were Earth's zooms on every world — 8 to 16 — and a mercator square is
@@ -346,6 +355,11 @@ function readKey(key) {
   return true;
 }
 
+/** One number for a block of share()'s answers: its zoom and where it is, in blocks. */
+function blockKey(z, bx, by) {
+  return (z * 262144 + by) * 262144 + bx;
+}
+
 export class Exploration extends Emitter {
   /**
    * @param {object} [options]
@@ -374,6 +388,14 @@ export class Exploration extends Emitter {
     /** What coverage() and landCoverage() add up, once each has been asked; null until then. */
     this.covered = null;
     this.landCovered = null;
+    /** share()'s answers, a block of squares at a time, by blockKey; most lately asked last. */
+    this.shareBlocks = new Map();
+    /** How many of those blocks there are of each zoom, so a new square updates only theirs. */
+    this.shareLevels = new Map();
+    /** The block share() asked for last, so a row of a tile is not a Map lookup a square. */
+    this.lastBlock = null;
+    /** For a record kept as a Set: its finest squares again as runs, for share(). Null until asked. */
+    this.finestIndex = null;
     // A save from before the squares were sized to the world is carried over,
     // and written back the new way at the next save.
     if (stored && this.load(readJSON(STORAGE_KEY, [])) > 0) this.dirty = true;
@@ -454,16 +476,162 @@ export class Exploration extends Emitter {
     return land > 0 ? Math.min(1, this.landCovered / land) : 0;
   }
 
-  /** A newly recorded square that coverage counts, onto whichever sums are being kept. */
+  /**
+   * A newly recorded square that coverage counts, onto whichever sums are
+   * being kept: coverage, land, and the blocks of share()'s answers asked for
+   * so far, which are kept up square by square rather than worked out again.
+   */
   countSquare(z, x, y) {
     if (this.covered !== null) this.covered += rowShare(z, y);
     if (this.landCovered !== null && isLandTile(z, x, y)) this.landCovered += rowShare(z, y);
+    this.finestIndex?.addCell(z, x, y);
+    for (const level of this.shareLevels.keys()) {
+      if (level >= z) continue;
+      const shift = z - level;
+      const cx = x >> shift;
+      const cy = y >> shift;
+      const side = Math.min(SHARE_BLOCK, 2 ** level);
+      const bx = Math.floor(cx / side);
+      const by = Math.floor(cy / side);
+      const block = this.shareBlocks.get(blockKey(level, bx, by));
+      if (block) block[(cy - by * side) * side + (cx - bx * side)] += 4 ** -shift;
+    }
+  }
+
+  /** Is anything keeping count of the squares coverage counts, so a new one has to be told to it? */
+  get counting() {
+    return this.covered !== null || this.landCovered !== null || this.finestIndex !== null || this.shareLevels.size > 0;
+  }
+
+  /**
+   * How much of square z/x/y has been explored, from 0 to 1: the part of it
+   * the finest squares (the ones coverage counts, see isFinest) cover.
+   *
+   * This is what the maps draw, at every zoom. They used to draw isExplored,
+   * which says yes for a square if anything inside it is explored - and every
+   * zoom coarser than the finest is a bigger square, so the ground drawn as
+   * yours grew as you zoomed out: a 1,650 km2 flight was 2,700 km2 at map zoom
+   * 6, 11,000 at 4 and 53,000 at 3 and below, and only itself from zoom 10 in.
+   * The explored area changed with the zoom. A square drawn by how much of it
+   * you have seen is the same ground at every zoom - zoomed out, a thin
+   * track is a faint line, as it is in fact - and the percentages on the map
+   * have always been worked out the same way.
+   *
+   * At or finer than the finest square kept in its row, it is that square:
+   * all or nothing, there being nothing finer to say.
+   */
+  share(z, x, y) {
+    if (cheats.mapUnlocked) return 1;
+    const scheme = this.scheme;
+    if (z >= scheme.align) {
+      const finest = scheme.finestAt(z, y);
+      if (z >= finest) {
+        const shift = z - finest;
+        return this.hasSquare(finest, x >> shift, y >> shift) ? 1 : 0;
+      }
+    }
+    const side = Math.min(SHARE_BLOCK, 2 ** z);
+    const bx = Math.floor(x / side);
+    const by = Math.floor(y / side);
+    const key = blockKey(z, bx, by);
+    let block = this.lastBlock?.key === key ? this.lastBlock.block : null;
+    if (!block) {
+      block = this.shareBlock(z, bx, by, side, key);
+      this.lastBlock = { key, block };
+    }
+    return Math.min(1, block[(y - by * side) * side + (x - bx * side)] ?? 0);
+  }
+
+  /** One block of share()'s answers: side x side squares of zoom z, kept until the record is replaced. */
+  shareBlock(z, bx, by, side, key) {
+    let block = this.shareBlocks.get(key);
+    if (block) {
+      this.shareBlocks.delete(key);
+      this.shareBlocks.set(key, block);
+      return block;
+    }
+    block = new Float32Array(side * side);
+    const scheme = this.scheme;
+    const index = this.finestRuns();
+    for (let band = 0; band <= POLAR_STEPS; band++) {
+      const level = scheme.finest - band;
+      // A row whose finest square is this zoom or coarser is answered by
+      // that square (share), so only finer ones are added up here.
+      if (level <= z) continue;
+      const rows = index.levels.get(level);
+      if (!rows?.size) continue;
+      const shift = level - z;
+      const scale = 2 ** shift;
+      const weight = 4 ** -shift;
+      const rowFirst = by * side * scale;
+      const rowEnd = rowFirst + side * scale;
+      const colFirst = bx * side * scale;
+      const colEnd = colFirst + side * scale;
+      const take = (row, runs) => {
+        if (row < rowFirst || row >= rowEnd || !scheme.isFinest(level, row)) return;
+        const at = (Math.floor(row / scale) - by * side) * side - bx * side;
+        for (let i = 0; i < runs.length; i += 2) {
+          let from = Math.max(runs[i], colFirst);
+          const to = Math.min(runs[i] + runs[i + 1], colEnd);
+          while (from < to) {
+            const column = Math.floor(from / scale);
+            const next = Math.min(to, (column + 1) * scale);
+            block[at + column] += (next - from) * weight;
+            from = next;
+          }
+        }
+      };
+      // Whichever is fewer: the rows the record has at this zoom, or the rows
+      // the block spans. Zoomed out, a block is most of the world.
+      if (rows.size <= rowEnd - rowFirst) {
+        for (const [row, runs] of rows) take(row, runs);
+      } else {
+        for (let row = rowFirst; row < rowEnd; row++) {
+          const runs = rows.get(row);
+          if (runs) take(row, runs);
+        }
+      }
+    }
+    this.shareBlocks.set(key, block);
+    this.shareLevels.set(z, (this.shareLevels.get(z) ?? 0) + 1);
+    if (this.shareBlocks.size > SHARE_BLOCKS) {
+      const [oldest] = this.shareBlocks.keys();
+      this.shareBlocks.delete(oldest);
+      const level = Math.floor(oldest / 2 ** 36);
+      const left = (this.shareLevels.get(level) ?? 1) - 1;
+      if (left > 0) this.shareLevels.set(level, left);
+      else this.shareLevels.delete(level);
+      if (this.lastBlock?.key === oldest) this.lastBlock = null;
+    }
+    return block;
+  }
+
+  /** The record's finest squares as runs: the record itself when it is kept as runs. */
+  finestRuns() {
+    if (this.compact) return this.cells;
+    if (!this.finestIndex) {
+      const index = new CellRuns();
+      for (const key of this.cells) {
+        if (readKey(key) && this.scheme.isFinest(cell.z, cell.y)) index.addCell(cell.z, cell.x, cell.y);
+      }
+      this.finestIndex = index;
+    }
+    return this.finestIndex;
+  }
+
+  /** Forget share()'s answers: the record was replaced, not added to. */
+  forgetShares() {
+    this.shareBlocks.clear();
+    this.shareLevels.clear();
+    this.lastBlock = null;
+    this.finestIndex = null;
   }
 
   /** After `cells` was changed directly, rather than through visit or merge. */
   recount() {
     this.detailCount = this.countAt(this.scheme.detail);
     this.coarseCache.clear();
+    this.forgetShares();
     this.covered = null;
     this.landCovered = null;
   }
@@ -488,7 +656,7 @@ export class Exploration extends Emitter {
 
   /** Put a run of squares of one row into the record, counted. How many were new. */
   addSquares(z, x0, y, length) {
-    const counting = (this.covered !== null || this.landCovered !== null) && this.scheme.isFinest(z, y);
+    const counting = this.counting && this.scheme.isFinest(z, y);
     let added = 0;
     if (this.compact) {
       added = this.cells.addRun(z, y, x0, length, counting ? (start, n) => {
@@ -771,6 +939,7 @@ export class Exploration extends Emitter {
   clear() {
     this.cells.clear();
     this.coarseCache.clear();
+    this.forgetShares();
     this.detailCount = 0;
     this.covered = 0;
     this.landCovered = 0;

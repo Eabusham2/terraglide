@@ -224,35 +224,22 @@ export function drawMap(ctx, view, layers) {
     // Unexplored first, over everything: the drawn map is the ground state.
     paint(ctx, layers.street, STREET_BLANK);
 
-    // Which recorded level the fog is read at.
+    // Which zoom the fog is read at, and how.
     //
-    // It used to be sixteen subdivisions of a map tile, always, which sounds
-    // like a resolution and is not: it made the mask level `tileZoom + 4`, and
-    // that is coarser than the record everywhere below map zoom 12 and lands
-    // between recorded levels on the odd ones. isExplored resolves a level it
-    // does not have by shifting *down* to the nearest one it does, and a
-    // coarser cell counts as explored if any part of it is — so the ground you
-    // had seen grew as you zoomed out. At map zoom 11 it was read at level 14,
-    // four times the area per side it should be; at map zoom 6 at level 10,
-    // whose cells are about forty kilometres across. Flying through one point
-    // uncovered the lot. That is the whole of "does not show only what I saw,
-    // and changes size with zoom".
+    // It used to be sixteen subdivisions of a map tile, always, which made the
+    // mask level `tileZoom + 4` and asked isExplored a level the record did not
+    // have; then a level the record keeps, chosen by zoom. Either way each
+    // square of the mask was explored if anything in it was, and every zoom
+    // out is a bigger square: a 1,650 km2 flight drew as 1,300 km2 at map zoom
+    // 8, 2,700 at 6, 11,000 at 4 and 53,000 from 3 out. The explored area
+    // changed with the zoom.
     //
-    // So the level is chosen instead, and it is always one the record actually
-    // keeps, which is what stops the shifting and the growth. The finest that
-    // is worth drawing is about four pixels a cell — finer than that is a
-    // lookup per pixel for an edge that is feathered anyway — and a level-L
-    // cell is 256 * 2^(zoom - L) pixels across, so four pixels is L = zoom + 6.
-    // Capped at the finest level the record keeps, since there is nothing
-    // beyond it to ask for.
-    const wanted = Math.min(LEVELS[LEVELS.length - 1], tileZoom + 6);
-    let level = LEVELS[0];
-    for (const candidate of LEVELS) {
-      if (candidate <= wanted) level = candidate;
-    }
-    // Below map zoom 2 even the coarsest recorded level is finer than a tile,
-    // and there is nothing to subdivide; isExplored falls through to its own
-    // folded answer there, which is what that fold is for.
+    // Now the mask is drawn by how much of each square has been explored
+    // (Exploration.share), measured on the finest squares the record keeps -
+    // the ones the percentages on the map are worked out from - so the same
+    // ground is uncovered at every zoom. About four pixels a square, which is
+    // six zooms finer than the map tile, and never finer than the record.
+    const level = Math.min(LEVELS[LEVELS.length - 1], tileZoom + 6);
     const sub = Math.max(1, Math.pow(2, level - tileZoom));
     const maskZoom = tileZoom + Math.round(Math.log2(sub));
     const cellPx = drawSize / sub;
@@ -277,45 +264,46 @@ export function drawMap(ctx, view, layers) {
         const screenX = (tx * TILE_PX - tileCentre.x) * tileScale;
         const screenY = (ty * TILE_PX - tileCentre.y) * tileScale;
         for (let j = 0; j < sub; j++) {
-          // Filled as horizontal runs rather than cell by cell.
+          // Filled as horizontal runs of one strength rather than square by
+          // square.
           //
           // Each cell used to be drawn as its own rectangle grown by half a
           // pixel on every side, so that adjacent cells could not leave a
           // hairline of street map between them. Half a pixel is nothing when
           // a cell is forty pixels across and it is most of the cell when it
           // is four: the grown rectangle is `cellPx + 1` on a side, so the
-          // area drawn is (1 + 1/cellPx)^2 times the area explored. At map
-          // zoom 4, where a level-10 cell is about four pixels, that is 56 per
-          // cent more ground than you have seen, and it gets worse the further
-          // out you zoom — which is exactly "the map shows more than I
-          // explored when zoomed out".
-          //
-          // A run has no interior seams to hide, so the overlap is only needed
-          // at its two ends, and what is left of it is capped to a twentieth
-          // of a cell. At four pixels a cell that is 0.2 of a pixel rather
-          // than a whole one, and the mask is feathered afterwards anyway.
+          // area drawn is (1 + 1/cellPx)^2 times the area explored. A run has
+          // no interior seams to hide, so the overlap is only needed at the
+          // ends of a fully explored one, capped to a twentieth of a cell.
           const bleed = Math.min(0.5, cellPx * 0.05);
           let runStart = -1;
+          let runLevel = 0;
           for (let i = 0; i <= sub; i++) {
-            const on = i < sub
-              && (layers.exploration.isExplored(maskZoom, wrappedX * sub + i, ty * sub + j)
-                || !!shared?.isExplored(maskZoom, wrappedX * sub + i, ty * sub + j));
-            if (on) {
-              if (runStart < 0) runStart = i;
-              continue;
+            const x = wrappedX * sub + i;
+            const y = ty * sub + j;
+            // Yours, or everybody's on a server - which has yours in it.
+            const amount = i < sub
+              ? Math.max(layers.exploration.share(maskZoom, x, y), shared ? shared.share(maskZoom, x, y) : 0)
+              : 0;
+            const strength = Math.round(amount * 255);
+            if (strength === runLevel && i < sub) continue;
+            if (runStart >= 0 && runLevel > 0) {
+              const edge = runLevel === 255 ? bleed : 0;
+              mask.globalAlpha = runLevel / 255;
+              mask.fillRect(
+                screenX + runStart * cellPx - edge,
+                screenY + j * cellPx - edge,
+                (i - runStart) * cellPx + edge * 2,
+                cellPx + edge * 2,
+              );
             }
-            if (runStart < 0) continue;
-            mask.fillRect(
-              screenX + runStart * cellPx - bleed,
-              screenY + j * cellPx - bleed,
-              (i - runStart) * cellPx + bleed * 2,
-              cellPx + bleed * 2,
-            );
-            runStart = -1;
+            runStart = i;
+            runLevel = strength;
           }
         }
       }
     }
+    mask.globalAlpha = 1;
 
     // Feather the edge, then cut the photograph to it. The blur goes on the
     // composite rather than on each cell: blurring them one at a time and
@@ -595,11 +583,9 @@ function drawOthersBelow(ctx, others, toScreen, view) {
   const {
     tileZoom, minX, maxX, minY, maxY, tileCentre, tileScale, drawSize, tileCount, pixelRatio, width, height, rotation,
   } = view;
-  // Discoveries: the same level choice as the fog above, so a stranger's
-  // explored ground is drawn at the resolution yours is.
-  const wanted = Math.min(LEVELS[LEVELS.length - 1], tileZoom + 6);
-  let level = LEVELS[0];
-  for (const candidate of LEVELS) if (candidate <= wanted) level = candidate;
+  // Discoveries: read as the fog above is, by how much of each square they
+  // have explored, so a stranger's ground is the same ground at every zoom.
+  const level = Math.min(LEVELS[LEVELS.length - 1], tileZoom + 6);
   const sub = Math.max(1, Math.pow(2, level - tileZoom));
   const maskZoom = tileZoom + Math.round(Math.log2(sub));
   const cellPx = drawSize / sub;
@@ -621,20 +607,27 @@ function drawOthersBelow(ctx, others, toScreen, view) {
         const screenY = (ty * TILE_PX - tileCentre.y) * tileScale;
         for (let j = 0; j < sub; j++) {
           let runStart = -1;
+          let runLevel = 0;
           for (let i = 0; i <= sub; i++) {
-            const on = i < sub && overlay.explored.isExplored(maskZoom, wrappedX * sub + i, ty * sub + j)
-              && !overlay.exclude?.isExplored(maskZoom, wrappedX * sub + i, ty * sub + j);
-            if (on) {
-              if (runStart < 0) runStart = i;
-              continue;
+            const x = wrappedX * sub + i;
+            const y = ty * sub + j;
+            // Theirs, less what is already yours where yours is shown apart.
+            const amount = i < sub
+              ? Math.max(0, overlay.explored.share(maskZoom, x, y) - (overlay.exclude ? overlay.exclude.share(maskZoom, x, y) : 0))
+              : 0;
+            const strength = Math.round(amount * 255);
+            if (strength === runLevel && i < sub) continue;
+            if (runStart >= 0 && runLevel > 0) {
+              t.globalAlpha = runLevel / 255;
+              t.fillRect(screenX + runStart * cellPx, screenY + j * cellPx, (i - runStart) * cellPx, cellPx);
             }
-            if (runStart < 0) continue;
-            t.fillRect(screenX + runStart * cellPx, screenY + j * cellPx, (i - runStart) * cellPx, cellPx);
-            runStart = -1;
+            runStart = i;
+            runLevel = strength;
           }
         }
       }
     }
+    t.globalAlpha = 1;
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = overlay.wash ?? 0.32;
