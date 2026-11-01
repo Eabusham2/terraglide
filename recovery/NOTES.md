@@ -68,6 +68,26 @@
 - Suites at 7ea5943: check 102 modules ok, selftest 1760/1760, servertest 323/323, flightcheck 15/15 (nothing put back on any world), onlinecheck 43/43, voice
   50/50. The voice harness now writes its own speech.wav (it was never in git; without it the fake microphone is
   silence and three listening checks fail), and onlinecheck waits for both pages' party (a race under load).
+- Nov 1, the owner's next four asks: accounts made with a username and password kept on the server; an admin panel
+  for the account Eabusham2 behind an access code (the code itself is a secret and is not written anywhere in this
+  repository, which is public); signing in a second time lets the earlier sign-in go; and the explored area on the map
+  changing with the zoom.
+  - Accounts: already a name and a password typed into the sign-up form, kept on the server as a scrypt hash
+    (server/accounts.mjs) - checked in a browser, accounts.json holds no password. Nothing to change.
+  - A second sign-in already lets the first page go ("Signed in from somewhere else", close code 4001, and the page
+    stops reconnecting). Checked in a browser and now in onlinecheck: the old page stays gone, one session on the server.
+  - 8705d52: the explored area changed with zoom because each mask square was explored if anything in it was - a
+    1,650 km2 flight drew as 53,000 km2 zoomed out. Now drawn by how much of each square the finest squares cover
+    (Exploration.share, blocks of 64x64 kept up square by square): the same ground at every zoom (within 4% at the
+    whole-world view). A 3M-square shared map redraws in 8-20 ms.
+  - 51c1205: admin access code (adminCode / TERRAGLIDE_ADMIN_CODE, set on the host as a secret) and the admin panel
+    (src/ui/adminPanel.js; Online, then Admin panel). Admin powers locked until the code is typed, per browser, until
+    sign-out or a restart; 5 wrong a quarter hour per address, 20 an hour per account; a name in `admins` can only be
+    made with the code; the first account is no admin once admins are named. fly.toml and render.yaml name Eabusham2
+    and ask for the code as a secret. PROTOCOL_VERSION 3 (new 'admin' message).
+- Suites at 51c1205: check 103 modules ok, selftest 1769/1769, servertest 347/347, flightcheck earth ok (scored 0),
+  onlinecheck 52/52, voice 50/50. One onlinecheck run before the admin work failed once on "Ada's swing takes Bruno's
+  hearts (20 -> 20)" and passed on the rerun and every run since: a timing flake under load, not a change.
 - Left as it is, on purpose: the server turns away a page of any other version, newer ones too, since it cannot know
   what a later protocol changes (the last bump changed every key). HOSTING says to update a public server first and
   merge to main straight after, so GitHub Pages is never newer than the server.
