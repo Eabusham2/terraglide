@@ -54,8 +54,18 @@
     memory row (loading or saving a full map peaks near 300 MB). A re-check by the data skeptic found nothing on
     00b593d: 0 lost of 428.6M lookups over 22 real-flight cases, trimmed old saves lose nothing, no record misjudged in
     120, shared maps arrive whole in a browser (2.2M cells in 1.9 s) and stop cleanly when a page leaves.
-- Suites at 59fb94c (the code as at 00b593d, plus HOSTING wording and two test-harness fixes): check 102 modules ok,
-  selftest 1760/1760, servertest 261/261, flightcheck 15/15 (nothing put back on any world), onlinecheck 43/43, voice
+  - 7ea5943 (Nov 1, at the owner's request "make sure anticheat detection based on user doing impossible things is
+    implemented ... the things other than speed like tp and more and even pvp stuff"): detection, not just refusal.
+    Every refusal sorted into what only a modified page sends (counted, weights in server/cheats.mjs: speed, arrival,
+    state, flags, target, swingless, swordless, reach, selfDamage, rockets, message) and what an honest page can
+    produce (0). Score per account (server/data/cheats.json), halves every 30 min, kick at 40, then 15 min / 1 h / 24 h
+    bans on repeat kicks in a week, kicks remembered on an unshared address, admins told and never banned,
+    server/data/anticheat.log, /cheats and /pardon. Built by one agent, checked by an honest-side skeptic (about 235,000
+    honest hits with pings answered, no detection; every earlier honest batch at most 2.5 of 40) and an attack skeptic
+    (two gaps fixed: floods hiding kicks from the log, a fresh account per kick never banned). servertest 261 -> 323.
+    Left as is: a family behind one unshared address loses the free first kick for a week after one member is kicked
+    (no honest run came near a kick); a page far behind its own connection could in theory be judged on reach.
+- Suites at 7ea5943: check 102 modules ok, selftest 1760/1760, servertest 323/323, flightcheck 15/15 (nothing put back on any world), onlinecheck 43/43, voice
   50/50. The voice harness now writes its own speech.wav (it was never in git; without it the fake microphone is
   silence and three listening checks fail), and onlinecheck waits for both pages' party (a race under load).
 - Left as it is, on purpose: the server turns away a page of any other version, newer ones too, since it cannot know
