@@ -146,6 +146,15 @@ class Bot {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// What the anti-cheat holds against a player's account for moves refused as
+// too fast - what the connection's own count of them used to be - and
+// clearing it, for the checks that are refused on purpose, so that a later
+// one is not let go for what an earlier one did.
+const refusedMoves = (p) => Math.round((server.game.cheats?.entry(p.key)?.kinds.speed ?? p.violations ?? 0) * 100) / 100;
+const forgive = (p) => {
+  if (server.game.cheats) server.game.cheats.pardon(p.key);
+  else p.violations = 0;
+};
 // A spot away from spawn, where fighting is allowed.
 const FIELD = { lat: 46.6, lon: 7.95 };
 const metresNorth = (m) => m / 111320;
@@ -369,7 +378,7 @@ try {
     // Flying: on foot the limit is a runner's (see 'held to what the game can do').
     ok('800 m in a second is too fast outside a surge', !(await dash(FLAG.elytra)));
     ok('and not inside one', await dash(FLAG.elytra | FLAG.surge));
-    p.violations = 0;
+    forgive(p);
     // The surge's own timeline, on a player of its own: the twelve seconds,
     // the grace after them, the fade, and the thirty to recharge.
     const g = server.game;
@@ -1376,10 +1385,10 @@ try {
     // Standing first: a landing is timed from the first state on the ground.
     await move(ivo, ip, {});
     ip.airborneAt = long;
-    const violations = ip.violations;
+    const violations = refusedMoves(ip);
     ok('on foot, the ground loading in finer under you stands, but is counted',
-      (await move(ivo, ip, { up: 300 })) && ip.violations > violations);
-    ip.violations = 0;
+      (await move(ivo, ip, { up: 300 })) && refusedMoves(ip) > violations);
+    forgive(ip);
 
     // A burst - the allowance saved up, spent at once - is movement, not a hit.
     ivo.state({ flags: FLAG.elytra });
@@ -1529,7 +1538,7 @@ try {
     ip.combatUntil = 0;
     const fast = await place(ivo, FIELD.lat + 0.2, FIELD.lon, 2000, FLAG.elytra);
     fast.arrivedAt = long;
-    fast.violations = 0;
+    forgive(fast);
     const startLat = fast.state.lat;
     const t0 = Date.now();
     let asked = ivo.pos.lat;
@@ -1545,7 +1554,7 @@ try {
     const held = ((fast.state.lat - startLat) * 111320) / ((Date.now() - t0) / 1000);
     ok(`a page asking for 400 m/s is held to the limit  (${held.toFixed(0)} m/s against ${g.maxSpeed('earth')})`,
       held < g.maxSpeed('earth') * 1.1);
-    fast.violations = 0;
+    forgive(fast);
 
     // A socket that goes quiet for six seconds and then delivers everything
     // at once, from an honest 100 m/s glide: nothing put back, nothing lost.
@@ -1581,7 +1590,7 @@ try {
     await move(ivo, claimer, { flags: FLAG.elytra });
     ok('a height only claimed on arrival gives a fall nothing', !(await move(ivo, claimer, { north: 500, flags: FLAG.elytra })),
       `ceiling ${Math.round(claimer.ceiling)}`);
-    claimer.violations = 0;
+    forgive(claimer);
     // Nor does bouncing up and down while the arrival's half minute lasts.
     // The server cannot see the ground, so a page may be standing on the
     // highest peak there is and step off it - one fall's worth, honestly -
@@ -1598,7 +1607,7 @@ try {
     }
     ok(`bouncing through the arrival banks one fall at most, not one a bounce  (${Math.round(bouncer.reserve)} m²/s² kept)`,
       bouncer.reserve <= 2 * 32 * 10000 + 1);
-    bouncer.violations = 0;
+    forgive(bouncer);
     // A refused move is put back, and so is the fall it claimed.
     const refused = await place(ivo, FIELD.lat + 0.55, FIELD.lon, 10000, FLAG.elytra);
     refused.arrivedAt = long;
@@ -1611,7 +1620,7 @@ try {
     }
     ok(`a refused move keeps none of the fall it claimed  (${Math.round(refused.reserve)} m²/s² kept)`,
       ivo.has('correct') && refused.reserve < 1);
-    refused.violations = 0;
+    forgive(refused);
 
     // Out of a surge with no air, the speed stays; Earth's air takes it away.
     const { BODIES } = await import('../src/geo/bodies.js');
@@ -2201,7 +2210,7 @@ try {
     await sleep(150);
     ok('standing up on the ground loading in stands, and raises no ceiling',
       !ivo.has('correct') && stander.state.alt === 50000 && stander.ceiling === ceilingBefore);
-    stander.violations = 0;
+    forgive(stander);
 
     // A pause, then one state beside somebody and a swing: the travel the
     // pause lent back is movement, not a hit.
@@ -2337,14 +2346,14 @@ try {
     // with it, not counted again.
     const lagger = await place(ivo, FIELD.lat + 0.9, FIELD.lon, 2000, FLAG.elytra);
     lagger.arrivedAt = long;
-    lagger.violations = 0;
+    forgive(lagger);
     lagger.correctedAt = -Infinity;
     ivo.clear();
     for (let i = 0; i < 6; i++) ivo.state({ lat: ivo.pos.lat + metresNorth(3000), flags: FLAG.elytra });
     await sleep(200);
-    ok(`moves sent before the page could hear it was put back count once  (${lagger.violations} counted, ${ivo.inbox.filter((m) => m.t === 'correct').length} put back)`,
-      lagger.violations === 1 && ivo.inbox.filter((m) => m.t === 'correct').length === 1);
-    lagger.violations = 0;
+    ok(`moves sent before the page could hear it was put back count once  (${refusedMoves(lagger)} counted, ${ivo.inbox.filter((m) => m.t === 'correct').length} put back)`,
+      refusedMoves(lagger) === 1 && ivo.inbox.filter((m) => m.t === 'correct').length === 1);
+    forgive(lagger);
 
     // Accepting friend requests automatically, the rest of it.
     server.accounts.signups.hits.clear();
@@ -2456,6 +2465,499 @@ try {
     ria2.close();
     sol.close();
     ivo.close();
+  }
+
+  console.log('\nthe anti-cheat: what no page sends');
+  {
+    const g = server.game;
+    const { readFileSync: readDisk, existsSync, statSync } = await import('node:fs');
+    // Held against an account, by kind, now - and all of it.
+    // Whole numbers: it fades a little every second (see 'it fades with time').
+    const held = (key, kind) => Math.round(g.cheats?.entry?.(key)?.kinds?.[kind] ?? 0);
+    const score = (key) => Math.round(g.cheats?.score?.(key) ?? 0);
+    const place = async (bot, lat, lon, alt = 500, flags = FLAG.ground, item = 0) => {
+      const p = g.byKey.get(bot.name.toLowerCase());
+      g.teleport(p, { lat, lon, alt, flying: false }, 'test');
+      const tp = await bot.next('teleport', (m) => m.reason === 'test');
+      bot.send({ t: 'arrived', tid: tp.tid });
+      bot.pos = { lat: tp.lat, lon: tp.lon, alt };
+      bot.state({ flags, item });
+      await sleep(120);
+      return p;
+    };
+    const fresh = async (name) => {
+      server.accounts.signups.hits.clear();
+      const bot = await new Bot(name).open();
+      await bot.signup();
+      return bot;
+    };
+    const raw = (bot, m) => bot.send(m);
+    // Hits with no state before them, as a script sends them: one after
+    // another, the first behind a ping. A page's are each behind its state.
+    const burst = (bot, n, target = vela.id) => {
+      bot.send({ t: 'ping', c: Date.now() });
+      for (let i = 0; i < n; i++) bot.send({ t: 'attack', target });
+    };
+
+    const cheto = await fresh('Cheto');
+    const vela = await fresh('Vela');
+    const up = await place(cheto, FIELD.lat + 0.3, FIELD.lon, 500, FLAG.ground, SWORD_SLOT);
+    const vp = await place(vela, FIELD.lat + 0.3 + metresNorth(2), FIELD.lon, 500);
+    ok('a page that has done nothing impossible has nothing held against it', score('cheto') === 0 && score('vela') === 0);
+
+    // Arriving somewhere it was not sent: a page lands on the spot and says so
+    // with the state it is in there.
+    g.teleport(up, { lat: FIELD.lat + 0.31, lon: FIELD.lon, alt: 500, flying: false }, 'test');
+    let tp = await cheto.next('teleport', (m) => m.reason === 'test');
+    cheto.send({ t: 'arrived', tid: tp.tid });
+    cheto.state({ lat: tp.lat + metresNorth(1000), lon: tp.lon, alt: 500, item: SWORD_SLOT });
+    cheto.state({ lat: tp.lat + metresNorth(1000), lon: tp.lon, alt: 500, item: SWORD_SLOT });
+    await cheto.next('correct');
+    ok('arriving a kilometre from where it was sent is counted, once', held('cheto', 'arrival') === 5, `${held('cheto', 'arrival')}`);
+    cheto.state({ lat: tp.lat, lon: tp.lon, alt: 500, item: SWORD_SLOT });
+    cheto.pos = { lat: tp.lat, lon: tp.lon, alt: 500 };
+    await sleep(120);
+    g.teleport(up, { lat: FIELD.lat + 0.3, lon: FIELD.lon, alt: 500, flying: false }, 'test');
+    tp = await cheto.next('teleport', (m) => m.reason === 'test');
+    cheto.send({ t: 'arrived', tid: tp.tid });
+    cheto.state({ lat: tp.lat + metresNorth(300), lon: tp.lon, alt: 500, item: SWORD_SLOT });
+    await sleep(120);
+    ok('but within the slack the heights settle in, nothing', held('cheto', 'arrival') === 5 && !up.pending);
+    cheto.pos = { lat: tp.lat, lon: tp.lon, alt: 500 };
+    // A sign-in's 'arrived 0', still on its way when a world move followed it,
+    // is not an arrival on the new world - a world move waits for no teleport.
+    {
+      const wanda = await fresh('Wanda');
+      const wp = g.byKey.get('wanda');
+      g.moveWorld(wp, 'moon');
+      wanda.send({ t: 'arrived', tid: 0 });
+      wanda.state({ lat: wanda.auth.pos.lat, lon: wanda.auth.pos.lon, alt: 500 });
+      await sleep(150);
+      ok('a sign-in\'s arrival on its way is not taken as arriving on another world, nor counted',
+        !!wp.pending && !wp.pending.arrived && held('wanda', 'arrival') === 0);
+      wanda.close();
+    }
+
+    // Dead and hurt are the server's to say.
+    cheto.state({ flags: FLAG.ground | FLAG.dead, item: SWORD_SLOT });
+    await sleep(120);
+    ok('a page saying it is dead is counted', held('cheto', 'flags') === 2);
+    cheto.state({ flags: FLAG.ground | FLAG.swing | FLAG.talking | FLAG.woke | FLAG.sprint, item: SWORD_SLOT });
+    await sleep(120);
+    ok('every flag a page does set is not', held('cheto', 'flags') === 2);
+
+    // A position that is not three numbers.
+    cheto.send({ t: 's', q: 1, p: ['46.9', 7.95, 500], g: 2, v: [0, 0, 0], o: [0, 0, 0], f: 1, i: 5 });
+    await sleep(120);
+    ok('a state that is not numbers is counted', held('cheto', 'state') === 2);
+    cheto.state({ alt: 250000, item: SWORD_SLOT });
+    await sleep(120);
+    ok('but one higher than the server takes is only refused: a surge climbs that high on a small world', held('cheto', 'state') === 2);
+    cheto.pos.alt = 500;
+    cheto.state({ item: SWORD_SLOT });
+    await sleep(120);
+
+    // Hits. The page sends its state the moment before every one.
+    await sleep(700);
+    burst(cheto, 1);
+    await sleep(120);
+    ok('a hit with no state before it is counted', held('cheto', 'swingless') === 3);
+    await sleep(700);
+    cheto.strike(vela.id);
+    await sleep(60);
+    cheto.strike(vela.id);
+    await sleep(150);
+    ok('two swings a moment apart, each with its state - a double click - are not', held('cheto', 'swingless') === 3);
+    // A stall: a socket that held five swings back lets them go at once, each
+    // still behind its own state.
+    await sleep(700);
+    for (let i = 0; i < 5; i++) cheto.strike(vela.id);
+    await sleep(150);
+    ok('nor five held back by a stall and delivered at once', held('cheto', 'swingless') === 3);
+    await sleep(700);
+    cheto.state({ item: 0 });
+    raw(cheto, { t: 'attack', target: vela.id });
+    await sleep(120);
+    ok('a hit straight after saying the hand holds a rocket is counted', held('cheto', 'swordless') === 3);
+    // The state before was refused: the slot the server has is from before it.
+    await sleep(700);
+    cheto.state({ item: 0 });
+    await sleep(120);
+    cheto.state({ lat: cheto.pos.lat + 1, item: SWORD_SLOT });
+    raw(cheto, { t: 'attack', target: vela.id });
+    await cheto.next('correct');
+    cheto.pos = { lat: up.state.lat, lon: up.state.lon, alt: up.state.alt };
+    await sleep(120);
+    ok('but not when the state before it was refused, and the server\'s idea of the hand is old', held('cheto', 'swordless') === 3);
+    cheto.state({ item: SWORD_SLOT });
+    await sleep(700);
+    cheto.strike(cheto.id);
+    await sleep(120);
+    ok('hitting yourself is counted', held('cheto', 'target') === 2);
+    cheto.strike(9999999);
+    await sleep(120);
+    ok('and somebody nobody has ever been', held('cheto', 'target') === 4);
+    {
+      const gone = await fresh('Xena');
+      const id = gone.id;
+      await gone.close();
+      await sleep(100);
+      cheto.strike(id);
+      await sleep(120);
+      ok('but not somebody who has just left', held('cheto', 'target') === 4);
+    }
+    // In limbo - signed in, nothing from it yet - a page reloading into another
+    // world can still swing at what it sees, and sends no state with it.
+    {
+      const yoko = await fresh('Yoko');
+      yoko.send({ t: 'attack', target: vela.id });
+      await sleep(120);
+      ok('a hit from a page that has not yet arrived anywhere is not counted', held('yoko', 'swingless') === 0);
+      yoko.close();
+    }
+    const umaSoFar = score('cheto');
+    ok(`each kind adds up on the account  (${umaSoFar})`, umaSoFar >= 5 + 2 + 2 + 3 + 3 + 4 - 1);
+
+    // Damage the page reports: drowning, two half-hearts at a time.
+    g.cheats?.pardon?.('vela');
+    vp.health = MAX_HEALTH;
+    vela.send({ t: 'damage', amount: 4, cause: 'drowned' });
+    vela.send({ t: 'damage', amount: 2, cause: 'kill' });
+    await sleep(120);
+    ok('self-damage the game never makes is counted', held('vela', 'selfDamage') === 4);
+    vp.selfDamage = [];
+    for (let i = 0; i < 5; i++) vela.send({ t: 'damage', amount: 2, cause: 'drowned' });
+    await sleep(120);
+    ok('drowning, however bunched, is not', held('vela', 'selfDamage') === 4);
+    // Dying by your own hand in a fight is losing it, as leaving and /kill are.
+    await sleep(900);
+    vp.immuneUntil = 0;
+    vp.health = MAX_HEALTH;
+    cheto.strike(vela.id);
+    await vela.next('hit', (m) => m.by?.name === 'Cheto', 1500).catch(() => null);
+    vp.health = 2;
+    vp.selfDamage = [];
+    const kills = g.byKey.get('cheto').record.stats.kills;
+    vela.send({ t: 'damage', amount: 2, cause: 'drowned' });
+    const drowned = await vela.next('died', () => true, 1500).catch(() => null);
+    ok('drowning in the middle of a fight gives the kill to whoever you were fighting',
+      drowned?.by?.name === 'Cheto' && g.byKey.get('cheto').record.stats.kills === kills + 1, drowned?.message);
+    vela.send({ t: 'respawn' });
+    const reborn = await vela.next('teleport', (m) => m.reason === 'respawn').catch(() => null);
+    if (reborn) {
+      vela.send({ t: 'arrived', tid: reborn.tid });
+      vela.pos = { lat: reborn.lat, lon: reborn.lon, alt: 500 };
+      vela.state({});
+    }
+    vp.health = MAX_HEALTH;
+    // Rockets: five whole numbers, none past a stack.
+    vela.send({ t: 'rockets', stock: [1.5, 2, 3, 4, 5] });
+    await sleep(80);
+    ok('a rocket stock that cannot be is counted', held('vela', 'rockets') === 2);
+    vela.send({ t: 'rockets', stock: [64, 64, 64, 64, 64] });
+    await sleep(80);
+    ok('a full one - a respawn refills it - is not', held('vela', 'rockets') === 2);
+    // Messages no page sends.
+    vela.ws.send('{not json');
+    vela.ws.send(new Uint8Array([1, 2, 3]));
+    vela.send({ t: 'teleportMe', to: 'anywhere' });
+    vela.send({ t: 'login', name: 'Vela', password: 'hunter22' });
+    await sleep(150);
+    ok('text that is not JSON, a binary frame and an unknown type are counted; a sign-in sent twice is not',
+      held('vela', 'message') === 3, `${held('vela', 'message')}`);
+    g.cheats?.pardon?.('vela');
+
+    // Out of reach, judged only where what the page saw is known: a page up to
+    // date, nobody just arrived, and nowhere the target has been near it.
+    {
+      const zeno = await fresh('Zeno');
+      const aria = await fresh('Aria');
+      const zp = await place(zeno, FIELD.lat + 0.4, FIELD.lon, 500, FLAG.ground, SWORD_SLOT);
+      const ap = await place(aria, FIELD.lat + 0.4 + metresNorth(60), FIELD.lon, 500);
+      // Seven seconds of an ordinary page: a state every quarter second each.
+      for (let i = 0; i < 30; i++) {
+        zeno.state({ item: SWORD_SLOT });
+        aria.state({});
+        await sleep(250);
+      }
+      ok(`both pages are up to date  (round trip ${zeno && Math.round(zp.client.rtt ?? -1)} ms)`, g.current?.(zp, Date.now()) === true);
+      zeno.strike(aria.id);
+      await sleep(150);
+      ok('a hit on somebody sixty metres away, where they have been for seconds, is counted', held('zeno', 'reach') === 4 && !aria.has('hit'));
+      // Eight metres: out of reach, so no hit, but a page behind a slow
+      // connection does that - not counted.
+      aria.pos = { lat: zeno.pos.lat + metresNorth(8), lon: zeno.pos.lon, alt: 500 };
+      for (let i = 0; i < 4; i++) {
+        zeno.state({ item: SWORD_SLOT });
+        aria.state({});
+        await sleep(200);
+      }
+      await sleep(500);
+      zeno.strike(aria.id);
+      await sleep(150);
+      ok('one from eight metres - out of reach, but where a page behind could see them - is refused and not counted',
+        held('zeno', 'reach') === 4 && !aria.has('hit'));
+      // Somebody who has just arrived may still be drawn where they left from.
+      aria.pos = { lat: zeno.pos.lat + metresNorth(60), lon: zeno.pos.lon, alt: 500 };
+      aria.state({});
+      await sleep(700);
+      await place(aria, zeno.pos.lat + metresNorth(80), zeno.pos.lon, 500);
+      zeno.state({ item: SWORD_SLOT });
+      await sleep(700);
+      zeno.strike(aria.id);
+      await sleep(150);
+      ok('nor one at somebody who has just teleported', held('zeno', 'reach') === 4);
+      zeno.close();
+      aria.close();
+      void ap;
+    }
+
+    // Kicked: the score at forty, the reason what was impossible, admins told.
+    const asAlex = async () => {
+      const bot = await new Bot('Alex').open();
+      bot.send({ t: 'resume', token: alex.auth.token, remember: false });
+      return [bot, await bot.next('auth')];
+    };
+    const [admin] = await asAlex();
+    const cheat = async (bot, times = 14) => {
+      burst(bot, times);
+      return bot.next('kick', () => true, 2000).catch(() => null);
+    };
+    g.cheats?.pardon?.('cheto');
+    // The score survives a reconnect: half of it now, half after.
+    burst(cheto, 7);
+    await sleep(120);
+    const before = score('cheto');
+    await cheto.close();
+    const uma2 = await new Bot('Cheto').open();
+    uma2.send({ t: 'login', name: 'Cheto', password: 'hunter22' });
+    uma2.auth = await uma2.next('auth');
+    ok(`what is held against an account survives a reconnect  (${before} -> ${score('cheto')})`, before >= 20 && score('cheto') >= before - 0.1);
+    await uma2.land();
+    const kick1 = await cheat(uma2, 7);
+    ok(`at forty the page is let go, saying what was impossible  (${kick1?.reason})`, /^Hitting without swinging$/.test(kick1?.reason ?? ''));
+    const told = await admin.next('chat', (m) => /Anti-cheat: Cheto was kicked for hitting without swinging/.test(m.text)).catch(() => null);
+    ok('and every admin online is told', !!told, told?.text);
+    ok('the score starts again after a kick; the kick is remembered', score('cheto') === 0 && g.cheats?.entry?.('cheto')?.strikes?.length === 1);
+    // The first kick is only a kick.
+    const back = await new Bot('Cheto').open();
+    back.send({ t: 'login', name: 'Cheto', password: 'hunter22' });
+    const again = await back.next('auth');
+    ok('after a first kick the account signs straight back in', again.ok === true);
+    back.auth = again;
+    await back.land();
+    // The second in a week bans it for a while.
+    const kick2 = await cheat(back);
+    ok(`a second kick in a week bans the account for a quarter of an hour  (${kick2?.reason})`, /banned for 15 min/.test(kick2?.reason ?? ''));
+    const banned = await new Bot('Cheto').open();
+    banned.send({ t: 'login', name: 'Cheto', password: 'hunter22' });
+    const refused = await banned.next('auth');
+    ok(`and it is refused at sign-in with the reason and the time left  (${refused.error})`,
+      refused.ok === false && /anti-cheat for hitting without swinging — 1[45] min left/.test(refused.error ?? ''));
+    ok('its address is not held: it is the machine\'s own (a tunnel is everyone)', g.cheats?.banOf?.('cheto')?.address === null);
+    // Nobody else's sign-up is held by a loopback address; one of its own would be.
+    const ban = g.cheats?.banOf?.('cheto');
+    if (ban) ban.address = up.client.address;
+    const newcomer = await new Bot('Nova').open();
+    server.accounts.signups.hits.clear();
+    const held1 = await newcomer.signup();
+    ok(`a ban holding an address refuses a new account from it  (${held1.error})`, held1.ok === false && /on hold for 1[45] min/.test(held1.error ?? ''));
+    // Vela signs in again from there (and the old connection is replaced).
+    const vic2 = await new Bot('Vela').open();
+    vic2.send({ t: 'login', name: 'Vela', password: 'hunter22' });
+    vic2.auth = await vic2.next('auth');
+    ok('but not an account that already plays from there', vic2.auth.ok === true);
+    // Lifted by itself once its time is up.
+    if (ban) ban.until = Date.now() - 1;
+    banned.send({ t: 'login', name: 'Cheto', password: 'hunter22' });
+    const lifted = await banned.next('auth');
+    ok('a timed ban lifts itself when its time is up', lifted.ok === true);
+    banned.auth = lifted;
+    await banned.land();
+    // A third kick: an hour.
+    const kick3 = await cheat(banned);
+    ok(`a third kick in a week is an hour  (${kick3?.reason})`, /banned for 1 h$/.test(kick3?.reason ?? ''));
+    // /cheats and /pardon.
+    admin.clear();
+    admin.send({ t: 'chat', text: '/cheats' });
+    const recent = await admin.next('chat', (m) => m.kind === 'help' && /Anti-cheat, newest first/.test(m.text)).catch(() => null);
+    ok('/cheats lists what the anti-cheat has seen lately, newest first', !!recent && /Cheto kicked for hitting without swinging, banned 1 h/.test(recent.text), recent?.text?.split('\n')[1]);
+    admin.send({ t: 'chat', text: '/cheats cheto' });
+    const standing = await admin.next('chat', (m) => /^Cheto: /.test(m.text ?? '')).catch(() => null);
+    ok('/cheats <player> gives their score, kicks and ban', !!standing && /3 kicks in the last week/.test(standing.text) && /banned for hitting without swinging, (59 min|1 h) left/.test(standing.text), standing?.text);
+    vic2.send({ t: 'chat', text: '/pardon Cheto' });
+    const notAdmin = await vic2.next('chat', (m) => m.kind === 'error' && /for admins/.test(m.text)).catch(() => null);
+    ok('/pardon is for admins', !!notAdmin && !!g.cheats?.banOf?.('cheto'));
+    admin.send({ t: 'chat', text: '/pardon cheto' });
+    const pardoned = await admin.next('chat', (m) => /cleared/.test(m.text ?? '')).catch(() => null);
+    ok('/pardon clears the score, the kicks and the ban', !!pardoned && !g.cheats?.entry?.('cheto'));
+    const free = await new Bot('Cheto').open();
+    free.send({ t: 'login', name: 'Cheto', password: 'hunter22' });
+    ok('and the account signs in again', (await free.next('auth')).ok === true);
+    // /unban lifts the anti-cheat's ban too.
+    g.cheats?.ban?.('cheto', { until: Date.now() + 600000, reason: 'testing', address: null });
+    admin.send({ t: 'chat', text: '/unban cheto' });
+    await admin.next('chat', (m) => /can come back/.test(m.text ?? '')).catch(() => null);
+    ok('/unban lifts a timed ban as well as an admin\'s', !g.cheats?.banOf?.('cheto'));
+    free.close();
+
+    // An admin is let go like anybody, but never banned.
+    {
+      const kickAdmin = async () => {
+        const [bot, auth] = await asAlex();
+        bot.auth = auth;
+        await bot.land();
+        burst(bot, 14);
+        return [auth, await bot.next('kick', () => true, 2000).catch(() => null)];
+      };
+      g.cheats?.pardon?.('alex');
+      const [, first] = await kickAdmin();
+      const [secondAuth, second] = await kickAdmin();
+      const [, thirdAuth] = await asAlex();
+      ok('an admin is kicked like anybody', !!first && !!second && secondAuth.ok === true);
+      ok('but never banned: never locked out of their own server', thirdAuth.ok === true && !g.cheats?.banOf?.('alex') && !/banned/.test(second?.reason ?? ''),
+        `${second?.reason}; ${thirdAuth.error ?? 'signed in'}`);
+      g.cheats?.pardon?.('alex');
+    }
+
+    // It fades with time: by half every half hour.
+    g.cheats?.pardon?.('vela');
+    vic2.state({ lat: vic2.auth.pos.lat, lon: vic2.auth.pos.lon, alt: 500, flags: FLAG.ground | FLAG.hurt });
+    await sleep(100);
+    const entry = g.cheats?.entry?.('vela');
+    if (entry) entry.at -= 30 * 60 * 1000;
+    ok('what is held against an account halves in half an hour', held('vela', 'flags') === 1, `${held('vela', 'flags')}`);
+    if (entry) entry.at -= 24 * 60 * 60 * 1000;
+    ok('and is gone in a day', score('vela') === 0);
+
+    // The log: in the data folder, a line per kick, rate-limited, bounded.
+    const logFile = join(dir, 'anticheat.log');
+    const lines = existsSync(logFile) ? readDisk(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [];
+    ok('the anti-cheat\'s log is in the data folder, a JSON line each', lines.length > 5 && lines.every((l) => typeof l.at === 'string' && l.kind));
+    ok('with every kick and its ban', lines.filter((l) => l.kind === 'kick' && l.name === 'Cheto').length === 3 && lines.some((l) => l.kind === 'kick' && l.ban === '1 h'));
+    ok('and each kind with its numbers', lines.some((l) => l.kind === 'reach' && l.detail?.far >= 55) && lines.some((l) => l.kind === 'arrival' && l.detail?.off >= 990));
+    const linesBefore = lines.length;
+    g.cheats?.pardon?.('vela');
+    for (let i = 0; i < 15; i++) vic2.send({ t: 's', q: i, p: ['x', 0, 0], g: 2, v: [0, 0, 0], o: [0, 0, 0], f: 1, i: 0 });
+    await sleep(200);
+    const after = readDisk(logFile, 'utf8').trim().split('\n').length;
+    ok(`fifteen of a kind at once are one line, not fifteen  (${after - linesBefore})`, after - linesBefore === 1);
+    g.cheats?.pardon?.('vela');
+    if (g.cheats) g.cheats.logBytes = 1024 * 1024 - 10;
+    g.cheats?.log?.({ kind: 'test', name: 'nobody' });
+    ok('past a megabyte it is moved aside, so it never takes more than two',
+      existsSync(`${logFile}.1`) && statSync(logFile).size < 1000);
+
+    // A fresh account per kick is not a fresh start. The first kick of an
+    // account is only a kick, and a ban came only of an account's second -
+    // so a script that signed up anew after every kick was never banned, and
+    // the address was never held either. From an address of its own (not the
+    // machine's: a tunnel is everyone), as a page across the internet is.
+    const from = async (name, address) => {
+      const bot = await new Bot(name).open();
+      const sc = [...g.clients].at(-1);
+      sc.address = address;
+      server.accounts.signups.hits.clear();
+      return [bot, await bot.signup()];
+    };
+    {
+      const [one] = await from('Rota1', '198.51.100.7');
+      await one.land();
+      const firstKick = await cheat(one);
+      const [two, twoAuth] = await from('Rota2', '198.51.100.7');
+      await two.land();
+      const secondKick = await cheat(two);
+      ok(`a new account from an address kicked from this week starts with its kicks: kicked, it is banned  (${firstKick?.reason}; then ${secondKick?.reason})`,
+        twoAuth.ok === true && /^Hitting without swinging$/.test(firstKick?.reason ?? '') && /banned for 15 min/.test(secondKick?.reason ?? ''));
+      const [, threeAuth] = await from('Rota3', '198.51.100.7');
+      ok(`and the next new account there is held  (${threeAuth.error})`, threeAuth.ok === false && /on hold/.test(threeAuth.error ?? ''));
+      const [, elsewhere] = await from('Rota4', '198.51.100.8');
+      ok('but not one from anywhere else', elsewhere.ok === true);
+      for (const key of ['rota1', 'rota2', 'rota3', 'rota4']) g.cheats?.pardon?.(key);
+    }
+
+    // Floods are never counted - a person can make every one of them - so any
+    // number of accounts can make them for as long as they like. Forty-five
+    // accounts flooding chat, the players panel, map overlays and voice are
+    // two hundred lines a minute: past the log's hundred and twenty, and the
+    // two hundred lines /cheats keeps. A kick in the middle of that was one
+    // of the lines not written, and gone from /cheats a minute later.
+    {
+      const flood = (n, tag) => {
+        for (let i = 0; i < n; i++) g.cheats?.flood?.(['chat', 'social', 'watch', 'voice'][i % 4], { key: `${tag}${i}`, name: `${tag}${i}` });
+      };
+      flood(200, 'floodA');
+      const [floody] = await from('Floody', '198.51.100.9');
+      await floody.land();
+      const kicked = await cheat(floody);
+      flood(200, 'floodB');
+      const onDisk = readDisk(logFile, 'utf8').includes('"kind":"kick","name":"Floody"');
+      // What /cheats shows: its newest ten lines.
+      const shown = g.cheats?.recentLines?.(10) ?? [];
+      ok(`floods, however many, keep no kick out of the log nor out of /cheats  (${kicked?.reason}; on disk ${onDisk})`,
+        !!kicked && onDisk && shown.some((line) => /Floody kicked for hitting without swinging/.test(line)), shown[0]);
+      g.cheats?.pardon?.('floody');
+    }
+    admin.close();
+    vic2.close();
+  }
+
+  console.log('\nthe anti-cheat: the score is the account\'s, through a restart');
+  {
+    const where = mkdtempSync(join(tmpdir(), 'terraglide-restart-'));
+    const first = startServer({ port: 0, host: '127.0.0.1', dataDir: where, saveEveryS: 3600 });
+    const at = await first.ready;
+    const open = async (port) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+      const inbox = [];
+      ws.onmessage = (e) => inbox.push(JSON.parse(e.data));
+      await new Promise((resolve) => { ws.onopen = resolve; });
+      ws.send(JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION }));
+      return { ws, inbox };
+    };
+    const take = async (box, type) => {
+      for (let i = 0; i < 300; i++) {
+        const m = box.inbox.find((x) => x.t === type);
+        if (m) return m;
+        await sleep(10);
+      }
+      return null;
+    };
+    const one = await open(at.port);
+    one.ws.send(JSON.stringify({ t: 'signup', name: 'Ren', password: 'hunter22' }));
+    const auth1 = await take(one, 'auth');
+    const here = (alt, flags) => JSON.stringify(encodeState({ seq: 1, lat: auth1.pos.lat, lon: auth1.pos.lon, alt, agl: 2, vel: [0, 0, 0], yaw: 0, pitch: 0, roll: 0, flags, item: 0 }));
+    one.ws.send(JSON.stringify({ t: 'arrived', tid: 0 }));
+    one.ws.send(here(500, FLAG.ground));
+    one.ws.send(JSON.stringify({ t: 'ping', c: 1 }));
+    // Five hits at nobody, each with no state before it: 3 + 2 each.
+    for (let i = 0; i < 5; i++) one.ws.send(JSON.stringify({ t: 'attack', target: 999 }));
+    await sleep(150);
+    // Another tab on the same account carries on from it.
+    const two = await open(at.port);
+    two.ws.send(JSON.stringify({ t: 'login', name: 'Ren', password: 'hunter22' }));
+    await take(two, 'auth');
+    two.ws.send(JSON.stringify({ t: 'arrived', tid: 0 }));
+    two.ws.send(here(500, FLAG.ground | FLAG.dead));
+    await sleep(150);
+    const was = first.game.cheats?.score?.('ren') ?? 0;
+    ok(`a second tab adds to the same score  (${Math.round(was)})`, Math.round(was) === 5 * (3 + 2) + 2);
+    // And a trip to another world, which is a reload and a sign-in there.
+    two.ws.send(JSON.stringify({ t: 'chat', text: '/travel moon' }));
+    await take(two, 'travelled');
+    const three = await open(at.port);
+    three.ws.send(JSON.stringify({ t: 'login', name: 'Ren', password: 'hunter22' }));
+    const onMoon = await take(three, 'auth');
+    ok('and so does a trip to another world', onMoon?.world === 'moon' && Math.round(first.game.cheats?.score?.('ren') ?? 0) === Math.round(was));
+    three.ws.close();
+    two.ws.close();
+    await first.stop();
+    const second = startServer({ port: 0, host: '127.0.0.1', dataDir: where, saveEveryS: 3600 });
+    await second.ready;
+    const kept = second.game.cheats?.score?.('ren') ?? 0;
+    ok(`and the score survives a restart  (${Math.round(kept)})`, Math.round(kept) === Math.round(was) && Math.round(kept) > 0);
+    await second.stop();
+    rmSync(where, { recursive: true, force: true });
   }
 
   console.log('\nsaved to disk');

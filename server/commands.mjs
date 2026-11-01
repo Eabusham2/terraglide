@@ -206,10 +206,41 @@ export function runCommand(game, player, command) {
     case 'unban': {
       if (!first) return game.tell(player, `Usage: /unban ${spec.args}`, 'error');
       const key = first.toLowerCase();
-      if (!game.bans[key]) return game.tell(player, `${first} is not banned`, 'error');
+      // An admin's ban, or the anti-cheat's own while it runs: either way
+      // they can come back. What the anti-cheat holds against them stays -
+      // /pardon clears that.
+      const timed = game.cheats.unban(key);
+      if (!game.bans[key] && !timed) return game.tell(player, `${first} is not banned`, 'error');
+      if (timed) game.cheats.log({ kind: 'unban', name: game.accounts.get(key)?.name ?? first, key, by: player.name });
       delete game.bans[key];
       game.saveServer();
+      game.store.flush();
       return game.tell(player, `${first} can come back`);
+    }
+    case 'cheats': {
+      // What the anti-cheat has seen lately, newest first - or one account's
+      // standing: its score by kind, its kicks this week, a ban and how long.
+      if (!first) {
+        const lines = game.cheats.recentLines(10);
+        return game.send(player.client, {
+          t: 'chat', kind: 'help',
+          text: lines.length ? `Anti-cheat, newest first:\n${lines.join('\n')}` : 'The anti-cheat has seen nothing',
+        });
+      }
+      const account = game.accounts.get(first);
+      if (!account) return game.tell(player, `No account called ${first.slice(0, 32)}`, 'error');
+      return game.tell(player, game.cheats.standing(account.key, account.name));
+    }
+    case 'pardon': {
+      if (!first) return game.tell(player, `Usage: /pardon ${spec.args}`, 'error');
+      const account = game.accounts.get(first);
+      if (!account) return game.tell(player, `No account called ${first.slice(0, 32)}`, 'error');
+      const had = game.cheats.pardon(account.key);
+      game.cheats.log({ kind: 'pardon', name: account.name, key: account.key, by: player.name });
+      game.store.flush();
+      return game.tell(player, had
+        ? `${account.name}'s anti-cheat score, kicks and any ban from it are cleared`
+        : `The anti-cheat held nothing against ${account.name}`);
     }
     case 'heal': {
       const who = first ? game.findPlayer(first) : player;

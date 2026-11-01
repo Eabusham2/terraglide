@@ -14,7 +14,9 @@
  * running on, and a knock while walking. Its states go to the real game logic
  * ten times a second the way a browser's socket delivers them: some late and
  * bunched, and twice a stall of several seconds followed by everything at
- * once. Any move the server puts back is a failure.
+ * once. Any move the server puts back is a failure, and so is anything the
+ * anti-cheat counts against the pilot (Game.detect): nothing honest flying
+ * does may ever be scored. The score is printed for every world.
  *
  * The client modules read which world they are on when they load, so each
  * world runs in a process of its own. The server runs on a clock of its own
@@ -49,7 +51,7 @@ if (process.argv[2] === '--world') {
     if (!ok) failed++;
     console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${r.world.padEnd(10)} ${r.line}`);
   }
-  console.log(`\n${results.length - failed} of ${results.length} worlds flown without a move put back`);
+  console.log(`\n${results.length - failed} of ${results.length} worlds flown without a move put back or anything scored`);
   process.exit(failed ? 1 : 0);
 }
 
@@ -109,6 +111,13 @@ async function flyOne(world) {
     close() {}, terminate() {}, ping() {},
   };
   game.connect(ws, '127.0.0.1');
+  // Everything the anti-cheat finds, of any kind, and what it came to.
+  const scored = {};
+  const detect = game.detect.bind(game);
+  game.detect = (player, kind, detail) => {
+    scored[kind] = (scored[kind] ?? 0) + 1;
+    return detect(player, kind, detail);
+  };
   if (process.env.FLIGHT_DEBUG) {
     const original = game.onState.bind(game);
     game.onState = (player, m) => {
@@ -382,8 +391,11 @@ async function flyOne(world) {
     });
   });
 
-  const ok = corrections === 0 && !kicked && !me.dead && game.players.has(me.id);
-  const line = `${ok ? 'nothing put back' : `${corrections} put back at ${putBack.slice(0, 6).join(', ')}`}`
+  const counted = Object.values(scored).reduce((sum, n) => sum + n, 0);
+  const ok = corrections === 0 && counted === 0 && !kicked && !me.dead && game.players.has(me.id);
+  const line = `${corrections === 0 ? 'nothing put back' : `${corrections} put back at ${putBack.slice(0, 6).join(', ')}`}`
+    + `; scored ${Math.round(game.cheats.score('pilot') * 100) / 100}`
+    + `${counted ? ` (${Object.entries(scored).map(([kind, n]) => `${kind} x${n}`).join(', ')})` : ''}`
     + `${kicked ? `; kicked: ${kicked}` : ''}; fastest honest ${Math.round(peak)} m/s`
     + `; legs ${legs.join(' ')}`;
   rmSync(dir, { recursive: true, force: true });

@@ -22,6 +22,7 @@ import { BODIES, aeroFactor, findBody, gravityRatio, terminalSpeed } from '../sr
 import { FLIGHT_GRAVITY_MPS2 } from '../src/player/elytra.js';
 import { randomPopulatedPlace } from '../src/world/places.js';
 import { randomFeature } from '../src/geo/gazetteer.js';
+import { MAX_LATITUDE } from '../src/geo/mercator.js';
 import {
   ATTACK_COOLDOWN_S,
   CHAT_MAX,
@@ -66,6 +67,7 @@ import {
 } from '../src/net/protocol.js';
 import { explorationScheme, readCells } from '../src/ui/exploration.js';
 import { CellRuns } from './cells.mjs';
+import { AntiCheat, BAN_STEPS_MS, CHEATS, KICK_AT, duration } from './cheats.mjs';
 import { MAX_WAYPOINTS, PlayerRecord, circumferenceOf, radiusOf } from './records.mjs';
 import { runCommand } from './commands.mjs';
 import { MAX_FRIENDS, Social } from './social.mjs';
@@ -168,8 +170,31 @@ const REWIND_MAX_MS = 400;
 const SWING_FRESH_MS = 1000;
 /** Seconds of position history kept per player, for judging hits after the fact. */
 const HISTORY_S = 1.5;
-/** Repeated impossible moves before a player is disconnected. */
-const KICK_AFTER_VIOLATIONS = 40;
+/**
+ * How far back the anti-cheat looks, ms, when it asks whether a page could
+ * have seen somebody where it hit them: everywhere they have been in this
+ * long (`trace`, kept beside the history). A page draws other players from
+ * the positions the server sends it, kept two seconds (src/net/remotePlayers.js),
+ * behind a round trip, a frame and, on a crowded world, a far-off player's
+ * five-second cadence - all well inside it. See farFrom.
+ */
+const TRACE_MS = 6000;
+const TRACE_MAX = 600;
+/** Metres past the reach a hit may be judged from before it is one no page could have seen. */
+const FAR_REACH_M = 10;
+/** On top of the reach, between a page's eye and the body it hit: eye height, a body's height, its girth. */
+const BODY_ROOM_M = 4;
+/** How far ahead a page draws somebody along the velocity they claim, seconds (EXTRAPOLATE_MS in remotePlayers.js). */
+const DRAWN_AHEAD_S = 0.3;
+/**
+ * A page is up to date with what the server has sent it - see current() -
+ * when its round trip is under the first, no ping of the server's has waited
+ * longer than the second for its answer, and it has not gone quiet for
+ * longer than the third, all ms.
+ */
+const CURRENT_RTT_MS = 1000;
+const CURRENT_PING_MS = 2500;
+const CURRENT_GAP_MS = 1500;
 /** States a second a page may send before the rest are dropped; pages send ten. */
 const MAX_STATES_PER_S = 30;
 /** Metres of grace on a single move, lent against the next allowance. */
@@ -270,6 +295,9 @@ export class Game {
     const saved = store.read('server.json', {});
     this.bans = saved.bans ?? {};
     this.spawns = { ...(saved.spawns ?? {}) };
+    /** What each account has done that no page can, and the kicks and bans it has cost them. See detect(). */
+    // On the game's clock, whatever that is by then (the checks replace it).
+    this.cheats = new AntiCheat({ store, now: () => this.now() });
     /** Friends and parties. */
     this.social = new Social(this, { parties: saved.parties });
     /** Per world, everything anybody has explored there: the shared map. See sharedMap(). */
@@ -398,18 +426,27 @@ export class Game {
       hello: false,
       voiceTimes: [],
       lastHeard: this.now(),
+      /** When the page last went quiet for longer than CURRENT_GAP_MS - from the start. See current(). */
+      quietAt: this.now(),
     };
     this.clients.add(client);
     ws.on('message', (data, binary) => {
-      client.lastHeard = this.now();
-      if (binary) return;
+      const now = this.now();
+      client.lastHeard = now;
+      // The page's own messages, not its socket's answers to pings, which a
+      // browser gives however busy or stalled the page itself is.
+      if (now - (client.saidAt ?? now) > CURRENT_GAP_MS) client.quietAt = now;
+      client.saidAt = now;
+      // The page sends JSON text and nothing else, each an object with a type
+      // (NetClient.send): none of these is anything it makes.
+      if (binary) return this.badMessage(client, 'binary');
       let message;
       try {
         message = JSON.parse(data);
       } catch {
-        return;
+        return this.badMessage(client, 'not JSON');
       }
-      if (!message || typeof message.t !== 'string') return;
+      if (!message || typeof message.t !== 'string') return this.badMessage(client, 'no type');
       try {
         this.receive(client, message);
       } catch (error) {
@@ -522,7 +559,17 @@ export class Game {
     this.send(player.client, { t: 'chat', kind, text });
   }
 
+  /** A message no page sends, from a socket somebody is signed in on. */
+  badMessage(client, why) {
+    if (client.player) this.detect(client.player, 'message', { why });
+  }
+
   receive(client, m) {
+    // Which message this is on its socket, and the type of the one before:
+    // the page sends its own state immediately before every hit (onAttack).
+    client.received = (client.received ?? 0) + 1;
+    client.prevType = client.lastType;
+    client.lastType = m.t;
     // Refused for its version (below): nothing it sends after counts, the
     // sign-in it may already have on its way included.
     if (client.refused) return;
@@ -600,7 +647,17 @@ export class Game {
         this.send(client, { t: 'loggedOut' });
         client.ws.close(1000, 'signed out');
         return;
+      // A sign-in on a socket already signed in is a form sent twice, not a
+      // cheat: it is ignored, as it always was.
+      case 'signup':
+      case 'login':
+      case 'resume':
+        return;
       default:
+        // Every type the page sends is one of the above (src/net/session.js,
+        // client.js). A newer page that sends one this server has never heard
+        // of is a newer protocol - see PROTOCOL_VERSION.
+        this.detect(player, 'message', { why: 'unknown type', t: m.t.slice(0, 24) });
     }
   }
 
@@ -655,6 +712,18 @@ export class Game {
         this.send(client, { t: 'auth', ok: false, error: 'This address is banned from the server' });
         return;
       }
+      // A timed ban from the anti-cheat holds new accounts from the banned
+      // one's address while it runs - a new account is free, so otherwise it
+      // would be no ban at all - but nobody who already plays from there.
+      // See cheatKick.
+      const held = m.t === 'signup' ? this.cheats.heldAddress(client.address) : null;
+      if (held) {
+        this.send(client, {
+          t: 'auth', ok: false,
+          error: `New accounts from this address are on hold for ${duration(held.until - this.now())} — an account here was banned by the anti-cheat`,
+        });
+        return;
+      }
       let result;
       let token = null;
       // Strings or nothing. String() of {"toString":"x"} throws, and before
@@ -674,11 +743,25 @@ export class Game {
         return;
       }
       const account = result.account;
+      // Made where the anti-cheat let a page go this week: it starts with
+      // those kicks, so its first is no free one. See AntiCheat.inherit.
+      if (m.t === 'signup') this.cheats.inherit(account.key, client.address);
       // A new account goes to disk at once: losing one to a hard stop would
       // leave somebody unable to sign in with the password they just chose.
       if (m.t === 'signup') this.store.flush();
       if (this.bans[account.key]) {
         this.send(client, { t: 'auth', ok: false, error: `Banned: ${this.bans[account.key].reason || 'no reason given'}` });
+        return;
+      }
+      // The anti-cheat's own, for a while: said with what it was for and how
+      // long is left, and lifted by itself. Never an admin's (cheatKick bans
+      // none, and one made an admin since is not held to it).
+      const timed = this.cheats.banOf(account.key);
+      if (timed && !account.admin && !this.accounts.isConfiguredAdmin(account.name)) {
+        this.send(client, {
+          t: 'auth', ok: false,
+          error: `Banned by the anti-cheat for ${timed.reason} — ${duration(timed.until - this.now())} left`,
+        });
         return;
       }
       if (addressBanned && !account.admin && !this.accounts.isConfiguredAdmin(account.name)) {
@@ -734,9 +817,21 @@ export class Game {
       world,
       state: null,
       history: [],
+      /** Everywhere it has been in the last TRACE_MS, and the speed it claimed there. See farFrom. */
+      trace: [],
+      /**
+       * Not yet heard from as a page that is here: from signing in, or being
+       * sent to another world, until its first state. A page reloading into
+       * another world - which it does on 'travelled', or on signing in to find
+       * the server has it elsewhere - sends no states, but still swings at
+       * what it sees until it has gone. See onAttack.
+       */
+      limbo: true,
+      /** Which message on its socket was the last state accepted from it, and whether it was an ordinary move. See onAttack. */
+      acceptedMsg: -1,
+      acceptedMove: false,
       lastStateAt: 0,
       budget: 0,
-      violations: 0,
       /** When the page last arrived somewhere, and last left the ground. See onState. */
       arrivedAt: -Infinity,
       airborneAt: -Infinity,
@@ -1344,6 +1439,12 @@ export class Game {
   }
 
   onState(player, m) {
+    // What no page sends, whatever it is doing: see brokenState.
+    const broken = brokenState(m);
+    if (broken && this.detect(player, 'state', { why: broken })) return;
+    // Dead and hurt are the server's to say (sendSnapshots); the page's own
+    // flags are only what it is doing (Session.flags), and they never are.
+    if ((Number(m.f) | 0) & (FLAG.dead | FLAG.hurt) && this.detect(player, 'flags', { f: Number(m.f) | 0 })) return;
     const s = decodeState(m);
     if (!s) return;
     const now = this.now();
@@ -1357,8 +1458,22 @@ export class Game {
       if (separation(from, s, radiusOf(player.world)) > ARRIVAL_SLACK_M) {
         // It says it arrived and it is somewhere else: put it where it was sent.
         this.correct(player, player.pending);
+        // And no page does that. It lands on the spot itself, at once, and
+        // sends the state it is in there straight after saying it arrived
+        // (Session.onTeleport and onAuth: teleportTo, then arrive) - unless
+        // the spot is further north or south than its map goes, which it
+        // stops short at (LocalFrame.setAnchor). Counted once a teleport:
+        // the states after the first are where the correction has not yet
+        // been heard.
+        const pending = player.pending;
+        if (!pending.counted && Math.abs(pending.lat) < MAX_LATITUDE - 0.01) {
+          pending.counted = true;
+          const off = Math.round(separation(from, s, radiusOf(player.world)));
+          if (this.detect(player, 'arrival', { off })) return;
+        }
         return;
       }
+      player.limbo = false;
       // Arrived exactly where it was sent, whatever the slack let it say:
       // the page lands on the spot itself (Game.teleportTo), and the slack
       // taken as a move was one nobody judged. Signing in arrives too, and
@@ -1375,12 +1490,16 @@ export class Game {
       // somebody said it had arrived at their height, sword swinging.
       const { lat, lon, alt } = player.pending;
       this.arrive(player, { ...s, lat, lon, alt: Number.isFinite(alt) ? alt : s.alt }, now);
+      // Its own item and flags, but the spot is the server's, not where it said.
+      player.acceptedMsg = player.client.received;
+      player.acceptedMove = false;
       return;
     }
     if (player.dead) {
       // A dead player stays where they fell until they respawn.
       return;
     }
+    player.limbo = false;
     // A page sends ten a second. Far more than that is not a page — and each
     // accepted message used to come with its own few metres of grace, so a
     // flood of tiny steps added up to ten times the speed limit. Counted as
@@ -1393,6 +1512,9 @@ export class Game {
     player.stateTokensAt = now;
     if (tokens < 1) {
       player.stateTokens = tokens;
+      // Logged, not counted: a page fighting hard sends a state with every
+      // hit on top of its ten a second (Session.attack).
+      this.cheats.flood('states', { key: player.key, name: player.name });
       return;
     }
     player.stateTokens = tokens - 1;
@@ -1593,11 +1715,10 @@ export class Game {
         // is refused with it, not counted again: a backlog arriving after a
         // stall is all from before, and each one counted towards the kick.
         if (now - player.correctedAt < CORRECTION_HEARD_MS + Math.min(player.rtt, RTT_HEARD_MAX_MS)) return;
-        player.violations += 1;
-        if (player.violations >= KICK_AFTER_VIOLATIONS) {
-          this.kick(player, 'Moving impossibly fast');
-          return;
-        }
+        // Counted against the account - one each, paid off a twentieth at a
+        // time by the moves accepted after, and forty let the page go - which
+        // is what it always cost, on the connection. See detect.
+        if (this.detect(player, 'speed', { moved: Math.round(moved), room: Math.round(room) })) return;
         // On your feet and only the height is out: the ground loading in
         // finer under you, most likely. Putting you back down would be into
         // the rock, so it stands - but it is counted, it is no height to fall
@@ -1622,7 +1743,7 @@ export class Game {
         player.catchUp -= lent;
         if (lent > 0) player.blinkUntil = now + BLINK_GUARD_MS;
         player.budget = Math.max(-SPEED_SLACK_M, player.budget - (moved - lent));
-        player.violations = Math.max(0, player.violations - 0.05);
+        this.cheats.relieve(player.key, 'speed', 0.05);
       }
       // Height bought with the reserve is paid for out of it - every metre of
       // it, in the arrival's half minute too, where a climb is not held to the
@@ -1699,6 +1820,9 @@ export class Game {
     }
     player.lastStateAt = now;
     this.accept(player, s, now);
+    // Where the page itself says it is, taken as it said it. See onAttack.
+    player.acceptedMsg = player.client.received;
+    player.acceptedMove = !!last;
   }
 
   /**
@@ -1780,6 +1904,11 @@ export class Game {
     // `live` is the time with the pauses taken out (fadeReserve).
     player.history.push({ t: now, live: now - player.pausedMs, lat: s.lat, lon: s.lon, alt: s.alt });
     while (player.history.length && now - player.history[0].t > HISTORY_S * 1000) player.history.shift();
+    // Longer, and through teleports: everywhere anybody else's page can be
+    // drawing this player, for the anti-cheat (farFrom). With the speed it
+    // claimed, which is what those pages draw it ahead by.
+    player.trace.push({ t: now, lat: s.lat, lon: s.lon, alt: s.alt, v: Math.hypot(s.vel[0], s.vel[1], s.vel[2]) });
+    while (player.trace.length > TRACE_MAX || (player.trace.length && now - player.trace[0].t > TRACE_MS)) player.trace.shift();
 
     const live = player.record.on(player.world);
     // Explored ground and the trail, worked out here from the move just
@@ -1867,10 +1996,20 @@ export class Game {
     player.record.world = world;
     player.world = world;
     player.state = null;
+    // Nothing here for the page to say it arrived at: it reloads into the
+    // new world and signs in again, and that is the arrival (join). It used
+    // to wait for teleport 0, which is also what a page says on signing in -
+    // so a sign-in's 'arrived', still on its way when a party leader or a
+    // friend took it to another world, was taken as arriving there, and the
+    // state behind it, from where it signed in, as a page somewhere it had
+    // not been sent. And until it has gone it sends no states, but may still
+    // swing: see limbo.
     player.pending = {
-      tid: 0, lat: next.pos.lat, lon: next.pos.lon, alt: next.pos.alt ?? null, since: this.now(),
+      tid: -1, lat: next.pos.lat, lon: next.pos.lon, alt: next.pos.alt ?? null, since: this.now(),
       ceiling: Number.isFinite(next.pos.ceiling) ? next.pos.ceiling : null,
     };
+    player.limbo = true;
+    player.movedAt = this.now();
     this.saveRecord(player.record);
     this.travelling.set(player.key, { at: this.now(), world: from });
     this.broadcast({ t: 'moved', id: player.id, world });
@@ -1951,7 +2090,36 @@ export class Game {
    */
   onAttack(attacker, m) {
     const now = this.now();
-    const target = this.players.get(Number(m.target));
+    const client = attacker.client;
+    // The page sends its state immediately before every hit, on the same
+    // socket, in the same moment (Session.attack): there is never anything
+    // between them. It sends a hit without one only while it cannot send a
+    // state at all - reloading into another world, before it is here - and
+    // then the server has not heard a state from it since (limbo).
+    if (client.prevType !== 's' && !attacker.limbo && this.detect(attacker, 'swingless', {})) return;
+    // Which is then the page's own word on where it is and what it holds, as
+    // it swung - when the server took it (not dropped, not refused).
+    const fresh = attacker.acceptedMsg === client.received - 1;
+    // It swings only with the sword in hand (Game.attack: holdingSword), and
+    // that state says which slot is in its hand. Without that state, the slot
+    // the server has may be one from before a refused move, and says nothing.
+    if (fresh && attacker.item !== SWORD_SLOT && this.detect(attacker, 'swordless', { item: attacker.item })) return;
+    const id = Number(m.target);
+    // Somebody the page could be drawing at all: an id the server has handed
+    // out (roster, join), and never its own - the page never lists itself.
+    if (!(Number.isInteger(id) && id > 0 && id < this.nextId) || id === attacker.id) {
+      this.detect(attacker, 'target', { why: id === attacker.id ? 'self' : 'no such player' });
+      return;
+    }
+    const target = this.players.get(id);
+    // On another world for longer than a page up to date takes to hear it
+    // ('moved', 'join'): nobody it can see. Sooner, or a page behind, it may
+    // still be drawing them here.
+    if (target && target.world !== attacker.world && fresh && this.current(attacker, now)
+      && now - target.joinedAt > TRACE_MS && now - (target.movedAt ?? -Infinity) > TRACE_MS) {
+      this.detect(attacker, 'target', { why: 'another world' });
+      return;
+    }
     if (!target || target === attacker || target.world !== attacker.world) return;
     if (attacker.dead || target.dead || attacker.pending || target.pending) return;
     if (!attacker.state || !target.state) return;
@@ -2006,7 +2174,20 @@ export class Game {
     const vt = measuredVelocity(target, radius, now);
     const relative = Math.hypot(va[0] - vt[0], va[2] - vt[2]);
     const allowed = REACH_M + REACH_SLACK_M + Math.min(8, relative * 0.04);
-    if (reach > allowed) return;
+    if (reach > allowed) {
+      // Out of reach, which a slow connection does all the time, and which is
+      // all it ever was. But a page can only hit what it draws, and it draws
+      // nobody anywhere they have not been: from the attacker's own place, as
+      // it swung, further than the reach from everywhere the target has been
+      // in six seconds is a hit at nothing it could see. Judged only where
+      // what the page saw is known - see current and farFrom.
+      if (fresh && attacker.acceptedMove && this.current(attacker, now)) {
+        const far = this.farFrom(attacker, target, now);
+        const limit = allowed + BODY_ROOM_M + FAR_REACH_M;
+        if (far > limit) this.detect(attacker, 'reach', { far: Math.round(far), limit: Math.round(limit) });
+      }
+      return;
+    }
     attacker.lastAttackAt = now;
     if (now < target.immuneUntil) return;
 
@@ -2037,8 +2218,79 @@ export class Game {
     this.hurt(target, amount, { cause: 'slain', by: attacker, kb, crit });
   }
 
+  /**
+   * Whether what a page swings at now is what the server has been sending
+   * it: a round trip under a second, no ping of the server's waiting longer
+   * than two and a half for its answer - its socket is taking what it is
+   * sent - and nothing from the page itself late or missing for six seconds
+   * (no gap past a second and a half: not stalled, not frozen on a long
+   * frame, which can handle a click before the messages queued behind it).
+   * Nor just arrived, signed in, sent to another world or put back: what it
+   * draws then is from before. A page this is not true of is judged as it
+   * always was, and never counted against.
+   */
+  current(player, now) {
+    const client = player.client;
+    if (!(client.rtt < CURRENT_RTT_MS)) return false;
+    for (const sent of client.pings?.values() ?? []) if (now - sent > CURRENT_PING_MS) return false;
+    const since = Math.min(now - client.quietAt, now - player.joinedAt, now - player.arrivedAt,
+      now - player.correctedAt, now - (player.movedAt ?? -Infinity));
+    return since > TRACE_MS;
+  }
+
+  /**
+   * How far a hit came from anywhere its target could have been drawn, at
+   * the least, metres; -Infinity if that cannot be told.
+   *
+   * A page draws somebody between the positions the server sends of them -
+   * every one a state of theirs it accepted - or a little past the newest,
+   * along the velocity they claim (src/net/remotePlayers.js, sample). So
+   * where it can draw them is inside what those positions span, and that far
+   * ahead. The positions are the trace's, six seconds of them, and their span
+   * is measured the safe way round: along the line to the nearest of them and
+   * along the line to the middle of them all, how far the closest comes - a
+   * flat face nothing they spanned is on the near side of, however they
+   * moved between. Less what a page draws ahead.
+   *
+   * Not for a target that arrived somewhere in that time: a page goes on
+   * drawing somebody where they left from until the first position from
+   * where they arrived, then slides them along the line between.
+   */
+  farFrom(attacker, target, now) {
+    if (Math.min(now - target.joinedAt, now - target.arrivedAt, now - (target.movedAt ?? -Infinity)) <= TRACE_MS) return -Infinity;
+    const a = attacker.state;
+    const radius = radiusOf(attacker.world);
+    const DEG = Math.PI / 180;
+    const cos = Math.cos(a.lat * DEG);
+    let ahead = 0;
+    const points = [];
+    for (const p of [...target.trace.filter((p) => now - p.t <= TRACE_MS), target.state]) {
+      const dLon = ((((p.lon - a.lon) + 540) % 360) + 360) % 360 - 180;
+      points.push([dLon * DEG * cos * radius, p.alt - a.alt, (p.lat - a.lat) * DEG * radius]);
+      if (Number.isFinite(p.v)) ahead = Math.max(ahead, p.v);
+      else if (p.vel) ahead = Math.max(ahead, Math.hypot(p.vel[0], p.vel[1], p.vel[2]));
+    }
+    let nearest = null;
+    const middle = [0, 0, 0];
+    for (const p of points) {
+      if (!nearest || Math.hypot(...p) < Math.hypot(...nearest)) nearest = p;
+      for (let i = 0; i < 3; i++) middle[i] += p[i] / points.length;
+    }
+    let far = 0;
+    for (const towards of [nearest, middle]) {
+      const length = Math.hypot(...towards);
+      if (!(length > 0)) continue;
+      const u = towards.map((x) => x / length);
+      let closest = Infinity;
+      for (const p of points) closest = Math.min(closest, p[0] * u[0] + p[1] * u[1] + p[2] * u[2]);
+      far = Math.max(far, closest);
+    }
+    return far - ahead * DRAWN_AHEAD_S;
+  }
+
   /** Take health off somebody, from any cause, and see whether that was it. */
-  hurt(player, amount, { cause, by = null, kb = null, crit = false }) {
+  /** `credit` is who gets the kill if this is it, when that is not who did it: see onSelfDamage. */
+  hurt(player, amount, { cause, by = null, kb = null, crit = false, credit = by }) {
     if (player.dead || !(amount > 0)) return;
     const now = this.now();
     player.health = Math.max(0, player.health - amount);
@@ -2056,7 +2308,7 @@ export class Game {
       crit,
     });
     this.broadcast({ t: 'hurt', id: player.id, health: player.health, crit }, { world: player.world, except: player });
-    if (player.health <= 0) this.kill(player, cause, by);
+    if (player.health <= 0) this.kill(player, cause, credit);
   }
 
   /** Whoever last hit a player still in a fight with them, if they are still here. */
@@ -2114,12 +2366,24 @@ export class Game {
   onSelfDamage(player, m) {
     const now = this.now();
     const amount = Number(m.amount);
+    // The only damage a page reports online is drowning, a heart a second
+    // (Player.tickBreath: SUFFOCATION_PER_S, 'drowned'): the tank is the
+    // server's to count and to suffocate you with (tickOxygen), and /kill is
+    // a command. Anything else is a page that wrote its own.
+    if ((amount !== SUFFOCATION_PER_S || m.cause !== 'drowned')
+      && this.detect(player, 'selfDamage', { amount: Number.isFinite(amount) ? amount : String(m.amount).slice(0, 12), cause: String(m.cause).slice(0, 16) })) return;
     const cause = ['drowned', 'suffocated', 'kill'].includes(m.cause) ? m.cause : 'suffocated';
     if (!(amount > 0) || amount > 4) return;
     player.selfDamage = player.selfDamage.filter((t) => now - t < 1000);
-    if (player.selfDamage.length >= 3) return;
+    if (player.selfDamage.length >= 3) {
+      this.cheats.flood('damage', { key: player.key, name: player.name });
+      return;
+    }
     player.selfDamage.push(now);
-    this.hurt(player, amount, { cause });
+    // In a fight, dying by your own hand is losing it, as leaving and /kill
+    // are: the kill goes to whoever you were fighting. Otherwise a page
+    // losing a fight drowned itself in a second and a half, and nobody won.
+    this.hurt(player, amount, { cause, credit: this.lastAttacker(player) });
   }
 
   /* ------------------------------------------------------------ requests */
@@ -2307,6 +2571,9 @@ export class Game {
     const times = (this.chatTimes.get(player.key) ?? []).filter((t) => now - t < CHAT_WINDOW_S * 1000);
     this.chatTimes.set(player.key, times);
     if (times.length >= CHAT_BURST) {
+      // Somebody typing fast does this, so it is only logged. As are the
+      // other floods below: a page cannot, but its player can.
+      this.cheats.flood('chat', { key: player.key, name: player.name });
       return this.tell(player, 'Slow down a little', 'error');
     }
     times.push(now);
@@ -2330,7 +2597,10 @@ export class Game {
     const now = this.now();
     const times = (this.socialTimes.get(player.key) ?? []).filter((t) => now - t < 6000);
     this.socialTimes.set(player.key, times);
-    if (times.length >= 16) return this.tell(player, 'Slow down a little', 'error');
+    if (times.length >= 16) {
+      this.cheats.flood('social', { key: player.key, name: player.name });
+      return this.tell(player, 'Slow down a little', 'error');
+    }
     times.push(now);
     const name = typeof m.name === 'string' ? m.name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 32) : '';
     const args = name ? [op, ...name.split(/\s+/)] : [op];
@@ -2406,6 +2676,86 @@ export class Game {
     this.announce(`${player.name} was disconnected: ${reason}`, { kind: 'leave' });
   }
 
+  /* ---------------------------------------------------------- anti-cheat */
+
+  /**
+   * Something a page did that the game's own page never does - only a
+   * modified one, or a script. Every call is one kind of it (CHEATS in
+   * cheats.mjs), found where it is refused, with the reason no honest page
+   * sends it written beside it; none of them is anything a bad connection,
+   * a stall, a double click, a tab in the background, a reconnect or an old
+   * tab can make. Except a move refused as too fast, which an honest page
+   * under a bad connection can be: that one counts as it always did, one a
+   * time and paid off by the moves after - see onState.
+   *
+   * Held against the account, not the connection, fading with time (see
+   * cheats.mjs), and at KICK_AT the page is let go, saying what was
+   * impossible. True if it was - the caller stops there.
+   */
+  detect(player, kind, detail = {}) {
+    const rule = CHEATS[kind];
+    if (!rule || this.players.get(player.id) !== player) return false;
+    const score = this.cheats.add(player.key, player.name, kind, rule.weight);
+    this.cheats.note(kind, { key: player.key, name: player.name, weight: rule.weight, score, ...detail });
+    if (score < KICK_AT) return false;
+    this.cheatKick(player);
+    return true;
+  }
+
+  /**
+   * The anti-cheat lets a page go. Its score starts again; the kick is
+   * remembered for a week, and the second in a week and every one after it
+   * also bans the account for a while (BAN_STEPS_MS) - never an admin's, so
+   * nobody is locked out of their own server by it. A ban holds new
+   * accounts from the same address for as long, as an admin's /ban does -
+   * but only new ones (nobody else who plays from there is shut out by a
+   * ban nobody decided on), and not from an address somebody else online is
+   * on too, or the machine's own (a tunnel without trustProxy is everyone).
+   * The kick is remembered on that address too, for a week: a new account
+   * made there starts with it (AntiCheat.inherit), so signing up again
+   * after every kick is not a way round the bans. Every admin online is told.
+   */
+  cheatKick(player) {
+    const now = this.now();
+    const entry = this.cheats.entry(player.key);
+    const kinds = Object.entries(entry?.kinds ?? {}).sort((a, b) => b[1] - a[1]);
+    const score = kinds.reduce((sum, [, value]) => sum + value, 0);
+    const worst = kinds[0]?.[0] ?? 'speed';
+    const says = CHEATS[worst].says;
+    const strikes = this.cheats.strike(player.key);
+    const step = player.admin ? 0 : BAN_STEPS_MS[Math.min(strikes, BAN_STEPS_MS.length) - 1];
+    const own = player.client.address;
+    const shared = [...this.players.values()].some((p) => p !== player && p.client.address === own);
+    const usable = own && !shared && !isLoopback(own) ? own : null;
+    if (usable && !player.admin) this.cheats.kickedFrom(usable, player.key);
+    let address = null;
+    if (step > 0) {
+      address = usable;
+      this.cheats.ban(player.key, { until: now + step, reason: says, address });
+    }
+    const length = step > 0 ? duration(step) : null;
+    const counts = kinds.map(([kind, value]) => `${kind} ${Math.round(value * 10) / 10}`).join(', ');
+    this.cheats.log({
+      kind: 'kick', name: player.name, key: player.key, reason: says, score: Math.round(score * 10) / 10,
+      kinds: Object.fromEntries(kinds.map(([kind, value]) => [kind, Math.round(value * 10) / 10])),
+      strikes, ...(length ? { ban: length, until: new Date(now + step).toISOString(), address: !!address } : {}),
+      ...(player.admin && strikes > 1 ? { admin: true } : {}),
+    });
+    // On disk now: a ban that a hard stop forgot would be no ban.
+    this.store.flush();
+    const tail = length
+      ? ` and banned for ${length} (kick ${strikes} this week${address ? '; new accounts from their address held too' : ''})`
+      : player.admin && strikes > 1 ? ` (kick ${strikes} this week; not banned: an admin)` : ` (kick ${strikes} this week)`;
+    this.tellAdmins(`Anti-cheat: ${player.name} was kicked for ${says}${tail} — score ${Math.round(score)}: ${counts}. /cheats ${player.name}, /pardon ${player.name}`, player);
+    const reason = `${says[0].toUpperCase()}${says.slice(1)}${length ? ` — banned for ${length}` : ''}`;
+    this.kick(player, reason);
+  }
+
+  /** A line to every admin online, but `except`. */
+  tellAdmins(text, except = null) {
+    for (const p of this.players.values()) if (p.admin && p !== except) this.tell(p, text, 'system');
+  }
+
   /* ------------------------------------------------------- map overlays */
 
   /**
@@ -2418,7 +2768,10 @@ export class Game {
     // second is plenty for a page, and a loop of them is not a page.
     const now = this.now();
     viewer.client.watchTimes = (viewer.client.watchTimes ?? []).filter((t) => now - t < 5000);
-    if (viewer.client.watchTimes.length >= 40) return;
+    if (viewer.client.watchTimes.length >= 40) {
+      this.cheats.flood('watch', { key: viewer.key, name: viewer.name });
+      return;
+    }
     viewer.client.watchTimes.push(now);
     const explored = !!m.explored;
     const trail = !!m.trail;
@@ -2738,6 +3091,14 @@ export class Game {
    * number of rockets can do — and the server keeps the count with you.
    */
   onRockets(player, m) {
+    // The page's stock is one whole number for each of its five rockets, none
+    // below nought or past a stack (Player.stock: fired only while there is
+    // one, refilled up to ROCKET_STACK, set from the server's own clamp). More
+    // than the server last counted is not one of these: a respawn refills it.
+    const sent = Array.isArray(m.stock) ? m.stock : null;
+    if (!sent || sent.length !== SWORD_SLOT || !sent.every((n) => Number.isInteger(n) && n >= 0 && n <= ROCKET_STACK)) {
+      if (this.detect(player, 'rockets', { stock: JSON.stringify(m.stock ?? null).slice(0, 60) })) return;
+    }
     if (!Array.isArray(m.stock) || m.stock.length > 8) return;
     const stock = m.stock.map((n) => Math.max(0, Math.min(ROCKET_STACK, Math.floor(Number(n) || 0))));
     player.record.rockets = { stock, at: this.now() };
@@ -2763,7 +3124,10 @@ export class Game {
     const now = this.now();
     const client = player.client;
     client.voiceTimes = client.voiceTimes.filter((t) => now - t < 1000);
-    if (client.voiceTimes.length > 60) return;
+    if (client.voiceTimes.length > 60) {
+      this.cheats.flood('voice', { key: player.key, name: player.name });
+      return;
+    }
     const to = this.players.get(Number(m.to));
     if (!to || to === player) return;
     const kind = String(m.kind ?? '');
@@ -2776,7 +3140,10 @@ export class Game {
       client.voiceWindowAt = now;
       client.voiceBytes = 0;
     }
-    if (client.voiceBytes + bytes > VOICE_BYTES_PER_S) return;
+    if (client.voiceBytes + bytes > VOICE_BYTES_PER_S) {
+      this.cheats.flood('voice', { key: player.key, name: player.name });
+      return;
+    }
     client.voiceTimes.push(now);
     client.voiceBytes += bytes;
     // Calling is for somebody near you on your world. Hanging up is for
@@ -2854,6 +3221,8 @@ export class Game {
     // Party invitations that ran out, and parties everybody has left.
     this.social.tick(now);
     if (this.tickCount % 5 === 0) this.flushShared();
+    // The anti-cheat's counted lines, once their ten seconds are up.
+    if (this.tickCount % 10 === 0) this.cheats.flushNotes();
     this.drainOutboxes();
 
     // Somewhere the server sent you is where you are, said so or not. Nobody
@@ -2902,6 +3271,8 @@ export class Game {
       this.lastSave = now;
       for (const player of this.players.values()) this.remember(player);
       this.accounts.save();
+      // Accounts nothing is held against any more leave the anti-cheat's book.
+      this.cheats.prune();
       this.store.flush();
       this.evictRecords();
       // Budgets nobody has used for a while.
@@ -2952,8 +3323,34 @@ export class Game {
     for (const player of this.players.values()) this.remember(player);
     this.accounts.save();
     this.saveServer();
+    this.cheats.flushNotes(true);
+    this.cheats.save();
     return this.store.flush();
   }
+}
+
+/**
+ * Why a state message is not one the page could have sent, or null.
+ *
+ * The page's are made by encodeState: three numbers each for position,
+ * velocity and orientation, a number for the height over the ground, whole
+ * numbers for the flags, the item and the sequence. Numbers it rounded -
+ * JSON turns one that went wrong (NaN) into null, which is allowed here and
+ * reads as nought - and so always finite, its latitude from the map's own
+ * inverse (under 90 degrees) and its longitude wrapped (LocalFrame.toGeo),
+ * the item a slot it has (Player.selectSlot clamps it: SWORD_SLOT is the
+ * last). How high, how fast is not here: the page has no ceiling (on the
+ * smallest worlds a surge climbs past the 200 km decodeState stops at), so
+ * that is only refused, as before.
+ */
+function brokenState(m) {
+  const triple = (v) => Array.isArray(v) && v.length >= 3 && v.slice(0, 3).every((x) => x === null || (typeof x === 'number' && Number.isFinite(x)));
+  if (!triple(m.p) || !triple(m.v) || !triple(m.o)) return 'not three numbers';
+  if (!(m.g === null || (typeof m.g === 'number' && Number.isFinite(m.g)))) return 'no height';
+  for (const field of ['f', 'i', 'q']) if (!(m[field] === undefined || Number.isInteger(m[field]))) return `${field} not a whole number`;
+  if (Math.abs(m.p[0]) > 90 || Math.abs(m.p[1]) > 540) return 'off the map';
+  if (m.i !== undefined && (m.i < 0 || m.i > SWORD_SLOT)) return 'no such slot';
+  return null;
 }
 
 /** Where a player was at time `t`, from their recent history. */

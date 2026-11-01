@@ -1030,6 +1030,10 @@ so a ban can never lock you out of your own server.
 > `/unban` the player it came from (or delete the entry from `server.json`
 > with the server stopped), then turn `trustProxy` on.
 
+The [anti-cheat](#anti-cheat) makes bans of its own, for a while: a quarter
+of an hour, an hour, a day. They are kept in `server/data/cheats.json`, lift
+themselves, and `/unban NAME` (or `/pardon NAME`) lifts one early.
+
 ### What is stored, and what never leaves
 
 ```text
@@ -1044,6 +1048,13 @@ server/data/
   index.json            a line per player: which worlds they have been on and
                         how much they explored there, read instead of their
                         files. Rebuilt from players/ if deleted
+  cheats.json           the anti-cheat's book: per account, what is held
+                        against it, its kicks of the last week and a timed
+                        ban (with the address it holds, if any); per
+                        address, the kicks from it in the last week, which
+                        a new account made there starts with
+  anticheat.log         the anti-cheat's log, a JSON line each; moved to
+                        anticheat.log.1 past a megabyte
   players/<name>.json   one player: which world they are on, their health,
                         oxygen, rocket stock, kills, deaths and time played,
                         their friends and friend requests, and for every
@@ -1157,7 +1168,10 @@ start is unambiguous (`/tpa ale` for Alexandra).
 | `/tp <player> <other>` | Send one player straight to another. |
 | `/kick <player> [reason]` | Disconnect a player (they can come back). |
 | `/ban <player> [reason]` | Ban an account (and, if online, their address); see [Bans](#bans). |
-| `/unban <player>` | Lift a ban. |
+| `/unban <player>` | Lift a ban — yours, or one the anti-cheat made. |
+| `/cheats` | What the [anti-cheat](#anti-cheat) has seen lately, newest first: each kind of impossible thing with how many and the score, every kick and ban (floods are only in its log). |
+| `/cheats <player>` | One account's standing, online or not: its score and what it is made of, its kicks in the last week, and a ban with the time left. |
+| `/pardon <player>` | Clear an account's anti-cheat score, kicks and any ban it made. |
 | `/heal [player]` | Restore full health, to you or someone else. |
 | `/setspawn` | Make where you are standing this world's spawn point. |
 | `/say <message>` | An announcement to everyone, shown as `[YourName] message`. |
@@ -1200,7 +1214,7 @@ worlds: accept one from the Moon and you are on the Moon.
   fight for **10 seconds**. While it lasts you cannot `/spawn`, `/rtp`,
   `/travel`, send a teleport request or be teleported by accepting one, and
   leaving the game — or `/kill` — counts as dying, with the kill going to
-  whoever hit you last.
+  whoever hit you last; so does drowning while it lasts.
 - **Health comes back** half a heart every 3 seconds once you have gone 8
   seconds without damage. Health is saved, so logging out does not heal you.
 - **Death** is announced in chat. You respawn at the world's spawn — off Earth,
@@ -1233,10 +1247,11 @@ that matters:
   under you; never a height a page only claimed, however it was saved or
   passed on — and down to the world's lowest ground, no further. Landing
   clears it, and speed you are not using fades away.
-- An impossible move is refused and the player is put back where they were;
-  enough of them in a row disconnects them (*"Moving impossibly fast"*). A
-  refused move is still counted as heard, so asking for more than the limit
-  again and again gets no more than the limit.
+- An impossible move is refused and the player is put back where they were,
+  and counted against their account (see [Scored, kicked, banned](#scored-kicked-banned)):
+  enough of them disconnects them (*"Moving impossibly fast"*). A refused
+  move is still counted as heard, so asking for more than the limit again
+  and again gets no more than the limit.
 - **No blinking into a fight.** The allowance lets a page that stood still
   for a moment spend it all at once, and a stall's travel is lent back when
   the connection recovers. Both are let through as movement, but a sword hit
@@ -1270,7 +1285,8 @@ that matters:
   0.4 s. The reach allowance for fast
   movement counts only speed across the ground, not falling.
 - **Leaving a fight is losing it.** Closing the page — or `/kill` — while in a
-  fight counts as dying, and the kill goes to whoever hit you last. You come
+  fight counts as dying, and the kill goes to whoever hit you last; dying any
+  other way by your own hand — drowning — gives them the kill too. You come
   back at the respawn and are told why. (Signing in again from another tab
   is not leaving, nor is the server restarting — but the fight goes with you,
   and its ten seconds wait while the new page is still arriving.)
@@ -1282,6 +1298,106 @@ that matters:
   hurt the one reporting it, and no faster than the real thing.
 - **Explored ground and trails** are worked out by the server from the moves it
   accepted, so a modified page cannot paint the map with places it never went.
+  Oxygen is counted by the server too, and health; a page has nothing to
+  claim about either.
+
+#### What counts as impossible
+
+Everything above is refused whoever sends it. Most of what is refused is
+also something an honest page sends now and then — a bad connection, a stall,
+a tab in the background, a reconnect, a double click, someone typing fast —
+and that is refused and nothing more. But some things the game's own page
+never sends at all, whatever its connection is doing: only a modified page or
+a script does. Those are counted against the account:
+
+| Kind (in `/cheats`) | What | Counts | Why no page does it |
+| --- | --- | --- | --- |
+| `speed` | A move refused as too fast, outside the moment a page could not yet have heard it was put back | 1, and each move accepted after takes a twentieth off | The one an honest page *can* make, under a bad enough connection: counted exactly as it always was, so honest flying is judged no harsher than before. `tools/flightcheck.mjs` flies every world and fails if it is ever counted |
+| `arrival` | After a teleport, saying it arrived and then being more than 400 m from the spot (once a teleport) | 5 | The page lands on the spot itself and sends the state it is in there straight after saying so. (A spot nearer the poles than the page's map goes is not counted: it stops short of it.) |
+| `flags` | A state saying it is dead or hurt | 2 | Dead and hurt are the server's to say; a page's flags only say what it is doing |
+| `state` | A position that is not three numbers, off the map, or holding a slot the page does not have | 2 | The page's positions are numbers it rounded, on its own map, in its own six slots |
+| `swingless` | A hit that does not come straight after a state on the connection | 3 | The page sends its state the moment before every hit, in the same instant. (A page that has not yet sent a state since signing in or being sent to another world is not counted: one reloading into another world still swings, but sends no states.) |
+| `swordless` | A hit straight after a state, accepted, saying the hand holds a rocket | 3 | The page only swings with the sword in hand, and says which slot that is in that state |
+| `target` | A hit on yourself, on a player number never handed out, or on somebody who has been on another world for six seconds while the page was up to date | 2 | The page only lists other players the server told it about, on its own world |
+| `reach` | A hit from more than 19.5 m — the reach, its allowance and fourteen metres more; more for players moving fast, and for what the target's claimed speed carries in 0.3 s — from everywhere the target has been in the last six seconds — judged only when the attacker's page is up to date (round trip under a second, no ping of the server's waiting over 2.5 s, no gap in what it sends for six seconds, not just arrived or put back) and the target has not teleported in that time | 4 | A page can only hit what it draws, and it draws other players where the server last said they were, at most two seconds old, or a moment ahead along their velocity. An ordinary out-of-reach hit — a slow connection does that — is refused and not counted |
+| `selfDamage` | Damage it reports itself other than drowning, two half-hearts at a time | 2 | Drowning is the only damage a page reports online; the server counts the oxygen tank and suffocates you itself, and `/kill` is a command |
+| `rockets` | A rocket stock that is not five whole numbers from 0 to 64 | 2 | That is the page's stock, always. (More rockets than the server last counted is fine: a respawn refills them) |
+| `message` | Something that is not JSON, a binary frame, a message with no type, or a type the server does not know | 1 | The page sends JSON objects of known types and nothing else |
+
+A page from a newer release that starts sending something new — a new kind of
+message, a new slot — comes with a new protocol version, which a server a
+release behind turns away (*"This server runs an older version of the
+game"*) rather than scoring it as a cheat. (That is the rule for whoever
+changes the game: see `PROTOCOL_VERSION` in `src/net/protocol.js`.)
+
+**What it deliberately does not count**, because an honest page does it: a
+hit out of reach, without a fresh swing, faster than a hand can click again
+(a double click is), inside the blink guard, at spawn, on somebody dead,
+arriving, immune or just gone; a move while a teleport is on its way, an
+arrival for an old teleport, a respawn when not dead; `/tpaccept` with no
+request, `/rtp`, `/travel` or `/spawn` while cooling down or in a fight, a
+lander too soon, an admin command typed by a player, party commands by a
+member who is not the leader; drowning messages bunched up by a stall; a stock
+of rockets bigger than the server's count; a position higher than 200 km
+(a surge climbs that high on the smallest worlds), which is refused all the
+same. And floods — chat faster than six lines in six seconds, the players
+panel, map overlays, voice signalling, states past thirty a second — are
+refused as before and written to the log, but never counted: a person can
+make all of those.
+
+#### Scored, kicked, banned
+
+- **The score is the account's**, not the connection's. It survives
+  reconnecting, a second tab, a trip to another world and a restart of the
+  server (`server/data/cheats.json`, saved with everything else and at once
+  on a kick), and it fades by half every half hour,
+  so the rare put-back of an honest evening is gone by the next.
+- **At 40 the page is let go**, with what was impossible as the reason —
+  *"Moving impossibly fast"*, *"Hitting from out of reach"*, *"Arriving
+  somewhere it was not sent"*… Every admin online is told, with the score
+  and what made it up. The score starts again from nothing; the kick is
+  remembered for a week.
+- **Kicks in a week bring bans**: the first is only a kick (the game's own
+  page does not reconnect after one; a modified one does at once), the
+  second bans the account for **15 minutes**, the third for **an hour**, and
+  every one after for **a day**. Signing in while banned says so, with what
+  for and how long is left — *"Banned by the anti-cheat for hitting without
+  swinging — 14 min left"* — and the ban lifts by itself. No automatic ban
+  is longer than a day: there is no person behind it, and anything longer is
+  an admin's decision (`/ban`).
+- **The address**: while an anti-cheat ban runs, new accounts cannot be made
+  from the address the account was banned on (*"New accounts from this
+  address are on hold for … — an account here was banned by the
+  anti-cheat"*): a new account is free, so otherwise a ban would be no ban.
+  Only new accounts: other people who already play from that address sign in
+  as usual, because an automatic ban must never shut out the rest of a
+  household or a school. And as with `/ban`, no address is held that
+  somebody else online was on at the moment of the ban, nor the machine's own
+  (`127.0.0.1` — behind a tunnel without `trustProxy`, that is everyone).
+- **A fresh account is not a fresh start.** Every kick is remembered on the
+  address it came from for a week too (the same addresses: not one somebody
+  else online was on, nor the machine's own), and a new account made there
+  in that week starts with those kicks — so its first is a ban, not a free
+  kick, and holds the address in turn. Otherwise a script that signed up
+  again after every kick was never banned at all. Accounts made before the
+  kicks carry nothing: one each is still only a kick. `/pardon` clears an
+  account's kicks from its address as well.
+- **Admins are never banned by it** — kicked like anybody, so you see it
+  working, but never locked out of your own server.
+- **The log**, `server/data/anticheat.log`: a JSON line for every kick and
+  ban, every `/pardon` and every anti-cheat ban an admin lifted, and for each
+  kind of impossible thing — at most one line per account and kind every ten
+  seconds, with how many there were since the last and the numbers (how far
+  off an arrival was, how far a hit came from, the move and the room it
+  had…), floods at most once a minute. At most 120 lines a minute in all, and
+  of those no more than 20 floods — floods are never counted, so any number
+  of accounts can make them, and they must not crowd out the rest — but a
+  kick, a ban or a pardon is always written. Past a megabyte the file is
+  moved to `anticheat.log.1`, so the two never take more than two megabytes.
+- **The commands**: `/cheats` shows the latest kicks and impossible things,
+  newest first (floods are only in the log); `/cheats <player>` an account's
+  score, kicks and ban; `/pardon <player>` clears all three; `/unban
+  <player>` lifts just the ban.
 
 **What it cannot check.** The server has no terrain, so it cannot tell
 whether someone is really standing on the ground or hovering just above it,
@@ -1523,7 +1639,8 @@ which matches it.
 | The log says `[store] accounts.json could not be read (…); kept as …accounts.json.broken-1759…` | The file was damaged (a full disk, a hand edit with a typo). The server kept it, renamed, and started **without it** — so for now there are no accounts, and with `firstAccountIsAdmin` on the next person to sign up becomes an admin. Stop the server at once, then fix the JSON in the `.broken-…` file (or take `accounts.json` from a backup), rename it back to `accounts.json`, and start again. The same goes for `server.json` (bans, spawns) and `players/<name>.json` (one player's record). |
 | *"server/config.json is not valid JSON: …"* | A typo in the config file — usually a trailing comma or a comment. Fix it; the message says where. |
 | `EACCES: permission denied, mkdir '/data/players'` (Docker) | The container was started with `--user`, so it did not take ownership of `/data`, and that user cannot write there — or the mount refuses ownership changes (some network drives). Start it without `--user`, `sudo chown` the folder to that user, or use a named volume. |
-| Players are disconnected with *"Moving impossibly fast"* on a bad connection | Very rare with honest play. If it keeps happening, raise `maxSpeed` a little (220). |
+| Players are disconnected with *"Moving impossibly fast"* on a bad connection | Very rare with honest play. `/cheats NAME` shows what was counted, `/pardon NAME` clears it. If it keeps happening, raise `maxSpeed` a little (220). |
+| Somebody cannot sign in: *"Banned by the anti-cheat for …"* | It was kicked by the [anti-cheat](#anti-cheat) twice or more this week (a new account counts the kicks from its address before it was made). The ban lifts itself; `/cheats NAME` says what it was for, and `/pardon NAME` (or `/unban NAME`) lets them back now. |
 | *"Signed in from somewhere else"* | The same account was opened in another tab or device; the newest wins. |
 | *"This server runs a newer version of the game — reload the page"* or *"… an older version of the game"* | The page and the server are from different versions. Reload the page (a tab left open across an update), [update](#updating) the server, or play on the server's own page. |
 | After updating, the game looks unchanged | The bundle was not rebuilt: `node tools/bundle.mjs`, then reload the page. |

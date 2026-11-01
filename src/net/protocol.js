@@ -29,6 +29,13 @@
  * save's - onto the new squares. An older page is turned away, with a kick
  * it understands telling it to reload (server/game.mjs, hello): let in, it
  * drew none of that ground at the zooms its maps open at.
+ *
+ * Bump it too when the page starts sending something it never has: a new
+ * message type, a flag, a hotbar slot, another rocket, damage of a new kind.
+ * The anti-cheat (server/game.mjs, detect) counts what no page of this
+ * version sends as a modified page, and a server a release behind its page
+ * - the published game joins servers that update when they like - would
+ * count a newer page's new thing against it.
  */
 export const PROTOCOL_VERSION = 2;
 
@@ -485,7 +492,9 @@ export const COMMANDS = [
   { name: 'pc', args: '<message>', help: 'Say something to your party', aliases: ['partychat'] },
   { name: 'kick', args: '<player> [reason]', help: 'Admin: disconnect a player', player: true, admin: true },
   { name: 'ban', args: '<player> [reason]', help: 'Admin: ban a player', player: true, admin: true },
-  { name: 'unban', args: '<player>', help: 'Admin: lift a ban', admin: true },
+  { name: 'unban', args: '<player>', help: 'Admin: lift a ban (yours or the anti-cheat\'s)', admin: true },
+  { name: 'cheats', args: '[player]', help: 'Admin: what the anti-cheat has seen lately, or one player\'s score, kicks and ban', player: true, admin: true },
+  { name: 'pardon', args: '<player>', help: 'Admin: clear a player\'s anti-cheat score, kicks and ban', player: true, admin: true },
   { name: 'heal', args: '[player]', help: 'Admin: restore health', player: true, admin: true },
   { name: 'setspawn', args: '', help: "Admin: make where you stand this world's spawn", admin: true },
   { name: 'say', args: '<message>', help: 'Admin: announce to everyone', admin: true },
