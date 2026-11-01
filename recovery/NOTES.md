@@ -88,6 +88,13 @@
 - Suites at 51c1205: check 103 modules ok, selftest 1769/1769, servertest 347/347, flightcheck earth ok (scored 0),
   onlinecheck 52/52, voice 50/50. One onlinecheck run before the admin work failed once on "Ada's swing takes Bruno's
   hearts (20 -> 20)" and passed on the rerun and every run since: a timing flake under load, not a change.
+- ff497cf (Nov 1, "add controller and VR support if possible"): src/camera/gamepad.js (standard-mapping pads and
+  a headset's hand controllers as one pad; analog walk and bank via axisX/axisY; menus worked by the d-pad through
+  MenuNavigator) and src/camera/vr.js (WebXR immersive-vr: the reference space moved to the eye a frame ahead, head
+  look, 30-degree snap turns, a canvas panel on the camera). The frame loop runs through renderer.setAnimationLoop.
+  tools/padcheck.mjs 27/27 with a fake pad and an IWER-emulated Quest 3 (IWER 2.7 clones an offset space's
+  XRRigidTransform as a matrix, so the harness hands it .matrix). Suites at ff497cf: check 105 ok, selftest
+  1784/1784, servertest 347/347, onlinecheck 52/52, voice 50/50, flightcheck earth ok, padcheck 27/27.
 - Left as it is, on purpose: the server turns away a page of any other version, newer ones too, since it cannot know
   what a later protocol changes (the last bump changed every key). HOSTING says to update a public server first and
   merge to main straight after, so GitHub Pages is never newer than the server.
