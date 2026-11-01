@@ -55,6 +55,7 @@ export class HUD {
           <button type="button" data-action="worlds">Worlds<kbd data-key="travel"></kbd></button>
           <button type="button" data-action="settings">Settings<kbd data-key="settings"></kbd></button>
           <button type="button" data-action="help">Controls<kbd data-key="help"></kbd></button>
+          <button type="button" data-action="vr" hidden title="Into the headset: look with your head, fly with the hand controllers">VR</button>
         </div>
       </div>
 
@@ -715,6 +716,12 @@ export class HUD {
       const empty = !endless && left <= 0;
       if (slot.classList.contains('empty') !== empty) slot.classList.toggle('empty', empty);
     });
+  }
+
+  /** The VR button, for a browser with a headset to go into (camera/vr.js). */
+  showVR(supported) {
+    const button = this.element.querySelector('[data-action="vr"]');
+    if (button) button.hidden = !supported;
   }
 
   toast(message, tone = 'info') {

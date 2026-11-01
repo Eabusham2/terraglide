@@ -241,6 +241,8 @@ const SECTIONS = [
       { key: 'swapMouseButtons', label: 'Swap mouse buttons in pan mode', type: 'toggle', help: 'Normally: drag with left to look, right click to boost, click to land.' },
       { key: 'sensitivity', label: 'Look sensitivity', type: 'range', min: 0.2, max: 3, step: 0.05, format: (v) => `${v.toFixed(2)}x` },
       { key: 'invertY', label: 'Invert vertical look', type: 'toggle' },
+      { key: 'controllerLookSpeed', label: 'Controller look speed', type: 'range', min: 0.3, max: 3, step: 0.05, format: (v) => `${v.toFixed(2)}x`, help: 'The right stick. Any Xbox, PlayStation or Switch Pro controller works: plug it in or pair it and press a button. The controls card (F2, or Back on the pad) lists the buttons.' },
+      { key: 'controllerVibration', label: 'Controller vibration', type: 'toggle', help: 'A shake for a hit taken or a rocket lit, on a pad or VR controller that can.' },
     ],
     keybinds: true,
   },

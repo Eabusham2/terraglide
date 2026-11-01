@@ -10,8 +10,9 @@ TerraGlide itself is covered by the TerraGlide Restricted Source License (see
 | [three.js](https://threejs.org) | 0.185.x | MIT | WebGL renderer, math types, geometry helpers. |
 | [Vite](https://vite.dev) | 7.x | MIT | Build tool / dev server. Not shipped in the bundle. |
 | [TypeScript](https://www.typescriptlang.org) | 5.9.x | Apache-2.0 | Type checking only. Not shipped in the bundle. |
+| [IWER](https://github.com/meta-quest/immersive-web-emulation-runtime) (with gl-matrix) | 2.7.0 | MIT | `tools/vendor/iwer.min.js`: an emulated VR headset for `tools/padcheck.mjs` only. Never shipped with the game; licence in `tools/vendor/IWER-LICENSE.txt`. |
 
-No third-party source code was copied into this repository. The engine, the
+No third-party source code was copied into the game. The engine, the
 terrain quadtree, the flight model, the map UI and the shaders here were written
 for this project.
 

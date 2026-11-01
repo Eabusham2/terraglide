@@ -63,6 +63,24 @@ on-screen stick and buttons appear by themselves: left thumb moves, drag the
 right side to look, buttons for wings, boost, jump, dive, 2x, teleport and the
 map. Dive is held: it drops the nose in the air and takes you under in water.
 
+**Game controllers** — an Xbox, PlayStation, Switch Pro or any other controller
+the browser knows works as it is: plug it in or pair it and press a button.
+Left stick walks (half a push is half a pace) and banks the wings while
+gliding, right stick looks, **A** jumps (twice to open the wings), **B**
+crouches and dives, **X** opens or stows the wings, **Y** surges, **RT** fires
+a rocket or swings the sword in hand, **LT** fires a rocket, the bumpers step
+through the hotbar, **Start** is the menu and **Back** the controls card. In any
+panel the d-pad moves between its buttons, **A** presses and **B** backs out.
+It shakes for a hit and a rocket where the pad can (Settings, Controls).
+
+**VR** — in a headset's own browser (Quest, Pico, Vision Pro), or a desktop
+browser with a PC headset, a **VR** button appears on the toolbar. Inside, you
+look with your head and the wings take you where you look; the left hand's
+stick walks and banks, the right turns you thirty degrees a push, the right
+trigger fires a rocket and the left one too, **A** jumps, **B** the wings, **X**
+surges, and a small panel below your view shows speed, height, hearts and the
+rocket in hand. It is first person whatever the view setting says.
+
 ---
 
 ## First flight
@@ -658,6 +676,7 @@ node tools/selftest.mjs     # the pure maths and the rules, headlessly
 node tools/servertest.mjs   # the multiplayer server, driven by bots over real WebSockets
 node tools/onlinecheck.mjs  # two real browsers on one server: sign-up, chat, teleports, a sword fight
 node tools/flightcheck.mjs  # honest flying on every world, judged by the server's speed checks
+node tools/padcheck.mjs     # a game controller and an emulated VR headset, in a real browser
 ```
 
 `tools/selftest.mjs` runs the pure maths headlessly — mercator round-trips, the
@@ -683,15 +702,17 @@ src/
   world/            terrain quadtree, shaders, sky, weather, scenery, buildings,
                     panorama, teleport
   player/           state, walking and collision, elytra physics, autopilot, avatar
-  camera/           camera rig, freecam, input and mouse modes
+  camera/           camera rig, freecam, input and mouse modes, game controllers, VR
   ui/               HUD, minimap, world map, settings, cheats, help, waypoints,
                     exploration, touch controls, online panel, chat, players,
                     teleport menu, worlds, the startup screen
   net/              wire protocol, connection, other players, voice
 server/             the multiplayer server (Node, no dependencies) — see HOSTING.md
 assets/             optional generated textures — player kit only (+ manifest)
-tools/              check.mjs, selftest.mjs, servertest.mjs, onlinecheck.mjs, flightcheck.mjs, and
-                    the generators for the star catalogue, the place names and the land grid
+tools/              check.mjs, selftest.mjs, servertest.mjs, onlinecheck.mjs, flightcheck.mjs,
+                    padcheck.mjs (with vendor/iwer.min.js, Meta's WebXR emulator, MIT, for
+                    that test alone), and the generators for the star catalogue, the place
+                    names and the land grid
 vendor/three/       three.js (MIT), vendored so there is nothing to install
 ```
 

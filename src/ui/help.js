@@ -1,3 +1,4 @@
+import { PAD_BINDS, PAD_STICKS } from '../camera/gamepad.js';
 import { keybinds } from '../core/keybinds.js';
 import { settings } from '../core/settings.js';
 import { formatHeight } from '../core/units.js';
@@ -118,6 +119,19 @@ export class HelpCard {
               </div>`,
           ).join('')}
         </div>
+        <details class="help-pad">
+          <summary>Controller and VR</summary>
+          <p class="help-note">A game controller works as it is: plug it in or pair it and press a button. In VR
+            (the <strong>VR</strong> button, on a headset's browser) you look with your head and fly with the hand
+            controllers.</p>
+          <div class="help-grid">
+            ${[...PAD_STICKS, ...PAD_BINDS].map((b) => `
+              <div class="help-row">
+                <span class="help-keys"><kbd>${escapeHtml(b.label)}</kbd>${b.xr ? `<kbd class="help-xr">${escapeHtml(b.xr)}</kbd>` : ''}</span>
+                <span>${escapeHtml(b.what)}</span>
+              </div>`).join('')}
+          </div>
+        </details>
         <p class="help-note">
           Satellite imagery and elevation work with no account at all. <strong>Settings » Providers</strong>
           swaps in Google, Azure or Mapbox if you have a key. With no network there is nothing to fly

@@ -79,6 +79,23 @@ const STEP_SMOOTHING = 12;
 const FLY_SPEED = 18;
 const FLY_SPRINT = 46;
 
+/**
+ * Which way the controls push, forward and to the right, and how hard from 0
+ * to 1: a key is all or nothing, a controller's stick (`axisX`/`axisY`, see
+ * camera/gamepad.js) as far as it is pushed.
+ */
+export function moveAxes(input) {
+  if (Number.isFinite(input.axisX) || Number.isFinite(input.axisY)) {
+    const strafe = Number.isFinite(input.axisX) ? input.axisX : 0;
+    const forward = Number.isFinite(input.axisY) ? input.axisY : 0;
+    const push = Math.min(1, Math.hypot(forward, strafe));
+    if (push > 0) return [forward, strafe, push];
+  }
+  const forward = (input.forward ? 1 : 0) - (input.back ? 1 : 0);
+  const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  return [forward, strafe, 1];
+}
+
 export class PlayerController {
   constructor({ player, terrain, buildings }) {
     this.player = player;
@@ -365,8 +382,7 @@ export class PlayerController {
     const strideScale = Math.pow(scale, 0.75);
     const speed = (input.sprint ? FLY_SPRINT : FLY_SPEED) * strideScale;
 
-    const forward = (input.forward ? 1 : 0) - (input.back ? 1 : 0);
-    const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    const [forward, strafe, push] = moveAxes(input);
     const sin = Math.sin(player.yaw);
     const cos = Math.cos(player.yaw);
 
@@ -375,9 +391,9 @@ export class PlayerController {
     let tz = this.look.z * forward + sin * strafe;
     const length = Math.hypot(tx, ty, tz);
     if (length > 0) {
-      tx = (tx / length) * speed;
-      ty = (ty / length) * speed;
-      tz = (tz / length) * speed;
+      tx = (tx / length) * speed * push;
+      ty = (ty / length) * speed * push;
+      tz = (tz / length) * speed * push;
     }
     if (input.jump) ty += speed * 0.7;
     if (input.crouch) ty -= speed * 0.7;
@@ -401,12 +417,12 @@ export class PlayerController {
     if (swimming && input.sprint) speed = SWIM_SPEED * 1.7;
     speed *= strideScale;
 
-    const forward = (input.forward ? 1 : 0) - (input.back ? 1 : 0);
-    const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    const [forward, strafe, push] = moveAxes(input);
     let targetX = 0;
     let targetZ = 0;
     if (forward !== 0 || strafe !== 0) {
-      const length = Math.hypot(forward, strafe);
+      // A whole push, or as much of one as a controller's stick gives.
+      const length = Math.hypot(forward, strafe) / push;
       const sin = Math.sin(player.yaw);
       const cos = Math.cos(player.yaw);
       const fx = (sin * forward) / length;

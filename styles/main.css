@@ -3596,3 +3596,31 @@ body.touch-active .chat {
     top: calc(var(--minimap-top-right, 0px) + 14px);
   }
 }
+
+/* A controller moving through a panel (camera/gamepad.js, MenuNavigator):
+   the focus has to show, and a browser only rings what the keyboard focused. */
+.pad-focus:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The controls card's controller and VR list (help.js). */
+.help-pad {
+  margin: 10px 0 0;
+}
+
+.help-pad summary {
+  cursor: pointer;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.help-pad[open] summary {
+  margin-bottom: 6px;
+}
+
+.help-keys .help-xr {
+  color: var(--accent-dim);
+}

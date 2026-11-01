@@ -140,11 +140,28 @@ export class InputManager extends Emitter {
     // holding both does the obvious thing.
     const touch = this.touch ? this.touch.movement() : null;
     if (touch) for (const key of Object.keys(keys)) keys[key] = keys[key] || touch[key];
+    // And a controller (camera/gamepad.js): its buttons the same way, and its
+    // stick as itself - `axisX`/`axisY`, so a half push is half pace - unless
+    // the keys are moving you, which win.
+    const pad = this.gamepad && !this.suspended ? this.gamepad.movement() : null;
+    if (pad) {
+      const keysMoving = keys.forward || keys.back || keys.left || keys.right;
+      for (const key of ['forward', 'back', 'left', 'right', 'jump', 'sprint', 'crouch']) keys[key] = keys[key] || pad[key];
+      keys.jumpPresses += pad.jumpPresses;
+      if (!keysMoving && (pad.axisX || pad.axisY)) {
+        keys.axisX = pad.axisX;
+        keys.axisY = pad.axisY;
+      }
+    }
     return keys;
   }
 
   attachTouch(touch) {
     this.touch = touch;
+  }
+
+  attachGamepad(gamepad) {
+    this.gamepad = gamepad;
   }
 
   requestPointerLock() {

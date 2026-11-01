@@ -160,6 +160,10 @@ export const DEFAULT_SETTINGS = {
   swapMouseButtons: false,
   sensitivity: 1,
   invertY: false,
+  /** How fast a controller's right stick turns the view (camera/gamepad.js). */
+  controllerLookSpeed: 1,
+  /** Whether a controller shakes in the hand for a hit taken or a rocket lit. */
+  controllerVibration: true,
   /** 'first' | 'third' — F5 cycles it, the same key Minecraft uses. */
   perspective: 'first',
   showBody: true,

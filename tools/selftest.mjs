@@ -11926,6 +11926,76 @@ console.log('\nexplored squares are sized to the world');
     && /this\.shared = new Exploration\(\{ circumference: WORLD_CIRCUMFERENCE, stored: false, compact: true \}\)/.test(session));
 }
 
+console.log('\na game controller, and a VR headset');
+{
+  // The browser-driven half is tools/padcheck.mjs: a made-up pad and an
+  // emulated Quest 3 working the game itself. These are the pieces it rests
+  // on, in Node.
+  const { PAD, PAD_BINDS, mergePads, readStandardPad, readXRSources, stick, DEADZONE } = await import('../src/camera/gamepad.js');
+  const { rigOffset, headLook, SNAP_DEG } = await import('../src/camera/vr.js');
+  const { moveAxes } = await import('../src/player/controller.js');
+  const { ACTIONS } = await import('../src/core/keybinds.js');
+  const THREE = await import('../vendor/three/three.module.js');
+
+  // Sticks drift: a resting one is still, and the edge of the dead zone is
+  // nothing rather than a jump.
+  ok('a stick inside its dead zone is still', stick(0.1, -0.08).every((v) => v === 0));
+  const [, edge] = stick(0, DEADZONE + 0.01);
+  ok(`just past it is barely moving  (${edge.toFixed(3)})`, edge > 0 && edge < 0.03);
+  ok('and all the way is all the way', Math.abs(stick(0, -1)[1] + 1) < 1e-9 && Math.abs(Math.hypot(...stick(0.9, 0.9)) - 1) < 1e-9);
+
+  // Every button does something the keyboard does: no action of its own.
+  const known = new Set(ACTIONS.map((a) => a.id));
+  ok('every controller button is a keyboard action, a mouse button or the hotbar',
+    PAD_BINDS.every((b) => (b.action ? known.has(b.action) : !!b.boost || !!b.wheel)));
+  ok('and no button does two things', new Set(PAD_BINDS.map((b) => b.button)).size === PAD_BINDS.length);
+  ok('a pad with some other layout is not guessed at', readStandardPad({ connected: true, mapping: '', axes: [], buttons: [] }) === null);
+
+  // A headset's two hands, as one pad: the right trigger is RT, the left
+  // stick walks, the right stick turns.
+  const hand = (handedness, buttons, axes) => ({ handedness, gamepad: { buttons: buttons.map((v) => ({ value: v, pressed: v > 0.5 })), axes } });
+  const xr = readXRSources([
+    hand('left', [0, 0.9, 0, 0, 1, 0], [0, 0, 0.2, -0.8]),
+    hand('right', [1, 0, 0, 0, 0, 1], [0, 0, 0.7, 0]),
+  ]);
+  ok('a headset\'s hands read as one pad: triggers, grip, buttons',
+    xr.buttons[PAD.RT] === 1 && Math.abs(xr.buttons[PAD.B] - 0.9) < 1e-6 && xr.buttons[PAD.Y] === 1 && xr.buttons[PAD.X] === 1 && xr.buttons[PAD.A] === 0);
+  ok('with the left stick to walk and the right to turn', xr.ly === -0.8 && xr.rx === 0.7 && xr.xr === true);
+  const both = mergePads([{ lx: 0.2, ly: 0, rx: 0, ry: 0, buttons: new Float32Array(16), xr: false }, xr]);
+  ok('and two pads at once: the furthest stick, any button', both.ly === -0.8 && both.buttons[PAD.RT] === 1);
+
+  // Half a push is half a pace; a key is a whole one.
+  const [f, , half] = moveAxes({ axisX: 0, axisY: 0.5 });
+  const [kf, , whole] = moveAxes({ forward: true });
+  ok('half a push of the stick is half a pace, a key a whole one', f === 0.5 && half === 0.5 && kf === 1 && whole === 1);
+
+  // The headset's space put at the eye: the offset is the rig's inverse, so
+  // the head's own origin lands on the eye, facing the player's bearing.
+  const eye = new THREE.Vector3(120.5, 37.25, -88);
+  const yaw = 1.1;
+  const offset = rigOffset(eye, yaw);
+  const inverse = new THREE.Matrix4().compose(
+    new THREE.Vector3(offset.position.x, offset.position.y, offset.position.z),
+    new THREE.Quaternion(offset.orientation.x, offset.orientation.y, offset.orientation.z, offset.orientation.w),
+    new THREE.Vector3(1, 1, 1),
+  );
+  const rig = inverse.clone().invert();
+  const head = new THREE.Vector3().applyMatrix4(rig);
+  ok(`the headset's origin lands on the eye  (${head.distanceTo(eye).toExponential(1)} m off)`, head.distanceTo(eye) < 1e-6);
+  const facing = headLook(new THREE.Quaternion().setFromRotationMatrix(rig));
+  ok(`facing the player's bearing  (${facing.yaw.toFixed(4)} rad)`, Math.abs(facing.yaw - yaw) < 1e-6 && Math.abs(facing.pitch) < 1e-6);
+  // And a head turned within it is that much more of a turn in the world.
+  const turned = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -0.4);
+  const world = new THREE.Quaternion().setFromRotationMatrix(rig).multiply(turned);
+  ok('a head turned to the right in the headset looks that much further round', Math.abs(headLook(world).yaw - (yaw + 0.4)) < 1e-6);
+  ok(`snap turns are a comfortable step  (${SNAP_DEG} degrees)`, SNAP_DEG >= 20 && SNAP_DEG <= 45);
+
+  // The game draws through the renderer's own loop, or a headset gets no frames.
+  const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  ok('the game draws through the renderer\'s loop, which a headset drives',
+    /this\.renderer\.setAnimationLoop\(\(t\) => this\.loop\(t\)\)/.test(game) && !/requestAnimationFrame\(\(t\) => this\.loop\(t\)\)/.test(game));
+}
+
 console.log('\nevery module still parses');
 {
   /*

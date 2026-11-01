@@ -8,7 +8,9 @@ import { detectTier, gpuName } from './core/deviceTier.js';
 import { AutoQuality } from './core/autoQuality.js';
 import { readJSON, writeJSON } from './core/storage.js';
 import { formatDistance, formatHeight, formatLatLon, formatSpeed } from './core/units.js';
+import { GamepadInput } from './camera/gamepad.js';
 import { InputManager } from './camera/input.js';
+import { VRMode } from './camera/vr.js';
 import { CameraRig } from './camera/cameraRig.js';
 import { LocalFrame } from './geo/frame.js';
 import { clearImageryAges, describeImagery, imageryAt } from './geo/imageryAge.js';
@@ -208,6 +210,8 @@ export class Game {
     // A near plane close enough to see your own legs when you look down.
     this.camera = new THREE.PerspectiveCamera(settings.get('fov'), 1, 0.15, 260000);
     this.scene.add(this.camera);
+    // A headset, where there is one to go into. See camera/vr.js.
+    this.vr = new VRMode(this.renderer, this.camera);
 
     this.onStatus('Starting tile worker');
     this.worker = createTileWorker();
@@ -286,6 +290,9 @@ export class Game {
     this.avatar.attachTo(this.camera);
     this.rig = new CameraRig(this.camera);
     this.input = new InputManager(canvas);
+    // Game controllers, and in VR the hand controllers. See camera/gamepad.js.
+    this.gamepad = new GamepadInput({ xrSources: () => this.vr.inputSources() });
+    this.input.attachGamepad(this.gamepad);
     this.autopilot = new Autopilot({
       player: this.player,
       terrain: this.terrain,
@@ -462,6 +469,8 @@ export class Game {
       else this.toggleWings();
     });
     this.input.on('actionUp', ({ id }) => this.onActionUp(id));
+    this.bindGamepad();
+    this.bindVR();
     // Out of air. Somewhere you can breathe, which is what a random teleport
     // is for, and it says so rather than silently moving you.
     // Running a slot dry is a thing that happened to you, so it says so.
@@ -498,6 +507,10 @@ export class Game {
     });
 
     this.hud.onAction = (action) => {
+      if (action === 'vr') {
+        this.enterVR();
+        return;
+      }
       if (action.startsWith('slot:')) {
         this.player.selectSlot(Number(action.slice(5)));
         return;
@@ -789,7 +802,7 @@ export class Game {
       }
       this.running = true;
       this.lastTime = performance.now();
-      requestAnimationFrame((t) => this.loop(t));
+      this.startLoop();
       this.toast('Graphics recovered', 'good');
     });
   }
@@ -1196,7 +1209,7 @@ export class Game {
 
     this.running = true;
     this.lastTime = performance.now();
-    requestAnimationFrame((t) => this.loop(t));
+    this.startLoop();
 
     if (this.firstRunTier === 'low') {
       // A Latin-1 guillemet, not a rightwards arrow. This is the first thing a
@@ -1232,6 +1245,8 @@ export class Game {
   }
 
   resize() {
+    // A headset sizes its own frames; three.js refuses to be resized meanwhile.
+    if (this.vr?.presenting) return;
     const width = window.innerWidth;
     const height = window.innerHeight;
     const cap = settings.preset().pixelRatioCap;
@@ -1246,9 +1261,17 @@ export class Game {
     this.minimap.onResize();
   }
 
+  /**
+   * Start drawing. Through the renderer's own loop rather than the window's:
+   * in a VR session the window's animation frames stop, and the headset's
+   * take over (three.js switches between them; see camera/vr.js).
+   */
+  startLoop() {
+    this.renderer.setAnimationLoop((t) => this.loop(t));
+  }
+
   loop(now) {
     if (!this.running) return;
-    requestAnimationFrame((t) => this.loop(t));
 
     // Clamped to the fixed step's own catch-up ceiling rather than to a number
     // that happens to match it. A machine drawing slower than this throws the
@@ -1256,7 +1279,9 @@ export class Game {
     // is what 'falling too slowly' and 'is there gravity?' actually were.
     const elapsed = clamp((now - this.lastTime) / 1000, 0, MAX_FRAME_S);
     this.lastTime = now;
-    if (document.hidden) return;
+    // A headset's browser can call the page hidden while it draws into the
+    // headset; the frames are the headset's then.
+    if (document.hidden && !this.vr.presenting) return;
 
     // Anything that changed a setting since the last frame takes effect now,
     // before anything reads one.
@@ -1290,7 +1315,11 @@ export class Game {
     // finished arriving when you close the menu, not to start then — but the
     // clock that drives movement, timers and the burn on a firework stops, so
     // opening the settings mid-glide does not cost you the glide.
+    // A controller, read in real time: a menu that stops the world still
+    // has to be worked. See camera/gamepad.js.
+    this.gamepad.poll(elapsed, { menu: this.takingKeys, vr: this.vr.presenting });
     this.update(this.paused ? 0 : elapsed * cheats.gameSpeed);
+    if (this.vr.presenting) this.vr.updateHud(elapsed, this.vrReadout());
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -1375,6 +1404,8 @@ export class Game {
 
     this.watchGround();
     let movement = this.input.movement();
+    // In a headset the head looks, before anything moves. See camera/vr.js.
+    this.vr.readHead(player, this.rig.isFreecam ? this.rig.freecam : null);
     if (this.autopilot.active && !this.rig.isFreecam) {
       movement = this.autopilot.step(dt, movement);
     }
@@ -1438,6 +1469,16 @@ export class Game {
     // The flight model reads the bank off the player; the rig owns it because
     // that is where the input for it lands.
     player.roll = this.rig.roll;
+    // The headset: any turn since the head set the bearing comes round with
+    // the world, the right stick turns a step, and the headset's origin goes
+    // to the eye the rig has just worked out.
+    if (this.vr.presenting) {
+      this.vr.afterUpdate(player, this.gamepad, this.rig.isFreecam ? this.rig.freecam : null);
+      // Where the eye will be by the next frame: see VRMode.place.
+      const moving = this.rig.isFreecam ? this.rig.freecam.velocity
+        : (this._vrLead ??= new THREE.Vector3()).copy(player.velocity).multiplyScalar(player.speedMultiplier ?? 1);
+      this.vr.place(this.rig.isFreecam ? this.rig.freecam.position : this.rig.eye, moving, dt);
+    }
 
     // The shader shades unphotographed ground by slope, which means nothing
     // on a flat plate, so it needs to know whether any relief has arrived.
@@ -1613,7 +1654,7 @@ export class Game {
     // camera is not behind your eyes, so it wants exactly the third-person
     // treatment — full head, no first-person offset.
     const outside =
-      settings.get('perspective') !== 'first' || this.rig.isFreecam;
+      this.rig.perspective !== 'first' || this.rig.isFreecam;
     const thirdPerson = outside;
     const showAvatar = thirdPerson || settings.get('showBody');
     this.avatar.setVisible(showAvatar);
@@ -2437,6 +2478,10 @@ export class Game {
         break;
       }
       case 'perspective': {
+        if (this.vr.presenting) {
+          this.toast('In VR you see through your own eyes');
+          break;
+        }
         const order = ['first', 'third', 'second'];
         const label = { first: 'First person', third: 'Third person', second: 'Second person' };
         const next = order[(order.indexOf(settings.get('perspective')) + 1) % order.length];
@@ -2674,7 +2719,10 @@ export class Game {
         return;
       }
     }
-    if (player.fireRocket()) this.rig.kick(0.1 + player.rocketDuration * 0.02);
+    if (player.fireRocket()) {
+      this.rig.kick(0.1 + player.rocketDuration * 0.02);
+      this.gamepad.rumble(0.25, 90);
+    }
   }
 
   /**
@@ -2807,8 +2855,91 @@ export class Game {
     }
   }
 
+  /**
+   * A game controller (camera/gamepad.js): the same actions as the keys, the
+   * mouse's two buttons as the triggers, and the wheel as the bumpers.
+   */
+  bindGamepad() {
+    const pad = this.gamepad;
+    pad.on('action', ({ id, repeat }) => {
+      if (this.panelHasKeys && !this.player.dead && !PANEL_KEYS.has(id)) return;
+      this.onAction(id, repeat);
+    });
+    pad.on('actionUp', ({ id }) => this.onActionUp(id));
+    pad.on('look', ({ dx, dy }) => this.rig.applyLook(this.player, dx, dy));
+    pad.on('boost', ({ kind }) => {
+      if (this.takingKeys || this.player.dead) return;
+      if (kind === 'use' && this.player.holdingSword) this.attack();
+      else this.fireRocket();
+    });
+    pad.on('wheel', ({ delta }) => {
+      if (this.takingKeys) return;
+      if (this.rig.isFreecam) {
+        const speed = this.rig.adjustFreecamSpeed(delta);
+        this.toast(`Freecam ${formatSpeed(speed, settings.get('units'), 'second')}`);
+      } else this.player.cycleSlot(delta);
+    });
+    pad.on('connected', ({ id, standard }) => {
+      const name = id.replace(/\s*\(.*$/, '').slice(0, 40) || 'Controller';
+      this.toast(standard
+        ? `${name} connected — Back shows its buttons`
+        : `${name} connected, but its buttons are not in a layout the browser knows`, standard ? 'good' : 'warn');
+    });
+    pad.on('disconnected', () => this.toast('Controller disconnected'));
+    // A shake in the hand for a hit taken, and a smaller one for a rocket.
+    this.player.on('hurt', (how) => this.gamepad.rumble(0.35 + Math.min(0.6, how.amount * 0.08), 200));
+    this.player.on('died', () => {
+      this.gamepad.rumble(1, 400);
+      if (this.vr.presenting) this.vr.say('You died — A to respawn');
+    });
+  }
+
+  /** The VR button, and what going into a headset and out again changes. See camera/vr.js. */
+  bindVR() {
+    const vr = this.vr;
+    vr.on('support', (ok) => this.hud.showVR(ok));
+    this.hud.showVR(vr.supported);
+    vr.on('start', () => {
+      // Your head is your eye: first person, and no pointer to lock.
+      this.rig.forceFirst = true;
+      this.input.exitPointerLock();
+      this.toast('VR: look where you want to fly. Left stick walks and banks, right stick turns, right trigger fires a rocket', 'good');
+    });
+    vr.on('end', () => {
+      this.rig.forceFirst = false;
+      this.resize();
+      this.toast('Out of VR');
+    });
+  }
+
+  /** Into the headset, from the VR button. */
+  enterVR() {
+    if (this.vr.presenting) {
+      this.vr.exit();
+      return;
+    }
+    this.vr.enter(this.player.yaw).catch((error) => {
+      this.toast(`Could not start VR: ${String(error?.message ?? error).slice(0, 120)}`, 'bad');
+    });
+  }
+
+  /** What the headset's panel shows. See VRMode.updateHud. */
+  vrReadout() {
+    const player = this.player;
+    const units = settings.get('units');
+    const item = player.holdingSword ? 'Sword' : `Rocket ${['I', 'II', 'III', 'IV', 'V'][player.selectedSlot] ?? ''}`.trim();
+    return {
+      speed: formatSpeed(player.horizontalSpeed, units, 'hour'),
+      height: formatHeight(Math.max(0, player.position.y - player.groundHeight), units),
+      hearts: player.health ?? 20,
+      item,
+    };
+  }
+
   toast(message, tone = 'info') {
     this.hud.toast(message, tone);
+    // The page's HUD is not in a headset; its panel says it there.
+    if (this.vr?.presenting) this.vr.say(message);
   }
 
   /* --------------------------------------------------------------- readouts */
