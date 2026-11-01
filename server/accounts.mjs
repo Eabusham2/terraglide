@@ -17,6 +17,12 @@ import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { distinctColour, nameKey, nameProblem, passwordProblem } from '../src/net/protocol.js';
 
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+/** Wrong admin access codes one account takes an hour and a day, from every address together. See checkAdminCode. */
+export const ADMIN_CODE_HOURLY = 10;
+export const ADMIN_CODE_DAILY = 30;
+/** How long an address that typed the right code is the admin's own, days, and how many are kept. */
+const TRUSTED_DAYS = 30;
+const TRUSTED_KEPT = 8;
 const KEY_BYTES = 64;
 /** How long "keep me signed in" lasts without being used, days. */
 const SESSION_DAYS = 30;
@@ -120,12 +126,13 @@ export class Accounts {
     // Wrong current passwords when changing it, per account: a session left
     // signed in is not a way to guess the password at a try every two seconds.
     this.changeFailures = new Limiter(5, 15 * 60 * 1000);
-    // Wrong admin access codes, per account and per address. A code is short
-    // - four digits is ten thousand guesses - so five wrong a quarter of an
-    // hour is a year and more to try them all from one place, and an account
-    // guessed at from everywhere is held at twenty an hour all told.
+    // Wrong admin access codes: five a quarter of an hour from one address,
+    // and per account from every address together, ADMIN_CODE_HOURLY an hour
+    // and ADMIN_CODE_DAILY a day - see checkAdminCode. A code is short, four
+    // digits is ten thousand guesses, and addresses are cheap to come by.
     this.codeFailures = new Limiter(5, 15 * 60 * 1000);
-    this.accountCodeFailures = new Limiter(20, 60 * 60 * 1000);
+    this.codeHourly = new Limiter(ADMIN_CODE_HOURLY, 60 * 60 * 1000);
+    this.codeDaily = new Limiter(ADMIN_CODE_DAILY, 24 * 60 * 60 * 1000);
     /**
      * Sessions whose browser has typed the admin access code since the server
      * started, by the hash of their token: a reload or a dropped connection
@@ -165,10 +172,14 @@ export class Accounts {
     // make it without the code - or whoever reached the server first would
     // be its admin.
     if (this.config.adminCode && this.isConfiguredAdmin(name) && !this.get(name)) {
-      const wait = Math.max(this.codeFailures.wait(address), this.failures.wait(address));
+      // Held to the same caps as unlocking, per address and for the name from
+      // everywhere: a name nobody has made yet is the prize, and guessing at
+      // it from a new address every few tries was ten thousand guesses free.
+      const bucket = this.codeBucket(nameKey(name), false);
+      const wait = Math.max(this.codeFailures.wait(address), this.failures.wait(address), this.codeHourly.wait(bucket), this.codeDaily.wait(bucket));
       if (wait > 0) return { error: `Too many tries — wait ${wait} s`, needAdminCode: true };
       if (!sameCode(adminCode, this.config.adminCode)) {
-        if (adminCode) this.codeFailures.allow(address);
+        if (adminCode) this.wrongCode(nameKey(name), address, bucket);
         return { error: 'That name is kept for an admin — enter the admin access code to make it', needAdminCode: true };
       }
     }
@@ -212,6 +223,8 @@ export class Accounts {
         || (this.all().length === 0 && this.config.firstAccountIsAdmin !== false && !(this.config.admins ?? []).length),
     };
     this.accounts[key] = account;
+    // An admin's name made with the access code: this address typed it.
+    if (this.config.adminCode && this.isConfiguredAdmin(name)) this.trust(account, address);
     this.save();
     return { account };
   }
@@ -233,21 +246,61 @@ export class Accounts {
   checkAdminCode(account, code, address) {
     if (!this.config.adminCode) return { ok: true };
     const pair = `${account.key}\n${address}`;
-    const wait = Math.max(this.codeFailures.wait(pair), this.codeFailures.wait(address));
+    // Every guess at an account counts against it, whichever address it
+    // comes from: a new address for every guess used to be a fresh start.
+    // But an address that has typed the right code before has a cap of its
+    // own, so somebody guessing from elsewhere cannot lock the admin out by
+    // spending the account's - and somebody behind the admin's own address
+    // is held all the same. Both together are sixty guesses a day at most.
+    const bucket = this.codeBucket(account.key, this.isTrusted(account, address));
+    const wait = Math.max(this.codeFailures.wait(pair), this.codeFailures.wait(address), this.codeHourly.wait(bucket), this.codeDaily.wait(bucket));
     if (wait > 0) return { error: `Too many wrong codes — wait ${wait} s` };
-    // Guessed at from all over: only an address that has not got it wrong
-    // lately may still try, which is the admin at home.
-    if (this.accountCodeFailures.wait(account.key) > 0 && this.codeFailures.count(pair) > 0) {
-      return { error: `Too many wrong codes — wait ${this.accountCodeFailures.wait(account.key)} s` };
-    }
     if (!sameCode(code, this.config.adminCode)) {
       this.codeFailures.allow(pair);
-      this.codeFailures.allow(address);
-      this.accountCodeFailures.allow(account.key);
+      this.wrongCode(account.key, address, bucket);
       return { error: 'Wrong access code' };
     }
     this.codeFailures.clear(pair);
+    this.trust(account, address);
     return { ok: true };
+  }
+
+  /** Whose cap a guess at `key` comes out of: the admin's own addresses', or everybody else's. */
+  codeBucket(key, trusted) {
+    return trusted ? `${key}\ntrusted` : key;
+  }
+
+  /** A wrong code, counted per address and against the account's cap - said in the log when that runs out. */
+  wrongCode(key, address, bucket) {
+    this.codeFailures.allow(address);
+    this.codeHourly.allow(bucket);
+    this.codeDaily.allow(bucket);
+    if (this.codeHourly.wait(bucket) > 0 || this.codeDaily.wait(bucket) > 0) {
+      const now = Date.now();
+      this.capWarned ??= new Map();
+      if (now - (this.capWarned.get(bucket) ?? 0) > 60 * 60 * 1000) {
+        this.capWarned.set(bucket, now);
+        console.log(`[terraglide] admin: the access code for ${key} has been guessed wrong too often${bucket.endsWith('trusted') ? ' from its own addresses' : ''} (last from ${address}); no more guesses for a while`);
+      }
+    }
+  }
+
+  /** Has this address typed the right code for this account in the last TRUSTED_DAYS? */
+  isTrusted(account, address) {
+    const at = account.codeAddresses?.[address];
+    return Number.isFinite(at) && Date.now() - at < TRUSTED_DAYS * 86400 * 1000;
+  }
+
+  /** Remember an address the right code came from, the newest TRUSTED_KEPT of them. */
+  trust(account, address) {
+    if (!address) return;
+    const now = Date.now();
+    const kept = Object.entries(account.codeAddresses ?? {})
+      .filter(([a, at]) => a !== address && Number.isFinite(at) && now - at < TRUSTED_DAYS * 86400 * 1000)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, TRUSTED_KEPT - 1);
+    account.codeAddresses = Object.fromEntries([[address, now], ...kept]);
+    this.save();
   }
 
   /** The browser holding `token` has typed the access code. */

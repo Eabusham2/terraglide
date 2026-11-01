@@ -1001,10 +1001,17 @@ anybody who learnt the password — has to type it too. And a name in `admins`
 can only be made into an account by somebody who has the code, so nobody can
 take the admin's name on a public server by getting there first.
 
-A wrong code costs a try: five a quarter of an hour from one address, twenty
-an hour for the account from everywhere — a four-digit code would take years
-to guess. Every unlock and every wrong code is written to the server's log
-with the address it came from. Keep the code out of the repository: it is a
+A wrong code costs a try: five a quarter of an hour from one address, and
+for the account from every address together ten an hour and thirty a day —
+whether it is being unlocked or the admin's name is being made, so guessing
+from a new address every few tries gets no further. Addresses that have typed
+the right code for the account before have a cap of their own, so somebody
+guessing from elsewhere cannot lock the admin out. That is sixty guesses a day
+at the very most: a four-digit code would take months to work through, and a
+longer one (letters and digits, eight or more) puts it out of reach — the code
+can be up to 64 characters. Every unlock and every wrong code is written to
+the server's log with the address it came from, and the log says when an
+account's guesses run out. Keep the code out of the repository: it is a
 secret, like a password, and the repository is public.
 
 #### The admin panel

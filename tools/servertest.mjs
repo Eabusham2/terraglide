@@ -1094,6 +1094,19 @@ try {
     squatter.send({ t: 'signup', name: 'Boss', password: 'hunter22', adminCode: '0000' });
     const wrongCode = await squatter.next('auth');
     ok('nor with a wrong one', !wrongCode.ok && wrongCode.needAdminCode === true);
+    // Nor by asking from a new address every few guesses: the name is held
+    // to the same cap from everywhere.
+    {
+      let refusedAt = 0;
+      for (let i = 0; i < 60 && !refusedAt; i++) {
+        const reply = await locked.accounts.signup('Boss', 'hunter22', `198.19.${i >> 8}.${i & 255}`, '', `7${String(i).padStart(3, '0')}`);
+        if (/Too many/.test(reply.error ?? '')) refusedAt = i + 1;
+      }
+      ok(`guessing the code to make the admin's name from new addresses runs out  (held on guess ${refusedAt})`, refusedAt > 0 && refusedAt <= 11);
+      locked.accounts.codeHourly.hits.clear();
+      locked.accounts.codeDaily.hits.clear();
+      locked.accounts.codeFailures.hits.clear();
+    }
     squatter.send({ t: 'signup', name: 'Boss', password: 'hunter22', adminCode: CODE });
     const made = await squatter.next('auth');
     ok('with it, the admin makes their account', made.ok === true && made.you.adminRole === true);
@@ -1121,6 +1134,20 @@ try {
     ok(`wrong codes run out after a few tries  (held on try ${heldAt})`, heldAt === 6);
     ok('even the right one, from there, until the wait is over',
       /Too many/.test(locked.accounts.checkAdminCode(bossAccount, CODE, '203.0.113.50').error ?? ''));
+    // From a new address every guess: once a fresh start each time, ten
+    // thousand guesses free. Now every guess at the account counts.
+    let checked = 0;
+    for (let i = 0; i < 500; i++) {
+      const reply = locked.accounts.checkAdminCode(bossAccount, `8${String(i).padStart(3, '0')}`, `198.18.${i >> 8}.${i & 255}`);
+      if (reply.error === 'Wrong access code') checked += 1;
+    }
+    const { ADMIN_CODE_HOURLY } = await import('../server/accounts.mjs');
+    ok(`a guess from a new address each time is held by the account's cap  (${checked} of 500 checked)`, checked <= ADMIN_CODE_HOURLY);
+    ok('even the right code, from an address that has never used it',
+      /Too many/.test(locked.accounts.checkAdminCode(bossAccount, CODE, '198.18.9.9').error ?? ''));
+    // The admin made the account from 127.0.0.1 with the code: their own
+    // address has a cap of its own, so the guessing does not lock them out.
+    ok('the address the admin made the account from is theirs', locked.accounts.isTrusted(bossAccount, '127.0.0.1'));
     boss.send({ t: 'admin', op: 'unlock', code: CODE });
     const opened = await boss.next('admin', (m) => m.op === 'unlock');
     const state = await boss.next('admin', (m) => m.op === 'state');
