@@ -210,9 +210,11 @@ try {
   await p.evaluate(() => window.__press(2, 0));
   const wings = await until(p, () => window.terraglide.player.elytraDeployed, null, { timeout: 3000 }).then(() => true, () => false);
   ok('X opens the wings in the air', wings);
-  // Read the first time the bank passes 0.4 rad either way: held, a roll
-  // goes on round, and on a slow machine twelve frames carry it past half a
-  // turn, where it reads as the other way round.
+  // Half a push, held until the bank passes 0.4 rad, read the frame it does.
+  // Held, a roll goes on round, and a frame on a slow machine can be a
+  // second and a half long (MAX_FRAME_S): at a full push one frame carried
+  // it past half a turn, where it reads as the other way round. Half a push
+  // turns at most 2.6 rad in a frame.
   await p.evaluate(() => {
     const g = window.terraglide;
     window.__rolls = [];
@@ -221,9 +223,9 @@ try {
       window.__rolls.push(g.rig.roll);
       return window.__render(...args);
     };
-    window.__pad.axes[0] = 1;
+    window.__pad.axes[0] = 0.5;
   });
-  await frames(p, 12);
+  await until(p, () => window.__rolls.some((r) => Math.abs(r) > 0.4), null, { timeout: 15000 }).catch(() => {});
   const rolls = await p.evaluate(() => {
     window.__pad.axes[0] = 0;
     window.terraglide.renderer.render = window.__render;
@@ -416,6 +418,19 @@ try {
   const swing = Math.hypot(turnedEye.x - ahead.x, turnedEye.z - ahead.z);
   ok(`turning your head on your feet does not move your eye  (${(swing * 100).toFixed(1)} cm)`, swing < 0.01);
   ok('and on your feet your own body is not drawn round your eye', !ahead.body && !turnedEye.body);
+  // With the freecam out, the eye is not in the body: there it is drawn.
+  await v.evaluate(() => window.terraglide.onAction('freecam'));
+  await frames(v, 2);
+  await v.evaluate(() => {
+    const f = window.terraglide.rig.freecam.position;
+    f.z += 6;
+    f.y += 1;
+  });
+  await frames(v, 4);
+  const seen = await v.evaluate(() => ({ freecam: window.terraglide.rig.isFreecam, body: window.terraglide.avatar.root.visible }));
+  await v.evaluate(() => window.terraglide.onAction('freecam'));
+  await frames(v, 4);
+  ok('but with the freecam out it is', seen.freecam && seen.body && !(await v.evaluate(() => window.terraglide.rig.isFreecam)));
 
   // The right trigger lights a rocket - in the air, where rockets are lit:
   // on the ground the game says to jump first.

@@ -1675,8 +1675,9 @@ export class Game {
     // In a headset, on foot, the eye is on the body's axis (see
     // CameraRig.perspective) and the body would be drawn round it: the hands
     // are what show, as in most things made for a headset. Gliding, the body
-    // is behind the eye and the wings are worth seeing.
-    const vrOnFoot = this.vr.presenting && !(player.elytraDeployed && !player.onGround);
+    // is behind the eye and the wings are worth seeing; and with the freecam
+    // out the eye is not in the body at all.
+    const vrOnFoot = this.vr.presenting && !outside && !(player.elytraDeployed && !player.onGround);
     const showAvatar = (thirdPerson || settings.get('showBody')) && !vrOnFoot;
     this.avatar.setVisible(showAvatar);
     // The shadow goes on the surface the player is actually standing on — the
