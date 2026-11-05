@@ -95,6 +95,31 @@
   tools/padcheck.mjs 27/27 with a fake pad and an IWER-emulated Quest 3 (IWER 2.7 clones an offset space's
   XRRigidTransform as a matrix, so the harness hands it .matrix). Suites at ff497cf: check 105 ok, selftest
   1784/1784, servertest 347/347, onlinecheck 52/52, voice 50/50, flightcheck earth ok, padcheck 27/27.
+- 4529d4b (Nov 1, from a review of 51c1205): the admin access code could be worked through by guessing from a new
+  address every few tries (8,832 wrong guesses with no refusal in a replay). Every wrong code now counts against the
+  account from any address, 10 an hour and 30 a day, on signing in and on making the admin's name; addresses that have
+  typed the right code before (kept 30 days, the newest 8, on the account) have their own allowance, so a guesser
+  elsewhere cannot lock the admin out. servertest 347 -> 351.
+- Nov 5, the short full pass over 8705d52, 51c1205 and ff497cf at the owner's request ("execute a short full pass",
+  "then commit after fixing bugs"): reviewers, then a reproduction skeptic and an impact skeptic for each finding,
+  then a small review of the fixes themselves.
+  - 6bc0fb4: the map's fog read a tile's row at a time (Exploration.shareRow) from blocks kept for the whole draw
+    (beginShareDraw/endShareDraw; a draw that built nothing lets nothing go, so the minimap does not take the big map's
+    blocks), and a north-up map sweeps only the tiles on it. 8705d52 had made redraws far slower (1080p online 69-184
+    ms against 7-57 before it) and rebuilt every block on every redraw past about 3,000 CSS px. Now 3-16 ms at 1080p,
+    12-16 ms at 2756x1500, the same values square by square.
+  - dd32659: in a headset each frame was drawn from where the eye was a frame back, and the re-centring frame from 40
+    km away (VRMode.beforeRender corrects the cameras just before drawing); the eye leant forward in a headset swung
+    26 cm round a head turn, and the body was drawn round the eye on foot; A on a panel's Close was also a jump
+    (GamepadInput.menuHeld); a resting stick made auto-travel drift (the autopilot drops axisX/axisY); one error
+    stopped the setAnimationLoop loop for good (Game.runFrame); out of a headset is taken from three's sessionend, so
+    a window resized meanwhile is fitted. The loop and the exit were judged too rare to matter and kept as hardening.
+  - Refuted as there before these changes, and left: a pad's B or Start on the sign-in panel opening Settings behind it.
+  - 81c7dde: onlinecheck's "and his swing is drawn on it" failed once under load: a swing at nothing goes out with
+    the page's next state, sent from its frame, and the check put Bruno's page behind before it drew one. The check
+    now waits for the state to go. 6d8a48c: padcheck's headset screenshot, retaken.
+  - Suites at 6d8a48c: check 105 ok, selftest 1794/1794, servertest 351/351, onlinecheck 52/52, padcheck 35/35,
+    voice 50/50, flightcheck earth ok (nothing put back, scored 0).
 - Left as it is, on purpose: the server turns away a page of any other version, newer ones too, since it cannot know
   what a later protocol changes (the last bump changed every key). HOSTING says to update a public server first and
   merge to main straight after, so GitHub Pages is never newer than the server.
