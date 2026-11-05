@@ -9306,7 +9306,7 @@ console.log('\nphotograph where you have been, drawn map where you have not');
   // because the record is kept on a grid and what it records is not.
   ok('the photograph is cut to the explored shape',
     /globalCompositeOperation = 'destination-in'/.test(renderer)
-    && /layers\.exploration\.share\(maskZoom/.test(renderer));
+    && /layers\.exploration\.shareRow\(maskZoom/.test(renderer));
   ok('with a soft edge rather than a staircase of squares',
     /const FOG_FEATHER = 0\.45;/.test(renderer) && /filter = `blur\(/.test(renderer));
   ok('the mask is blurred once, composited once',
@@ -9446,7 +9446,89 @@ console.log('\nphotograph where you have been, drawn map where you have not');
     });
     ok('at the finest square and past it, a square is all or nothing', agree && record.share(finest, 0, 0) === 0);
     ok('and the other players\' ground on the map is read the same way',
-      /overlay\.explored\.share\(maskZoom/.test(renderer) && !/isExplored\(maskZoom/.test(renderer));
+      /overlay\.explored\.shareRow\(maskZoom/.test(renderer) && !/isExplored\(maskZoom/.test(renderer));
+
+    // And fast enough to drag. share() is asked for every square of every
+    // tile drawn, and it cost four times the explored check before it - the
+    // world map at 1080p went from 8-57 ms a redraw to 69-184 ms - so the
+    // maps read a tile's row at a time, which must say what share() says.
+    {
+      const flown = new Exploration({ stored: false, compact: true });
+      fly(flown);
+      const row = new Float32Array(64);
+      let rows = 0;
+      let same = true;
+      for (let z = 4; z <= finest + 2 && same; z++) {
+        const n = 2 ** z;
+        const y0 = Math.floor(n * 0.33);
+        for (let y = y0; y < Math.ceil(n * 0.36) && same; y += Math.max(1, Math.floor((Math.ceil(n * 0.36) - y0) / 24))) {
+          for (let x0 = Math.floor(n * 0.5) & ~63; x0 < Math.ceil(n * 0.52); x0 += 64) {
+            const len = Math.min(64, n - x0);
+            flown.shareRow(z, x0, y, len, row);
+            rows += 1;
+            for (let i = 0; i < len && same; i++) same = row[i] === flown.share(z, x0 + i, y);
+          }
+        }
+      }
+      ok(`a row read says what share() says, square by square  (${rows} rows)`, same && rows > 100);
+      ok('and nothing there is unexplored, never explored', flown.share(10, 0.5, 3) === 0 && flown.share(10, 2 ** 31, 3) === 0
+        && flown.share(-1, 0, 0) === 0 && flown.shareRow(-1, 0, 0, 4, new Float32Array(4)).every((v) => v === 0));
+      // One draw that needs more blocks than the cache keeps between draws:
+      // it used to let each go just before coming back to it, and built
+      // every block again on every redraw.
+      const big = new Exploration({ stored: false, compact: true });
+      fly(big);
+      const z = 12;
+      const n = 2 ** z;
+      const draw = () => {
+        big.beginShareDraw();
+        for (let by = 0; by < 20; by++) for (let bx = 0; bx < 20; bx++) big.shareRow(z, (bx * 64) % n, (by * 64 + 7) % n, 64, row);
+        big.endShareDraw();
+      };
+      draw();
+      const built = big.shareBlocks.size;
+      let rebuilt = 0;
+      const shareBlock = big.shareBlock.bind(big);
+      big.shareBlock = (...args) => {
+        if (!big.shareBlocks.has(args[4])) rebuilt += 1;
+        return shareBlock(...args);
+      };
+      draw();
+      ok(`a draw needing ${built} blocks keeps them all for the next one  (${rebuilt} built again)`, built === 400 && rebuilt === 0);
+      // The minimap draws in between, twenty times a second, at its usual
+      // zoom reading squares rather than blocks: that is no reason to let go
+      // of what the big map's draw kept.
+      for (let i = 0; i < 3; i++) {
+        big.beginShareDraw();
+        big.shareRow(finest, 0, 7, 64, row);
+        big.endShareDraw();
+      }
+      rebuilt = 0;
+      draw();
+      ok(`and the minimap drawing in between does not take them  (${rebuilt} built again)`, rebuilt === 0 && big.shareBlocks.size === 400);
+      // A smaller view after it: what that draw did not use goes, back to
+      // the cache's own size, and what it did stays.
+      big.beginShareDraw();
+      const keys = [];
+      for (let by = 40; by < 50; by++) {
+        for (let bx = 40; bx < 50; bx++) {
+          big.shareRow(z, (bx * 64) % n, (by * 64 + 7) % n, 64, row);
+          keys.push(big.lastBlock.key);
+        }
+      }
+      big.endShareDraw();
+      ok(`then a smaller view lets the old blocks go, not its own  (${big.shareBlocks.size} kept)`,
+        big.shareBlocks.size === 256 && keys.every((k) => big.shareBlocks.has(k)));
+      // And however it is asked, never past the most it may hold.
+      for (let by = 0; by < 40; by++) for (let bx = 0; bx < 40; bx++) big.shareRow(z, (bx * 64 + 32 * 64) % n, (by * 64 + 7) % n, 64, row);
+      ok(`asked outside a draw, it stays within its bounds  (${big.shareBlocks.size} blocks)`, big.shareBlocks.size <= 1024);
+    }
+
+    // A map that is not turned sweeps the tiles on it, across and down, not
+    // a square the size of its longer side.
+    ok('a north-up map sweeps only the tiles on it',
+      /const spanX = \(rotation \? corner : width \/ 2\) \/ tileScale;/.test(renderer)
+      && /const spanY = \(rotation \? corner : height \/ 2\) \/ tileScale;/.test(renderer));
   }
 
   // No tile grid over the photograph. It is the seams of the fetching machinery

@@ -141,14 +141,19 @@ export function drawMap(ctx, view, layers) {
   const drawSize = TILE_PX * tileScale;
   const tileCentre = project(view.centerLat, view.centerLon, tileZoom);
 
-  // A rotated map needs a bigger tile sweep to fill the corners.
-  const reach = rotation ? Math.hypot(width, height) / 2 : Math.max(width, height) / 2;
+  // A rotated map needs a bigger tile sweep to fill the corners. One that is
+  // not needs only what is on it, across and down: it was the larger of the
+  // two both ways, so a wide world map swept a square of tiles, half of them
+  // above and below the canvas - every layer painted and every square of fog
+  // worked out for ground nobody could see.
+  const corner = Math.hypot(width, height) / 2;
   // Counted in tile-zoom pixels, which is what the indices are in.
-  const span = reach / tileScale;
-  const minX = Math.floor((tileCentre.x - span) / TILE_PX);
-  const maxX = Math.floor((tileCentre.x + span) / TILE_PX);
-  const minY = Math.floor((tileCentre.y - span) / TILE_PX);
-  const maxY = Math.floor((tileCentre.y + span) / TILE_PX);
+  const spanX = (rotation ? corner : width / 2) / tileScale;
+  const spanY = (rotation ? corner : height / 2) / tileScale;
+  const minX = Math.floor((tileCentre.x - spanX) / TILE_PX);
+  const maxX = Math.floor((tileCentre.x + spanX) / TILE_PX);
+  const minY = Math.floor((tileCentre.y - spanY) / TILE_PX);
+  const maxY = Math.floor((tileCentre.y + spanY) / TILE_PX);
   const tileCount = Math.pow(2, tileZoom);
 
   ctx.imageSmoothingEnabled = true;
@@ -212,6 +217,12 @@ export function drawMap(ctx, view, layers) {
   const fogged = !drawnOnly && options.fog !== false && !!layers.exploration && !!layers.street;
   // On a server, ground anybody has explored is uncovered for everyone.
   const shared = layers.others?.shared?.() ?? null;
+  // Every record this draw reads squares of, told so: what one draw asks for
+  // is kept for it, however big the map (Exploration.beginShareDraw).
+  const overlays = layers.others?.overlays?.() ?? [];
+  const reading = new Set([layers.exploration, shared, ...overlays.flatMap((o) => [o.explored, o.exclude])]
+    .filter((record) => typeof record?.beginShareDraw === 'function'));
+  for (const record of reading) record.beginShareDraw();
   const pair = fogged
     ? scratchPair(Math.round(width * pixelRatio), Math.round(height * pixelRatio))
     : null;
@@ -257,6 +268,10 @@ export function drawMap(ctx, view, layers) {
     paint(photo, layers.tiles, null);
 
     mask.fillStyle = '#fff';
+    // A row of a tile at a time from each record: one look in its cache for
+    // the row rather than one a square.
+    const own = rowBuffer(0);
+    const everyone = rowBuffer(1);
     for (let ty = minY; ty <= maxY; ty++) {
       if (ty < 0 || ty >= tileCount) continue;
       for (let tx = minX; tx <= maxX; tx++) {
@@ -264,6 +279,8 @@ export function drawMap(ctx, view, layers) {
         const screenX = (tx * TILE_PX - tileCentre.x) * tileScale;
         const screenY = (ty * TILE_PX - tileCentre.y) * tileScale;
         for (let j = 0; j < sub; j++) {
+          layers.exploration.shareRow(maskZoom, wrappedX * sub, ty * sub + j, sub, own);
+          if (shared) shared.shareRow(maskZoom, wrappedX * sub, ty * sub + j, sub, everyone);
           // Filled as horizontal runs of one strength rather than square by
           // square.
           //
@@ -279,12 +296,8 @@ export function drawMap(ctx, view, layers) {
           let runStart = -1;
           let runLevel = 0;
           for (let i = 0; i <= sub; i++) {
-            const x = wrappedX * sub + i;
-            const y = ty * sub + j;
             // Yours, or everybody's on a server - which has yours in it.
-            const amount = i < sub
-              ? Math.max(layers.exploration.share(maskZoom, x, y), shared ? shared.share(maskZoom, x, y) : 0)
-              : 0;
+            const amount = i < sub ? (shared && everyone[i] > own[i] ? everyone[i] : own[i]) : 0;
             const strength = Math.round(amount * 255);
             if (strength === runLevel && i < sub) continue;
             if (runStart >= 0 && runLevel > 0) {
@@ -340,7 +353,7 @@ export function drawMap(ctx, view, layers) {
 
   // Other players' discoveries and trails, in their colours, under your own.
   if (layers.others) {
-    drawOthersBelow(ctx, layers.others, toScreen, {
+    drawOthersBelow(ctx, overlays, toScreen, {
       zoom,
       tileZoom,
       minX, maxX, minY, maxY,
@@ -349,6 +362,7 @@ export function drawMap(ctx, view, layers) {
       centerLat: view.centerLat,
     });
   }
+  for (const record of reading) record.endShareDraw();
 
   if (options.trail && layers.trail) {
     drawTrail(ctx, layers.trail, toScreen, options.pathWidth ?? 1.4);
@@ -577,8 +591,7 @@ function drawName(ctx, x, y, name, colour, rotation) {
  * your own trail and every marker, because they are the background to where
  * you are rather than the subject of the map.
  */
-function drawOthersBelow(ctx, others, toScreen, view) {
-  const list = others.overlays?.() ?? [];
+function drawOthersBelow(ctx, list, toScreen, view) {
   if (!list.length) return;
   const {
     tileZoom, minX, maxX, minY, maxY, tileCentre, tileScale, drawSize, tileCount, pixelRatio, width, height, rotation,
@@ -599,6 +612,8 @@ function drawOthersBelow(ctx, others, toScreen, view) {
     t.translate(width / 2, height / 2);
     if (rotation) t.rotate(rotation);
     t.fillStyle = overlay.colour;
+    const theirs = rowBuffer(0);
+    const yours = rowBuffer(1);
     for (let ty = minY; ty <= maxY; ty++) {
       if (ty < 0 || ty >= tileCount) continue;
       for (let tx = minX; tx <= maxX; tx++) {
@@ -606,15 +621,13 @@ function drawOthersBelow(ctx, others, toScreen, view) {
         const screenX = (tx * TILE_PX - tileCentre.x) * tileScale;
         const screenY = (ty * TILE_PX - tileCentre.y) * tileScale;
         for (let j = 0; j < sub; j++) {
+          overlay.explored.shareRow(maskZoom, wrappedX * sub, ty * sub + j, sub, theirs);
+          if (overlay.exclude) overlay.exclude.shareRow(maskZoom, wrappedX * sub, ty * sub + j, sub, yours);
           let runStart = -1;
           let runLevel = 0;
           for (let i = 0; i <= sub; i++) {
-            const x = wrappedX * sub + i;
-            const y = ty * sub + j;
             // Theirs, less what is already yours where yours is shown apart.
-            const amount = i < sub
-              ? Math.max(0, overlay.explored.share(maskZoom, x, y) - (overlay.exclude ? overlay.exclude.share(maskZoom, x, y) : 0))
-              : 0;
+            const amount = i < sub ? (overlay.exclude ? (theirs[i] > yours[i] ? theirs[i] - yours[i] : 0) : theirs[i]) : 0;
             const strength = Math.round(amount * 255);
             if (strength === runLevel && i < sub) continue;
             if (runStart >= 0 && runLevel > 0) {
@@ -656,6 +669,12 @@ function drawOthersBelow(ctx, others, toScreen, view) {
     }
     ctx.globalAlpha = 1;
   }
+}
+
+/** Two rows of squares' explored amounts, reused: a tile's row is at most 64. See Exploration.shareRow. */
+const rowBuffers = [new Float32Array(64), new Float32Array(64)];
+function rowBuffer(which) {
+  return rowBuffers[which];
 }
 
 let tintCanvas = null;

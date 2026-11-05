@@ -72,13 +72,25 @@ const MAX_ENTRIES = 2000000;
 export const MAX_REVEAL_M = 2000;
 
 /**
- * Squares a side in one block of share()'s answers: a map tile's worth at the
- * zoom the maps read it at (mapRenderer.js reads six zooms finer than the
- * tiles it draws, and 2^6 is 64).
+ * Squares a side in one block of share()'s answers, as a power of two: a map
+ * tile's worth at the zoom the maps read it at (mapRenderer.js reads six
+ * zooms finer than the tiles it draws, and 2^6 is 64).
  */
-const SHARE_BLOCK = 64;
-/** Blocks of share()'s answers kept per record, the least lately asked going first: 16 KB each, 4 MB in all. */
+const SHARE_BITS = 6;
+/**
+ * Blocks of share()'s answers kept per record between draws, the least lately
+ * asked going first: 16 KB each, 4 MB in all.
+ *
+ * One draw of a big map can need more than that - a 4K or ultrawide world map
+ * at a half zoom is three to four hundred tiles - and a cache smaller than one
+ * draw let each block go just before the draw came back to it: every block was
+ * built again on every redraw, 1,088 of them a time at 2756 x 1500. So a
+ * block the draw under way has asked for is never let go (see beginShareDraw),
+ * and the cache grows to what one draw needs, up to SHARE_BLOCKS_MOST.
+ */
 const SHARE_BLOCKS = 256;
+/** However big the draw: 16 MB a record. */
+const SHARE_BLOCKS_MOST = 1024;
 
 /**
  * The squares explored ground is kept in on one world: which zooms, where.
@@ -392,8 +404,17 @@ export class Exploration extends Emitter {
     this.shareBlocks = new Map();
     /** How many of those blocks there are of each zoom, so a new square updates only theirs. */
     this.shareLevels = new Map();
-    /** The block share() asked for last, so a row of a tile is not a Map lookup a square. */
+    /** The block share() asked for last, so a row of a tile is not a Map lookup a square: {key, block, draw}. */
     this.lastBlock = null;
+    /**
+     * Which map draw each block was last asked for by, and the draw under way
+     * (0 when none is): see beginShareDraw. Keyed as shareBlocks is.
+     */
+    this.shareStamp = new Map();
+    this.shareDraw = 0;
+    this.drawingShares = false;
+    /** Whether the draw under way has built a block: see endShareDraw. */
+    this.shareGrew = false;
     /** For a record kept as a Set: its finest squares again as runs, for share(). Null until asked. */
     this.finestIndex = null;
     // A save from before the squares were sized to the world is carried over,
@@ -490,11 +511,11 @@ export class Exploration extends Emitter {
       const shift = z - level;
       const cx = x >> shift;
       const cy = y >> shift;
-      const side = Math.min(SHARE_BLOCK, 2 ** level);
-      const bx = Math.floor(cx / side);
-      const by = Math.floor(cy / side);
+      const bits = level < SHARE_BITS ? level : SHARE_BITS;
+      const bx = cx >> bits;
+      const by = cy >> bits;
       const block = this.shareBlocks.get(blockKey(level, bx, by));
-      if (block) block[(cy - by * side) * side + (cx - bx * side)] += 4 ** -shift;
+      if (block) block[((cy - (by << bits)) << bits) + (cx - (bx << bits))] += 4 ** -shift;
     }
   }
 
@@ -530,16 +551,108 @@ export class Exploration extends Emitter {
         return this.hasSquare(finest, x >> shift, y >> shift) ? 1 : 0;
       }
     }
-    const side = Math.min(SHARE_BLOCK, 2 ** z);
-    const bx = Math.floor(x / side);
-    const by = Math.floor(y / side);
+    // A zoom coarser than the whole world is no square at all.
+    if (!(z >= 0)) return 0;
+    // Whole-number arithmetic from here on, shifts not divisions: this runs
+    // for every square of every map tile drawn, and floating-point division,
+    // Math.floor and Math.min here made each call four times what the
+    // explored check before it cost (see shareRow for a row at a time).
+    const bits = z < SHARE_BITS ? z : SHARE_BITS;
+    const bx = x >> bits;
+    const by = y >> bits;
     const key = blockKey(z, bx, by);
-    let block = this.lastBlock?.key === key ? this.lastBlock.block : null;
-    if (!block) {
-      block = this.shareBlock(z, bx, by, side, key);
-      this.lastBlock = { key, block };
+    const last = this.lastBlock;
+    const block = last !== null && last.key === key && last.draw === this.shareDraw ? last.block : this.useBlock(z, bx, by, bits, key);
+    // Nothing there - a square off the block, a fraction asked for - is
+    // unexplored, never explored.
+    const v = block[((y - (by << bits)) << bits) + (x - (bx << bits))];
+    return v >= 1 ? 1 : v > 0 ? v : 0;
+  }
+
+  /**
+   * share() for `n` squares of one row at once, from column `x0`, into
+   * `out`: what the maps draw, a tile's row at a time, with one look in the
+   * cache for the lot rather than one a square.
+   */
+  shareRow(z, x0, y, n, out) {
+    if (cheats.mapUnlocked) {
+      out.fill(1, 0, n);
+      return out;
     }
-    return Math.min(1, block[(y - by * side) * side + (x - bx * side)] ?? 0);
+    const scheme = this.scheme;
+    if (z >= scheme.align) {
+      const finest = scheme.finestAt(z, y);
+      if (z >= finest) {
+        // At or past the finest square kept in this row: each square is that
+        // square, all or nothing, read off the row's runs.
+        const shift = z - finest;
+        out.fill(0, 0, n);
+        const runs = this.finestRuns().levels.get(finest)?.get(y >> shift);
+        if (runs) {
+          const end = x0 + n;
+          for (let i = 0; i < runs.length; i += 2) {
+            const from = Math.max(x0, runs[i] << shift);
+            const to = Math.min(end, (runs[i] + runs[i + 1]) << shift);
+            for (let x = from; x < to; x++) out[x - x0] = 1;
+          }
+        }
+        return out;
+      }
+    }
+    if (!(z >= 0)) {
+      out.fill(0, 0, n);
+      return out;
+    }
+    const bits = z < SHARE_BITS ? z : SHARE_BITS;
+    const by = y >> bits;
+    const rowStart = (y - (by << bits)) << bits;
+    const end = x0 + n;
+    let x = x0;
+    while (x < end) {
+      const bx = x >> bits;
+      const key = blockKey(z, bx, by);
+      const last = this.lastBlock;
+      const block = last !== null && last.key === key && last.draw === this.shareDraw ? last.block : this.useBlock(z, bx, by, bits, key);
+      const first = bx << bits;
+      const stop = Math.min(end, first + (1 << bits));
+      for (; x < stop; x++) {
+        const v = block[rowStart + (x - first)];
+        out[x - x0] = v >= 1 ? 1 : v > 0 ? v : 0;
+      }
+    }
+    return out;
+  }
+
+  /**
+   * A map draw begins and ends. Between the two nothing is let go (up to
+   * SHARE_BLOCKS_MOST), and at the end the cache goes back to SHARE_BLOCKS
+   * by letting go of what this draw did not ask for - so the next draw of
+   * the same view finds every block it needs, however many that is. Asked
+   * outside a draw, the cache is held to SHARE_BLOCKS as it comes.
+   */
+  beginShareDraw() {
+    this.shareDraw += 1;
+    this.drawingShares = true;
+    this.shareGrew = false;
+  }
+
+  endShareDraw() {
+    this.drawingShares = false;
+    // Only a draw that built blocks lets any go. The minimap draws twenty
+    // times a second whether the big map is open or not, mostly reading
+    // squares rather than blocks; trimmed after each, it let go of the
+    // blocks the big map's last draw kept, for the big map to build again.
+    if (this.shareGrew) this.trimShares();
+  }
+
+  /** The block for these squares, built if need be, marked as used by the draw under way. */
+  useBlock(z, bx, by, bits, key) {
+    if (this.drawingShares && !this.shareBlocks.has(key)) this.shareGrew = true;
+    const block = this.shareBlock(z, bx, by, 1 << bits, key);
+    this.shareStamp.set(key, this.drawingShares ? this.shareDraw : 0);
+    this.lastBlock = { key, block, draw: this.shareDraw };
+    if (!this.drawingShares || this.shareBlocks.size > SHARE_BLOCKS_MOST) this.trimShares();
+    return block;
   }
 
   /** One block of share()'s answers: side x side squares of zoom z, kept until the record is replaced. */
@@ -594,16 +707,33 @@ export class Exploration extends Emitter {
     }
     this.shareBlocks.set(key, block);
     this.shareLevels.set(z, (this.shareLevels.get(z) ?? 0) + 1);
-    if (this.shareBlocks.size > SHARE_BLOCKS) {
-      const [oldest] = this.shareBlocks.keys();
-      this.shareBlocks.delete(oldest);
-      const level = Math.floor(oldest / 2 ** 36);
-      const left = (this.shareLevels.get(level) ?? 1) - 1;
-      if (left > 0) this.shareLevels.set(level, left);
-      else this.shareLevels.delete(level);
-      if (this.lastBlock?.key === oldest) this.lastBlock = null;
-    }
     return block;
+  }
+
+  /**
+   * Back to SHARE_BLOCKS, the least lately asked going first - but never one
+   * the latest draw asked for, unless there are SHARE_BLOCKS_MOST.
+   */
+  trimShares() {
+    while (this.shareBlocks.size > SHARE_BLOCKS) {
+      const [oldest] = this.shareBlocks.keys();
+      const stamp = this.shareStamp.get(oldest) ?? 0;
+      // The least lately asked was asked for by the latest draw: so was
+      // everything after it, each moved to the end when that draw first
+      // asked (shareBlock).
+      if (stamp > 0 && stamp === this.shareDraw && this.shareBlocks.size <= SHARE_BLOCKS_MOST) break;
+      this.dropBlock(oldest);
+    }
+  }
+
+  dropBlock(key) {
+    this.shareBlocks.delete(key);
+    this.shareStamp.delete(key);
+    const level = Math.floor(key / 2 ** 36);
+    const left = (this.shareLevels.get(level) ?? 1) - 1;
+    if (left > 0) this.shareLevels.set(level, left);
+    else this.shareLevels.delete(level);
+    if (this.lastBlock !== null && this.lastBlock.key === key) this.lastBlock = null;
   }
 
   /** The record's finest squares as runs: the record itself when it is kept as runs. */
@@ -623,6 +753,7 @@ export class Exploration extends Emitter {
   forgetShares() {
     this.shareBlocks.clear();
     this.shareLevels.clear();
+    this.shareStamp.clear();
     this.lastBlock = null;
     this.finestIndex = null;
   }
