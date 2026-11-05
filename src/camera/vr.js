@@ -58,6 +58,17 @@ export function rigOffset(eye, yaw) {
   };
 }
 
+/** Scratch for beforeRender. */
+const CORRECTION = new THREE.Matrix4();
+const FROM = new THREE.Matrix4();
+
+/** A placement of the headset's space ({origin, yaw}) as the matrix that takes its coordinates to the world's. */
+export function rigMatrix(placement, out = new THREE.Matrix4()) {
+  out.makeRotationY(-placement.yaw);
+  out.setPosition(placement.origin.x, placement.origin.y, placement.origin.z);
+  return out;
+}
+
 /** Where the head is looking, as the game keeps it: bearing and pitch from a world quaternion. */
 const headEuler = new THREE.Euler();
 export function headLook(quaternion) {
@@ -92,10 +103,23 @@ export class VRMode extends Emitter {
     this.hud = null;
     this.hudTimer = 0;
     this.lastLine = '';
+    /**
+     * Where the headset's space is put, as {origin, yaw}: `spaceSet` the last
+     * one handed to three.js, `poseFrom` the one this frame's head pose was
+     * read in, and `target` where the eye is now. See place and beforeRender.
+     */
+    this.spaceSet = null;
+    this.poseFrom = null;
+    this.target = null;
     renderer.xr.enabled = true;
     // Seated: the origin is where your head is when it starts, which is the
     // player's eye. A floor would put a seated player's eyes at their knees.
     renderer.xr.setReferenceSpaceType('local');
+    // Out of the headset when three.js has finished with it - presenting no
+    // more and its own sizes put back - so a resize then is not refused.
+    renderer.xr.addEventListener?.('sessionend', () => {
+      if (this.session) this.ended();
+    });
     this.checkSupport();
     globalThis.navigator?.xr?.addEventListener?.('devicechange', () => this.checkSupport());
   }
@@ -138,7 +162,9 @@ export class VRMode extends Emitter {
     this.yawOffset = yaw;
     this.headYaw = null;
     this.headStart = null;
-    session.addEventListener('end', () => this.ended());
+    this.spaceSet = null;
+    this.poseFrom = null;
+    this.target = null;
     try {
       await this.renderer.xr.setSession(session);
     } catch (error) {
@@ -147,6 +173,9 @@ export class VRMode extends Emitter {
       throw error;
     }
     this.baseSpace = this.renderer.xr.getReferenceSpace();
+    // The cameras are brought up to date by beforeRender, not by three.js on
+    // its own: see there.
+    this.renderer.xr.cameraAutoUpdate = false;
     this.buildHud();
     this.emit('start');
     return true;
@@ -159,8 +188,20 @@ export class VRMode extends Emitter {
   ended() {
     this.session = null;
     this.baseSpace = null;
+    this.spaceSet = null;
+    this.poseFrom = null;
+    this.target = null;
+    this.renderer.xr.cameraAutoUpdate = true;
     if (this.hud) this.hud.mesh.visible = false;
     this.emit('end');
+  }
+
+  /**
+   * The top of a frame: the head pose three.js has just read for it was read
+   * in the space set last frame.
+   */
+  frameStart() {
+    if (this.presenting) this.poseFrom = this.spaceSet;
   }
 
   /**
@@ -200,11 +241,12 @@ export class VRMode extends Emitter {
   }
 
   /**
-   * Just before drawing: the headset's origin to the eye, facing the way the
-   * player was facing before they turned their head. `yawOffset` is the
-   * bearing of the headset's forward in the world.
+   * The headset's origin to the eye, facing the way the player was facing
+   * before they turned their head (`yawOffset`, the bearing of the headset's
+   * forward in the world): for this frame through beforeRender, and handed to
+   * three.js for the next.
    */
-  place(eye, velocity = null, dt = 0) {
+  place(eye) {
     if (!this.presenting || !this.baseSpace || typeof XRRigidTransform !== 'function') return;
     // Where the head started, in the headset's own space, from the frame
     // itself. See headStart.
@@ -218,24 +260,52 @@ export class VRMode extends Emitter {
       }
     }
     const start = this.headStart ?? { x: 0, y: 0, z: 0 };
-    // three.js asks the headset where the head is before the game's frame
-    // runs, so the space set now is the one the next frame is drawn in: at
-    // flying speed a frame late is a metre behind your own body. So it goes
-    // where the eye will be then.
-    const lead = velocity && dt > 0 ? Math.min(dt, 0.05) : 0;
     const c = Math.cos(this.yawOffset);
     const s = Math.sin(this.yawOffset);
     const origin = {
-      x: eye.x + (velocity?.x ?? 0) * lead - (c * start.x - s * start.z),
-      y: eye.y + (velocity?.y ?? 0) * lead - start.y,
-      z: eye.z + (velocity?.z ?? 0) * lead - (s * start.x + c * start.z),
+      x: eye.x - (c * start.x - s * start.z),
+      y: eye.y - start.y,
+      z: eye.z - (s * start.x + c * start.z),
     };
+    this.target = { origin, yaw: this.yawOffset };
     const offset = rigOffset(origin, this.yawOffset);
     const transform = new XRRigidTransform(
       { ...offset.position, w: 1 },
       offset.orientation,
     );
     this.renderer.xr.setReferenceSpace(this.baseSpace.getOffsetReferenceSpace(transform));
+    this.spaceSet = this.target;
+  }
+
+  /**
+   * Just before drawing: the cameras three.js draws the eyes with, from the
+   * head pose, then moved from where that pose was read to where the eye is.
+   *
+   * three.js reads the head pose before the game's frame runs, in the space
+   * set the frame before, so on its own every frame was drawn from where the
+   * eye was a frame ago: a metre behind your own body at flying speed, and on
+   * the frame the world re-centres - every forty kilometres - or you are
+   * teleported, from forty kilometres away, a flash of empty sky. Moved by
+   * the difference between the two placements, the head is where it is now.
+   */
+  beforeRender(camera) {
+    if (!this.presenting) return;
+    const xr = this.renderer.xr;
+    xr.updateCamera(camera);
+    if (!this.target) return;
+    rigMatrix(this.target, CORRECTION);
+    if (this.poseFrom) CORRECTION.multiply(rigMatrix(this.poseFrom, FROM).invert());
+    const cameraXR = xr.getCamera();
+    for (const eye of [cameraXR, ...cameraXR.cameras]) {
+      eye.matrixWorld.premultiply(CORRECTION);
+      eye.matrixWorldInverse.copy(eye.matrixWorld).invert();
+    }
+    // And the game's own camera, as three.js would have left it: the panel
+    // and the arms ride it, and the next frame reads the head off it.
+    if (camera.parent) camera.matrix.copy(camera.parent.matrixWorld).invert().multiply(cameraXR.matrixWorld);
+    else camera.matrix.copy(cameraXR.matrixWorld);
+    camera.matrix.decompose(camera.position, camera.quaternion, camera.scale);
+    camera.updateMatrixWorld(true);
   }
 
   /* --------------------------------------------------------------- the panel */

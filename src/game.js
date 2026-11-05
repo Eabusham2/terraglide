@@ -1267,7 +1267,24 @@ export class Game {
    * take over (three.js switches between them; see camera/vr.js).
    */
   startLoop() {
-    this.renderer.setAnimationLoop((t) => this.loop(t));
+    this.renderer.setAnimationLoop((t) => this.runFrame(t));
+  }
+
+  /**
+   * One frame, whatever it throws. three.js asks for the next frame only once
+   * this one has returned, so a frame that threw was the last: the game stood
+   * still on it for good. (The window's loop it replaced asked for the next
+   * frame first.) Thrown again on its own, the error still reaches the
+   * console and recentErrors.
+   */
+  runFrame(now) {
+    try {
+      this.loop(now);
+    } catch (error) {
+      setTimeout(() => {
+        throw error;
+      });
+    }
   }
 
   loop(now) {
@@ -1282,6 +1299,8 @@ export class Game {
     // A headset's browser can call the page hidden while it draws into the
     // headset; the frames are the headset's then.
     if (document.hidden && !this.vr.presenting) return;
+    // In a headset, the head pose this frame was read with: see VRMode.
+    this.vr.frameStart();
 
     // Anything that changed a setting since the last frame takes effect now,
     // before anything reads one.
@@ -1319,7 +1338,7 @@ export class Game {
     // has to be worked. See camera/gamepad.js.
     this.gamepad.poll(elapsed, { menu: this.takingKeys, vr: this.vr.presenting });
     this.update(this.paused ? 0 : elapsed * cheats.gameSpeed);
-    if (this.vr.presenting) this.vr.updateHud(elapsed, this.vrReadout());
+    if (this.vr.presenting) this.vrFrame(elapsed);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -1474,10 +1493,7 @@ export class Game {
     // to the eye the rig has just worked out.
     if (this.vr.presenting) {
       this.vr.afterUpdate(player, this.gamepad, this.rig.isFreecam ? this.rig.freecam : null);
-      // Where the eye will be by the next frame: see VRMode.place.
-      const moving = this.rig.isFreecam ? this.rig.freecam.velocity
-        : (this._vrLead ??= new THREE.Vector3()).copy(player.velocity).multiplyScalar(player.speedMultiplier ?? 1);
-      this.vr.place(this.rig.isFreecam ? this.rig.freecam.position : this.rig.eye, moving, dt);
+      this.vr.place(this.rig.isFreecam ? this.rig.freecam.position : this.rig.eye);
     }
 
     // The shader shades unphotographed ground by slope, which means nothing
@@ -1656,7 +1672,12 @@ export class Game {
     const outside =
       this.rig.perspective !== 'first' || this.rig.isFreecam;
     const thirdPerson = outside;
-    const showAvatar = thirdPerson || settings.get('showBody');
+    // In a headset, on foot, the eye is on the body's axis (see
+    // CameraRig.perspective) and the body would be drawn round it: the hands
+    // are what show, as in most things made for a headset. Gliding, the body
+    // is behind the eye and the wings are worth seeing.
+    const vrOnFoot = this.vr.presenting && !(player.elytraDeployed && !player.onGround);
+    const showAvatar = (thirdPerson || settings.get('showBody')) && !vrOnFoot;
     this.avatar.setVisible(showAvatar);
     // The shadow goes on the surface the player is actually standing on — the
     // drawn one, the same answer the controller uses for the floor — so it
@@ -2921,6 +2942,12 @@ export class Game {
     this.vr.enter(this.player.yaw).catch((error) => {
       this.toast(`Could not start VR: ${String(error?.message ?? error).slice(0, 120)}`, 'bad');
     });
+  }
+
+  /** In a headset, before drawing: the panel's numbers, and the eyes drawn from where the eye is now, not a frame ago. */
+  vrFrame(elapsed) {
+    this.vr.updateHud(elapsed, this.vrReadout());
+    this.vr.beforeRender(this.camera);
   }
 
   /** What the headset's panel shows. See VRMode.updateHud. */

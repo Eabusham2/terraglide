@@ -285,7 +285,12 @@ export class CameraRig {
     // no hands, no arms and no firework anywhere on the screen. Damped rather
     // than switched, so opening the wings does not jog the view.
     this.prone = damp(this.prone, player.elytraDeployed && !player.onGround ? 1 : 0, 6, dt);
-    if (this.perspective === 'first') {
+    // Not in a headset: there the head turns the bearing every frame, and an
+    // eye pushed forward along it swung round the body as the head turned -
+    // eighteen centimetres either way, on top of the neck's own swing, which
+    // the headset already gives. Movement you did not make is what makes
+    // people ill in one.
+    if (this.perspective === 'first' && !this.forceFirst) {
       const lean = player.height * EYE_FORWARD * (1 - this.prone);
       this._target.x += Math.sin(player.yaw) * lean;
       this._target.z += -Math.cos(player.yaw) * lean;

@@ -12072,10 +12072,39 @@ console.log('\na game controller, and a VR headset');
   ok('a head turned to the right in the headset looks that much further round', Math.abs(headLook(world).yaw - (yaw + 0.4)) < 1e-6);
   ok(`snap turns are a comfortable step  (${SNAP_DEG} degrees)`, SNAP_DEG >= 20 && SNAP_DEG <= 45);
 
+  // Auto-travel steers, and a stick resting a little off centre is no hand
+  // on the controls: its own push stood in for the autopilot's forward, and
+  // the flight drifted sideways until it gave up.
+  {
+    const { Autopilot } = await import('../src/player/autopilot.js');
+    const { cheats } = await import('../src/core/cheats.js');
+    const wasUnlocked = cheats.unlocked;
+    cheats.unlock();
+    const wasFly = cheats.fly;
+    cheats.set('fly', true);
+    const pilot = new Autopilot({
+      player: { lat: 46, lon: 7, yaw: 0, pitch: 0, roll: 0, position: { x: 0, y: 900, z: 0 }, velocity: { x: 0, y: 0, z: 0 }, groundHeight: 0, onGround: false, elytraDeployed: false },
+      terrain: { heightAt: () => 0 },
+    });
+    pilot.engage(46.05, 7);
+    const out = pilot.step(0.1, { forward: false, back: false, left: false, right: false, axisX: 0.05, axisY: 0 });
+    const [forward, strafe] = moveAxes(out);
+    ok(`auto-travel flies on with a pad's stick resting off centre  (forward ${forward}, sideways ${strafe})`,
+      pilot.active && forward === 1 && strafe === 0);
+    const taken = pilot.step(0.1, { forward: false, back: true, left: false, right: false, axisX: 0, axisY: -0.8 });
+    ok('and a real push still takes it off', !pilot.active && taken.back === true);
+    cheats.set('fly', wasFly);
+    if (!wasUnlocked) cheats.lock();
+  }
+
   // The game draws through the renderer's own loop, or a headset gets no frames.
   const game = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
   ok('the game draws through the renderer\'s loop, which a headset drives',
-    /this\.renderer\.setAnimationLoop\(\(t\) => this\.loop\(t\)\)/.test(game) && !/requestAnimationFrame\(\(t\) => this\.loop\(t\)\)/.test(game));
+    /this\.renderer\.setAnimationLoop\(\(t\) => this\.runFrame\(t\)\)/.test(game) && !/requestAnimationFrame\(\(t\) => this\.(loop|runFrame)\(t\)\)/.test(game));
+  // That loop asks for the next frame after this one returns: a frame that
+  // throws must not be the last one.
+  ok('and a frame that throws is not the last one',
+    /runFrame\(now\) \{\s*try \{\s*this\.loop\(now\);\s*\} catch \(error\) \{\s*setTimeout\(\(\) => \{\s*throw error;/.test(game));
 }
 
 console.log('\nevery module still parses');

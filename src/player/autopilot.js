@@ -80,6 +80,11 @@ export class Autopilot {
       this.disengage('Auto-travel cancelled');
       return movement;
     }
+    // A controller's stick resting a little off centre is no hand on the
+    // controls - it sets no direction - but its own push (axisX/axisY, see
+    // camera/gamepad.js) would stand in for every direction this flies with,
+    // and the flight drifted sideways and gave up. Here the autopilot steers.
+    if (movement.axisX || movement.axisY) movement = { ...movement, axisX: undefined, axisY: undefined };
 
     const player = this.player;
     const here = { lat: player.lat, lon: player.lon };

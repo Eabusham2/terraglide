@@ -210,10 +210,26 @@ try {
   await p.evaluate(() => window.__press(2, 0));
   const wings = await until(p, () => window.terraglide.player.elytraDeployed, null, { timeout: 3000 }).then(() => true, () => false);
   ok('X opens the wings in the air', wings);
-  await p.evaluate(() => { window.__pad.axes[0] = 1; });
+  // Read the first time the bank passes 0.4 rad either way: held, a roll
+  // goes on round, and on a slow machine twelve frames carry it past half a
+  // turn, where it reads as the other way round.
+  await p.evaluate(() => {
+    const g = window.terraglide;
+    window.__rolls = [];
+    window.__render = g.renderer.render;
+    g.renderer.render = (...args) => {
+      window.__rolls.push(g.rig.roll);
+      return window.__render(...args);
+    };
+    window.__pad.axes[0] = 1;
+  });
   await frames(p, 12);
-  const roll = await p.evaluate(() => window.terraglide.rig.roll);
-  await p.evaluate(() => { window.__pad.axes[0] = 0; });
+  const rolls = await p.evaluate(() => {
+    window.__pad.axes[0] = 0;
+    window.terraglide.renderer.render = window.__render;
+    return window.__rolls;
+  });
+  const roll = rolls.find((r) => Math.abs(r) > 0.4) ?? 0;
   ok(`and the left stick banks them  (roll ${roll.toFixed(2)})`, roll > 0.4);
 
   // The triggers: a rocket, and a shake for it.
@@ -277,7 +293,52 @@ try {
   await tap(0);
   const up = await until(p, () => !window.terraglide.deathScreen.open && !window.terraglide.player.dead, null, { timeout: 4000 }).then(() => true, () => false);
   ok('a death is got up from with A', dead && up);
-  ok('no script errors with the controller', pad.errors.length === 0, pad.errors.slice(0, 2).join(' | '));
+
+  // A panel closed with A: the thumb still on it the frame after is not a
+  // jump. It was - the first frame back in the game saw A held and new.
+  await until(p, () => window.terraglide.player.onGround && !window.terraglide.settling, null, { timeout: 30000 }).catch(() => {});
+  await frames(p, 4);
+  await p.evaluate(() => window.__press(9, 1));
+  await frames(p, 3);
+  await p.evaluate(() => window.__press(9, 0));
+  const onClose = await until(p, () => window.terraglide.settingsPanel.open
+    && document.activeElement?.textContent?.trim(), null, { timeout: 5000 }).catch(() => '');
+  await p.evaluate(() => {
+    window.__rise = 0;
+    window.__left = false;
+    const g = window.terraglide;
+    const render = g.renderer.render;
+    g.renderer.render = (...args) => {
+      if (!g.settingsPanel.open) {
+        window.__rise = Math.max(window.__rise, g.player.velocity.y);
+        if (!g.player.onGround) window.__left = true;
+      }
+      return render(...args);
+    };
+    window.__press(0, 1);
+  });
+  await frames(p, 8);
+  await p.evaluate(() => window.__press(0, 0));
+  await frames(p, 4);
+  const leak = await p.evaluate(() => ({ open: window.terraglide.settingsPanel.open, rise: window.__rise, left: window.__left }));
+  ok(`closing a panel with A does not jump as it closes  (${onClose}; rose ${leak.rise.toFixed(2)} m/s)`,
+    !leak.open && !leak.left && leak.rise < 0.5);
+
+  // A frame that throws is not the last: three.js asks for the next frame
+  // only once this one returns, and the game stood still on the first error.
+  const BAD = 'padcheck: one frame that throws';
+  await p.evaluate((bad) => {
+    const g = window.terraglide;
+    g.update = () => {
+      delete g.update;
+      throw new Error(bad);
+    };
+  }, BAD);
+  const carriedOn = await frames(p, 6).then(() => true, () => false);
+  ok('a frame that throws is not the last one', carriedOn);
+  ok('and what it threw is still reported', pad.errors.some((error) => error.includes(BAD)));
+  const unexpected = pad.errors.filter((error) => !error.includes(BAD));
+  ok('no script errors with the controller', unexpected.length === 0, unexpected.slice(0, 2).join(' | '));
   await pad.context.close();
   pad = null;
 
@@ -331,6 +392,31 @@ try {
   const at1 = await v.evaluate(() => ({ x: window.terraglide.player.position.x, z: window.terraglide.player.position.z }));
   ok(`the left hand's stick walks you  (${Math.hypot(at1.x - at0.x, at1.z - at0.z).toFixed(1)} m)`, Math.hypot(at1.x - at0.x, at1.z - at0.z) > 1.5);
 
+  // Standing, a head turned a quarter round: the eye stays where it is.
+  // An eye leant forward along the bearing swung round the body as the
+  // head turned, on top of the neck's own swing. Measured between the two
+  // eyes: three.js's camera for both stands a little behind them, wide
+  // enough to see what either sees, and that point swings with the head.
+  const eyeAt = () => v.evaluate(() => {
+    const g = window.terraglide;
+    const eyes = g.renderer.xr.getCamera().cameras;
+    const l = eyes[0].matrixWorld.elements;
+    const r = eyes[eyes.length - 1].matrixWorld.elements;
+    const p = g.player.renderPosition;
+    return { x: (l[12] + r[12]) / 2 - p.x, z: (l[14] + r[14]) / 2 - p.z, body: g.avatar.root.visible };
+  });
+  await v.evaluate(() => window.__xr.quaternion.set(0, 0, 0, 1));
+  await frames(v, 6);
+  const ahead = await eyeAt();
+  await v.evaluate(() => window.__xr.quaternion.set(0, Math.sin(-Math.PI / 4), 0, Math.cos(-Math.PI / 4)));
+  await frames(v, 6);
+  const turnedEye = await eyeAt();
+  await v.evaluate(() => window.__xr.quaternion.set(0, 0, 0, 1));
+  await frames(v, 4);
+  const swing = Math.hypot(turnedEye.x - ahead.x, turnedEye.z - ahead.z);
+  ok(`turning your head on your feet does not move your eye  (${(swing * 100).toFixed(1)} cm)`, swing < 0.01);
+  ok('and on your feet your own body is not drawn round your eye', !ahead.body && !turnedEye.body);
+
   // The right trigger lights a rocket - in the air, where rockets are lit:
   // on the ground the game says to jump first.
   await v.evaluate(() => {
@@ -356,12 +442,58 @@ try {
     return { visible: h.mesh.visible, onCamera: h.mesh.parent === window.terraglide.camera, drawn: px[3] > 0 };
   });
   ok('a panel of speed, height and hearts hangs in view', !!hud && hud.visible && hud.onCamera && hud.drawn);
+
+  // Gliding across the point where the world re-centres (every forty
+  // kilometres): every frame is drawn from the eye. The one where it moved
+  // was drawn from forty kilometres back - and every frame from a frame ago.
+  await v.evaluate(() => {
+    window.__gaps = [];
+    const g = window.terraglide;
+    const p = g.player;
+    p.position.set(g.frame.rebaseDistance - 60, p.position.y + 800, 0);
+    p.onGround = false;
+    p.toggleElytra(true);
+    p.velocity.set(60, 0, 0);
+    p.snapRender();
+    const render = g.renderer.render;
+    g.renderer.render = (...args) => {
+      const out = render(...args);
+      const e = g.renderer.xr.getCamera().matrixWorld.elements;
+      const at = p.renderPosition;
+      window.__gaps.push({ x: at.x, gap: Math.hypot(e[12] - at.x, e[14] - at.z) });
+      return out;
+    };
+  });
+  const crossed = await until(v, () => window.__gaps.some((f) => f.x < 1000) && window.__gaps.length > 4, null, { timeout: 90000 }).then(() => true, () => false);
+  await frames(v, 4);
+  const gaps = await v.evaluate(() => window.__gaps.map((f) => f.gap));
+  const worst = Math.max(...gaps);
+  ok(`gliding across a re-centring, every frame is drawn from your eye  (worst ${worst.toFixed(2)} m over ${gaps.length} frames)`, crossed && worst < 0.5);
+  ok('a glider sees the wings it flies on', await v.evaluate(() => window.terraglide.avatar.root.visible));
   await v.screenshot({ path: join(ROOT, 'shots', 'vr-emulated.png') });
 
+  // The window changes size while you are in the headset: coming out, the
+  // picture fits it. The game's resize used to run before three.js had
+  // stopped presenting, which refuses it.
+  await v.setViewportSize({ width: 1100, height: 520 });
+  await frames(v, 3);
   await v.evaluate(() => window.terraglide.vr.exit());
   const out = await until(v, () => !window.terraglide.vr.presenting, null, { timeout: 5000 }).then(() => true, () => false);
-  const back = await v.evaluate(() => ({ forced: !!window.terraglide.rig.forceFirst, width: window.terraglide.renderer.domElement.width }));
-  ok('and out again, to the screen as it was', out && !back.forced && back.width > 0);
+  await frames(v, 3);
+  const back = await v.evaluate(() => {
+    const canvas = window.terraglide.renderer.domElement;
+    return {
+      forced: !!window.terraglide.rig.forceFirst,
+      width: canvas.width,
+      canvas: canvas.width / canvas.height,
+      window: innerWidth / innerHeight,
+      camera: window.terraglide.camera.aspect,
+      auto: window.terraglide.renderer.xr.cameraAutoUpdate,
+    };
+  });
+  ok('and out again, to the screen as it was', out && !back.forced && back.width > 0 && back.auto === true);
+  ok(`sized to a window that changed meanwhile  (canvas ${back.canvas.toFixed(3)}, window ${back.window.toFixed(3)}, camera ${back.camera.toFixed(3)})`,
+    Math.abs(back.canvas - back.window) < 0.02 && Math.abs(back.camera - back.window) < 0.02);
   ok('no script errors in VR', vr.errors.length === 0, vr.errors.slice(0, 2).join(' | '));
 } catch (error) {
   failures++;

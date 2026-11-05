@@ -177,6 +177,12 @@ export class GamepadInput extends Emitter {
     this.move = { x: 0, y: 0 };
     /** Presses of A since movement() last asked, for the double jump. */
     this.jumpPresses = 0;
+    /**
+     * Buttons that went down while the pad was working a panel, until they
+     * come up: a press of A on a panel's Close is not a jump once it has
+     * closed, though the thumb is still on it the frame after.
+     */
+    this.menuHeld = new Set();
     this.sprint = false;
     this.restingFor = 0;
     /** Whether a pad has been touched lately, rather than only plugged in. */
@@ -242,7 +248,9 @@ export class GamepadInput extends Emitter {
     if (menu && !this.inMenu) this.menuSince = now;
     if (menu && now - (this.usedAt ?? -Infinity) < 10000 && now - this.menuSince < 3000 && !this.menu.current()) this.menu.step(1);
     this.inMenu = menu;
+    for (const i of this.menuHeld) if (!down(i)) this.menuHeld.delete(i);
     if (menu) {
+      for (let i = 0; i < BUTTON_COUNT; i++) if (down(i)) this.menuHeld.add(i);
       // Movement stops while a panel has the pad; what it is pressing goes to the panel.
       this.move.x = 0;
       this.move.y = 0;
@@ -297,6 +305,7 @@ export class GamepadInput extends Emitter {
       if (this.prev[bind.button] > 0.5 && bind.action && !bind.latch) this.emit('actionUp', { id: bind.action });
     }
     this.prev.fill(0);
+    this.menuHeld.clear();
     this.sprint = false;
   }
 
@@ -339,7 +348,7 @@ export class GamepadInput extends Emitter {
   movement() {
     const state = this.state;
     if (!state) return null;
-    const held = (i) => state.buttons[i] > 0.5;
+    const held = (i) => state.buttons[i] > 0.5 && !this.menuHeld.has(i);
     const dead = 0.3;
     const presses = this.jumpPresses;
     this.jumpPresses = 0;
