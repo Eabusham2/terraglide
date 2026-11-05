@@ -9473,6 +9473,38 @@ console.log('\nphotograph where you have been, drawn map where you have not');
       ok(`a row read says what share() says, square by square  (${rows} rows)`, same && rows > 100);
       ok('and nothing there is unexplored, never explored', flown.share(10, 0.5, 3) === 0 && flown.share(10, 2 ** 31, 3) === 0
         && flown.share(-1, 0, 0) === 0 && flown.shareRow(-1, 0, 0, 4, new Float32Array(4)).every((v) => v === 0));
+      // Your own record is kept as a Set on the page. Its rows at the finest
+      // square are read square by square until something has built its runs:
+      // built for the minimap's rows, every page load and every sign-in
+      // stopped the game for as long as reading the whole record took.
+      {
+        const mine = new Exploration({ stored: false, compact: false });
+        fly(mine);
+        const rowsAgree = () => {
+          let agree = true;
+          let explored = 0;
+          for (let z = finest; z <= finest + 1 && agree; z++) {
+            const n = 2 ** z;
+            for (let y = Math.floor(n * 0.341); y < Math.ceil(n * 0.345) && agree; y += 3) {
+              for (let x0 = Math.floor(n * 0.506) & ~63; x0 < Math.ceil(n * 0.519) && agree; x0 += 64) {
+                mine.shareRow(z, x0, y, 64, row);
+                for (let i = 0; i < 64 && agree; i++) {
+                  agree = row[i] === mine.share(z, x0 + i, y);
+                  explored += row[i];
+                }
+              }
+            }
+          }
+          return agree && explored > 100 ? explored : 0;
+        };
+        const bySquare = rowsAgree();
+        ok(`your own record's finest rows are read square by square, not its whole record turned into runs for them  (${bySquare} explored)`,
+          bySquare > 0 && mine.finestIndex === null);
+        const nb = 2 ** (finest - 4);
+        mine.shareRow(finest - 4, Math.floor(nb * 0.51), Math.floor(nb * 0.343), 64, row);
+        const byRuns = rowsAgree();
+        ok('and off the runs once a block has built them, saying the same', mine.finestIndex !== null && byRuns === bySquare);
+      }
       // One draw that needs more blocks than the cache keeps between draws:
       // it used to let each go just before coming back to it, and built
       // every block again on every redraw.
@@ -9481,7 +9513,7 @@ console.log('\nphotograph where you have been, drawn map where you have not');
       const z = 12;
       const n = 2 ** z;
       const draw = () => {
-        big.beginShareDraw();
+        big.beginShareDraw('map');
         for (let by = 0; by < 20; by++) for (let bx = 0; bx < 20; bx++) big.shareRow(z, (bx * 64) % n, (by * 64 + 7) % n, 64, row);
         big.endShareDraw();
       };
@@ -9495,20 +9527,31 @@ console.log('\nphotograph where you have been, drawn map where you have not');
       };
       draw();
       ok(`a draw needing ${built} blocks keeps them all for the next one  (${rebuilt} built again)`, built === 400 && rebuilt === 0);
-      // The minimap draws in between, twenty times a second, at its usual
-      // zoom reading squares rather than blocks: that is no reason to let go
-      // of what the big map's draw kept.
-      for (let i = 0; i < 3; i++) {
-        big.beginShareDraw();
-        big.shareRow(finest, 0, 7, 64, row);
+      // The minimap draws in between, twenty times a second - at its usual
+      // zoom reading squares, zoomed out reading blocks of its own - and
+      // each map's draws let go of what the other's last one kept, for it to
+      // build again.
+      const mz = finest - 2;
+      const my = Math.floor(2 ** mz * 0.343);
+      const mx = Math.floor(2 ** mz * 0.51) & ~63;
+      const minimap = () => {
+        big.beginShareDraw('minimap');
+        big.shareRow(finest, mx * 4, my * 4, 64, row);
+        big.shareRow(mz, mx, my, 64, row);
+        big.shareRow(mz, mx + 64, my, 64, row);
         big.endShareDraw();
-      }
+      };
+      for (let i = 0; i < 3; i++) minimap();
       rebuilt = 0;
       draw();
-      ok(`and the minimap drawing in between does not take them  (${rebuilt} built again)`, rebuilt === 0 && big.shareBlocks.size === 400);
+      const mapRebuilt = rebuilt;
+      rebuilt = 0;
+      minimap();
+      ok(`and the minimap drawing in between does not take them, nor they its  (${mapRebuilt} and ${rebuilt} built again)`,
+        mapRebuilt === 0 && rebuilt === 0 && big.shareBlocks.size === 402);
       // A smaller view after it: what that draw did not use goes, back to
       // the cache's own size, and what it did stays.
-      big.beginShareDraw();
+      big.beginShareDraw('map');
       const keys = [];
       for (let by = 40; by < 50; by++) {
         for (let bx = 40; bx < 50; bx++) {

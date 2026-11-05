@@ -222,7 +222,7 @@ export function drawMap(ctx, view, layers) {
   const overlays = layers.others?.overlays?.() ?? [];
   const reading = new Set([layers.exploration, shared, ...overlays.flatMap((o) => [o.explored, o.exclude])]
     .filter((record) => typeof record?.beginShareDraw === 'function'));
-  for (const record of reading) record.beginShareDraw();
+  for (const record of reading) record.beginShareDraw(ctx);
   const pair = fogged
     ? scratchPair(Math.round(width * pixelRatio), Math.round(height * pixelRatio))
     : null;

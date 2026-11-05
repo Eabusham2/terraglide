@@ -86,11 +86,17 @@ const SHARE_BITS = 6;
  * draw let each block go just before the draw came back to it: every block was
  * built again on every redraw, 1,088 of them a time at 2756 x 1500. So a
  * block the draw under way has asked for is never let go (see beginShareDraw),
- * and the cache grows to what one draw needs, up to SHARE_BLOCKS_MOST.
+ * nor one the latest draw of the other map asked for, and the cache grows to
+ * what they need, up to SHARE_BLOCKS_MOST.
  */
 const SHARE_BLOCKS = 256;
-/** However big the draw: 16 MB a record. */
+/** However big the draws: 16 MB a record. */
 const SHARE_BLOCKS_MOST = 1024;
+/**
+ * How many draws of a record a map's latest one keeps its blocks for: half a
+ * minute of the minimap's. A map closed, or left alone, lets them go after.
+ */
+const OWNER_FRESH = 600;
 
 /**
  * The squares explored ground is kept in on one world: which zooms, where.
@@ -413,8 +419,8 @@ export class Exploration extends Emitter {
     this.shareStamp = new Map();
     this.shareDraw = 0;
     this.drawingShares = false;
-    /** Whether the draw under way has built a block: see endShareDraw. */
-    this.shareGrew = false;
+    /** Each map drawing from this record (its canvas's context): the draw it last began. See trimShares. */
+    this.shareOwners = new Map();
     /** For a record kept as a Set: its finest squares again as runs, for share(). Null until asked. */
     this.finestIndex = null;
     // A save from before the squares were sized to the world is carried over,
@@ -587,7 +593,18 @@ export class Exploration extends Emitter {
         // square, all or nothing, read off the row's runs.
         const shift = z - finest;
         out.fill(0, 0, n);
-        const runs = this.finestRuns().levels.get(finest)?.get(y >> shift);
+        // Off runs only where they are kept already: a record kept as a Set
+        // has them once a block has been built (finestRuns). Built for this -
+        // every row of the minimap at its usual zoom - they stopped the game
+        // for as long as reading the whole record took, at every page load
+        // and every sign-in. Square by square until then, as share().
+        const index = this.compact ? this.cells : this.finestIndex;
+        if (index === null) {
+          const row = y >> shift;
+          for (let i = 0; i < n; i++) if (this.hasSquare(finest, (x0 + i) >> shift, row)) out[i] = 1;
+          return out;
+        }
+        const runs = index.levels.get(finest)?.get(y >> shift);
         if (runs) {
           const end = x0 + n;
           for (let i = 0; i < runs.length; i += 2) {
@@ -626,28 +643,29 @@ export class Exploration extends Emitter {
   /**
    * A map draw begins and ends. Between the two nothing is let go (up to
    * SHARE_BLOCKS_MOST), and at the end the cache goes back to SHARE_BLOCKS
-   * by letting go of what this draw did not ask for - so the next draw of
-   * the same view finds every block it needs, however many that is. Asked
-   * outside a draw, the cache is held to SHARE_BLOCKS as it comes.
+   * by letting go of what neither this draw nor the latest of each other map
+   * drawing from the record asked for - so the next draw of the same view
+   * finds every block it needs, however many that is. Asked outside a draw,
+   * the cache is held to SHARE_BLOCKS as it comes.
+   *
+   * `owner` is the map drawing: the minimap draws twenty times a second
+   * whether the big map is open or not, and when only the latest draw kept
+   * its blocks, each of its draws let go of the big map's, and each of the
+   * big map's let go of the minimap's, for both to build again.
    */
-  beginShareDraw() {
+  beginShareDraw(owner = null) {
     this.shareDraw += 1;
     this.drawingShares = true;
-    this.shareGrew = false;
+    if (owner !== null) this.shareOwners.set(owner, this.shareDraw);
   }
 
   endShareDraw() {
     this.drawingShares = false;
-    // Only a draw that built blocks lets any go. The minimap draws twenty
-    // times a second whether the big map is open or not, mostly reading
-    // squares rather than blocks; trimmed after each, it let go of the
-    // blocks the big map's last draw kept, for the big map to build again.
-    if (this.shareGrew) this.trimShares();
+    this.trimShares();
   }
 
   /** The block for these squares, built if need be, marked as used by the draw under way. */
   useBlock(z, bx, by, bits, key) {
-    if (this.drawingShares && !this.shareBlocks.has(key)) this.shareGrew = true;
     const block = this.shareBlock(z, bx, by, 1 << bits, key);
     this.shareStamp.set(key, this.drawingShares ? this.shareDraw : 0);
     this.lastBlock = { key, block, draw: this.shareDraw };
@@ -712,17 +730,21 @@ export class Exploration extends Emitter {
 
   /**
    * Back to SHARE_BLOCKS, the least lately asked going first - but never one
-   * the latest draw asked for, unless there are SHARE_BLOCKS_MOST.
+   * the latest draw, or the latest draw of a map still drawing, asked for,
+   * unless there are SHARE_BLOCKS_MOST.
    */
   trimShares() {
-    while (this.shareBlocks.size > SHARE_BLOCKS) {
-      const [oldest] = this.shareBlocks.keys();
-      const stamp = this.shareStamp.get(oldest) ?? 0;
-      // The least lately asked was asked for by the latest draw: so was
-      // everything after it, each moved to the end when that draw first
-      // asked (shareBlock).
-      if (stamp > 0 && stamp === this.shareDraw && this.shareBlocks.size <= SHARE_BLOCKS_MOST) break;
-      this.dropBlock(oldest);
+    if (this.shareBlocks.size <= SHARE_BLOCKS) return;
+    const kept = new Set([this.shareDraw]);
+    for (const [owner, draw] of this.shareOwners) {
+      if (this.shareDraw - draw > OWNER_FRESH) this.shareOwners.delete(owner);
+      else kept.add(draw);
+    }
+    for (const key of this.shareBlocks.keys()) {
+      if (this.shareBlocks.size <= SHARE_BLOCKS) break;
+      const stamp = this.shareStamp.get(key) ?? 0;
+      if (stamp > 0 && kept.has(stamp) && this.shareBlocks.size <= SHARE_BLOCKS_MOST) continue;
+      this.dropBlock(key);
     }
   }
 
