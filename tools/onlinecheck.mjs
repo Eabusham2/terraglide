@@ -507,7 +507,13 @@ try {
     // Bruno swings at nothing; Ada's figure of him takes the swing up.
     const swingsBefore = (await a.page.evaluate(bodyOf))?.swings ?? 0;
     await b.page.bringToFront();
-    await b.page.evaluate(() => window.terraglide.attack());
+    const swungAt = await b.page.evaluate(() => {
+      window.terraglide.attack();
+      return performance.now();
+    });
+    // A swing at nothing goes out with the page's next state, which its own
+    // frame sends: put behind before that frame, a page never sends it.
+    await until(b.page, (t) => window.terraglide.session.lastSent >= t, swungAt, { timeout: 10000 }).catch(() => {});
     await a.page.bringToFront();
     const swung = await until(a.page, (n) => {
       const o = window.terraglide.session.remote.list().find((x) => x.name === 'Bruno');
