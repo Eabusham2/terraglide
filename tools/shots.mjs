@@ -20,6 +20,8 @@
  *   node tools/shots.mjs                          a few standard views
  *   node tools/shots.mjs --lat 46.56 --lon 7.91   somewhere specific
  *   node tools/shots.mjs --out /tmp/shots         where to write them
+ *   node tools/shots.mjs --world moon             another world, at its landing site
+ *   node tools/shots.mjs --set timeMode=golden    any setting, before the shots
  *
  * Every shot is also measured, because "it looks fine" is what got this wrong
  * before: each one reports the share of the frame that is sky enclosed by
@@ -46,6 +48,18 @@ const flag = (name, fallback) => {
 const OUT = resolve(flag('out', join(ROOT, 'shots')));
 const LAT = Number(flag('lat', 46.5623));
 const LON = Number(flag('lon', 7.9126));
+/** Another world, by id (see src/geo/bodies.js). It arrives at its own landing site unless --lat says otherwise. */
+const WORLD = flag('world', null);
+const PLACED = args.includes('--lat');
+/** Settings to apply first, from every --set key=value. */
+const SETS = args.flatMap((a, i) => (a === '--set' && args[i + 1] ? [args[i + 1]] : []))
+  .map((pair) => {
+    const at = pair.indexOf('=');
+    const raw = pair.slice(at + 1);
+    let value = raw;
+    try { value = JSON.parse(raw); } catch {}
+    return [pair.slice(0, at), value];
+  });
 /** Seconds to let the ground arrive before believing what is on screen. */
 const SETTLE_S = Number(flag('settle', 55));
 
@@ -227,18 +241,35 @@ await page.route('**/*', async (route) => {
   }
 });
 
-await page.goto(`http://127.0.0.1:${PORT}/index.html`, { waitUntil: 'domcontentloaded' });
+await page.goto(`http://127.0.0.1:${PORT}/index.html${WORLD ? `?world=${encodeURIComponent(WORLD)}` : ''}`, { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => !!window.terraglide, null, { timeout: 90000 });
 // The boot does a random teleport of its own; ours has to come after it or it
 // is silently overridden and every shot is of somewhere else.
 await page.waitForTimeout(18000);
 await page.evaluate(() => window.terraglide.help.close());
-await page.evaluate(([lat, lon]) => window.terraglide.teleportTo(lat, lon, { reason: 'shots' }), [LAT, LON]);
+for (const [key, value] of SETS) await page.evaluate(([k, v]) => window.terraglide.settings.set(k, v), [key, value]);
+if (!WORLD || PLACED) {
+  await page.evaluate(([lat, lon]) => window.terraglide.teleportTo(lat, lon, { reason: 'shots' }), [LAT, LON]);
+}
 await page.waitForTimeout(SETTLE_S * 1000);
 
 // Each view poses the game, waits, then is both saved and measured.
 const views = [
   ['ground-level', () => { const p = window.terraglide.player; p.pitch = 0; }],
+  // Toward the sun, and toward whatever hangs over a locked moon: the two
+  // things the sky is judged by on another world.
+  ['toward-sun', () => {
+    const g = window.terraglide;
+    g.player.yaw = g.sky.solar.azimuth;
+    g.player.pitch = Math.min(1.2, Math.max(0.05, g.sky.solar.altitude * 0.7));
+  }],
+  ['toward-planet', () => {
+    const g = window.terraglide;
+    const v = g.sky.frame?.parent;
+    if (!v) return;
+    g.player.yaw = Math.atan2(v.x, -v.z);
+    g.player.pitch = Math.min(1.3, Math.asin(v.y) * 0.85);
+  }],
   ['ground-down', () => { const p = window.terraglide.player; p.pitch = -1.4; }],
   // Through the setting, not through whatever method the rig happens to have:
   // an optional-call that lands on nothing fails silently and the shot is of

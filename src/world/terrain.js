@@ -2,7 +2,8 @@ import * as THREE from '../../vendor/three/three.module.js';
 import { clamp } from '../core/math.js';
 import { EDGE_SECTORS } from './edgeWall.js';
 import { settings } from '../core/settings.js';
-import { tileKey, wrapTileX } from '../geo/mercator.js';
+import { BODY } from '../geo/bodies.js';
+import { WORLD_RADIUS, tileKey, wrapTileX } from '../geo/mercator.js';
 import { createTerrainMaterial } from './shaders.js';
 import { zoomCeiling } from '../tiles/providers.js';
 
@@ -29,9 +30,19 @@ import { zoomCeiling } from '../tiles/providers.js';
  * numbers are high enough that a normal view never reaches them and low enough
  * that a pathological one cannot lock the machine up.
  */
-const SEA_LEVEL = 0;
-/** Mean Earth radius, for the geometric horizon. */
-const EARTH_RADIUS_M = 6371000;
+/**
+ * The sea's surface. Only Earth has one: everywhere else nought is just the
+ * datum the body's maps are measured from, and the ground below it — most of
+ * Mars's northern plains, the floor of every lunar basin — is dry ground at
+ * its real height, so nothing is clamped.
+ */
+const SEA_LEVEL = BODY.water ? 0 : -Infinity;
+/**
+ * The world's radius, for the geometric horizon. Earth's mean radius on Earth
+ * — the horizon is a sphere question, and the mean is the sphere — and the
+ * body's own everywhere else, where a small world's horizon is close.
+ */
+const EARTH_RADIUS_M = WORLD_RADIUS === 6378137 ? 6371000 : WORLD_RADIUS;
 /**
  * How much further than the render distance a built tile is kept before it may
  * be thrown away. Turning round used to mean rebuilding everything behind you
@@ -294,8 +305,13 @@ export class Terrain {
     return this.heightAtNorm(this._norm.nx, this._norm.ny);
   }
 
-  /** Raw ground height including bathymetry, so water depth can be measured. */
+  /**
+   * Raw ground height including bathymetry, so water depth can be measured.
+   * Where there is no sea there is no bed under one: infinitely far up, so
+   * nothing is ever deep enough to swim in.
+   */
   bedAt(x, z) {
+    if (!BODY.water) return Infinity;
     this.frame.worldToNorm(x, z, this._norm);
     return this.elevation.sampleNorm(this._norm.nx, this._norm.ny);
   }

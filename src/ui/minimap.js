@@ -1,4 +1,5 @@
 import { WheelSteps } from './wheel.js';
+import { ONLINE } from '../core/boot.js';
 import { keybinds } from '../core/keybinds.js';
 import { clamp } from '../core/math.js';
 import { settings } from '../core/settings.js';
@@ -18,7 +19,8 @@ import { drawMap, metresPerPixel } from './mapRenderer.js';
 const REDRAW_INTERVAL = 1 / 20;
 
 export class Minimap {
-  constructor(root, { tiles, street, exploration, waypointStore, trail }) {
+  constructor(root, { tiles, street, exploration, waypointStore, trail, others = null }) {
+    this.others = others;
     this.tiles = tiles;
     this.street = street;
     this.exploration = exploration;
@@ -112,6 +114,10 @@ export class Minimap {
     this.element.dataset.corner = settings.get('minimapCorner');
     this.element.dataset.shape = settings.get('minimapShape');
     this.element.style.display = settings.get('minimapVisible') ? '' : 'none';
+    // A narrow screen has no room for the compass beside a minimap in the top
+    // right corner, so the compass moves down past it (main.css).
+    const topRight = settings.get('minimapVisible') && settings.get('minimapCorner') === 'top-right';
+    document.documentElement.style.setProperty('--minimap-top-right', topRight ? `${size}px` : '0px');
     this.timer = REDRAW_INTERVAL;
   }
 
@@ -158,9 +164,12 @@ export class Minimap {
         exploration: this.exploration,
         waypointStore: this.waypointStore,
         trail: this.trail,
+        others: this.others,
         player: { lat: player.lat, lon: player.lon, heading: player.heading },
         options: {
-          fog: settings.get('minimapFog'),
+          // On a server the ground you have not explored stays hidden: the
+          // setting is a preference for your own world, not a way to see theirs.
+          fog: ONLINE || settings.get('minimapFog'),
           trail: settings.get('showTrail'),
           waypoints: settings.get('minimapShowWaypoints'),
           labels: this.size >= 200,

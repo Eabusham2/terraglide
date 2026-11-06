@@ -1,8 +1,21 @@
 import { DEG, RAD, clamp } from '../core/math.js';
+import { BODY } from './bodies.js';
 
 /** Spherical earth / Web Mercator constants. */
 export const EARTH_RADIUS = 6378137;
 export const EARTH_CIRCUMFERENCE = 2 * Math.PI * EARTH_RADIUS;
+/**
+ * The radius of the world actually under you, which is Earth's on Earth and
+ * the Moon's on the Moon.
+ *
+ * Everything that measures the ground — the local frame, distances, the tile
+ * pyramid's metres, the horizon, the explored map — measures it on this. The
+ * two Earth constants above stay Earth's, because the things that still use
+ * them by name (the photorealistic tiles' ellipsoid, chiefly) are about Earth
+ * and nowhere else. Fixed for the life of the page: see core/boot.js.
+ */
+export const WORLD_RADIUS = BODY.radius;
+export const WORLD_CIRCUMFERENCE = 2 * Math.PI * WORLD_RADIUS;
 /** Latitude where the Web Mercator square closes. */
 export const MAX_LATITUDE = 85.05112878;
 
@@ -70,7 +83,7 @@ export function tileCenter(tile) {
 
 /** Ground resolution (metres per pixel) for a 256 px tile at a latitude. */
 export function metresPerPixel(lat, z) {
-  return (EARTH_CIRCUMFERENCE * Math.cos(lat * DEG)) / (256 * tileCount(z));
+  return (WORLD_CIRCUMFERENCE * Math.cos(lat * DEG)) / (256 * tileCount(z));
 }
 
 /** Bing Maps quadkey for a tile. */
@@ -93,7 +106,7 @@ export function haversine(a, b) {
   const lat1 = a.lat * DEG;
   const lat2 = b.lat * DEG;
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-  return 2 * EARTH_RADIUS * Math.asin(Math.min(1, Math.sqrt(h)));
+  return 2 * WORLD_RADIUS * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
 /** Initial bearing in radians, clockwise from north. */
@@ -108,7 +121,7 @@ export function bearing(a, b) {
 
 /** Travel `distance` metres from `origin` along `bearingRad`. */
 export function destination(origin, bearingRad, distance) {
-  const d = distance / EARTH_RADIUS;
+  const d = distance / WORLD_RADIUS;
   const lat1 = origin.lat * DEG;
   const lon1 = origin.lon * DEG;
   const lat2 = Math.asin(

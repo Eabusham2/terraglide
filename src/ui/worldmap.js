@@ -4,8 +4,12 @@ import { clamp } from '../core/math.js';
 import { settings } from '../core/settings.js';
 import { formatArea, formatDistance, formatLatLon } from '../core/units.js';
 import { geocoder } from '../geo/geocode.js';
+import { BODY, ON_EARTH } from '../geo/bodies.js';
+import { ONLINE } from '../core/boot.js';
+import { searchFeatures } from '../geo/gazetteer.js';
 import { haversine } from '../geo/mercator.js';
 import { drawMap, metresPerPixel, project, unproject, worldPixelSize } from './mapRenderer.js';
+import { formatCoverage } from './exploration.js';
 
 /**
  * How close a press has to be to a waypoint to pick it up, in pixels.
@@ -17,6 +21,9 @@ import { drawMap, metresPerPixel, project, unproject, worldPixelSize } from './m
  */
 const WAYPOINT_GRAB_PX = 9;
 
+/** The compass letters round the map's edge, in pixels. See drawCompass. */
+const COMPASS_SIZE = 30;
+
 /**
  * The full-screen map: everything the minimap shows, at any zoom, plus the
  * places you have saved and the routes you have drawn. Drag to pan, wheel to
@@ -24,7 +31,8 @@ const WAYPOINT_GRAB_PX = 9;
  */
 
 export class WorldMap {
-  constructor(root, { tiles, street, exploration, waypointStore, trail }) {
+  constructor(root, { tiles, street, exploration, waypointStore, trail, others = null }) {
+    this.others = others;
     this.tiles = tiles;
     this.street = street;
     this.exploration = exploration;
@@ -48,7 +56,7 @@ export class WorldMap {
       <div class="panel-head">
         <h2>World map</h2>
         <div class="worldmap-search">
-          <input type="search" placeholder="Search a place" aria-label="Search a place" />
+          <input type="search" placeholder="${ON_EARTH ? 'Search a place' : `Search ${BODY.name}'s named features`}" aria-label="Search a place" />
           <button type="button" data-action="search">Go</button>
         </div>
         <button type="button" class="panel-close" data-action="close" title="Close">Close</button>
@@ -56,6 +64,21 @@ export class WorldMap {
       <div class="worldmap-body">
         <div class="worldmap-canvas-wrap">
           <canvas></canvas>
+          <div class="worldmap-coverage" title="How much of ${escapeHtml(BODY.name)} has been explored, by area">
+            <span class="worldmap-coverage-label">${escapeHtml(BODY.name)} explored</span>
+            <div class="worldmap-coverage-figures">
+              <div class="worldmap-coverage-figure" data-figure="whole">
+                <span>Whole ${escapeHtml(BODY.name)}</span>
+                <strong>${formatCoverage(0)}</strong>
+                <em hidden></em>
+              </div>
+              ${ON_EARTH ? `<div class="worldmap-coverage-figure" data-figure="land">
+                <span>Land</span>
+                <strong>${formatCoverage(0)}</strong>
+                <em hidden></em>
+              </div>` : ''}
+            </div>
+          </div>
           <div class="worldmap-hud">
             <span class="worldmap-centre">—</span>
             <span class="worldmap-scale"><i></i><em>—</em></span>
@@ -70,6 +93,7 @@ export class WorldMap {
           <div class="worldmap-actions">
             <button type="button" data-action="rtp">Random teleport</button>
             <button type="button" data-action="waypoint">Waypoint at centre</button>
+            ${ONLINE ? '<button type="button" data-action="party-waypoint" title="A waypoint everyone in your party sees">Party waypoint at centre</button>' : ''}
             <button type="button" data-action="copy">Copy centre</button>
             <button type="button" data-action="teleport" data-directed hidden>Travel to centre</button>
           </div>
@@ -78,9 +102,9 @@ export class WorldMap {
           <div class="worldmap-stats"></div>
           <h3>Waypoints</h3>
           <ul class="worldmap-list" data-list="waypoints"></ul>
-          <div class="worldmap-danger">
+          ${ONLINE ? '' : `<div class="worldmap-danger">
             <button type="button" data-action="clear-explored">Clear explored areas</button>
-          </div>
+          </div>`}
         </aside>
       </div>
     `;
@@ -92,6 +116,13 @@ export class WorldMap {
     this.scaleLabel = this.element.querySelector('.worldmap-scale em');
     this.scaleBar = this.element.querySelector('.worldmap-scale i');
     this.statsBox = this.element.querySelector('.worldmap-stats');
+    this.coverageBox = this.element.querySelector('.worldmap-coverage');
+    this.coverageLabel = this.element.querySelector('.worldmap-coverage-label');
+    this.coverageFigures = [...this.element.querySelectorAll('.worldmap-coverage-figure')].map((element) => ({
+      land: element.dataset.figure === 'land',
+      value: element.querySelector('strong'),
+      you: element.querySelector('em'),
+    }));
     this.searchInput = this.element.querySelector('.worldmap-search input');
     this.resultList = this.element.querySelector('.worldmap-results');
 
@@ -202,7 +233,8 @@ export class WorldMap {
       { passive: false },
     );
     canvas.addEventListener('dblclick', (event) => {
-      if (!cheats.unlocked) return;
+      // Never on a server, cheats or no cheats: the server decides where you are.
+      if (ONLINE || !cheats.unlocked) return;
       const point = this.pointAt(event);
       if (point && this.onTeleport) this.onTeleport(point.lat, point.lon);
     });
@@ -243,6 +275,9 @@ export class WorldMap {
         this.notify(`Waypoint "${waypoint.name}" saved`);
         break;
       }
+      case 'party-waypoint':
+        this.onPartyMark?.(this.centre.lat, this.centre.lon);
+        break;
       case 'copy':
         this.copy(formatLatLon(this.centre.lat, this.centre.lon, 6));
         break;
@@ -288,7 +323,9 @@ export class WorldMap {
     this.resultList.hidden = false;
     this.resultList.innerHTML = '<li class="muted">Searching…</li>';
     try {
-      const results = await geocoder.search(query);
+      // Off Earth the IAU's names are the addresses, and they are all here
+      // already: no service to ask.
+      const results = ON_EARTH ? await geocoder.search(query) : searchFeatures(BODY.id, query);
       if (results.length === 0) {
         this.resultList.innerHTML = '<li class="muted">Nothing found</li>';
         return;
@@ -346,10 +383,10 @@ export class WorldMap {
   /** Directed teleports are not part of the game; they only exist with cheats. */
   applyPermissions() {
     this.element.querySelectorAll('[data-directed]').forEach((node) => {
-      node.hidden = !cheats.unlocked;
+      node.hidden = ONLINE || !cheats.unlocked;
     });
     this.element.querySelectorAll('[data-action="travel"]').forEach((node) => {
-      node.hidden = !cheats.unlocked;
+      node.hidden = ONLINE || !cheats.unlocked;
     });
   }
 
@@ -391,6 +428,7 @@ export class WorldMap {
     this.element.querySelector('[data-trail]').checked = settings.get('showTrail');
     this.element.querySelector('[data-drawn]').checked = settings.get('mapDrawnOnly');
     this.applyPermissions();
+    this.updateCoverage();
   }
 
   close() {
@@ -468,6 +506,11 @@ export class WorldMap {
     this.width = width;
     this.height = height;
     this.dirty = true;
+    // The explored box sits just under the compass's N, which is drawn round
+    // the largest circle that fits the map: on one taller than it is wide - a
+    // phone held upright - that N is well down from the top edge, and a box
+    // at a fixed height ran into it.
+    this.coverageBox.style.top = `${Math.round(Math.max(0, (height - width) / 2) + COMPASS_SIZE * 1.53)}px`;
   }
 
   update(player) {
@@ -475,6 +518,9 @@ export class WorldMap {
     this.player = player;
     const wrap = this.canvas.parentElement;
     if (wrap.clientWidth !== this.width || wrap.clientHeight !== this.height) this.resize();
+    // Every frame, not only when the map is redrawn: it is the one thing on
+    // it that changes while you watch.
+    this.updateCoverage();
     if (!this.dirty) return;
     this.dirty = false;
 
@@ -495,9 +541,10 @@ export class WorldMap {
         exploration: this.exploration,
         waypointStore: this.waypointStore,
         trail: this.trail,
+        others: this.others,
         player,
         options: {
-          fog: settings.get('minimapFog'),
+          fog: ONLINE || settings.get('minimapFog'),
           drawnOnly: settings.get('mapDrawnOnly'),
           trail: settings.get('showTrail'),
           waypoints: true,
@@ -505,7 +552,7 @@ export class WorldMap {
           playerSize: 9,
           pathWidth: 1.6,
           compass: true,
-          compassSize: 30,
+          compassSize: COMPASS_SIZE,
         },
       },
     );
@@ -523,6 +570,26 @@ export class WorldMap {
       <div><span>Waypoints</span><strong>${this.waypointStore.waypoints.length}</strong></div>
       <div><span>Trail</span><strong>${formatDistance(this.trail.length, units)}</strong></div>
     `;
+  }
+
+  /**
+   * How much of the world is explored, at the top of the map: of the whole
+   * planet, and on Earth of its land as well. On a server, what everybody
+   * there has explored between them, with your own share under each; playing
+   * alone, yours.
+   */
+  updateCoverage() {
+    const everyone = ONLINE ? this.others?.everyone?.() ?? null : null;
+    const label = everyone ? `${BODY.name} explored by everyone` : `${BODY.name} explored`;
+    if (this.coverageLabel.textContent !== label) this.coverageLabel.textContent = label;
+    const share = (record, land) => formatCoverage(land ? record.landCoverage() : record.coverage());
+    for (const figure of this.coverageFigures) {
+      const value = share(everyone ?? this.exploration, figure.land);
+      const you = everyone ? `you ${share(this.exploration, figure.land)}` : '';
+      if (figure.value.textContent !== value) figure.value.textContent = value;
+      if (figure.you.textContent !== you) figure.you.textContent = you;
+      figure.you.hidden = !you;
+    }
   }
 
   renderLists() {

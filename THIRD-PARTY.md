@@ -10,14 +10,17 @@ TerraGlide itself is covered by the TerraGlide Restricted Source License (see
 | [three.js](https://threejs.org) | 0.185.x | MIT | WebGL renderer, math types, geometry helpers. |
 | [Vite](https://vite.dev) | 7.x | MIT | Build tool / dev server. Not shipped in the bundle. |
 | [TypeScript](https://www.typescriptlang.org) | 5.9.x | Apache-2.0 | Type checking only. Not shipped in the bundle. |
+| [IWER](https://github.com/meta-quest/immersive-web-emulation-runtime) (with gl-matrix) | 2.7.0 | MIT | `tools/vendor/iwer.min.js`: an emulated VR headset for `tools/padcheck.mjs` only. Never shipped with the game; licence in `tools/vendor/IWER-LICENSE.txt`. |
 
-No third-party source code was copied into this repository. The engine, the
+No third-party source code was copied into the game. The engine, the
 terrain quadtree, the flight model, the map UI and the shaders here were written
 for this project.
 
 ## Map data providers (none bundled, all optional)
 
-TerraGlide ships with **no** map data and with every provider slot empty. It
+TerraGlide ships with **no** map data and with every provider slot empty (one
+coarse land-or-water grid aside, for the world map's land figure: see
+[Bundled data](#bundled-data)). It
 runs with no account because several of the providers below need no key, not
 because it makes anything up: there is no generator, and ground nobody has
 photographed is drawn from the relief and left honest about it. (This paragraph
@@ -147,6 +150,16 @@ in one request per tile. Attribution is already in the corner of the screen
 alongside the buildings credit.
 Requests are queued one at a time with a gap and a long backoff, and nothing is
 cached to disk.
+
+## Bundled data
+
+| File | What it is | Source | Licence |
+| --- | --- | --- | --- |
+| `src/geo/landData.js` | Where Earth's land is, as a grid sixteen cells to the degree, for the world map's "Land" explored figure. Built by `tools/land.mjs`. | [Natural Earth](https://www.naturalearthdata.com) 1:10m land polygons, less its 1:10m lakes | Public domain |
+
+It is a yes-or-no per cell of about seven kilometres and nothing else: no
+names, no shapes drawn anywhere, no imagery. Natural Earth asks for no credit;
+this is it anyway.
 
 ## Generated assets
 

@@ -35,7 +35,11 @@ const MIN_SCREEN_SHARE = 0.004;
 /** Beyond this there is nothing useful to see. */
 export const BEACON_REACH_M = 120000;
 
+// <common> first: the log-depth chunk calls isPerspectiveMatrix, which lives
+// there. Without it the program does not compile and no beam is ever drawn —
+// which is what happened, silently, to every waypoint beam and the base.
 const VERTEX = `
+  #include <common>
   varying float vUp;
   #include <logdepthbuf_pars_vertex>
   void main() {
@@ -47,6 +51,7 @@ const VERTEX = `
 `;
 
 const FRAGMENT = `
+  #include <common>
   uniform vec3 uColour;
   uniform float uFade;
   varying float vUp;

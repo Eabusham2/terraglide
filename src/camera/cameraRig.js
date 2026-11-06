@@ -176,6 +176,19 @@ export class CameraRig {
     if (Math.abs(this.roll) < 0.002) this.roll = 0;
   }
 
+  /**
+   * The view the camera takes: the setting's, or first person whatever it
+   * says while a VR headset is on (camera/vr.js) - your head is your eye.
+   */
+  get perspective() {
+    return this.forceFirst ? 'first' : settings.get('perspective');
+  }
+
+  /** Where your eye is, as the camera last put it: the headset's origin in VR. */
+  get eye() {
+    return this._target;
+  }
+
   adjustFreecamSpeed(delta) {
     this.freecam.speed = clamp(this.freecam.speed * (delta > 0 ? 0.8 : 1.25), 1, 20000);
     return this.freecam.speed;
@@ -208,7 +221,10 @@ export class CameraRig {
   update(player, dt, terrain, input) {
     const camera = this.camera;
     // Roll comes from the strafe keys while you are flying. See updateRoll.
-    const lateral = input ? (input.right ? 1 : 0) - (input.left ? 1 : 0) : 0;
+    // A controller's stick banks as far as it is pushed (camera/gamepad.js).
+    const lateral = !input ? 0
+      : Number.isFinite(input.axisX) && input.axisX ? clamp(input.axisX, -1, 1)
+        : (input.right ? 1 : 0) - (input.left ? 1 : 0);
     this.updateRoll(dt, lateral, player.mode === 'glide' || player.mode === 'fly');
     // How fast you are actually going, and nothing else.
     //
@@ -269,13 +285,18 @@ export class CameraRig {
     // no hands, no arms and no firework anywhere on the screen. Damped rather
     // than switched, so opening the wings does not jog the view.
     this.prone = damp(this.prone, player.elytraDeployed && !player.onGround ? 1 : 0, 6, dt);
-    if (settings.get('perspective') === 'first') {
+    // Not in a headset: there the head turns the bearing every frame, and an
+    // eye pushed forward along it swung round the body as the head turned -
+    // eighteen centimetres either way, on top of the neck's own swing, which
+    // the headset already gives. Movement you did not make is what makes
+    // people ill in one.
+    if (this.perspective === 'first' && !this.forceFirst) {
       const lean = player.height * EYE_FORWARD * (1 - this.prone);
       this._target.x += Math.sin(player.yaw) * lean;
       this._target.z += -Math.cos(player.yaw) * lean;
     }
 
-    const perspective = settings.get('perspective');
+    const perspective = this.perspective;
     if (perspective === 'third' || perspective === 'second') {
       // Second person is the same rig turned around: the camera sits in front
       // of you looking back, so you fly toward it and can see your own face.

@@ -1,0 +1,31 @@
+# What `docker build` leaves out of the image. See HOSTING.md, "Docker".
+#
+# The server needs the game (index.html, src/, styles/, vendor/, assets/), the
+# build tools that make the bundle (tools/), package.json (it is what tells
+# Node that src/ is ES modules) and server/ itself. Everything below is either
+# history, development tooling, or somebody's data.
+
+# History and CI: tens of megabytes the server never reads.
+.git
+.github
+
+# Development only. The server has no npm dependencies; node_modules is the
+# headless browser the screenshot tools use.
+node_modules
+
+# Screenshots from the visual checks.
+shots
+
+# Accounts, password hashes and every player's record. A server's data lives
+# in a volume, never inside an image that might be pushed somewhere public.
+server/data
+
+# Build outputs. The image builds its own from the sources it was given, so a
+# stale copy from this working tree can never be the one that gets served.
+terraglide.bundle.js
+terraglide.html
+terraglide-online.html
+
+# Noise.
+*.log
+.DS_Store

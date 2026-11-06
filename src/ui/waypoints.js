@@ -89,6 +89,9 @@ export class WaypointStore extends Emitter {
 
   import(data) {
     if (Array.isArray(data.waypoints)) this.waypoints = data.waypoints;
+    // Numbered on from whatever arrived, so the next one dropped cannot take
+    // an id somebody else's list already used.
+    this.nextId = 1 + Math.max(0, ...this.waypoints.map((w) => w.id ?? 0));
     this.persist();
     this.emit('change', this);
   }

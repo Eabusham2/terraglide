@@ -1,6 +1,6 @@
 import { DEG, RAD } from '../core/math.js';
 import {
-  EARTH_RADIUS,
+  WORLD_RADIUS,
   MAX_LATITUDE,
   inverseMercatorPhi,
   mercatorPhi,
@@ -35,7 +35,7 @@ export class LocalFrame {
     this.anchorLon = wrapLon(lon);
     this.cosAnchor = Math.cos(this.anchorLat * DEG);
     /** Metres per radian of mercator at the anchor. */
-    this.scale = EARTH_RADIUS * this.cosAnchor;
+    this.scale = WORLD_RADIUS * this.cosAnchor;
     this.mercX0 = this.anchorLon * DEG;
     this.mercY0 = mercatorPhi(this.anchorLat);
   }
@@ -99,6 +99,6 @@ export class LocalFrame {
 
   /** How far the ground falls away from the tangent plane at `distance` metres. */
   static curvatureDrop(distance) {
-    return (distance * distance) / (2 * EARTH_RADIUS);
+    return (distance * distance) / (2 * WORLD_RADIUS);
   }
 }

@@ -39,6 +39,17 @@ export const ACTIONS = [
   { id: 'hotbar3', label: 'Hotbar 3', group: 'Hotbar' },
   { id: 'hotbar4', label: 'Hotbar 4', group: 'Hotbar' },
   { id: 'hotbar5', label: 'Hotbar 5', group: 'Hotbar' },
+  { id: 'hotbar6', label: 'Hotbar 6 \u2014 sword', group: 'Hotbar' },
+  { id: 'travel', label: 'Other worlds', group: 'Map' },
+  { id: 'lander', label: 'Set your lander down here (off Earth)', group: 'Map' },
+  { id: 'chat', label: 'Chat (online)', group: 'Online' },
+  { id: 'command', label: 'Type a command (online)', group: 'Online' },
+  { id: 'players', label: 'Players list (online)', group: 'Online' },
+  { id: 'teleportMenu', label: 'Teleport menu \u2014 pick TPA or TPA here, type a name (online)', group: 'Online' },
+  { id: 'acceptRequest', label: 'Accept a teleport request', group: 'Online' },
+  { id: 'denyRequest', label: 'Deny a teleport request', group: 'Online' },
+  { id: 'pushToTalk', label: 'Push to talk (proximity voice)', group: 'Online' },
+  { id: 'online', label: 'Online panel', group: 'Online' },
 ];
 
 /**
@@ -86,6 +97,17 @@ export const DEFAULT_BINDS = {
   hotbar3: 'Digit3',
   hotbar4: 'Digit4',
   hotbar5: 'Digit5',
+  hotbar6: 'Digit6',
+  travel: 'KeyU',
+  lander: 'KeyH',
+  chat: 'KeyT',
+  command: 'Slash',
+  players: 'Tab',
+  teleportMenu: 'KeyJ',
+  acceptRequest: 'KeyY',
+  denyRequest: 'KeyN',
+  pushToTalk: 'KeyZ',
+  online: 'KeyK',
 };
 
 const NAMED_KEYS = {

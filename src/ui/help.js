@@ -1,3 +1,4 @@
+import { PAD_BINDS, PAD_STICKS } from '../camera/gamepad.js';
 import { keybinds } from '../core/keybinds.js';
 import { settings } from '../core/settings.js';
 import { formatHeight } from '../core/units.js';
@@ -27,6 +28,15 @@ export const ROWS = [
   ['Grow / shrink', ['scaleDown', 'scaleUp']],
   ['Swap mouse mode', ['mouseMode']],
   ['Rockets I to V', ['hotbar1', 'hotbar5']],
+  ['Sword \u2014 click to swing; the rocket key still fires your last rocket', ['hotbar6']],
+  ['Other worlds \u2014 the Moon, Mars and the rest', ['travel']],
+  ['Set your lander down here \u2014 off Earth, where your suit refills', ['lander']],
+  ['Play online \u2014 join a server, sign in', ['online']],
+  ['Chat, or type a command (online)', ['chat', 'command']],
+  ['Players \u2014 friends, party, teleport requests, trails, discoveries (online)', ['players']],
+  ['Teleport menu \u2014 TPA or TPA here, type a name to find them (online)', ['teleportMenu']],
+  ['Accept / deny a teleport request or party invite (online)', ['acceptRequest', 'denyRequest']],
+  ['Push to talk, with proximity voice set to push (online)', ['pushToTalk']],
   ['Pause the world where it is', ['pause']],
   ['Show or hide the minimap', ['minimapToggle']],
   ['Show or hide the whole display', ['toggleHud']],
@@ -109,6 +119,19 @@ export class HelpCard {
               </div>`,
           ).join('')}
         </div>
+        <details class="help-pad">
+          <summary>Controller and VR</summary>
+          <p class="help-note">A game controller works as it is: plug it in or pair it and press a button. In VR
+            (the <strong>VR</strong> button, on a headset's browser) you look with your head and fly with the hand
+            controllers.</p>
+          <div class="help-grid">
+            ${[...PAD_STICKS, ...PAD_BINDS].map((b) => `
+              <div class="help-row">
+                <span class="help-keys"><kbd>${escapeHtml(b.label)}</kbd>${b.xr ? `<kbd class="help-xr">${escapeHtml(b.xr)}</kbd>` : ''}</span>
+                <span>${escapeHtml(b.what)}</span>
+              </div>`).join('')}
+          </div>
+        </details>
         <p class="help-note">
           Satellite imagery and elevation work with no account at all. <strong>Settings » Providers</strong>
           swaps in Google, Azure or Mapbox if you have a key. With no network there is nothing to fly

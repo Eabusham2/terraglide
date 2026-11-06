@@ -1,5 +1,6 @@
 import { Emitter } from './events.js';
 import { clamp } from './math.js';
+import { ONLINE } from './boot.js';
 
 /**
  * Cheats.
@@ -143,6 +144,11 @@ class Cheats extends Emitter {
   }
 
   unlock() {
+    // Never on a server, by any route - the code, the touch gesture, the
+    // console. A three-finger hold used to unlock them online and with them
+    // the map's directed teleports; the toast saying cheats were off came
+    // after the unlock had already happened.
+    if (ONLINE) return false;
     if (this.unlocked) return false;
     this.unlocked = true;
     this.emit('unlock', true);

@@ -9,7 +9,11 @@ terraglide.bundle.js
 terraglide.html
 terraglide-online.html
 
-# Working renders of candidate GLBs, written by tools/rawmodel.mjs. Several
-# sets of fourteen 1400-pixel images per sitting; the finished views that are
-# worth keeping live in shots/ itself.
-shots/raw/
+# Screenshots the checks and model tools write (onlinecheck, padcheck,
+# shots.mjs, rawmodel.mjs...): made again on every run.
+shots/
+
+# A server's own data and settings: accounts (password hashes), players, bans,
+# and a config that may hold a join code or TURN credential. Never committed.
+server/data/
+server/config.json

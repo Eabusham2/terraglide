@@ -3,6 +3,7 @@ import { cheats } from '../core/cheats.js';
 import { clamp, damp } from '../core/math.js';
 import { FixedStep, catchUpSteps } from '../core/perf.js';
 import { settings } from '../core/settings.js';
+import { ON_EARTH, aeroFactor, gravityRatio, terminalSpeed } from '../geo/bodies.js';
 import { TICK, stepGlide, stepRocket } from './elytra.js';
 
 /**
@@ -66,12 +67,34 @@ const JUMP_BUFFER_S = 0.16;
  * arc rather than a pivot.
  */
 const BANK_TURN = 0.8;
+/**
+ * How much of a fall past terminal — what a rocket left behind — survives each
+ * tick once the rocket is out: about a second to come back to terminal.
+ */
+const TERMINAL_EASE = 0.85;
 const RESYNC_M = 200;
 /** How far the feet can be lifted per second when walking up a slope. */
 const STEP_SMOOTHING = 12;
 /** Creative flight, metres per second, cruise and sprint. */
 const FLY_SPEED = 18;
 const FLY_SPRINT = 46;
+
+/**
+ * Which way the controls push, forward and to the right, and how hard from 0
+ * to 1: a key is all or nothing, a controller's stick (`axisX`/`axisY`, see
+ * camera/gamepad.js) as far as it is pushed.
+ */
+export function moveAxes(input) {
+  if (Number.isFinite(input.axisX) || Number.isFinite(input.axisY)) {
+    const strafe = Number.isFinite(input.axisX) ? input.axisX : 0;
+    const forward = Number.isFinite(input.axisY) ? input.axisY : 0;
+    const push = Math.min(1, Math.hypot(forward, strafe));
+    if (push > 0) return [forward, strafe, push];
+  }
+  const forward = (input.forward ? 1 : 0) - (input.back ? 1 : 0);
+  const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+  return [forward, strafe, 1];
+}
 
 export class PlayerController {
   constructor({ player, terrain, buildings }) {
@@ -85,6 +108,24 @@ export class PlayerController {
      * so it cannot be a constructor argument. See world/tiles3d.js.
      */
     this.scanned = null;
+    /**
+     * The world's gravity and air, as fractions of Earth's — one and one on
+     * Earth, where every number below is Minecraft's own. The world is fixed
+     * for the life of the page (see core/boot.js), so this never changes.
+     */
+    this.env = Object.freeze({
+      gravity: gravityRatio(),
+      air: aeroFactor(),
+      // The glide's own speed stops at terminal; see stepGlide.
+      glideLimit: ON_EARTH ? Infinity : terminalSpeed(),
+    });
+    /**
+     * The fastest a fall gets in this world's air; see terminalSpeed. Earth's
+     * comes out of the flight model by itself, at Minecraft's 78.4, so it is
+     * only enforced elsewhere — in thin air, where drag in proportion to
+     * speed is far too weak, and never in a vacuum.
+     */
+    this.terminal = ON_EARTH ? Infinity : terminalSpeed();
     this.fixed = new FixedStep(TICK);
     this.look = new THREE.Vector3();
     this.tmp = new THREE.Vector3();
@@ -213,6 +254,7 @@ export class PlayerController {
     if (flying) this.tickFly(step, input, scale);
     else if (gliding) this.tickGlide(step, input);
     else this.tickGround(step, input, scale);
+    this.holdTerminal(player);
 
     // Speed mode stretches distance covered, not the handling model.
     const multiplier = player.speedMultiplier;
@@ -228,6 +270,27 @@ export class PlayerController {
     this.resolveCollisions(step, input);
   }
 
+  /**
+   * No faster than terminal, falling — but only falling. A rocket aimed down
+   * through Titan's air goes where it is aimed; when it burns out, the air
+   * takes the extra back over a second or so rather than in one tick, as
+   * thick air would. Earth's terminal is infinite here: its own drag does it.
+   */
+  holdTerminal(player) {
+    const v = player.velocity;
+    if (!(v.y < -this.terminal)) {
+      this.overTerminal = 0;
+      return;
+    }
+    if (player.rocketTicksLeft > 0) {
+      this.overTerminal = -v.y - this.terminal;
+      return;
+    }
+    const allowed = (this.overTerminal ?? 0) * TERMINAL_EASE;
+    if (v.y < -(this.terminal + allowed)) v.y = -(this.terminal + allowed);
+    this.overTerminal = -v.y - this.terminal;
+  }
+
   tickGlide(step, input) {
     const player = this.player;
 
@@ -238,7 +301,7 @@ export class PlayerController {
     });
 
     // One set of wings. See src/player/elytra.js.
-    stepGlide(player.velocity, this.look, player.pitch);
+    stepGlide(player.velocity, this.look, player.pitch, this.env);
     // And a firework still burning beats the air, up to the speed it was lit
     // at. See rocketHoldPush.
     const speed = player.velocity.length();
@@ -258,7 +321,9 @@ export class PlayerController {
     // Scaled by how fast you are going, because a wing with no air over it
     // turns nothing, and capped so a full inversion does not spin you.
     if (player.roll) {
-      const bite = Math.min(1, player.horizontalSpeed / 28);
+      // And by the air, which on Earth is one: in a vacuum a banked wing has
+      // nothing to lean on and turns nothing.
+      const bite = Math.min(1, player.horizontalSpeed / 28) * Math.min(1, this.env.air);
       const swing = Math.sin(player.roll) * BANK_TURN * bite * step;
       player.yaw += swing;
       /*
@@ -317,8 +382,7 @@ export class PlayerController {
     const strideScale = Math.pow(scale, 0.75);
     const speed = (input.sprint ? FLY_SPRINT : FLY_SPEED) * strideScale;
 
-    const forward = (input.forward ? 1 : 0) - (input.back ? 1 : 0);
-    const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    const [forward, strafe, push] = moveAxes(input);
     const sin = Math.sin(player.yaw);
     const cos = Math.cos(player.yaw);
 
@@ -327,9 +391,9 @@ export class PlayerController {
     let tz = this.look.z * forward + sin * strafe;
     const length = Math.hypot(tx, ty, tz);
     if (length > 0) {
-      tx = (tx / length) * speed;
-      ty = (ty / length) * speed;
-      tz = (tz / length) * speed;
+      tx = (tx / length) * speed * push;
+      ty = (ty / length) * speed * push;
+      tz = (tz / length) * speed * push;
     }
     if (input.jump) ty += speed * 0.7;
     if (input.crouch) ty -= speed * 0.7;
@@ -353,12 +417,12 @@ export class PlayerController {
     if (swimming && input.sprint) speed = SWIM_SPEED * 1.7;
     speed *= strideScale;
 
-    const forward = (input.forward ? 1 : 0) - (input.back ? 1 : 0);
-    const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    const [forward, strafe, push] = moveAxes(input);
     let targetX = 0;
     let targetZ = 0;
     if (forward !== 0 || strafe !== 0) {
-      const length = Math.hypot(forward, strafe);
+      // A whole push, or as much of one as a controller's stick gives.
+      const length = Math.hypot(forward, strafe) / push;
       const sin = Math.sin(player.yaw);
       const cos = Math.cos(player.yaw);
       const fx = (sin * forward) / length;
@@ -382,10 +446,12 @@ export class PlayerController {
           : -SWIM_SINK;
       player.velocity.y = damp(player.velocity.y, target, WATER_DRAG, step);
     } else {
-      player.velocity.y -= GRAVITY * step;
+      player.velocity.y -= GRAVITY * this.env.gravity * step;
       // Drag on the fall, so terminal velocity exists. Raised to the power of
-      // the step so it is the same 0.98 a tick whatever the frame rate.
-      player.velocity.y *= Math.pow(FALL_DRAG_PER_TICK, step / TICK);
+      // the step so it is the same 0.98 a tick whatever the frame rate. In
+      // thinner air there is less of it, and in a vacuum none: on the Moon
+      // you fall until you land.
+      player.velocity.y *= Math.pow(1 - (1 - FALL_DRAG_PER_TICK) * this.env.air, step / TICK);
       if (player.onGround && (input.jump || this.jumpQueued)) {
         player.velocity.y = JUMP_SPEED * Math.sqrt(scale);
         player.onGround = false;

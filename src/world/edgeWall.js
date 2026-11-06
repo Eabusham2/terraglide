@@ -75,6 +75,8 @@ const WALL_FRAG = /* glsl */ `
   uniform vec3 uFogColor;
   uniform vec3 uSunDir;
   uniform vec3 uSunColor;
+  uniform vec3 uScatterColor;
+  uniform float uScatterStrength;
   uniform float uNight;
   varying float vDepth;
   varying vec3 vDir;
@@ -104,8 +106,9 @@ const WALL_FRAG = /* glsl */ `
     // colour and only the scattering has to be added back.
     float toward = max(dot(vDir, uSunDir), 0.0);
     float scatter = pow(toward, 9.0) * 0.34 + pow(toward, 2.0) * 0.11;
-    // The sky multiplies its sun colour by 1.6; the shared one is unscaled.
-    vec3 haze = mix(uFogColor, uSunColor * 1.6, clamp(scatter, 0.0, 0.62));
+    // Toward whatever colour the air scatters: the sun's own, times the 1.6
+    // the sky multiplies it by, on Earth; blue on Mars; nothing in a vacuum.
+    vec3 haze = mix(uFogColor, uScatterColor, clamp(scatter * uScatterStrength, 0.0, 0.62));
     // And below the horizon the sky darkens toward its own ground tint, so the
     // wall follows it there too.
     haze = mix(haze, uFogColor * 0.55, smoothstep(0.0, -0.12, vDir.y));
@@ -164,6 +167,8 @@ export class EdgeWall {
         uFogColor: shared.uFogColor,
         uSunDir: shared.uSunDir,
         uSunColor: shared.uSunColor,
+        uScatterColor: shared.uScatterColor,
+        uScatterStrength: shared.uScatterStrength,
         uNight: shared.uNight,
       },
       vertexShader: WALL_VERT,

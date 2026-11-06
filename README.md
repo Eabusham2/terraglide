@@ -7,6 +7,11 @@ you are dropped somewhere random on Earth. Open a pair of elytra, dive to build
 speed, flare to trade it back for height, fire a rocket when you run out of
 both — and go and look at what is down there.
 
+Play on your own, or online with everyone on one shared map — with accounts,
+friends, parties, chat, proximity voice and sword fights. Fly the Moon, Mars and
+twelve more worlds at their real size. Keyboard and mouse, touch screens, game
+controllers and VR headsets all work.
+
 It is a plain webpage: HTML, CSS and JavaScript modules. No build step, no
 install, no framework. The only dependency is three.js, which is vendored into
 `vendor/`.
@@ -55,13 +60,44 @@ python3 -m http.server 8080
 
 Then open the address it prints. Needs a browser with WebGL 2 (anything current).
 
-There is nothing to install — `npm install` does nothing, because there are no
-runtime dependencies. `node tools/bundle.mjs` rebuilds the single-file version.
+There is nothing to install to play: there are no runtime dependencies.
+`npm install` only fetches Playwright, which the browser checks under
+[Checking it works](#checking-it-works) drive. `npm start` runs the static
+server above, `npm run build` (or `node tools/bundle.mjs`) rebuilds the single
+files, and `npm run check` builds and runs the quick checks.
 
 **Touch screens** — on a phone, tablet or a Chromebook used as a tablet, an
 on-screen stick and buttons appear by themselves: left thumb moves, drag the
 right side to look, buttons for wings, boost, jump, dive, 2x, teleport and the
 map. Dive is held: it drops the nose in the air and takes you under in water.
+
+**Game controllers** — an Xbox, PlayStation, Switch Pro or any other controller
+the browser knows works as it is: plug it in or pair it and press a button.
+Left stick walks (half a push is half a pace) and banks the wings while
+gliding, right stick looks, **A** jumps (twice to open the wings), **B**
+crouches and dives, **X** opens or stows the wings, **Y** surges, **RT** fires
+a rocket or swings the sword in hand, **LT** fires a rocket, the bumpers step
+through the hotbar, pressing the left stick sprints (until you stop) and the
+right stick changes perspective, the d-pad opens the world map (up), drops a
+waypoint (down) and zooms the minimap (left and right), **Start** is the menu
+and **Back** the controls card. In any panel the d-pad moves between its
+buttons, **A** presses and **B** backs out — and a button pressed on a panel
+does nothing in the game until you let go of it. It shakes for a hit and a
+rocket where the pad can, and **Settings → Controls** has its look speed,
+inverted look and vibration.
+
+**VR** — in a headset's own browser (Quest, Pico, Vision Pro), or a desktop
+browser with a PC headset, a **VR** button appears on the toolbar. Inside, you
+look with your head and the wings take you where you look; the left hand's
+stick walks and banks, the right turns you thirty degrees a push, the right
+trigger fires a rocket (or swings the sword) and the left one fires a rocket,
+**A** jumps, **B** the wings, **X** surges, **Y** drops a waypoint, the left
+grip crouches and dives, and the right grip and right stick press step through
+the hotbar. A small panel below your view shows speed, height, hearts and the
+rocket in hand. It is first person whatever the view setting says: on foot you
+see your hands rather than your own body around you, gliding you see your
+wings, and with the freecam out (`Q`, playing locally) your whole body again.
+Leave with the headset's own exit, or the **VR** button again on a desktop.
 
 ---
 
@@ -78,10 +114,16 @@ map. Dive is held: it drops the nose in the air and takes you under in water.
 | `R` | random teleport |
 | `G` | world map · `M` minimap on/off · `=` / `-` minimap zoom |
 | `B` | drop a waypoint · `P` copy coordinates |
-| `F` | fold the wings away and fall |
+| `F` | open or stow the wings — no double-jump timing needed |
 | `Q` | freecam · `F5` perspective (first / third / second) · `[` / `]` shrink / grow |
 | `L` | swap mouse mode · `F1` hide HUD · `F2` controls · `F3` debug · `F4` copy diagnostics · `Esc` settings |
 | `O` | pause — stop the world without opening anything |
+| `6` | the sword — click to swing; `E` still fires your last rocket |
+| `U` | other worlds — the Moon, Mars and the rest · `H` set your lander down (off Earth) |
+| `K` | play online — join a server and sign in |
+| `T` / `/` | chat / type a command (online) · `Tab` players list |
+| `J` | teleport menu (online) — pick TPA or TPA here, type part of a name, press Enter |
+| `Y` / `N` | accept / deny a teleport request · `Z` push to talk |
 
 Every one of those is rebindable in **Settings → Controls**.
 
@@ -185,15 +227,157 @@ firework burning while it does holds it up longer.
   with named roads and coastlines where you have not been, and photography
   where you have. The boundary is what you could actually see from where you
   were, worked out from the geometric horizon at your height rather than from
-  the square you were standing in, and it is feathered so it reads as a shape
+  the square you were standing in — but never more than 2 km from you, however
+  high you climb, so the map shows where you went and not everything you could
+  see from the top of a climb — and it is feathered so it reads as a shape
   you flew rather than a staircase of tiles. It fills in behind you as you
   travel. Zoom with `=`/`-` or the wheel, click it to open the big map.
+  Each square of the map is drawn by how much of it you have actually seen,
+  so the explored shape is the same at every zoom rather than growing as you
+  zoom out.
 - **World map** (`G`): the same thing at any zoom, plus search, your waypoints,
   your drawn paths, and how much of the world you have covered. Drag to pan,
-  wheel to zoom.
+  wheel to zoom. At the top it shows how much of the world is explored, by
+  area, as percentages to seven decimal places that move while you fly: of the
+  **whole Earth** (poles and oceans included), and of its **land** on its own
+  (lakes count as water; from a seven-kilometre grid of Natural Earth's
+  coastlines). Yours when you play alone; everybody's together on a server,
+  with yours under each.
 - **Your trail**: a thin line of everywhere you have been, recorded as you go
   and drawn on both maps. A teleport starts a new leg, so it never draws a line
   across an ocean you did not cross.
+
+---
+
+## Playing with other people
+
+Every time the game starts it asks how you want to play: **Play locally**, on
+your own with everything kept in this browser, or **Play online with
+everyone**, which joins the main lobby: the public server everybody plays on
+together, where whatever anybody explores goes on one map, kept by the server
+for good. The online button says whether the main lobby is up, and beside its
+ping and signal bars (green, yellow or red) how many are playing there and, if
+you have signed in to it from this browser before, how many of your friends are
+on (*2/7 friends*), checked every two seconds; if the lobby is down the button
+greys out with a red light until it answers again. The first time, a few short cards come before it on what the
+game is and how to fly (*How it works* on that screen shows them again). A page
+opened from an invite link, or with `?local`, has already chosen and goes
+straight in.
+
+On a server your ping to it shows in the bottom-right corner, after the frame
+rate (*Settings → Show performance readout*), with the same bars: green under
+120 ms, yellow under 250, red beyond that or when the server stops answering,
+and *offline* when the connection is down. Beside it, live, how many are
+playing on the server and how many of your friends are on, of all of them.
+
+In the game, press `K` (or **Play online** in the toolbar) and press **Play on
+the public server**, or type another server's address. Every player signs up
+with a username and a password the first time and signs in after that; the
+server keeps the account (the password only as a salted hash), the session and
+everything the player does there. Signing in from a second place signs the
+first one out. **Change password** is in the Online panel (`K`), or
+`/password old new`. Playing alone and playing on a server are kept apart: what
+you explore, your trail and your waypoints on a server live on the server, and
+none of it touches your own offline save.
+
+On a server you get:
+
+- **Everybody else, in the world and on every map.** Each player gets a colour
+  of their own, used for their jacket and wings, their arrow on the minimap and
+  the world map, their mark on the compass and on the **locator bar** above your hearts
+  (bigger the closer they are, with a notch above or below when they are higher
+  or lower), and their name tag.
+- **What everybody has discovered, on one map.** Ground anyone on the server
+  has explored is uncovered on your maps too, with a faint wash over the parts
+  you have not been to yourself — on from the start (*Settings → Online →
+  Everyone's discoveries*). Paths are lines in each player's colour: tick
+  *Everyone's paths*, or *trail* / *discovered* next to anyone in the players
+  list (`Tab`) to see just theirs.
+- **Friends.** Press *Friend* next to someone in the players list, or type
+  their name in the box at the bottom of it, or `/friend add name`. You hear
+  when friends come online and go, and can let them teleport to you and pull
+  you into their party without asking — or take every friend request without
+  being asked (*Settings → Online*). A request sent to somebody offline waits
+  for them.
+- **Parties.** Press *Party* next to someone, or `/party invite name`: up to
+  eight of you, with a leader. A party talks on voice however far apart its
+  members are — on another world too, like a radio when they are out of
+  earshot — has its own chat (`/pc message`), its own **waypoints** (*Mark
+  here for the party* in the players list, or *Party waypoint at centre* on
+  the world map; they show on every member's maps and compass), and a tick,
+  *teleport with the party*: when the leader teleports, travels to another
+  world or presses *Gather the party*, everyone with it ticked comes along.
+  `/party leave`, `/party kick name`, `/party leader name`, `/party list`.
+- **Teleport requests, Minecraft-style.** `/tpa name` asks to go to someone,
+  `/tpahere name` asks them to come to you; they answer with `/tpaccept` or
+  `/tpdeny`, or with `Y` / `N` on the prompt that appears. A request lasts
+  forty seconds. Or press `J` for the **teleport menu**: pick *TPA* or *TPA
+  here* (`Tab` switches), type a few letters of the name — the list narrows as
+  you type — and press `Enter`. Admins also get the instant `/tp`.
+- **Chat**: `T` to talk, `/` for commands, `/msg` to whisper, `/near` for the
+  players within a few kilometres of you, `/help` for the rest.
+- **Proximity voice**, if you switch it on in *Settings → Online*: players near
+  you hear you from where you are, fading out with distance — push to talk on
+  `Z`, or always on.
+- **Swords.** Slot 6 is a sword. Click to swing, Minecraft's way: a full swing
+  every 0.625 s does full damage, a falling swing is a critical, and ten
+  hearts is a life. The server decides every hit, so nobody can reach
+  further or hit harder than the rules allow. Nobody can be hurt within a short
+  walk of the spawn, and a fight blocks teleporting away from it for ten
+  seconds.
+- **No cheats.** On a server the cheat panel, freecam, size changes and pause
+  are off; speed over the ground is checked (a surge is allowed only for as
+  long as a surge lasts); hits, damage, health, oxygen and the explored map
+  are the server's; teleports go only where the server sends you; and random
+  teleports are chosen by the server. A page that keeps sending what the game
+  cannot do — moving impossibly fast, arriving somewhere it was not sent,
+  hitting from out of reach or without a sword — is scored for it, kicked,
+  and on repeat kicks banned for a while; admins are told each time.
+- **Admins** get an **Admin panel** in the Online panel (`K`): who is on, with
+  *Go to*, *Bring here*, *Heal*, *Kick* and *Ban*; the bans, to lift; what the
+  anti-cheat has seen; PvP and new accounts on or off, the welcome message,
+  announcements and the spawn point — and the same as chat commands
+  (`/help`). A server can lock admin powers behind an access code the host
+  sets; see [HOSTING.md](HOSTING.md#admins).
+
+To **host a server** — on your own computer for friends on the same wifi, or
+on the internet for anyone — see **[HOSTING.md](HOSTING.md)**. It is one Node
+process with nothing to install: `node server/server.mjs`, then open
+<http://localhost:8080>.
+
+---
+
+## Other worlds
+
+Press `U` for the worlds: the Moon, Mars, Mercury, Venus, Ceres, Vesta, Io,
+Europa, Ganymede, Callisto, Titan, Enceladus, Pluto and Charon. Each one is
+NASA's and the USGS's own photography over their own altimetry, at real size —
+and where a mission never measured the relief, the ground is flat rather than
+made up.
+
+- **Gravity is the world's own.** The Moon pulls a sixth as hard, so a jump
+  goes six times as high; on Enceladus, a hundredth.
+- **So is the air.** Wings need air to push on: on the Moon and every other
+  airless world they do nothing at all, you fall like a stone and keep whatever
+  speed a rocket gave you. Mars's air is a sixtieth of ours — a glide there is
+  a fall with opinions. Titan's is thick and its pull is weak, which makes it
+  the best gliding in the solar system.
+- **Your suit has five minutes of oxygen.** It refills at the landing site and
+  at your **lander**, which you can set down anywhere with `H`. Run out and you
+  start losing hearts.
+- **The sky is the right one.** Black in a vacuum with the real stars in it
+  (the Yale Bright Star Catalogue, every star to magnitude 5.5, at its real
+  place), butterscotch on Mars with a blue sunset, orange haze on Titan,
+  yellow overcast on Venus. The sun is where the world's orbit and rotation
+  really put it, and its size is right for the distance. Earth hangs still over
+  the Moon's near side — two thirds of the way up the sky from Tranquility
+  Base — and over Io, Jupiter is nearly forty times as wide as our full Moon.
+- **Places have their names.** The corner says where you are from the IAU's
+  gazetteer — *Mare Tranquillitatis*, *Jezero crater* — the world map's search
+  finds any named feature, and a random teleport lands on one.
+
+Earth's own extras — buildings, weather, the sea, street photography,
+addresses — stay on Earth.
 
 ---
 
@@ -468,7 +652,7 @@ field of view and the rest.
 ## Settings
 
 Providers · Graphics · Controls (including full key rebinding) · Player ·
-World · Minimap & HUD · Data.
+World · Minimap & HUD · Online · Data.
 
 Notable ones: metric or imperial units, whether random teleport may drop you at
 sea, whether it goes anywhere on Earth or stays within a distance of you, time of
@@ -503,25 +687,43 @@ takes it from there.
 
 **Escape pauses.** Any menu stops the world — movement, timers and the burn on
 a firework all freeze — while the frame is still drawn and tiles keep arriving,
-so the ground has finished loading by the time you close it.
+so the ground has finished loading by the time you close it. On a server
+nothing pauses: the world is everyone's, and its clock with it.
+
+**Online** has everyone's discoveries and paths on your maps, friend
+notifications, accepting teleports, party invites or friend requests
+automatically, party voice, the locator bar, name tags, and proximity voice —
+off, push to talk, or always on — with its volume. **Controls** has every key,
+plus the controller's look speed, inverted look and vibration.
 
 Everything lives in this browser's local storage — settings, key bindings,
-explored ground, waypoints, paths and your last position. **Settings → Data**
-exports and imports all of it as a JSON file, and clears any of it.
+explored ground, waypoints, paths and your last position, each world's kept
+apart from the others'. **Settings → Data** exports and imports all of it as a
+JSON file, and clears any of it. On a server, your exploring is kept by the
+server instead, and never mixed into your own save.
 
 ---
 
 ## Checking it works
 
 ```sh
-node tools/check.mjs      # parse every module, verify every import resolves
-node tools/selftest.mjs   # 173 checks: projection, frame, flight, the avatar, climate, water, providers
+npm run check               # build the single files, then check.mjs and selftest.mjs
+node tools/check.mjs        # parse every module, verify every import resolves
+node tools/selftest.mjs     # the maths and the rules, headlessly (run after a build)
+node tools/servertest.mjs   # the multiplayer server, driven by bots over real WebSockets
+node tools/onlinecheck.mjs  # two real browsers on one server: sign-up, chat, teleports, a sword fight
+node tools/flightcheck.mjs  # honest flying on every world, judged by the server's speed checks
+node tools/padcheck.mjs     # a game controller and an emulated VR headset, in a real browser
 ```
 
-`tools/selftest.mjs` runs the pure maths headlessly — mercator round-trips, the
-local frame's tile geometry, the glide and rocket integrators, the seasonal
-temperature curve, the water classifier, the cheat code and the auto-travel
-steering laws.
+`tools/selftest.mjs` runs headlessly and covers the pure maths and the rules —
+mercator round-trips, the local frame's tile geometry, the glide and rocket
+integrators, the seasonal temperature curve, the water classifier, explored
+ground and how the maps draw it, the cheat code, the auto-travel steering
+laws, the controller's sticks and the headset's placement. `onlinecheck.mjs`
+and `padcheck.mjs` drive a real browser, so they need Playwright's Chromium
+(`npm install`, then `npx playwright install chromium`); they leave their
+screenshots in `shots/`, which is not kept in the repository.
 
 ---
 
@@ -535,17 +737,32 @@ src/
   main.js           entry point and browser capability check
   game.js           wiring, frame loop, teleports, re-anchoring
   core/             settings, key bindings, units, storage, maths, perf, cheats
-  geo/              mercator, the local world frame, sun, climate, geocoding, water
+  geo/              mercator, the local world frame, sun, climate, geocoding, water,
+                    the worlds, their orbits and their place names
   tiles/            provider registry, worker, imagery streamer, elevation field
   world/            terrain quadtree, shaders, sky, weather, scenery, buildings,
                     panorama, teleport
   player/           state, walking and collision, elytra physics, autopilot, avatar
-  camera/           camera rig, freecam, input and mouse modes
+  camera/           camera rig, freecam, input and mouse modes, game controllers, VR
   ui/               HUD, minimap, world map, settings, cheats, help, waypoints,
-                    exploration, touch controls
-assets/             optional generated textures — player kit only (+ manifest)
-tools/              check.mjs, selftest.mjs
+                    exploration, touch controls, online panel, chat, players,
+                    teleport menu, worlds, the startup screen
+  net/              wire protocol, connection, other players, voice
+server/             the multiplayer server (Node, no dependencies) — see HOSTING.md
+assets/             optional generated textures and models — the player's kit only
+                    (+ manifest)
+tools/              the checks: check.mjs, selftest.mjs, servertest.mjs, onlinecheck.mjs,
+                    flightcheck.mjs, padcheck.mjs (with vendor/iwer.min.js, Meta's WebXR
+                    emulator, MIT, for that test alone); the build: bundle.mjs and
+                    online.mjs; shots.mjs for screenshots; the generators for the star
+                    catalogue, the place names and the land grid; and the scripts the
+                    player model and its kit were made with (model, rawmodel, glb-*.py)
 vendor/three/       three.js (MIT), vendored so there is nothing to install
+Dockerfile, fly.toml, render.yaml
+                    ready-made server deployments — see HOSTING.md
+.github/workflows/  publishes the game to GitHub Pages on every push to main
+HOSTING.md          running a server: setup, configuration, accounts, admins, anti-cheat
+THIRD-PARTY.md      every map provider and asset, with its terms and credits
 ```
 
 ---

@@ -24,6 +24,8 @@
 export const TICK = 1 / 20;
 const GRAVITY_PER_TICK = 0.08; // blocks / tick^2  (~32 m/s^2)
 
+export const FLIGHT_GRAVITY_MPS2 = GRAVITY_PER_TICK / (TICK * TICK);
+
 /**
  * How much height a pull-up buys with the speed it spends.
  *
@@ -107,6 +109,14 @@ export function rocketHoldPush(cruise) {
   return cruise * HOLD_DRAG;
 }
 
+/**
+ * The world the wings are in: gravity as a fraction of Earth's, and how much
+ * the air does as a fraction of Earth's air — see aeroFactor in geo/bodies.js.
+ * Earth is one and one, and with those every line below is Minecraft's own
+ * arithmetic exactly, to the last bit.
+ */
+export const EARTH_AIR = Object.freeze({ gravity: 1, air: 1, glideLimit: Infinity });
+
 const TO_TICK = TICK; // m/s -> blocks/tick
 const TO_SECOND = 1 / TICK; // blocks/tick -> m/s
 
@@ -122,8 +132,21 @@ const TO_SECOND = 1 / TICK; // blocks/tick -> m/s
  *
  * Speed mode does not change anything here — it scales the *displacement*
  * applied per step, so the aircraft handles exactly the same when it is on.
+ *
+ * Another world changes two things, and nothing else. Gravity is its own.
+ * Everything the wings do — holding you up, turning sink into speed, trading
+ * speed for height, swinging you round to where you look — needs air to push
+ * on, and does as much as there is air, up to Earth's; drag scales with the
+ * air too, past Earth's where it is thicker. On the Moon that leaves nothing:
+ * the wings are cloth, you fall like a stone dropped a sixth as hard, and
+ * whatever speed a rocket gave you, you keep.
  */
-export function stepGlide(velocity, look, pitch) {
+export function stepGlide(velocity, look, pitch, env = EARTH_AIR) {
+  const gravity = env.gravity;
+  // How much of your weight the wings can carry, and how hard they can turn
+  // you or trade speed for height: as much as the air allows, up to Earth's.
+  // Thicker air than ours cannot hold you up harder than your own weight.
+  const wings = Math.min(1, env.air);
   let vx = velocity.x * TO_TICK;
   let vy = velocity.y * TO_TICK;
   let vz = velocity.z * TO_TICK;
@@ -134,12 +157,23 @@ export function stepGlide(velocity, look, pitch) {
   // cos(pitch)^2: one when level, nothing when pointing straight up or down.
   const level = Math.min(1, Math.cos(pitch) * Math.cos(pitch));
 
-  vy += GRAVITY_PER_TICK * (-1 + level * 0.75);
+  vy += GRAVITY_PER_TICK * gravity * (-1 + level * 0.75 * wings);
 
   // Sinking through the air pushes you forward: a tenth of the sink, best when
   // level and nothing at all when pointed straight down.
   if (vy < 0 && horizLook > 0) {
-    const lift = vy * -0.1 * level;
+    // As much as there is air, past Earth's too: thicker air turns more of
+    // the sink into speed and drags harder in the same proportion, so the
+    // glide keeps Minecraft's ten to one everywhere and only gets slower and
+    // gentler — the way a real glide does in thicker air.
+    let lift = vy * -0.1 * level * env.air;
+    // Never past the world's terminal speed, off Earth. In thin air the fall
+    // is held at terminal while drag across barely touches the speed, so the
+    // ten to one went on adding for ever: a long glide on Mars passed 1,000
+    // m/s. Earth's limit is infinite and this never applies there; its glide
+    // tops out well under its own terminal by itself.
+    const room = (env.glideLimit ?? Infinity) * TO_TICK - horizSpeed;
+    if (lift > room) lift = Math.max(0, room);
     vy += lift;
     vx += (look.x * lift) / horizLook;
     vz += (look.z * lift) / horizLook;
@@ -147,7 +181,7 @@ export function stepGlide(velocity, look, pitch) {
 
   // Looking up trades horizontal speed for height. See CLIMB_TRADE.
   if (pitch > 0 && horizLook > 0) {
-    const trade = horizSpeed * Math.sin(pitch) * 0.04;
+    const trade = horizSpeed * Math.sin(pitch) * 0.04 * wings;
     vy += trade * CLIMB_TRADE;
     vx -= (look.x * trade) / horizLook;
     vz -= (look.z * trade) / horizLook;
@@ -155,13 +189,16 @@ export function stepGlide(velocity, look, pitch) {
 
   // Swing the horizontal component round toward where you are looking.
   if (horizLook > 0) {
-    vx += ((look.x / horizLook) * horizSpeed - vx) * 0.1;
-    vz += ((look.z / horizLook) * horizSpeed - vz) * 0.1;
+    vx += ((look.x / horizLook) * horizSpeed - vx) * 0.1 * wings;
+    vz += ((look.z / horizLook) * horizSpeed - vz) * 0.1 * wings;
   }
 
-  vx *= 0.99;
-  vy *= 0.98;
-  vz *= 0.99;
+  // Minecraft's 0.99 and 0.98, as the share of speed the air takes, scaled
+  // by how much air there is. With Earth's that is 0.99 and 0.98 exactly.
+  const across = 1 - (1 - 0.99) * env.air;
+  vx *= across;
+  vy *= 1 - (1 - 0.98) * env.air;
+  vz *= across;
 
   velocity.x = vx * TO_SECOND;
   velocity.y = vy * TO_SECOND;
