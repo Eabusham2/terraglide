@@ -120,6 +120,25 @@
     now waits for the state to go. 6d8a48c: padcheck's headset screenshot, retaken.
   - Suites at 6d8a48c: check 105 ok, selftest 1794/1794, servertest 351/351, onlinecheck 52/52, padcheck 35/35,
     voice 50/50, flightcheck earth ok (nothing put back, scored 0).
+  - Then a review of the fixes themselves, a reviewer per area and a skeptic per finding, until a round found nothing:
+    - Round 1, of 6bc0fb4 and dd32659: the minimap's first draw turned your whole own record (a Set on the page) into
+      runs, 30 ms to 1 s at every page load and sign-in; a zoomed-out minimap and a big world map let go of each
+      other's blocks (146 of 400 a cycle); in a headset with the freecam out your body was hidden. Fixed in 3367a7c
+      (rows read square by square until runs exist; each map's latest draw keeps its blocks, OWNER_FRESH 600 draws)
+      and 864b5b9 (hidden only when the eye is the body's). The padcheck bank check's remaining hole, a single frame
+      over 0.8 s at the crossing, was judged theoretical and closed anyway with half a push.
+    - Round 2, of 3367a7c: reading square by square until a block built the runs made the world map at 9.5-11 and
+      the minimap at 10-12 read every square one at a time on every draw (10-60x the cost before); a block both maps
+      read was kept only by whichever asked last; outside a draw a block was let go as soon as built. Fixed in
+      761243e: runs are made once a draw has read 4,096 squares one at a time (the world map's first draw; never the
+      minimap at its usual zoom), each map's latest draw keeps its own set of blocks, and outside a draw the trim
+      stops at the first kept block as it always did.
+    - Round 3, of 761243e: nothing wrong (values across runs made mid-draw and after flying on; the cache fuzzed
+      through both maps' draws, sign-ins and loads; bounds held). Its one note - a minimap at zoom 11 reading exactly
+      4,096 squares a draw one at a time, about 2 ms twenty times a second - moved the threshold to 2,048 (6126202).
+  - Suites at 6126202: check 105 ok, selftest 1798/1798, servertest 351/351; onlinecheck 52/52 at 761243e, padcheck
+    36/36 at 864b5b9, voice 50/50 and flightcheck earth ok at 6d8a48c (the commits since touched only exploration.js,
+    game.js's body-hiding line and the tests).
 - Left as it is, on purpose: the server turns away a page of any other version, newer ones too, since it cannot know
   what a later protocol changes (the last bump changed every key). HOSTING says to update a public server first and
   merge to main straight after, so GitHub Pages is never newer than the server.
