@@ -1,0 +1,159 @@
+TerraGlide Restricted Source License
+Version 1.1 — 2026
+
+Copyright (c) 2026 Eabusham2. All rights reserved.
+
+This is NOT an open source license. The source code of this project is made
+visible for reading and for private evaluation only. Every right that is not
+written down below as granted is withheld.
+
+1. DEFINITIONS
+
+   "Work" means this repository and everything in it: source code, shaders,
+   configuration, assets, documentation and build scripts, in any form, and any
+   compiled or bundled output produced from it.
+
+   "Licensor" means the copyright holder named above.
+
+   "You" means the individual person reading, running or otherwise handling the
+   Work. A licence is granted to a person, never to a company, a team, a class,
+   a customer base or an automated system.
+
+   "Private use" means use by You alone, on hardware You control, where the
+   result is not shown, sold, hosted, streamed or otherwise made available to
+   anyone else.
+
+   "Publication" means making the Work playable or downloadable by other people
+   — hosting it on a website, listing it on a game portal, or mirroring the
+   repository.
+
+   "Required credit" means, wherever the Work is published, a clearly visible
+   and legible credit reading "TerraGlide by Eabusham2" placed where a visitor
+   will actually see it: on the page carrying the game, in its description, or
+   in the game's own interface. The credit must not be hidden behind a menu the
+   visitor has no reason to open, rendered in a colour that cannot be read, or
+   presented so as to suggest the publisher wrote the Work.
+
+   "Required link" means, in addition to the required credit, a working and
+   clickable link to the Work's home at
+   <https://github.com/Eabusham2/terraglide>, in the same place as the credit.
+
+2. WHAT YOU MAY DO
+
+   Subject to every condition in this licence, the Licensor grants You a
+   personal, non-exclusive, non-transferable, non-sublicensable, revocable
+   licence to:
+
+   a. download one copy of the Work and keep reasonable local backups of it;
+   b. read and study the Work;
+   c. build and run the Work for Private use;
+   d. modify the Work locally for Private use, for the sole purposes of
+      evaluation, learning, security review and interoperability testing;
+   e. PUBLISH the Work — host it on Your own site, put it on a game site or
+      portal, or mirror the repository — provided that:
+        i.   the required credit appears with it, unaltered;
+        ii.  every copyright notice, licence notice and provider attribution
+             already in the Work stays exactly where it is;
+        iii. this licence travels with any copy You publish, and the people who
+             receive it get no more rights than You have;
+        iv.  You do not claim authorship of the Work or present it as Your own;
+        v.   if the publication earns money in any way — advertising on or
+             around it, sponsorship, subscription, donations tied to it, paid
+             placement, or a paywall of any kind — the required link is shown
+             alongside the required credit; and
+        vi.  You obey section 4 about third-party map data, which is not Yours
+             to publish and which the Work does not include.
+      Selling the Work itself, licensing it on, or charging for access to it as
+      a product is not covered by this permission and still needs separate
+      written permission.
+
+3. WHAT YOU MAY NOT DO
+
+   Without prior written permission signed by the Licensor, You may not:
+
+   a. sell, rent, lend or sublicense the Work, or charge for access to it as a
+      product, or distribute it other than as permitted by section 2(e);
+   b. use the Work, or anything derived from it, as part of a paid product or
+      paid service, beyond the advertising and donations expressly allowed by
+      section 2(e)(v);
+   c. publish the Work without the required credit — or, where money is
+      involved, without the required link — or in a way that hides, shrinks
+      past legibility, or contradicts either of them;
+   d. incorporate the Work, in whole or in part, into another product, project,
+      library, model, dataset or corpus, including any dataset used to train,
+      fine-tune, evaluate or ground a machine learning system;
+   e. remove, obscure, alter or falsify any copyright notice, licence notice,
+      attribution, provider credit or in-application legal text;
+   f. re-license the Work, or state or imply that the Work is open source, free
+      software, public domain, or available under any other terms;
+   g. use the Work to fetch, cache, bulk-download, scrape, re-publish or
+      redistribute map imagery, elevation data, street-level imagery, geocoding
+      results or any other third-party data in a way that breaks the terms of
+      the party that supplies it, or to circumvent any quota, watermark,
+      attribution requirement or access control of such a party;
+   h. use the name "TerraGlide", or any Licensor mark, logo or branding, to
+      identify anything other than the unmodified Work.
+
+4. THIRD-PARTY DATA AND SERVICES
+
+   The Work contains no map data. It can be pointed at third-party providers of
+   imagery, terrain, street-level photography and geocoding. Those providers
+   license their data separately and on their own terms, and most require an
+   account, an API key, visible attribution and a cap on caching. Obtaining,
+   reading and obeying those terms is entirely Your responsibility, and the
+   Licensor grants You no right whatsoever to any third-party data. The Work
+   ships with provider slots empty and defaults to locally generated terrain for
+   exactly this reason.
+
+   Third-party software components bundled with or required by the Work remain
+   under their own licences; see THIRD-PARTY.md.
+
+5. FEEDBACK
+
+   If You send the Licensor a bug report, patch, idea or other feedback, the
+   Licensor may use it without restriction and without owing You anything. You
+   confirm You have the right to send it.
+
+6. NO IMPLIED RIGHTS
+
+   No patent licence, trademark licence, warranty of title, support obligation,
+   update obligation or expectation of continued availability is granted or
+   implied. Nothing in this licence is exhausted, waived or transferred by the
+   Licensor's failure to enforce it on any occasion.
+
+7. TERMINATION
+
+   This licence ends automatically and immediately, without notice, the moment
+   You breach any term of it, and may otherwise be revoked by the Licensor at
+   any time on written notice. On termination You must stop all use of the Work
+   and destroy every copy in Your possession. Sections 4 through 9 survive
+   termination.
+
+8. NO WARRANTY
+
+   THE WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OR CONDITION OF ANY KIND,
+   EXPRESS, IMPLIED OR STATUTORY, INCLUDING BUT NOT LIMITED TO WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, ACCURACY, QUIET ENJOYMENT
+   AND NON-INFRINGEMENT. THE WORK RENDERS APPROXIMATIONS OF REAL PLACES AND MUST
+   NOT BE USED FOR NAVIGATION, AVIATION, SURVEYING, EMERGENCY RESPONSE OR ANY
+   OTHER PURPOSE WHERE AN ERROR COULD CAUSE HARM.
+
+9. LIMITATION OF LIABILITY
+
+   TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE LICENSOR IS NOT LIABLE FOR ANY
+   DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY OR CONSEQUENTIAL DAMAGES, OR
+   FOR ANY LOST PROFITS, LOST DATA, SERVICE FEES, PROVIDER CHARGES OR BUSINESS
+   INTERRUPTION, ARISING OUT OF OR RELATED TO THE WORK OR THIS LICENCE, UNDER
+   ANY THEORY OF LIABILITY, EVEN IF ADVISED OF THE POSSIBILITY. THE LICENSOR'S
+   TOTAL LIABILITY WILL NOT EXCEED ZERO.
+
+10. GENERAL
+
+   This licence is the entire agreement about the Work. If a term is held
+   unenforceable, it is limited to the minimum extent needed and the rest stays
+   in force. Any permission that expands this licence is valid only in a writing
+   signed by the Licensor.
+
+Publishing the Work with credit is allowed and welcome; see section 2(e). To ask
+for anything beyond it — selling the Work, licensing it on, or bundling it into
+another product — contact the Licensor and obtain written permission first.

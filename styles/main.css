@@ -1,0 +1,3626 @@
+/*
+ * TerraGlide interface.
+ *
+ * Flat panels, one-pixel borders, system type, small radii. No gradients, no
+ * glow, no pill shapes. The imagery is the thing worth looking at, so the UI
+ * behaves like instrument labelling around it.
+ */
+
+:root {
+  /* Warm neutral greys rather than blue-black, so the interface reads as
+     printed labelling next to the imagery instead of a dark-mode dashboard. */
+  --bg: #14140f;
+  --panel: rgba(28, 27, 24, 0.72);
+  --panel-solid: rgba(28, 27, 24, 0.94);
+  --panel-raised: rgba(46, 44, 40, 0.9);
+  --line: rgba(232, 228, 216, 0.14);
+  --line-strong: rgba(232, 228, 216, 0.26);
+  --text: #f0ece2;
+  --text-dim: #b8b2a4;
+  --text-faint: #8a8478;
+  --accent: #d8c48a;
+  --accent-dim: #8d8266;
+  --good: #9db884;
+  --warn: #d4ab6a;
+  --bad: #cf8f83;
+  --radius: 2px;
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+#viewport {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: crosshair;
+}
+
+#viewport.dragging {
+  cursor: grabbing;
+}
+
+#viewport.pan {
+  cursor: grab;
+}
+
+#ui {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/*
+ * Overlays must not eat clicks meant for the world. The HUD and the touch layer
+ * cover the whole screen, so they stay transparent to the pointer and only the
+ * pieces you can actually press take events back. Getting this wrong made every
+ * click on the view do nothing at all.
+ */
+#ui > .panel,
+#ui > .minimap {
+  pointer-events: auto;
+}
+
+#ui > .hud,
+#ui > .touch {
+  pointer-events: none;
+}
+
+/* ---------- boot ---------- */
+
+#boot {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #0d0f12;
+  z-index: 50;
+  transition: opacity 0.4s ease;
+}
+
+#boot.done {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.boot-inner {
+  text-align: center;
+}
+
+.boot-inner h1 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#boot-status {
+  margin: 0;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* ---------- startup: the first-time cards, and alone or online ---------- */
+
+.startup {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: #0d0f12;
+  overflow-y: auto;
+}
+
+.startup-card {
+  width: min(520px, 100%);
+  padding: 20px 22px 16px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+}
+
+.startup-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.startup-head h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.startup-skip {
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.startup-body {
+  min-height: 150px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.startup-body p {
+  margin: 0 0 10px;
+}
+
+.startup-dim {
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.startup-keys,
+.startup-modes {
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.startup-keys li {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.startup-keys li > span:first-child {
+  display: flex;
+  gap: 3px;
+  color: var(--text-dim);
+}
+
+/* On a touch screen both sides are words, so they share the line evenly. */
+.startup-keys.startup-touch li {
+  grid-template-columns: 2fr 3fr;
+}
+
+.startup-modes li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.startup-modes strong {
+  display: inline-block;
+  min-width: 64px;
+  color: var(--accent);
+}
+
+.startup-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.startup-nav {
+  display: flex;
+  gap: 6px;
+}
+
+.startup-dots {
+  display: flex;
+  gap: 5px;
+}
+
+.startup-dots i {
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 1px;
+}
+
+.startup-dots i.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.startup-choices {
+  display: grid;
+  gap: 8px;
+}
+
+.startup-choice {
+  display: grid;
+  gap: 3px;
+  padding: 14px 16px;
+  text-align: left;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+}
+
+.startup-choice strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.startup-choice span {
+  color: var(--text-dim);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.startup-choice:hover:not([disabled]),
+.startup-choice:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.startup-choice[disabled] {
+  cursor: not-allowed;
+  background: rgba(46, 44, 40, 0.45);
+}
+
+/* Greyed out, but the light that says why stays bright: the words fade,
+   not the button. */
+.startup-choice[disabled] > strong,
+.startup-choice[disabled] > span:not(.startup-server) {
+  opacity: 0.5;
+}
+
+/* The main lobby, as it is right now: a light, a word, the ping and its bars. */
+.startup-server {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.startup-server b {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.startup-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--text-faint);
+}
+
+.startup-server[data-state="up"] .startup-dot {
+  background: #7fcf6a;
+}
+
+.startup-server[data-state="down"] .startup-dot {
+  background: #e5574c;
+  box-shadow: 0 0 0 3px rgba(229, 87, 76, 0.25);
+}
+
+.startup-server[data-state="down"] b {
+  color: #f08a80;
+}
+
+.startup-ping {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.startup-ping em {
+  font-style: normal;
+}
+
+/* Ping, players, friends: one line, a dot between each. */
+.startup-ping em + em::before,
+.hud-net > span:not(.signal) + span::before {
+  content: '\00b7';
+  margin-right: 5px;
+  color: var(--text-faint);
+}
+
+.startup-other {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.startup button.link {
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Keys sit side by side here, not after a label. */
+.startup kbd {
+  margin-left: 0;
+  font-size: 11px;
+  color: var(--text);
+}
+
+/* ---------- common ---------- */
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+button:hover {
+  border-color: var(--line-strong);
+  background: #20252c;
+}
+
+button:active {
+  background: #171b21;
+}
+
+button.primary {
+  border-color: rgba(216, 196, 138, 0.55);
+  color: #f4ead0;
+  background: rgba(74, 66, 46, 0.72);
+}
+
+button.mini {
+  padding: 1px 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: transparent;
+}
+
+button.link {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  color: var(--text);
+}
+
+button.link:hover {
+  color: #fff;
+  background: none;
+}
+
+button.danger {
+  border-color: rgba(201, 138, 128, 0.45);
+  color: #e5b6ae;
+}
+
+kbd {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 4px;
+  min-width: 16px;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 15px;
+  text-align: center;
+  color: var(--text-dim);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+
+input[type='text'],
+input[type='password'],
+input[type='search'],
+select {
+  font: inherit;
+  color: var(--text);
+  background: #0f1216;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 6px;
+  min-width: 0;
+}
+
+input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+input[type='checkbox'] {
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+}
+
+.muted {
+  color: var(--text-faint);
+}
+
+.panel-block {
+  background: var(--panel);
+  border: none;
+  border-left: 2px solid rgba(216, 196, 138, 0.5);
+  border-radius: 0;
+  padding: 6px 10px;
+  backdrop-filter: blur(4px);
+}
+
+/* ---------- hud ---------- */
+
+.hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hud.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.hud-topleft,
+.hud-rail,
+.hud-bottomleft,
+.hud-hotbar,
+.hud-bottomright,
+.hud-toasts,
+.hud-debug {
+  pointer-events: auto;
+}
+
+/* The compass and crosshair are read-only and span the view; never clickable. */
+.hud-compass,
+.hud-crosshair {
+  pointer-events: none;
+}
+
+.hud-topleft {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 320px;
+}
+
+.climate {
+  min-width: 210px;
+}
+
+.climate-main {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.climate-main strong {
+  font-size: 19px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.climate-main span {
+  color: var(--text-dim);
+}
+
+.climate-sub {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  max-width: 340px;
+}
+
+.toolbar button {
+  padding: 4px 8px;
+}
+
+.toolbar button {
+  font-size: 12px;
+}
+
+.hud-compass {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 300px;
+  height: 20px;
+  overflow: hidden;
+  background: linear-gradient(
+    to right,
+    rgba(28, 27, 24, 0) 0%,
+    rgba(28, 27, 24, 0.7) 18%,
+    rgba(28, 27, 24, 0.7) 82%,
+    rgba(28, 27, 24, 0) 100%
+  );
+  border: none;
+}
+
+.compass-strip {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.compass-strip .tick {
+  position: absolute;
+  top: 4px;
+  width: 1px;
+  height: 5px;
+  background: var(--line-strong);
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.compass-strip .tick.major {
+  height: 8px;
+  background: var(--text-faint);
+}
+
+.compass-strip .tick:not(:empty) {
+  width: 20px;
+  margin-left: -10px;
+  background: none;
+  padding-top: 7px;
+}
+
+/*
+ * Waypoint labels, pinned to the foot of each beam.
+ *
+ * Never clickable and never in the way: the beam is the thing you steer by and
+ * the label only says what it is.
+ */
+.hud-beacons {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.beacon-label {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  margin-top: -8px;
+  padding: 3px 7px;
+  border-radius: 3px;
+  border-left: 2px solid var(--beacon, #c8b98f);
+  background: rgba(12, 14, 18, 0.72);
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: left;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.beacon-label b {
+  display: block;
+  font-weight: 600;
+  color: var(--beacon, #c8b98f);
+}
+
+.beacon-label span {
+  display: block;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The exact bearing, sitting under the needle where an instrument puts it. */
+.compass-heading {
+  position: absolute;
+  top: 100%;
+  left: 150px;
+  transform: translateX(-50%);
+  margin-top: 2px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+
+.compass-needle {
+  position: absolute;
+  top: 0;
+  left: 150px;
+  width: 1px;
+  height: 100%;
+  background: var(--accent);
+}
+
+.hud-crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.hud-crosshair i {
+  display: block;
+  width: 3px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.85);
+  outline: 1px solid rgba(0, 0, 0, 0.55);
+}
+
+.hud-rail {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 168px;
+}
+
+.gauge {
+  background: var(--panel);
+  border: none;
+  border-left: 2px solid var(--line-strong);
+  padding: 4px 8px;
+  backdrop-filter: blur(4px);
+}
+
+.gauge label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* The key that works the gauge, beside its name and updated when you rebind. */
+.gauge label kbd {
+  margin-left: auto;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.gauge label kbd + kbd {
+  margin-left: 0;
+}
+
+.gauge .bar {
+  height: 4px;
+  margin: 4px 0 3px;
+  background: rgba(255, 255, 255, 0.09);
+  overflow: hidden;
+}
+
+.gauge .bar i {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: var(--text-dim);
+}
+
+.gauge span {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.gauge[data-state='active'] .bar i {
+  background: var(--good);
+}
+
+.gauge[data-state='cooling'] .bar i {
+  background: var(--warn);
+}
+
+.gauge[data-state='broken'] .bar i {
+  background: var(--bad);
+}
+
+.hud-bottomleft {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  /* Narrow enough to clear the centred hotbar on a 1280px window. */
+  max-width: 282px;
+}
+
+.location-address {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.location-coords {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.location-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.hud-hotbar {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 3px;
+}
+
+.hud-hotbar .slot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  /* Wide enough for the longest thing the meta line ever says: a burn time,
+     a separator and a three-figure speed with its unit. It was 118px, which
+     was right when the line read "hold to fly" and truncated to "0.8s · 120 …"
+     the moment it started carrying real numbers. */
+  width: 134px;
+  height: 50px;
+  padding: 4px 8px 5px;
+  text-align: left;
+  background: var(--panel);
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  backdrop-filter: blur(4px);
+}
+
+/* The underline takes the rocket's own colour rather than the generic accent,
+   so the lit slot, its icon and the thing in your hand all agree. */
+.hud-hotbar .slot.selected {
+  border-bottom-color: var(--rocket, var(--accent));
+  background: rgba(46, 44, 40, 0.92);
+}
+
+.slot-icon {
+  flex: none;
+  width: 21px;
+  height: 21px;
+  opacity: 0.55;
+  transition: opacity 120ms linear;
+}
+
+.hud-hotbar .slot.selected .slot-icon {
+  opacity: 1;
+}
+
+.slot-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.slot-key {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.slot-label,
+.slot-meta {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.slot-label {
+  font-size: 11.5px;
+  line-height: 1.2;
+}
+
+.slot-meta {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-faint);
+}
+
+.hud-bottomright {
+  position: absolute;
+  right: 6px;
+  /* Right into the corner and small: it is a credit line and a status line,
+     not something you read while flying. */
+  bottom: 4px;
+  text-align: right;
+  max-width: 440px;
+  opacity: 0.85;
+  /* Small and faint is fine; illegible is not. Pale grey text with nothing
+     behind it disappears completely over pale ground — over the tan hills
+     north-east of Santo Antônio do Itambé the provider credits could not be
+     read at all, and a credit you cannot read is not a credit. A shadow keeps
+     the corner uncluttered and keeps the line separate from whatever is
+     underneath it, which a panel background would not do as quietly. */
+  text-shadow:
+    0 1px 2px rgba(18, 17, 14, 0.9),
+    0 0 5px rgba(18, 17, 14, 0.7);
+}
+
+.status-line {
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1.35;
+  color: var(--text-dim);
+}
+
+/* The status line and, online, the ping after it - right after the frame
+   rate, which is the status line's last word. */
+.hud-statusrow {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.hud-net {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1.35;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* ---------- signal bars: the connection's quality, as a phone shows it ---------- */
+
+.signal {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 10px;
+  flex: none;
+  color: var(--text-faint);
+}
+
+.signal i {
+  width: 3px;
+  background: rgba(232, 228, 216, 0.22);
+  border-radius: 0.5px;
+}
+
+.signal i:nth-child(1) { height: 25%; }
+.signal i:nth-child(2) { height: 50%; }
+.signal i:nth-child(3) { height: 75%; }
+.signal i:nth-child(4) { height: 100%; }
+
+/* Two classes, so a panel's own text colour for spans cannot outrank them. */
+.signal.signal-good { color: #7fcf6a; }
+.signal.signal-fair { color: #e6c34a; }
+.signal.signal-poor,
+.signal.signal-down { color: #e5574c; }
+
+.signal[data-bars="1"] i:nth-child(-n + 1),
+.signal[data-bars="2"] i:nth-child(-n + 2),
+.signal[data-bars="3"] i:nth-child(-n + 3),
+.signal[data-bars="4"] i:nth-child(-n + 4) {
+  background: currentColor;
+}
+
+/* Nothing answering: every bar there, faintly, in red. */
+.signal.signal-down i {
+  background: rgba(229, 87, 76, 0.35);
+}
+
+/* The corner is wide enough for the status row (the ping and who is on
+   after the frame rate); the credit line keeps its old 260px measure. */
+.attribution {
+  max-width: 260px;
+  margin-left: auto;
+  font-size: 9px;
+  line-height: 1.35;
+  color: var(--text-faint);
+}
+
+.hud-debug {
+  position: absolute;
+  top: 44px;
+  right: 12px;
+  padding: 6px 8px;
+  white-space: pre;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.hud-toasts {
+  position: absolute;
+  bottom: 74px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.toast {
+  padding: 5px 10px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 12px;
+  transition: opacity 0.3s ease;
+}
+
+.toast-warn {
+  border-color: rgba(203, 168, 106, 0.5);
+}
+
+.toast-bad {
+  border-color: rgba(201, 138, 128, 0.5);
+}
+
+.toast.leaving {
+  opacity: 0;
+}
+
+/* ---------- minimap ---------- */
+
+.minimap {
+  position: absolute;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #0f1114;
+}
+
+/*
+ * The shape of it. The canvas is square and `overflow: hidden` on the frame is
+ * what cuts it, so every shape here is one radius — no second element, no mask,
+ * and the compass and scale bar inside keep working unchanged.
+ */
+.minimap[data-shape='circle'] {
+  border-radius: 50%;
+}
+
+/* A superellipse is not expressible as a border-radius, so this is the closest
+   honest approximation: a very large radius that still leaves flat sides. */
+.minimap[data-shape='squircle'] {
+  border-radius: 28%;
+}
+
+.minimap[data-shape='square'] {
+  border-radius: 0;
+}
+
+.minimap[data-corner='top-right'] {
+  top: 12px;
+  right: 12px;
+}
+
+.minimap[data-corner='top-left'] {
+  top: 12px;
+  left: 344px;
+}
+
+.minimap[data-corner='bottom-right'] {
+  bottom: 12px;
+  right: 12px;
+}
+
+.minimap[data-corner='bottom-left'] {
+  bottom: 74px;
+  left: 12px;
+}
+
+.minimap-canvas {
+  display: block;
+  cursor: pointer;
+}
+
+.minimap-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.minimap-scale {
+  position: absolute;
+  left: 6px;
+  bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.minimap-scale i {
+  display: block;
+  height: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-top: none;
+}
+
+.minimap-zoom {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  pointer-events: auto;
+}
+
+.minimap-zoom button {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  line-height: 1;
+  font-size: 13px;
+}
+
+/* The plus and minus are drawn, not typed.
+   They used to be the characters "+" and U+2212 MINUS SIGN, and a glyph that is
+   the entire content of a small button is the most visible thing there is to
+   get wrong: a font set without U+2212 — which some Android and embedded
+   configurations are — draws an empty box where the zoom-out control should be.
+   Two rectangles need no font at all and are identical on every device. The
+   accessible name is on the button itself, so nothing is lost by the label
+   being empty. */
+.map-zoom-glyph button {
+  position: relative;
+}
+
+.map-zoom-glyph button::before,
+.map-zoom-glyph button::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: currentColor;
+  transform: translate(-50%, -50%);
+}
+
+.map-zoom-glyph button::before {
+  width: 52%;
+  height: 2px;
+  border-radius: 1px;
+}
+
+/* The upright bar of the plus. The minus button has none. */
+.map-zoom-glyph button[data-zoom='1']::after {
+  width: 2px;
+  height: 52%;
+  border-radius: 1px;
+}
+
+.minimap-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -18px;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.minimap-hint kbd {
+  margin-right: 4px;
+}
+
+.minimap-readout {
+  position: absolute;
+  right: 6px;
+  bottom: 5px;
+  font-family: var(--mono);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* ---------- panels ---------- */
+
+.panel {
+  position: absolute;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  z-index: 20;
+}
+
+/* `display: flex` above would otherwise beat the browser's [hidden] rule. */
+.panel[hidden],
+.hud [hidden] {
+  display: none;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.panel-close {
+  margin-left: auto;
+}
+
+/* settings */
+
+.settings {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(860px, 94vw);
+  height: min(660px, 92vh);
+}
+
+.settings-body {
+  display: grid;
+  grid-template-columns: 148px 1fr;
+  min-height: 0;
+  flex: 1;
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  gap: 2px;
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+
+.settings-nav button {
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+}
+
+.settings-nav button.active {
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+
+.settings-content {
+  padding: 12px 14px;
+  overflow-y: auto;
+}
+
+.settings-intro {
+  margin: 0 0 12px;
+  color: var(--text-dim);
+  max-width: 62ch;
+}
+
+.settings-content h3 {
+  margin: 18px 0 6px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.settings-content h4 {
+  margin: 14px 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.field {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.06);
+}
+
+.field label {
+  color: var(--text);
+}
+
+.field small {
+  grid-column: 2;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.field-toggle input {
+  justify-self: start;
+}
+
+.field .range {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.field .range output {
+  min-width: 74px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: right;
+}
+
+.binds {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 4px 16px;
+}
+
+.bind {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.bind span {
+  flex: 1;
+  color: var(--text-dim);
+}
+
+.bind-key {
+  min-width: 76px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.bind-key.capturing {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.file-button {
+  display: inline-block;
+  padding: 5px 9px;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+/* world map */
+
+.worldmap {
+  top: 24px;
+  left: 24px;
+  right: 24px;
+  bottom: 24px;
+}
+
+.worldmap-search {
+  display: flex;
+  gap: 4px;
+}
+
+.worldmap-search input {
+  width: 240px;
+}
+
+.worldmap-body {
+  display: grid;
+  grid-template-columns: 1fr 268px;
+  flex: 1;
+  min-height: 0;
+}
+
+.worldmap-canvas-wrap {
+  position: relative;
+  min-width: 0;
+  background: #0f1114;
+}
+
+.worldmap-canvas-wrap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.worldmap-canvas-wrap canvas.dragging {
+  cursor: grabbing;
+}
+
+/* A waypoint under the pointer can be picked up and moved, so say so before
+   the press rather than after it. */
+.worldmap-canvas-wrap canvas.over-waypoint {
+  cursor: move;
+}
+
+.worldmap-canvas-wrap canvas.dragging-waypoint {
+  cursor: grabbing;
+}
+
+.worldmap-hud {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 3px 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+/* How much of the world is explored, top middle of the map, live - just
+   under the compass's N. On a map wider than it is tall the N is drawn
+   about 19px from the top edge, and at 38px its halo touched the box; on a
+   taller one it is further down, and WorldMap.resize moves the box with it. */
+.worldmap-coverage {
+  position: absolute;
+  top: 46px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: calc(100% - 72px);
+  padding: 4px 12px 5px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.worldmap-coverage-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* The whole planet and, on Earth, its land: side by side, each with yours
+   under it on a server. */
+.worldmap-coverage-figures {
+  display: flex;
+  gap: 18px;
+  margin-top: 2px;
+}
+
+.worldmap-coverage-figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.worldmap-coverage-figure span {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.worldmap-coverage-figure strong {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.worldmap-coverage-figure em {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-style: normal;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 560px) {
+  .worldmap-coverage {
+    padding: 3px 8px 4px;
+  }
+
+  .worldmap-coverage-figures {
+    gap: 10px;
+  }
+
+  .worldmap-coverage-figure strong {
+    font-size: 13px;
+  }
+
+  .worldmap-coverage-figure em {
+    font-size: 10px;
+  }
+}
+
+.worldmap-scale {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.worldmap-scale i {
+  display: block;
+  height: 4px;
+  border: 1px solid var(--line-strong);
+  border-top: none;
+}
+
+.worldmap-zoom {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.worldmap-zoom button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  font-size: 15px;
+}
+
+.worldmap-results {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  width: min(420px, 60%);
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.worldmap-results li button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.worldmap-results li button:hover {
+  background: var(--panel-raised);
+}
+
+.worldmap-side {
+  border-left: 1px solid var(--line);
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.worldmap-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.worldmap-stats {
+  margin-top: 12px;
+  font-size: 12px;
+}
+
+.worldmap-stats div {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.06);
+  color: var(--text-dim);
+}
+
+.worldmap-stats strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.worldmap-side h3 {
+  margin: 14px 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.worldmap-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.worldmap-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.06);
+}
+
+.worldmap-list li span.muted {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.worldmap-list i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+
+.worldmap-tick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.worldmap-danger {
+  margin-top: 16px;
+}
+
+/* help */
+
+.help {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(680px, 94vw);
+  max-height: 88vh;
+}
+
+.help-body {
+  padding: 12px 14px;
+  overflow-y: auto;
+}
+
+.help-lead {
+  margin-top: 0;
+  color: var(--text);
+  max-width: 64ch;
+}
+
+.help-mouse {
+  padding: 6px 8px;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+}
+
+.help-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 2px 18px;
+  margin: 12px 0;
+}
+
+.help-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  color: var(--text-dim);
+}
+
+.help-keys {
+  flex: 0 0 108px;
+}
+
+.help-keys kbd {
+  margin: 0 2px 0 0;
+}
+
+.help-note {
+  margin-bottom: 0;
+  color: var(--text-faint);
+  max-width: 68ch;
+}
+
+/* cheats */
+
+.cheats {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(620px, 94vw);
+  max-height: 88vh;
+  border-left: 2px solid var(--warn);
+}
+
+.cheats-body {
+  padding: 12px 14px;
+  overflow-y: auto;
+}
+
+.cheats .field {
+  grid-template-columns: 190px 1fr;
+}
+
+.cheat-goto {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.cheat-goto input {
+  flex: 1 1 220px;
+}
+
+.cheat-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--warn);
+  padding: 4px 0;
+}
+
+.cheat-flag {
+  background: var(--panel);
+  border-left: 2px solid var(--warn);
+  padding: 4px 8px;
+  backdrop-filter: blur(4px);
+}
+
+.cheat-flag label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.cheat-flag span,
+.cheat-flag em {
+  display: block;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-style: normal;
+  color: var(--text-dim);
+  word-break: break-word;
+}
+
+.cheat-flag em:empty {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  /* Narrow, not gone.
+   *
+   * The rail and the compass used to be switched off outright below nine
+   * hundred pixels, which is any phone held upright and plenty of ordinary
+   * windows — and the rail is where the speed-mode meter, the air you have
+   * left underwater and your height all live. "The boost meter is sometimes
+   * not visible" was this: not a bug in the meter, a stylesheet deciding you
+   * did not need it. Everything readable stays; only the space it takes goes. */
+  .hud-rail {
+    width: 116px;
+    gap: 5px;
+    font-size: 10px;
+  }
+
+  .gauge label kbd {
+    display: none;
+  }
+
+  .hud-compass {
+    width: 220px;
+  }
+
+  .worldmap-body {
+    grid-template-columns: 1fr;
+  }
+
+  .worldmap-side > :not(.worldmap-actions) {
+    display: none;
+  }
+
+  .settings-body {
+    grid-template-columns: 110px 1fr;
+  }
+}
+
+/* ---------- touch ---------- */
+
+.touch {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.touch-stick {
+  position: absolute;
+  left: 22px;
+  bottom: 22px;
+  width: 132px;
+  height: 132px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background: rgba(28, 27, 24, 0.4);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.touch-stick i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  border-radius: 50%;
+  background: rgba(240, 236, 226, 0.32);
+  border: 1px solid var(--line-strong);
+}
+
+.touch-buttons {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  display: grid;
+  grid-template-columns: repeat(2, 88px);
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.touch-buttons button {
+  height: 52px;
+  font-size: 13px;
+  background: rgba(28, 27, 24, 0.72);
+  touch-action: none;
+}
+
+.touch-buttons button.down {
+  background: rgba(74, 66, 46, 0.85);
+  border-color: var(--accent);
+}
+
+/* On a touch screen the hotbar and rail would sit under your thumbs. */
+body.touch-active .hud-rail {
+  display: none;
+}
+
+body.touch-active .hud-hotbar {
+  bottom: auto;
+  top: 40px;
+}
+
+/* A narrow touch screen puts the hotbar above the thumbs, not under them.
+
+   It used to go across the top for that, and on a phone the top is where the
+   minimap is. Measured at 390x844 the two overlapped by 133x44 px — which hid
+   rockets four and five completely, so on a phone you could not select them at
+   all — and at 360 wide the bar also ran eleven pixels off the left edge.
+   
+   So it goes back along the bottom, in the band above the one the stick and
+   the buttons reserve for themselves: clear of both thumbs and of the minimap.
+   The slots are sized to the window rather than to a fixed 74px, because five
+   of anything fixed will eventually not fit. */
+@media (max-width: 900px) {
+  body.touch-active .hud-topleft {
+    top: 40px;
+  }
+
+  body.touch-active .hud-hotbar {
+    top: auto;
+    /* The stick is 132px tall and sits 22px up, so its top is at 154. */
+    bottom: max(182px, calc(var(--touch-rows, 2) * 60px + 30px));
+  }
+
+  body.touch-active .hud-hotbar .slot {
+    width: min(74px, calc((100vw - 28px) / var(--slots, 6)));
+    height: 44px;
+  }
+
+  /* Above the hotbar, which is above the controls. */
+  body.touch-active .hud-bottomleft {
+    bottom: max(234px, calc(var(--touch-rows, 2) * 60px + 82px));
+  }
+
+  /* 74px is an icon and a keycap wide. The name and the burn-and-speed line
+     do not fit and were being cut off mid-word; on a touch screen you pick a
+     rocket by its colour anyway. */
+  body.touch-active .hud-hotbar .slot .slot-label,
+  body.touch-active .hud-hotbar .slot .slot-meta {
+    display: none;
+  }
+}
+
+/* Wide touch screens keep the hotbar along the bottom too, so the location
+   panel clears both it and the controls. Narrow ones override this above. */
+body.touch-active .hud-bottomleft {
+  bottom: max(234px, calc(var(--touch-rows, 2) * 60px + 82px));
+}
+
+body.touch-active:not(.sword-out) .hud-crosshair {
+  display: none;
+}
+
+
+/* ---------------------------------------------------------------- short windows
+
+   A phone on its side is 390px tall, and at their ordinary sizes the four
+   things that want the left edge do not fit in that: the climate and toolbar
+   block is 122px, the location panel 111, the hotbar 44 and the stick 154.
+   That is 431px of content in 390px of screen, and what it did instead of
+   overflowing was overlap — the location panel sat on top of the toolbar,
+   measured at 282x91px of collision.
+
+   So on a short screen everything on that edge gets smaller: the climate loses
+   its second line, the toolbar its padding, the location panel its figures
+   row, and the stick and buttons come down to a size that still suits a thumb
+   on a screen this short. Nothing is hidden that you cannot get at another way
+   — the figures are on the HUD readout and the climate detail is in the
+   forecast.
+*/
+@media (max-height: 460px) {
+  .climate-sub {
+    display: none;
+  }
+
+  .toolbar button {
+    padding: 4px 6px;
+    font-size: 10.5px;
+  }
+
+  .location-figures {
+    display: none;
+  }
+
+  .location-address {
+    font-size: 12px;
+  }
+
+  .touch-stick {
+    width: 92px;
+    height: 92px;
+    left: 14px;
+    bottom: 12px;
+  }
+
+  .touch-stick i {
+    width: 38px;
+    height: 38px;
+    margin: -19px 0 0 -19px;
+  }
+
+  .touch-buttons {
+    grid-template-columns: repeat(2, 74px);
+    gap: 6px;
+    right: 12px;
+    bottom: 12px;
+  }
+
+  .touch-buttons button {
+    height: 40px;
+    font-size: 12px;
+  }
+
+  /* Stick tops out at 104; hotbar above it; location panel above that. */
+  body.touch-active .hud-hotbar {
+    bottom: 112px;
+  }
+
+  body.touch-active .hud-bottomleft {
+    bottom: 164px;
+  }
+
+  body.touch-active .hud {
+    padding-bottom: 164px;
+  }
+}
+
+/* ---------------------------------------------------------------- narrow windows
+
+   The hotbar is five 134px slots plus gaps — a shade over 680px — and it is
+   centred. The location panel and the attribution live in the bottom corners
+   on the same row, so once the window drops below about 1180px the three
+   collide and the hotbar's panel background covers the text underneath.
+
+   That is a real case, not a corner one: a Chromebook in a split window, a
+   small laptop, a phone in landscape. Below the threshold the two corner
+   blocks step up above the hotbar rather than sliding under it.
+*/
+@media (max-width: 1180px) {
+  .hud-bottomleft,
+  .hud-bottomright {
+    bottom: 68px;
+  }
+}
+
+/* ---------------------------------------------------------------- phones
+
+   Under about seven hundred pixels there is no longer a left half and a right
+   half to put things in: the toolbar reaches the minimap across the top, and
+   the location panel reaches the credit line across the bottom. Both corners
+   stop being corners and stack instead — the credit and status line sit above
+   the location panel, which sits above the hotbar, and the top-left block is
+   held clear of whatever width the minimap has settled on.
+*/
+@media (max-width: 700px) {
+  .hud-topleft {
+    /* The minimap caps itself at a third of the window; this is the rest of
+       the row, less the two gutters and a gap between them. */
+    max-width: calc(66% - 36px);
+  }
+
+  .climate {
+    min-width: 0;
+  }
+
+  .toolbar {
+    gap: 4px;
+  }
+
+  .toolbar button {
+    padding: 5px 7px;
+    font-size: 11px;
+  }
+
+  /* The two bottom blocks stop being corners and become a column.
+     Stacking them by hand needs a number for how tall the location panel is,
+     and it is as tall as its address happens to be — so they are laid out
+     instead. Everything else in the HUD is absolutely positioned and stays
+     exactly where it was; only these two join the flow. */
+  .hud {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    /* The hotbar keeps its place along the bottom; this is its row. */
+    padding-bottom: 66px;
+    gap: 6px;
+  }
+
+  .hud-bottomleft,
+  .hud-bottomright {
+    position: static;
+    margin: 0 12px;
+    max-width: none;
+    text-align: left;
+  }
+
+  /* Read from the left here, so the status row and the credit start there too. */
+  .hud-statusrow {
+    justify-content: flex-start;
+  }
+
+  .hud-bottomright .attribution {
+    max-width: none;
+    margin-left: 0;
+  }
+
+  /* Credit and status above, location below, whatever the markup order. */
+  .hud-bottomright {
+    order: 1;
+  }
+
+  .hud-bottomleft {
+    order: 2;
+  }
+
+  /* The controls' own band, plus the hotbar's row above it, so the two blocks
+     that join the flow on a phone stack clear of both. */
+  body.touch-active .hud {
+    padding-bottom: max(234px, calc(var(--touch-rows, 2) * 60px + 82px));
+  }
+}
+
+/* Narrower still and the hotbar itself will not fit across the window, so the
+   slots shed their padding and then their labels rather than overflowing. Five
+   134px slots and their gaps come to 682px, so the labels have to go before
+   the window does, not after. */
+@media (max-width: 720px) {
+  .hud-hotbar .slot {
+    width: 62px;
+    padding: 4px 5px 5px;
+    gap: 4px;
+  }
+
+  .hud-hotbar .slot .slot-label,
+  .hud-hotbar .slot .slot-meta {
+    display: none;
+  }
+
+  .slot-icon {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+/* The provider test: one row per provider, coloured by what came back. */
+.field-action button {
+  justify-self: start;
+}
+
+.provider-test {
+  grid-column: 2;
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.provider-test li {
+  display: grid;
+  grid-template-columns: 210px 1fr;
+  gap: 10px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  background: rgba(226, 232, 240, 0.04);
+}
+
+.provider-test li span {
+  color: var(--text-faint);
+}
+
+.provider-test .provider-ok b { color: #86efac; }
+.provider-test .provider-error b { color: #fca5a5; }
+.provider-test .provider-no-key b { color: #fcd34d; }
+.provider-test .provider-no-cover b { color: #93c5fd; }
+.provider-test .provider-checking b { color: var(--text-faint); }
+
+/* "Test this one", beside the provider it tests. */
+.field-test {
+  grid-column: 2;
+  justify-self: start;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+/* ---------- online ---------- */
+
+/*
+ * Everything about other people, in the same flat instrument style as the
+ * rest. Each person's colour is carried as --player and used sparingly: a dot,
+ * a stripe, a name — never a fill behind text, which is where colour stops
+ * being an identifier and starts being decoration.
+ */
+
+#ui > .chat,
+#ui > .tp-prompts,
+#ui > .death-screen {
+  pointer-events: auto;
+}
+
+#ui > .nametags {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.nametag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 6px 1px 5px;
+  background: rgba(20, 20, 16, 0.62);
+  border-left: 2px solid var(--player, var(--accent));
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+/* `display: flex` above beats the browser's own [hidden] rule, as for panels. */
+.nametag[hidden] {
+  display: none;
+}
+
+.nametag-hearts {
+  font-weight: 400;
+  font-size: 10px;
+  color: #e8a39a;
+}
+
+.nametag-hearts::before,
+.heart-icon {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 8px;
+  margin-right: 2px;
+  vertical-align: -1px;
+  background: no-repeat center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 8'%3E%3Cpath d='M1 0h2v1h1v1h1V1h1V0h2v1h1v3H8v1H7v1H6v1H5v1H4V7H3V6H2V5H1V4H0V1h1z' fill='%23c8302b'/%3E%3C/svg%3E");
+}
+
+.online-panel {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, 94vw);
+  max-height: 92vh;
+  z-index: 30;
+}
+
+.online-body {
+  padding: 12px 14px 14px;
+  overflow-y: auto;
+}
+
+.online-intro,
+.online-note,
+.online-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.online-note code,
+.online-hint code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.online-server {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 12px;
+  padding: 6px 10px;
+  background: var(--panel-raised);
+  border-left: 2px solid var(--accent-dim);
+}
+
+.online-server strong {
+  font-size: 14px;
+}
+
+.online-server span {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.online-server em {
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.online-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 10px;
+}
+
+.online-tabs button {
+  flex: 1;
+}
+
+.online-tabs button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.online-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.online-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.online-form input {
+  padding: 6px 8px;
+  background: rgba(10, 10, 8, 0.6);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.online-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.online-form button[type='submit'] {
+  align-self: flex-start;
+}
+
+.online-recent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 10px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.online-error {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--bad);
+}
+
+.online-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.online-you i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  background: var(--player, var(--accent));
+  margin-right: 4px;
+}
+
+.toolbar button.online-on {
+  border-color: rgba(157, 184, 132, 0.6);
+}
+
+/* chat: bottom left, above the location block, fading when quiet */
+
+.chat {
+  position: absolute;
+  left: 12px;
+  /* Above the location block, which is the bottom-left corner's first tenant. */
+  bottom: 156px;
+  width: min(440px, 60vw);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-log {
+  max-height: 34vh;
+  overflow-y: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  scrollbar-width: thin;
+}
+
+.chat.open .chat-log {
+  overflow-y: auto;
+}
+
+.chat-line {
+  padding: 2px 7px;
+  background: rgba(20, 20, 16, 0.55);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  transition: opacity 0.6s ease;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.6);
+}
+
+.chat-line.faded {
+  opacity: 0;
+}
+
+.chat-line b {
+  color: var(--player, var(--accent));
+}
+
+.chat-line b::after {
+  content: ':';
+  color: var(--text-faint);
+}
+
+.chat-me b::after {
+  content: '';
+}
+
+.chat-line em {
+  color: var(--text-faint);
+  font-style: normal;
+  font-size: 11px;
+}
+
+.chat-system,
+.chat-join,
+.chat-leave,
+.chat-travel,
+.chat-help {
+  color: var(--text-dim);
+}
+
+.chat-death {
+  color: #e8a39a;
+}
+
+.chat-error {
+  color: var(--bad);
+}
+
+.chat-request {
+  color: var(--accent);
+}
+
+.chat-whisper,
+.chat-whisperSent {
+  color: #c5b7e0;
+}
+
+.chat-announce {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.chat-form {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.chat-form[hidden] {
+  display: none;
+}
+
+.chat-form input {
+  width: 100%;
+  padding: 6px 8px;
+  background: rgba(10, 10, 8, 0.82);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.chat-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.chat-hint {
+  min-height: 14px;
+  padding: 0 2px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.players-panel {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(640px, 96vw);
+  max-height: 86vh;
+}
+
+.players-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.players-body {
+  padding: 10px 12px 12px;
+  overflow-y: auto;
+}
+
+.players-body h3 {
+  margin: 10px 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.players-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.players-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  background: var(--panel-raised);
+  border-left: 2px solid var(--player, var(--line));
+}
+
+.players-name {
+  font-weight: 600;
+  min-width: 110px;
+}
+
+.players-name em {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.players-where {
+  min-width: 90px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* An arrow drawn with borders: a glyph for it is one a minimal font may lack. */
+.players-arrow {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-left: 4px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 9px solid var(--player, var(--text));
+  vertical-align: -1px;
+}
+
+.players-hearts {
+  min-width: 34px;
+  font-size: 11px;
+  color: #e8a39a;
+}
+
+.players-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--player, var(--accent));
+}
+
+.players-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.players-tick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.players-help,
+.players-empty,
+.players-you {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.tp-prompts {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(380px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tp-prompt {
+  padding: 8px 10px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--player, var(--accent));
+}
+
+.tp-text b {
+  color: var(--player, var(--accent));
+}
+
+.tp-text em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.tp-bar {
+  height: 3px;
+  margin: 6px 0;
+  background: var(--line);
+}
+
+.tp-bar i {
+  display: block;
+  height: 100%;
+  background: var(--player, var(--accent));
+}
+
+.tp-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tp-buttons span {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* the death screen: the world tinted red, and the one button */
+
+.death-screen {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(120, 10, 10, 0.42);
+  z-index: 40;
+}
+
+.death-screen[hidden] {
+  display: none;
+}
+
+.death-inner {
+  text-align: center;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.7);
+}
+
+.death-inner h2 {
+  margin: 0 0 8px;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #f6d9d4;
+}
+
+.death-cause {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.death-score {
+  margin: 0 0 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.death-inner button {
+  min-width: 160px;
+  padding: 8px 18px;
+  font-size: 14px;
+}
+
+.death-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* other worlds: a card each, and the one button that takes you there */
+
+.travel-panel {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(760px, 96vw);
+  max-height: 88vh;
+}
+
+.travel-body {
+  padding: 10px 12px 12px;
+  overflow-y: auto;
+}
+
+.travel-intro {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.travel-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.travel-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--panel-raised);
+  border-left: 2px solid var(--line-strong);
+}
+
+.travel-card.here {
+  border-left-color: var(--accent);
+}
+
+.travel-name strong {
+  display: block;
+  font-size: 14px;
+}
+
+.travel-name span,
+.travel-card p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.travel-card dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0;
+  font-size: 11px;
+}
+
+.travel-card dd {
+  margin: 0;
+}
+
+.travel-card em {
+  font-style: normal;
+  color: var(--accent);
+}
+
+.travel-card button {
+  align-self: flex-start;
+}
+
+/* hearts, oxygen and the locator bar: above the hotbar, where Minecraft has them */
+
+.hud-vitals {
+  position: absolute;
+  bottom: 68px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 420px;
+  max-width: 94vw;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  pointer-events: none;
+}
+
+.hud-bars {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.hearts {
+  display: flex;
+  gap: 1px;
+}
+
+.heart {
+  width: 13px;
+  height: 12px;
+  display: inline-block;
+  background: no-repeat center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 8'%3E%3Cpath d='M1 0h2v1h1v1h1V1h1V0h2v1h1v3H8v1H7v1H6v1H5v1H4V7H3V6H2V5H1V4H0V1h1z' fill='%23111'/%3E%3Cpath d='M1 1h2v1h1v1h1V2h1V1h2v3H7v1H6v1H5v1H4V6H3V5H2V4H1z' fill='%23c8302b'/%3E%3Cpath d='M1 1h1v1H1z' fill='%23f3a49c'/%3E%3C/svg%3E");
+  image-rendering: pixelated;
+}
+
+.heart.half {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 8'%3E%3Cpath d='M1 0h2v1h1v1h1V1h1V0h2v1h1v3H8v1H7v1H6v1H5v1H4V7H3V6H2V5H1V4H0V1h1z' fill='%23111'/%3E%3Cpath d='M5 2V1h1V0' fill='none'/%3E%3Cpath d='M1 1h2v1h1v5H4V6H3V5H2V4H1z' fill='%23c8302b'/%3E%3Cpath d='M5 2h1V1h2v3H7v1H6v1H5z' fill='%233a2422'/%3E%3C/svg%3E");
+}
+
+.heart.empty {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 8'%3E%3Cpath d='M1 0h2v1h1v1h1V1h1V0h2v1h1v3H8v1H7v1H6v1H5v1H4V7H3V6H2V5H1V4H0V1h1z' fill='%23111'/%3E%3Cpath d='M1 1h2v1h1v1h1V2h1V1h2v3H7v1H6v1H5v1H4V6H3V5H2V4H1z' fill='%233a2422'/%3E%3C/svg%3E");
+}
+
+.hearts.low .heart.full,
+.hearts.low .heart.half {
+  animation: heart-shake 0.5s steps(2) infinite;
+}
+
+@keyframes heart-shake {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
+
+.oxygen {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: #bfe3ff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.oxygen-label {
+  font-weight: 700;
+}
+
+.oxygen-bar {
+  width: 120px;
+  height: 7px;
+  background: rgba(20, 20, 16, 0.7);
+  border: 1px solid rgba(191, 227, 255, 0.35);
+}
+
+.oxygen-bar i {
+  display: block;
+  height: 100%;
+  background: #7fc4f2;
+  transition: width 0.25s linear;
+}
+
+.oxygen[data-state='low'] .oxygen-bar i {
+  background: #e07a64;
+}
+
+.oxygen[data-state='low'] {
+  color: #ffb5a5;
+}
+
+.oxygen[data-state='filling'] .oxygen-bar i {
+  background: #a6e3a1;
+}
+
+.hud-locator {
+  position: relative;
+  height: 9px;
+  margin: 0 30px;
+  background: rgba(20, 20, 16, 0.55);
+  border: 1px solid rgba(232, 228, 216, 0.18);
+}
+
+.locator-dot {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: var(--player, #fff);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.75);
+}
+
+/* Above or below you: a small triangle drawn with borders, never a glyph. */
+.locator-dot[data-vertical='up']::after,
+.locator-dot[data-vertical='down']::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+}
+
+.locator-dot[data-vertical='up']::after {
+  bottom: calc(100% + 1px);
+  border-bottom: 4px solid var(--player, #fff);
+}
+
+.locator-dot[data-vertical='down']::after {
+  top: calc(100% + 1px);
+  border-top: 4px solid var(--player, #fff);
+}
+
+.locator-dot[data-edge='left'],
+.locator-dot[data-edge='right'] {
+  opacity: 0.6;
+}
+
+.compass-mark {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  min-width: 11px;
+  height: 11px;
+  padding: 0 2px;
+  font-size: 8px;
+  line-height: 11px;
+  font-weight: 700;
+  text-align: center;
+  color: #111;
+  background: var(--player, #fff);
+  border-radius: 1px;
+}
+
+/* the sword in the hotbar, the attack indicator and the hit marker */
+
+.hud-hotbar .slot.sword {
+  --rocket: #d7dde4;
+}
+
+.attack-charge {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 18px;
+  height: 3px;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.attack-charge em {
+  display: block;
+  height: 100%;
+  background: rgba(240, 236, 226, 0.85);
+}
+
+.attack-charge.ready {
+  display: none;
+}
+
+.hit-marker {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  opacity: 0;
+  background:
+    linear-gradient(#fff, #fff) center / 2px 100% no-repeat,
+    linear-gradient(#fff, #fff) center / 100% 2px no-repeat;
+  -webkit-mask: radial-gradient(circle, transparent 3px, #000 3.5px);
+  mask: radial-gradient(circle, transparent 3px, #000 3.5px);
+}
+
+.hit-marker.on {
+  animation: hit-marker 0.28s ease-out;
+}
+
+.hit-marker.crit {
+  filter: drop-shadow(0 0 2px #ffcf6a) sepia(1) saturate(4) hue-rotate(-10deg);
+}
+
+@keyframes hit-marker {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.hud-hurt {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(160, 0, 0, 0) 55%, rgba(160, 0, 0, 0.55) 100%);
+}
+
+@media (max-width: 640px) {
+  .chat {
+    bottom: 150px;
+    width: 86vw;
+  }
+  .hud-vitals {
+    bottom: 64px;
+    width: 92vw;
+  }
+}
+
+/* teleport menu (J): the kind of teleport, a name box, the filtered list */
+
+.tp-menu {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(460px, calc(100vw - 32px));
+  max-height: 82vh;
+}
+
+.tp-modes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+  padding: 10px 12px 0;
+}
+
+.tp-mode {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 7px 10px;
+  text-align: left;
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.tp-mode b {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.tp-mode span {
+  font-size: 11px;
+}
+
+.tp-mode.on {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--text);
+}
+
+.tp-mode.on b {
+  color: var(--accent);
+}
+
+.tp-mode.admin b::after {
+  content: " admin";
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.tp-search {
+  margin: 10px 12px 6px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  outline: none;
+}
+
+.tp-search:focus {
+  border-color: var(--accent);
+}
+
+.tp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px;
+  overflow-y: auto;
+  min-height: 34px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tp-list li[data-player] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--panel-raised);
+  border-left: 2px solid var(--player, var(--line));
+  cursor: pointer;
+}
+
+.tp-list li.on {
+  background: rgba(216, 196, 138, 0.16);
+  outline: 1px solid var(--accent-dim);
+}
+
+.tp-name {
+  flex: 1;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tp-name mark {
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tp-name em {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.tp-where {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.tp-hearts {
+  min-width: 30px;
+  font-size: 11px;
+  color: #e8a39a;
+  text-align: right;
+}
+
+.tp-empty {
+  padding: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.tp-outgoing {
+  list-style: none;
+  margin: 6px 12px 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.tp-outgoing li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.tp-outgoing .tp-left {
+  font-family: var(--mono);
+  margin-left: auto;
+}
+
+.tp-help {
+  margin: 8px 12px 12px;
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.6;
+}
+
+.tp-help code {
+  font-family: var(--mono);
+  color: var(--text-dim);
+}
+
+/* proximity voice: the HUD line, and who is talking */
+
+.hud-voice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.hud-voice-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6b6a64;
+}
+
+.hud-voice.live .hud-voice-dot {
+  background: #a8a59b;
+}
+
+.hud-voice.talking .hud-voice-dot {
+  background: var(--good);
+  box-shadow: 0 0 6px var(--good);
+}
+
+.hud-voice.blocked .hud-voice-dot {
+  background: var(--warn);
+}
+
+.nametag.talking .nametag-name::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 5px var(--good);
+  vertical-align: 1px;
+}
+
+.players-name em.players-talking {
+  color: var(--good);
+}
+
+.players-buttons button.on {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* parties and friends: the players panel's own sections, and the invites */
+
+.players-dynamic {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.players-body h4 {
+  margin: 8px 0 4px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+.players-body h3 .players-count {
+  margin-left: 6px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.players-list.party li {
+  background: rgba(56, 52, 42, 0.92);
+}
+
+.players-list li.offline,
+.players-list.offline li,
+.players-invited {
+  opacity: 0.6;
+}
+
+.players-dot.square {
+  border-radius: 0;
+}
+
+.players-request {
+  font-size: 12px;
+}
+
+.players-request b {
+  color: var(--player, var(--accent));
+}
+
+.players-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 8px;
+}
+
+.players-tick.everyone {
+  display: flex;
+  margin: 0 0 4px;
+}
+
+.players-add {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.players-add input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  background: rgba(10, 10, 8, 0.6);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  font: inherit;
+}
+
+/* A party invite, told apart from a teleport request at a glance. */
+.tp-prompt.party {
+  background: rgba(40, 46, 34, 0.96);
+}
+
+/* ---------- the public server ---------- */
+
+.online-public {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  background: var(--panel-raised);
+  border-left: 2px solid var(--accent);
+}
+
+.online-public button {
+  align-self: flex-start;
+}
+
+.online-public span {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.online-or {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* ---------- Oct 9: proximity, passwords, parties on the move ---------- */
+
+/* Changing your password: folded away until you ask for it. */
+.online-password {
+  margin: 0 0 10px;
+}
+
+.online-password summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.online-password[open] summary {
+  margin-bottom: 8px;
+}
+
+.online-password .online-form {
+  margin: 0 0 6px;
+}
+
+/* A party talks over the radio, which is off until you turn it on. */
+.players-note {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  border-left: 2px solid var(--warn);
+  background: rgba(212, 171, 106, 0.08);
+}
+
+.players-note button {
+  margin-left: 6px;
+}
+
+/* Focusable to keep the keyboard (see playersPanel.js); no ring for that. */
+.players-panel:focus,
+.admin-panel:focus {
+  outline: none;
+}
+
+/* The admin panel (adminPanel.js): the players panel's shape, a column of
+   sections, the server's settings at the top. */
+.admin-panel {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(680px, calc(100vw - 32px));
+  max-height: 88vh;
+  z-index: 31;
+}
+
+.admin-body {
+  padding: 10px 14px 14px;
+  overflow-y: auto;
+}
+
+/* Hidden means hidden: the code box is an .online-form, whose display: flex
+   would otherwise outrank the attribute and leave it over the open panel. */
+.admin-panel [hidden] {
+  display: none !important;
+}
+
+.admin-body h3 {
+  margin: 14px 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.admin-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.admin-line {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.admin-line span {
+  display: flex;
+  gap: 6px;
+}
+
+.admin-line input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  background: rgba(10, 10, 8, 0.6);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.admin-line input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.admin-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 0;
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.admin-score {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--warn);
+}
+
+.admin-score.high {
+  color: var(--bad);
+}
+
+.admin-note {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--text);
+  background: var(--panel-raised);
+  border-left: 2px solid var(--good);
+}
+
+.admin-note.bad {
+  border-left-color: var(--bad);
+  color: var(--bad);
+}
+
+.admin-log {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 180px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-dim);
+  background: rgba(10, 10, 8, 0.45);
+}
+
+.online-you .mini {
+  margin-left: 8px;
+}
+
+/* Who is on each world, by the names you know, and the line that says the
+   party will come along when its leader travels. */
+.travel-people,
+.travel-party {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.travel-party {
+  margin: 0 0 10px;
+}
+
+/* Where a line in the chat came from, when that is another world. */
+.chat-line em.chat-world {
+  color: var(--accent-dim);
+}
+
+.tie-party,
+.tie-friend {
+  color: var(--player, var(--text));
+}
+
+.tie-party::after,
+.tie-friend::after {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 3px;
+  border-radius: 50%;
+  vertical-align: 2px;
+}
+
+.tie-party::after {
+  background: #fff;
+}
+
+.tie-friend::after {
+  background: #e3c15a;
+}
+
+/* Your party and your friends on the compass and the locator bar: a ring,
+   white for the party and gold for a friend, around the player's own colour. */
+.locator-dot[data-tie='party'],
+.compass-mark[data-tie='party'] {
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.locator-dot[data-tie='friend'],
+.compass-mark[data-tie='friend'] {
+  box-shadow: 0 0 0 2px #e3c15a;
+}
+
+/* An empty tank: the label says so as loudly as the toast and the tone do. */
+.oxygen[data-state='low'] .oxygen-label {
+  color: var(--bad);
+}
+
+/* Touch: the vitals and the chat ride above the band the controls and the
+   hotbar take, whatever number of rows of buttons that band has today. */
+body.touch-active .hud-vitals {
+  bottom: max(232px, calc(var(--touch-rows, 2) * 60px + 80px));
+}
+
+body.touch-active .chat {
+  bottom: max(300px, calc(var(--touch-rows, 2) * 60px + 148px));
+  width: min(440px, calc(100vw - 24px));
+}
+
+/* A phone on its side: the credit line moves off the sixth slot. */
+@media (max-height: 460px) {
+  body.touch-active .hud-bottomright {
+    bottom: auto;
+    top: 40px;
+  }
+
+  body.touch-active .hud-vitals {
+    bottom: max(150px, calc(var(--touch-rows, 2) * 46px + 58px));
+  }
+}
+
+/* The compass stays clear of the minimap on a narrow screen: the minimap
+   says how far down the top-right corner it reaches (minimap.js). */
+@media (max-width: 700px) {
+  .hud-compass {
+    top: calc(var(--minimap-top-right, 0px) + 14px);
+  }
+}
+
+/* A controller moving through a panel (camera/gamepad.js, MenuNavigator):
+   the focus has to show, and a browser only rings what the keyboard focused. */
+.pad-focus:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The controls card's controller and VR list (help.js). */
+.help-pad {
+  margin: 10px 0 0;
+}
+
+.help-pad summary {
+  cursor: pointer;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.help-pad[open] summary {
+  margin-bottom: 6px;
+}
+
+.help-keys .help-xr {
+  color: var(--accent-dim);
+}
