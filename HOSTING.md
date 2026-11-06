@@ -906,9 +906,10 @@ A public server behind Caddy, accounts closed after everyone has joined:
   same as one that does, so timing reveals nothing.
 - **Sessions.** Signing in gives the browser a random token so it does not need
   the password again. Only a hash of each token is stored. A session lasts 30
-  days from its last use; an account can be signed in on 8 devices at once
-  (the oldest is dropped). Signing in from a second place drops the first
-  (*"Signed in from somewhere else"*). Changing your password — **Change
+  days from its last use, and an account remembers up to 8 devices this way
+  (the oldest is forgotten) — but only one of them plays at a time: signing in
+  from a second place drops the first (*"Signed in from somewhere else"*), and
+  that page does not reconnect by itself. Changing your password — **Change
   password** in the Online panel (K), or `/password old new` — signs out your
   other devices; a reset or a ban signs out all of them.
 - **The connection is only as private as its address.** On `https://` and

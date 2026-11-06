@@ -7,6 +7,11 @@ you are dropped somewhere random on Earth. Open a pair of elytra, dive to build
 speed, flare to trade it back for height, fire a rocket when you run out of
 both — and go and look at what is down there.
 
+Play on your own, or online with everyone on one shared map — with accounts,
+friends, parties, chat, proximity voice and sword fights. Fly the Moon, Mars and
+twelve more worlds at their real size. Keyboard and mouse, touch screens, game
+controllers and VR headsets all work.
+
 It is a plain webpage: HTML, CSS and JavaScript modules. No build step, no
 install, no framework. The only dependency is three.js, which is vendored into
 `vendor/`.
@@ -55,8 +60,11 @@ python3 -m http.server 8080
 
 Then open the address it prints. Needs a browser with WebGL 2 (anything current).
 
-There is nothing to install — `npm install` does nothing, because there are no
-runtime dependencies. `node tools/bundle.mjs` rebuilds the single-file version.
+There is nothing to install to play: there are no runtime dependencies.
+`npm install` only fetches Playwright, which the browser checks under
+[Checking it works](#checking-it-works) drive. `npm start` runs the static
+server above, `npm run build` (or `node tools/bundle.mjs`) rebuilds the single
+files, and `npm run check` builds and runs the quick checks.
 
 **Touch screens** — on a phone, tablet or a Chromebook used as a tablet, an
 on-screen stick and buttons appear by themselves: left thumb moves, drag the
@@ -69,17 +77,27 @@ Left stick walks (half a push is half a pace) and banks the wings while
 gliding, right stick looks, **A** jumps (twice to open the wings), **B**
 crouches and dives, **X** opens or stows the wings, **Y** surges, **RT** fires
 a rocket or swings the sword in hand, **LT** fires a rocket, the bumpers step
-through the hotbar, **Start** is the menu and **Back** the controls card. In any
-panel the d-pad moves between its buttons, **A** presses and **B** backs out.
-It shakes for a hit and a rocket where the pad can (Settings, Controls).
+through the hotbar, pressing the left stick sprints (until you stop) and the
+right stick changes perspective, the d-pad opens the world map (up), drops a
+waypoint (down) and zooms the minimap (left and right), **Start** is the menu
+and **Back** the controls card. In any panel the d-pad moves between its
+buttons, **A** presses and **B** backs out — and a button pressed on a panel
+does nothing in the game until you let go of it. It shakes for a hit and a
+rocket where the pad can, and **Settings → Controls** has its look speed,
+inverted look and vibration.
 
 **VR** — in a headset's own browser (Quest, Pico, Vision Pro), or a desktop
 browser with a PC headset, a **VR** button appears on the toolbar. Inside, you
 look with your head and the wings take you where you look; the left hand's
 stick walks and banks, the right turns you thirty degrees a push, the right
-trigger fires a rocket and the left one too, **A** jumps, **B** the wings, **X**
-surges, and a small panel below your view shows speed, height, hearts and the
-rocket in hand. It is first person whatever the view setting says.
+trigger fires a rocket (or swings the sword) and the left one fires a rocket,
+**A** jumps, **B** the wings, **X** surges, **Y** drops a waypoint, the left
+grip crouches and dives, and the right grip and right stick press step through
+the hotbar. A small panel below your view shows speed, height, hearts and the
+rocket in hand. It is first person whatever the view setting says: on foot you
+see your hands rather than your own body around you, gliding you see your
+wings, and with the freecam out (`Q`, playing locally) your whole body again.
+Leave with the headset's own exit, or the **VR** button again on a desktop.
 
 ---
 
@@ -96,7 +114,7 @@ rocket in hand. It is first person whatever the view setting says.
 | `R` | random teleport |
 | `G` | world map · `M` minimap on/off · `=` / `-` minimap zoom |
 | `B` | drop a waypoint · `P` copy coordinates |
-| `F` | fold the wings away and fall |
+| `F` | open or stow the wings — no double-jump timing needed |
 | `Q` | freecam · `F5` perspective (first / third / second) · `[` / `]` shrink / grow |
 | `L` | swap mouse mode · `F1` hide HUD · `F2` controls · `F3` debug · `F4` copy diagnostics · `Esc` settings |
 | `O` | pause — stop the world without opening anything |
@@ -214,6 +232,9 @@ firework burning while it does holds it up longer.
   see from the top of a climb — and it is feathered so it reads as a shape
   you flew rather than a staircase of tiles. It fills in behind you as you
   travel. Zoom with `=`/`-` or the wheel, click it to open the big map.
+  Each square of the map is drawn by how much of it you have actually seen,
+  so the explored shape is the same at every zoom rather than growing as you
+  zoom out.
 - **World map** (`G`): the same thing at any zoom, plus search, your waypoints,
   your drawn paths, and how much of the world you have covered. Drag to pan,
   wheel to zoom. At the top it shows how much of the world is explored, by
@@ -250,9 +271,12 @@ and *offline* when the connection is down. Beside it, live, how many are
 playing on the server and how many of your friends are on, of all of them.
 
 In the game, press `K` (or **Play online** in the toolbar) and press **Play on
-the public server**, or type another server's address. Every player signs up with a username and a password the first time
-and signs in after that; the server keeps the account, the session and everything the
-player does there. Playing alone and playing on a server are kept apart: what
+the public server**, or type another server's address. Every player signs up
+with a username and a password the first time and signs in after that; the
+server keeps the account (the password only as a salted hash), the session and
+everything the player does there. Signing in from a second place signs the
+first one out. **Change password** is in the Online panel (`K`), or
+`/password old new`. Playing alone and playing on a server are kept apart: what
 you explore, your trail and your waypoints on a server live on the server, and
 none of it touches your own offline save.
 
@@ -305,7 +329,16 @@ On a server you get:
   are off; speed over the ground is checked (a surge is allowed only for as
   long as a surge lasts); hits, damage, health, oxygen and the explored map
   are the server's; teleports go only where the server sends you; and random
-  teleports are chosen by the server.
+  teleports are chosen by the server. A page that keeps sending what the game
+  cannot do — moving impossibly fast, arriving somewhere it was not sent,
+  hitting from out of reach or without a sword — is scored for it, kicked,
+  and on repeat kicks banned for a while; admins are told each time.
+- **Admins** get an **Admin panel** in the Online panel (`K`): who is on, with
+  *Go to*, *Bring here*, *Heal*, *Kick* and *Ban*; the bans, to lift; what the
+  anti-cheat has seen; PvP and new accounts on or off, the welcome message,
+  announcements and the spawn point — and the same as chat commands
+  (`/help`). A server can lock admin powers behind an access code the host
+  sets; see [HOSTING.md](HOSTING.md#admins).
 
 To **host a server** — on your own computer for friends on the same wifi, or
 on the internet for anyone — see **[HOSTING.md](HOSTING.md)**. It is one Node
@@ -657,8 +690,11 @@ a firework all freeze — while the frame is still drawn and tiles keep arriving
 so the ground has finished loading by the time you close it. On a server
 nothing pauses: the world is everyone's, and its clock with it.
 
-**Online** has the locator bar, name tags, and proximity voice — off, push to
-talk, or always on — with its volume.
+**Online** has everyone's discoveries and paths on your maps, friend
+notifications, accepting teleports, party invites or friend requests
+automatically, party voice, the locator bar, name tags, and proximity voice —
+off, push to talk, or always on — with its volume. **Controls** has every key,
+plus the controller's look speed, inverted look and vibration.
 
 Everything lives in this browser's local storage — settings, key bindings,
 explored ground, waypoints, paths and your last position, each world's kept
@@ -671,18 +707,23 @@ server instead, and never mixed into your own save.
 ## Checking it works
 
 ```sh
+npm run check               # build the single files, then check.mjs and selftest.mjs
 node tools/check.mjs        # parse every module, verify every import resolves
-node tools/selftest.mjs     # the pure maths and the rules, headlessly
+node tools/selftest.mjs     # the maths and the rules, headlessly (run after a build)
 node tools/servertest.mjs   # the multiplayer server, driven by bots over real WebSockets
 node tools/onlinecheck.mjs  # two real browsers on one server: sign-up, chat, teleports, a sword fight
 node tools/flightcheck.mjs  # honest flying on every world, judged by the server's speed checks
 node tools/padcheck.mjs     # a game controller and an emulated VR headset, in a real browser
 ```
 
-`tools/selftest.mjs` runs the pure maths headlessly — mercator round-trips, the
-local frame's tile geometry, the glide and rocket integrators, the seasonal
-temperature curve, the water classifier, the cheat code and the auto-travel
-steering laws.
+`tools/selftest.mjs` runs headlessly and covers the pure maths and the rules —
+mercator round-trips, the local frame's tile geometry, the glide and rocket
+integrators, the seasonal temperature curve, the water classifier, explored
+ground and how the maps draw it, the cheat code, the auto-travel steering
+laws, the controller's sticks and the headset's placement. `onlinecheck.mjs`
+and `padcheck.mjs` drive a real browser, so they need Playwright's Chromium
+(`npm install`, then `npx playwright install chromium`); they leave their
+screenshots in `shots/`, which is not kept in the repository.
 
 ---
 
@@ -708,12 +749,20 @@ src/
                     teleport menu, worlds, the startup screen
   net/              wire protocol, connection, other players, voice
 server/             the multiplayer server (Node, no dependencies) — see HOSTING.md
-assets/             optional generated textures — player kit only (+ manifest)
-tools/              check.mjs, selftest.mjs, servertest.mjs, onlinecheck.mjs, flightcheck.mjs,
-                    padcheck.mjs (with vendor/iwer.min.js, Meta's WebXR emulator, MIT, for
-                    that test alone), and the generators for the star catalogue, the place
-                    names and the land grid
+assets/             optional generated textures and models — the player's kit only
+                    (+ manifest)
+tools/              the checks: check.mjs, selftest.mjs, servertest.mjs, onlinecheck.mjs,
+                    flightcheck.mjs, padcheck.mjs (with vendor/iwer.min.js, Meta's WebXR
+                    emulator, MIT, for that test alone); the build: bundle.mjs and
+                    online.mjs; shots.mjs for screenshots; the generators for the star
+                    catalogue, the place names and the land grid; and the scripts the
+                    player model and its kit were made with (model, rawmodel, glb-*.py)
 vendor/three/       three.js (MIT), vendored so there is nothing to install
+Dockerfile, fly.toml, render.yaml
+                    ready-made server deployments — see HOSTING.md
+.github/workflows/  publishes the game to GitHub Pages on every push to main
+HOSTING.md          running a server: setup, configuration, accounts, admins, anti-cheat
+THIRD-PARTY.md      every map provider and asset, with its terms and credits
 ```
 
 ---
