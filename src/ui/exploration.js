@@ -102,10 +102,12 @@ const OWNER_FRESH = 600;
  * finest squares are turned into runs to read them from (finestRuns). The
  * minimap at its usual zoom reads a few hundred a draw, and turning the whole
  * record into runs for those stopped the game at every page load and sign-in
- * (30 ms to a second); the world map reads tens of thousands, a quarter of a
- * microsecond each, against a millisecond or two off runs.
+ * (30 ms to a second); the world map reads tens of thousands, a quarter to
+ * half a microsecond each, against a millisecond or two off runs. Below this
+ * a draw spends about a millisecond at most on them; at 4,096 a minimap at
+ * zoom 11 read just that many, twenty times a second, and never made them.
  */
-const SQUARES_BEFORE_RUNS = 4096;
+const SQUARES_BEFORE_RUNS = 2048;
 
 /**
  * The squares explored ground is kept in on one world: which zooms, where.

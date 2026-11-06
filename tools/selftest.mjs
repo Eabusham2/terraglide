@@ -9500,8 +9500,8 @@ console.log('\nphotograph where you have been, drawn map where you have not');
           mine.endShareDraw();
           return agree ? explored : -1;
         };
-        const few = read(8, 4);
-        ok(`a draw reading a minimap's two thousand of your own squares reads them one by one, not the whole record turned into runs  (${few} explored)`,
+        const few = read(4, 4);
+        ok(`a draw reading a minimap's thousand of your own squares reads them one by one, not the whole record turned into runs  (${few} explored)`,
           few > 0 && mine.finestIndex === null);
         const many = read(32, 12);
         ok(`and one reading the world map's tens of thousands turns it into runs, once, saying the same  (${many} explored)`,
