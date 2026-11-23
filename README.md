@@ -787,3 +787,12 @@ provider keeps theirs (`THIRD-PARTY.md`).
 
 The world here is an approximation stitched from third-party imagery and a
 simplified earth model. Do not use it to navigate anything.
+
+## Search keywords (ignore)
+
+`browser-game`, `exploration-game`, `first-person`, `flight-game`, `elytra`, `gliding`,
+`multiplayer`, `threejs`, `webgl`, `javascript`, `html5`, `webxr`,
+`virtual-reality`, `gamepad`, `touch-controls`, `planetary-exploration`, `moon`, `mars`,
+`satellite-imagery`, `terrain-tiles`, `elevation-data`, `openstreetmap`, `geospatial`, `photogrammetry`,
+`3d-tiles`, `minimap`, `waypoints`, `proximity-voice`, `websocket`, `nodejs`,
+`self-hosted`, `single-file`, `earth-exploration`, `terrain-rendering`, `rocket-boost`, `world-map`
