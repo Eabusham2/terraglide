@@ -43,7 +43,11 @@ export class ElevationField {
     this.jobs = new Map();
     this.nextId = 1;
     this.active = 0;
-    this.maxActive = 4;
+    // Six: what a browser allows to one server at a time over HTTP/1.1, which
+    // is how the height tiles are served. Four left the ground ahead of you
+    // waiting its turn while you flew onto it, and every rung of height that
+    // then landed under you moved the ground you were looking at.
+    this.maxActive = 6;
     /** Set when something is queued, so pump only re-sorts when it must. */
     this.queueDirty = false;
     this.queue = [];

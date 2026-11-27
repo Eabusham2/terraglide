@@ -12209,6 +12209,39 @@ console.log('\nwaypoints always show, on the minimap and on screen');
   ok('and the minimap asks for it', /pinWaypoints: true/.test(minimap));
 }
 
+console.log('\nturning round keeps the ground you just saw');
+{
+  const THREE = await import('../vendor/three/three.module.js');
+  const { Terrain } = await import('../src/world/terrain.js');
+  const terrain = new Terrain({ scene: new THREE.Scene(), frame: {}, streamer: {}, elevation: {}, shared: {} });
+  terrain.keepDistance = 1e9;
+  const node = (z, x, y, px, pz, visible = false) => ({
+    key: `${z}/${x}/${y}`, tile: { z, x, y }, size: 10,
+    mesh: { position: { x: px, z: pz }, visible }, geometry: null, material: null,
+  });
+  const leaf = node(16, 40, 40, 0, 0, true);
+  const parent = node(15, 20, 20, 0, 0);
+  const grand = node(14, 10, 10, 0, 0);
+  const near = node(16, 90, 90, 50, 0);
+  const far = node(16, 91, 91, 5000, 0);
+  for (const n of [leaf, parent, grand, near, far]) terrain.nodes.set(n.key, n);
+  terrain.drawn = [leaf];
+  terrain.evict(4, 0, 0);
+  ok('the squares on screen merge back into are kept', terrain.nodes.has(parent.key) && terrain.nodes.has(grand.key));
+  ok('and the furthest goes before the ground just behind you', !terrain.nodes.has(far.key) && terrain.nodes.has(near.key));
+  const deviceTier = readFileSync(new URL('../src/core/deviceTier.js', import.meta.url), 'utf8');
+  const terrainSrc = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  const streamerSrc = readFileSync(new URL('../src/tiles/streamer.js', import.meta.url), 'utf8');
+  ok('a machine with room holds twice the squares and photographs',
+    /return coarse \|\| \(memoryGB > 0 && memoryGB <= 4\) \? 1 : 2;/.test(deviceTier)
+    && /this\.evict\(preset\.textureCacheSize \* cacheRoom\(\)/.test(terrainSrc)
+    && /share \* cacheRoom\(\)/.test(streamerSrc));
+  const elevationSrc = readFileSync(new URL('../src/tiles/elevation.js', import.meta.url), 'utf8');
+  ok('six height tiles come down at once', /this\.maxActive = 6;/.test(elevationSrc));
+  ok('and the finest relief ahead is asked for before you get there',
+    /ensureAround\(this\._ahead\.nx, this\._ahead\.ny, this\.elevation\.maxZoom, 2\)/.test(terrainSrc));
+}
+
 console.log('\nevery module still parses');
 {
   /*

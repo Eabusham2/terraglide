@@ -2,6 +2,7 @@ import * as THREE from '../../vendor/three/three.module.js';
 import { clamp } from '../core/math.js';
 import { EDGE_SECTORS } from './edgeWall.js';
 import { settings } from '../core/settings.js';
+import { cacheRoom } from '../core/deviceTier.js';
 import { BODY } from '../geo/bodies.js';
 import { WORLD_RADIUS, tileKey, wrapTileX } from '../geo/mercator.js';
 import { createTerrainMaterial } from './shaders.js';
@@ -171,6 +172,8 @@ const MORPH_SECONDS = 0.33;
 const MORPH_MIN_M = 0.05;
 
 const FLOOR_REACH = 250;
+/** Below this height above the ground, the finest relief ahead is fetched early. */
+const FINE_AHEAD_BELOW_M = 2500;
 const LOD_HYSTERESIS_IN = 0.88;
 const LOD_HYSTERESIS_OUT = 1.12;
 
@@ -208,6 +211,7 @@ export class Terrain {
     this._rayDown = new THREE.Vector3(0, -1, 0);
     this._vecA = new THREE.Vector3();
     this._norm = { nx: 0, ny: 0 };
+    this._ahead = { nx: 0, ny: 0 };
     this._world = { x: 0, z: 0 };
     this._cover = { x: 0, z: 0 };
     this._geo = { lat: 0, lon: 0 };
@@ -584,10 +588,23 @@ export class Terrain {
      */
     this.wantedElevationZoom = elevZoom;
     this.elevation.ensureAround(this._norm.nx, this._norm.ny, elevZoom, 1);
+    // The finest relief for the ground ahead, before you get there.
+    //
+    // Each square asks for heights at its own zoom, so ground you fly towards
+    // got its relief a rung at a time — zoom twelve, thirteen, fourteen — as
+    // its squares split, and every rung that landed moved ground you were
+    // looking at: it rose, and settled, and rose again. Asking for the finest
+    // rung over the next few kilometres up front means most of it is built
+    // once, at the height it is going to stay at.
+    if (altitude < FINE_AHEAD_BELOW_M && this._viewX !== undefined) {
+      const ahead = clamp(altitude * 4, 300, 2000);
+      this.frame.worldToNorm(camX + this._viewX * ahead, camZ + this._viewZ * ahead, this._ahead);
+      this.elevation.ensureAround(this._ahead.nx, this._ahead.ny, this.elevation.maxZoom, 2);
+    }
 
     this.streamer.pump();
     this.streamer.evict();
-    this.evict(preset.textureCacheSize, camX, camZ);
+    this.evict(preset.textureCacheSize * cacheRoom(), camX, camZ);
 
     this.stats.drawn = this.drawn.length;
     this.stats.nodes = this.nodes.size;
@@ -1923,27 +1940,46 @@ export class Terrain {
   }
 
   /**
-   * Throw away the least recently used tiles, but never one that is still
-   * within reach.
+   * Throw away built squares when there are too many, furthest first, and
+   * never one the next frame is likely to need.
    *
    * Ground you flew over thirty seconds ago used to be evicted the moment the
    * cache filled, so turning round rebuilt it from nothing — a wall of empty
    * ground where you had just been. Anything inside the keep radius survives
    * the cull; only when *that* alone overflows does distance decide.
+   *
+   * Two more things are kept. The parent and grandparent of every square on
+   * screen: they are what the ground merges back into as you move, and one
+   * that had been thrown away came back as a coarse stand-in first and then
+   * settled into place — ground rising and sliding back down, over and over,
+   * as you fly. And among what may go, the furthest goes first rather than
+   * the least recently drawn: everything behind you is equally "not drawn",
+   * and the ground just behind you is what you see when you turn round.
    */
   evict(limit, camX = 0, camZ = 0) {
     if (this.nodes.size <= limit) return;
     const keep = (this.keepDistance ?? Infinity) ** 2;
+    const needed = new Set();
+    for (const node of this.drawn) {
+      let { z, x, y } = node.tile;
+      for (let up = 0; up < 2 && z > 0; up++) {
+        z -= 1;
+        x >>= 1;
+        y >>= 1;
+        needed.add(tileKey(z, x, y));
+      }
+    }
     const near = [];
     const far = [];
     for (const node of this.nodes.values()) {
-      if (!node.mesh) continue;
+      if (!node.mesh || needed.has(node.key)) continue;
       const dx = node.mesh.position.x + (node.size ?? 0) / 2 - camX;
       const dz = node.mesh.position.z + (node.size ?? 0) / 2 - camZ;
-      (dx * dx + dz * dz <= keep ? near : far).push(node);
+      node._away = dx * dx + dz * dz;
+      (node._away <= keep ? near : far).push(node);
     }
-    far.sort((a, b) => a.used - b.used);
-    near.sort((a, b) => a.used - b.used);
+    far.sort((a, b) => b._away - a._away);
+    near.sort((a, b) => b._away - a._away);
 
     let excess = this.nodes.size - limit;
     for (const node of [...far, ...near]) {
