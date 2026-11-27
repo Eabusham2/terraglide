@@ -101,19 +101,6 @@ const SKIRT_REACH = 4;
  */
 const NEAR_GEOMETRY_M = 64;
 
-/**
- * How long a square waits for its finest heights before taking a coarser rung
- * that has landed in the meantime, in milliseconds.
- *
- * Relief streams in a rung at a time — the coarse blanket, then zoom ten,
- * twelve, fifteen — and a square rebuilt on every rung that landed walked up
- * and down to each of them in turn: the ground rising and settling over and
- * over, worst on arriving somewhere, when every rung lands within a couple of
- * seconds. While the square's own zoom is already on its way it now waits for
- * it and moves once. Four seconds is the most it waits, so a slow connection
- * still gets the better rung rather than none.
- */
-const FINER_WAIT_MS = 4000;
 /** How far the ground has to move under a square before it is rebuilt. */
 const MOVED_MIN_M = 0.25;
 /**
@@ -183,15 +170,6 @@ const HOLE_RATHER_THAN_STALL = 2;
  */
 const MORPH_SECONDS = 0.33;
 const MORPH_MIN_M = 0.05;
-/**
- * The most a rebuild may walk, metres. Bigger changes happen at once.
- *
- * Walking a big change was the ground visibly rising and sinking back as finer
- * heights landed — and asked again, with some force, not to: "just change it
- * without going up and down". Under a metre and a half a walk reads as nothing
- * at all, which is what it is for.
- */
-const MORPH_MAX_M = 1.5;
 
 const FLOOR_REACH = 250;
 /** Below this height above the ground, the finest relief ahead is fetched early. */
@@ -1058,7 +1036,6 @@ export class Terrain {
     // "the ground has not visibly moved" means every rung of the pyramid still
     // redraws the mesh, and the careful test upstairs decides nothing.
     if (node && !node.dirty && bestZoom > builtFrom && node.mesh
-      && !this.finerOnTheWay(node, x0, z0, size, bestZoom)
       && this.groundMoved(node, size,
         this.seeableMove(node, size, this._camX ?? x0, this._camZ ?? z0))) {
       node.dirty = true;
@@ -1582,9 +1559,7 @@ export class Terrain {
         for (let v = 0; v < prevY.length; v += 1) prevY[v] = positions[v * 3 + 1];
         moved = 0;
       }
-      // Only a small correction walks. Anything you would see move — the
-      // ground going up and then settling back down — changes in one go.
-      startMorph = moved > MORPH_MIN_M && moved <= MORPH_MAX_M;
+      startMorph = moved > MORPH_MIN_M;
     }
     geometry.boundingSphere = new THREE.Sphere(
       new THREE.Vector3(size / 2, (minY + maxY) / 2, size / 2),
@@ -1645,7 +1620,6 @@ export class Terrain {
       node.material.uniforms.uCanopy.value = this.streamer.canopyAt?.(tile) ?? 0;
     }
     node.dirty = false;
-    node.finerWaitSince = undefined;
     node.builtVersion = this.elevation.version ?? 0;
     node.used = this.streamer.frame;
 
@@ -1870,8 +1844,6 @@ export class Terrain {
       // MOVED_CHECK_MS.
       if (moment - (node.movedCheckedAt ?? -Infinity) < MOVED_CHECK_MS) continue;
       node.movedCheckedAt = moment;
-      // A finer rung for this square on its way: wait for it, and move once.
-      if (this.finerOnTheWay(node, node.mesh.position.x, node.mesh.position.z, size)) continue;
       // A deeper elevation zoom being available used to force the rebuild on
       // its own. It is the wrong question: what matters is whether the surface
       // this square would draw differs from the one on screen by enough to be
@@ -1965,30 +1937,6 @@ export class Terrain {
    * compared with what the mesh was made from. Half a metre is well under
    * anything you could see and well over the noise of a bilinear sample.
    */
-  /**
-   * Whether this square's own elevation zoom has been asked for and is still
-   * coming, so a rebuild now would only be one more rung to walk through. See
-   * FINER_WAIT_MS.
-   */
-  finerOnTheWay(node, x0, z0, size, best = this.elevationZoomFor(x0, z0, size)) {
-    // Ground built before any height had arrived is standing in for the real
-    // thing, and the first real heights replace it at once: waiting there
-    // only leaves it at sea level longer.
-    if (!((node.builtElevZoom ?? -1) >= 0)) return false;
-    // Only the finest rung, which is the one fetched early all round you and
-    // ahead (see FINE_AHEAD_BELOW_M): those squares all receive it together.
-    // Holding squares for rungs that land at different moments puts
-    // neighbours at different heights with a gap between them.
-    const target = this.elevationZoomForTile(node.tile);
-    if (target < this.elevation.maxZoom || !(best < target)) return false;
-    this._waitNorm ??= { nx: 0, ny: 0 };
-    this.frame.worldToNorm(x0 + size / 2, z0 + size / 2, this._waitNorm);
-    if (!this.elevation.awaiting?.(this._waitNorm.nx, this._waitNorm.ny, target)) return false;
-    const moment = typeof performance === 'undefined' ? Date.now() : performance.now();
-    node.finerWaitSince ??= moment;
-    return moment - node.finerWaitSince < FINER_WAIT_MS;
-  }
-
   /**
    * The elevation zoom a square asks for: two levels above its own, and never
    * past the finest there is.

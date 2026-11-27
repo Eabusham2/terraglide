@@ -128,73 +128,6 @@ const TERRAIN_VERT = /* glsl */ `
    */
   uniform float uWalk;
   attribute float skirt;
-  /**
-   * The canopy sheet, and how far a wood stands out of the ground.
-   *
-   * "On areas with big contrast like tan or orange and there is green slightly
-   * elevated green" — the green was never actually elevated. Everything the
-   * canopy did was shading, and shading a flat surface leaves it flat: fly over
-   * a wood beside a field and the two are the same sheet of ground in two
-   * colours. A wood is not. It stands fifteen to thirty metres above the field
-   * next to it, and that is real, measurable and exactly what the ask was.
-   *
-   * It has to come from a field in *world* coordinates or it cannot be done at
-   * all. Two squares meeting along an edge at different levels of detail wear
-   * different photographs — one its own, the other a coarser one stretched —
-   * so a lift read from the photograph would differ across the seam and tear
-   * the ground open, which is the fault being complained about in the same
-   * breath. This sheet is one texture in world coordinates that every square
-   * samples at the same point: red is what OpenStreetMap surveyed, green is
-   * what the photograph itself scored, blurred so square edges do not print
-   * through as steps. Both squares read the same number and the seam holds.
-   *
-   * The lift yields to the ground under your feet. Standing in a wood you
-   * stand on the floor of it, not on the crowns, so within forty-five metres
-   * of the camera there is no lift at all and it comes in over the next
-   * hundred. At a walking pace that ramp is a tenth of a degree of slope; from
-   * the air, which is where the ask was about, it is at full height.
-   */
-  uniform sampler2D uWoodMask;
-  uniform vec2 uWoodOrigin;
-  uniform float uWoodSpan;
-  uniform float uHasWood;
-  uniform float uWoodStrength;
-  /**
-   * How tall a wood is. A spruce plantation is twenty-five to thirty metres and
-   * a broadleaf wood about twenty, so this is a real canopy rather than a
-   * flourish — the surface you fly over above a wood *is* the top of it.
-   *
-   * Ten was tried first and could not be seen: the sheet it is read from is
-   * smeared over three hundred and fifty metres to keep coarse and fine squares
-   * agreeing, so ten metres of lift across that is a slope of one and a half
-   * degrees, which from the air is nothing. Twenty-five is four degrees at a
-   * wood's edge, which reads as a shoulder, and the coarse square can still
-   * only miss about a metre and a half of it between its own vertices — well
-   * inside the skirt's twelve-metre floor.
-   */
-  const float CANOPY_HEIGHT_M = 25.0;
-  /**
-   * How much of the canopy sheet's outer edge the lift fades away across, as a
-   * fraction of its span.
-   *
-   * The sheet is a twelve-kilometre square laid around the camera and repainted
-   * whenever the camera has moved two kilometres. Inside it, ground the survey
-   * or the photograph calls woodland is lifted by up to twenty-five metres;
-   * outside it the test failed and the lift was exactly nought. That edge is a
-   * straight line six kilometres out, well inside the render distance on any
-   * tier above Low, and a wood lying across it was lifted on one side and not
-   * on the other — twenty-five metres of step, in a straight line, with the
-   * squares beyond it sitting low. And because the square is re-laid every two
-   * kilometres of travel, that line moves, so a ring of ground pops up or down
-   * by the same twenty-five metres as you fly.
-   *
-   * A twelfth of the span is a kilometre, which spreads the whole lift over a
-   * slope of one in forty — below what the coarsest square in view can miss
-   * between its vertices, and gentler than the ground it is laid on almost
-   * everywhere. Past the fade the lift is nought before the sheet ends, so the
-   * boundary has nothing to step from and moving it changes nothing.
-   */
-  const float CANOPY_EDGE_FADE = 0.0833;
   attribute float bed;
   attribute float prevY;
   varying vec2 vUv;
@@ -241,17 +174,11 @@ const TERRAIN_VERT = /* glsl */ `
     // The curtain that covers the walk: skirt vertices only, and gone by the
     // time the walk finishes.
     sink += skirt * uWalk * (1.0 - uMorph);
-    // A wood standing out of the ground it grows on.
-    float canopy = 0.0;
-    if (uHasWood > 0.5) {
-      vec2 wuv = (worldPos.xz - uWoodOrigin) / uWoodSpan;
-      vec2 fromEdge = min(wuv, 1.0 - wuv);
-      // Nought before the sheet ends rather than at it. See CANOPY_EDGE_FADE.
-      float inside = smoothstep(0.0, CANOPY_EDGE_FADE, min(fromEdge.x, fromEdge.y));
-      vec3 sheet = texture2D(uWoodMask, clamp(wuv, 0.0, 1.0)).rgb;
-      canopy = max(sheet.r, sheet.g) * inside;
-    }
-    worldPos.y += canopy * uWoodStrength * CANOPY_HEIGHT_M * smoothstep(45.0, 160.0, d);
+    // Woods are no longer lifted out of the ground. The lift was twenty-five
+    // metres from a distance and nothing within forty-five, so every wood you
+    // flew towards was ground bent upwards that sank as you approached it —
+    // asked, plainly, to stop. The woods keep their shading (uWoodStrength in
+    // the fragment shader); only the height has gone.
     worldPos.y -= sink + uCurvature * (d * d) / (2.0 * uEarthRadius);
     vNormalW = normalize(mat3(modelMatrix) * normal);
     gl_Position = projectionMatrix * viewMatrix * worldPos;

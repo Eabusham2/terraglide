@@ -4904,24 +4904,18 @@ console.log('\nTurning your head does not lose the ground');
       const morph = node.material.uniforms.uMorph;
       ok('and starts settled, having nowhere to walk from', morph.value === 1);
 
-      // Move the ground under it a little and rebuild: a small correction
-      // walks. build(tile, x0, z0, size, existing) — rebuilding the node in
-      // place is what an elevation refresh does, and it is the path that
-      // morphs.
+      // Move the ground under it and rebuild: it should set off walking.
+      // Changing at once instead was tried, and left a crack against every
+      // neighbour not rebuilt in the same frame: gaps in the ground.
       const position = node.geometry.attributes.position.array;
-      const rebuild = (by) => {
-        for (let v = 1; v < position.length; v += 3) position[v] += by;
-        node.dirty = true;
-        terrain.budget = { ms: 1e6, start: performance.now(), built: 0, refreshed: 0 };
-        terrain.build(node.tile, node.mesh.position.x, node.mesh.position.z,
-          frame.worldTileSize(node.tile.z), node);
-      };
-      // A big change happens at once: walking twelve metres up and back down
-      // was the ground visibly rising and settling, asked not to.
-      rebuild(12);
-      ok(`ground that moved a long way changes at once  (uMorph ${morph.value})`, morph.value === 1);
-      rebuild(1);
-      ok(`and a small correction walks  (uMorph ${morph.value})`, morph.value === 0);
+      for (let v = 1; v < position.length; v += 3) position[v] += 12;
+      node.dirty = true;
+      terrain.budget = { ms: 1e6, start: performance.now(), built: 0, refreshed: 0 };
+      // build(tile, x0, z0, size, existing) — rebuilding the node in place is
+      // what an elevation refresh does, and it is the path that morphs.
+      terrain.build(node.tile, node.mesh.position.x, node.mesh.position.z,
+        frame.worldTileSize(node.tile.z), node);
+      ok(`ground that moved sets off walking  (uMorph ${morph.value})`, morph.value === 0);
 
       // And it gets there, in about the time it says.
       let elapsed = 0;
@@ -7083,16 +7077,15 @@ console.log('\nA wood reads as a canopy');
     it sitting low. Re-laying the square moved the line, so a ring of ground
     popped up or down by the same amount as you flew.
   */
-  ok('the canopy lift reaches nought before the sheet ends, not at it',
+  // The lift is gone altogether: twenty-five metres from a distance and
+  // nothing up close made every wood ground bent upwards that sank as you
+  // approached it. The shading stays, and still fades before the sheet ends.
+  ok('woods are not lifted out of the ground', !/CANOPY_HEIGHT_M/.test(shaders));
+  ok('and their shading fades before the sheet ends, not at it',
     /const float CANOPY_EDGE_FADE = 0\.0833;/.test(shaders)
-    && /vec2 fromEdge = min\(wuv, 1\.0 - wuv\);/.test(shaders)
     && /smoothstep\(0\.0, CANOPY_EDGE_FADE, min\(fromEdge\.x, fromEdge\.y\)\)/.test(shaders));
   ok('and the hard in-or-out test that made that edge is gone',
     !/wuv\.x > 0\.0 && wuv\.x < 1\.0/.test(shaders));
-  // Both halves fade together: a shading edge in the same place would be just
-  // as visible a line as a geometric one.
-  ok('the shading fades on the same margin as the lift',
-    (shaders.match(/smoothstep\(0\.0, CANOPY_EDGE_FADE,/g) || []).length === 2);
 
   ok('and does nothing at all where nothing is mapped',
     /float wood = 0\.0;/.test(shaders) && /if \(uHasWood > 0\.5\)/.test(shaders)
@@ -7893,7 +7886,7 @@ console.log('\nA tile that is culled is still a tile that needs rebuilding');
     /const MOVED_MIN_RAD = 0\.002;/.test(terrain)
     && /Math\.hypot\(cx - camX, cz - camZ\) \* MOVED_MIN_RAD/.test(terrain));
   ok('and the draw path asks the same question, not a different one',
-    /bestZoom > builtFrom && node\.mesh\n\s*&& !this\.finerOnTheWay\(node, x0, z0, size, bestZoom\)\n\s*&& this\.groundMoved\(node, size,/.test(terrain));
+    /bestZoom > builtFrom && node\.mesh\n\s*&& this\.groundMoved\(node, size,/.test(terrain));
   /*
     While a deeper elevation tile is still coming, the rungs in between are not
     steps toward the answer — they are different answers. Traced at one fixed
@@ -12247,9 +12240,6 @@ console.log('\nturning round keeps the ground you just saw');
   const zoomFor = (z) => Terrain.prototype.elevationZoomForTile.call({ elevation: { maxZoom: 15 } }, { z });
   ok(`a square asks for heights two levels up  (z13 -> z${zoomFor(13)}, z18 -> z${zoomFor(18)}, z2 -> z${zoomFor(2)})`,
     zoomFor(13) === 11 && zoomFor(18) === 15 && zoomFor(2) === 2);
-  ok('and only waits for the finest rung, and never while it has no heights at all',
-    /if \(!\(\(node\.builtElevZoom \?\? -1\) >= 0\)\) return false;/.test(terrainSrc)
-    && /if \(target < this\.elevation\.maxZoom \|\| !\(best < target\)\) return false;/.test(terrainSrc));
   ok('and all round you, for turning to look somewhere new',
     /ensureAround\(this\._norm\.nx, this\._norm\.ny, this\.elevation\.maxZoom, 1\)/.test(terrainSrc));
 }

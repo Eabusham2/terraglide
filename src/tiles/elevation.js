@@ -210,20 +210,6 @@ export class ElevationField {
     return w * w * (3 - 2 * w);
   }
 
-  /**
-   * Whether the tile at zoom `z` over this point has been asked for and has
-   * not arrived yet — queued or on its way.
-   */
-  awaiting(nx, ny, z) {
-    if (this.flat || !this.source) return false;
-    const zoom = Math.min(Math.round(z), this.maxZoom);
-    const n = Math.pow(2, zoom);
-    const x = nx - Math.floor(nx);
-    const y = clamp(ny, 0, 0.999999);
-    const entry = this.tiles.get(tileKey(zoom, Math.floor(x * n), Math.floor(y * n)));
-    return Boolean(entry && (entry.state === 0 || entry.state === STATE_PENDING));
-  }
-
   readyAt(z, tx, ty) {
     const n = Math.pow(2, z);
     if (ty < 0 || ty >= n) return false;
