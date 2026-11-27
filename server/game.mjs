@@ -42,8 +42,6 @@ import {
   LANDER_EVERY_S,
   REFILL_AGL_M,
   REFILL_M,
-  ROCKET_REFILL_S,
-  ROCKET_STACK,
   REGEN_DELAY_S,
   REGEN_EVERY_S,
   SPEED_MODE_COOLDOWN_S,
@@ -649,7 +647,8 @@ export class Game {
       case 'voice': return this.onVoice(player, m);
       case 'socialPrefs': return this.social.setPrefs(player, m);
       case 'partyMark': return this.social.mark(player, m);
-      case 'rockets': return this.onRockets(player, m);
+      // Pages from before fireworks were endless still send their stock.
+      case 'rockets': return;
       case 'partyUnmark': return this.social.unmark(player, m);
       case 'password': return this.onPassword(player, m);
       case 'social': return this.onSocial(player, m);
@@ -962,7 +961,6 @@ export class Game {
       pos,
       health: player.health,
       oxygen: player.oxygen,
-      rockets: this.rocketsNow(record),
       // Seconds until a surge is allowed again. Its clock is the account's
       // (carried, above), but a reload, a second tab or a trip to another
       // world starts the page's afresh: told nothing, it offered a surge the
@@ -2747,7 +2745,7 @@ export class Game {
     const kinds = Object.entries(entry?.kinds ?? {}).sort((a, b) => b[1] - a[1]);
     const score = kinds.reduce((sum, [, value]) => sum + value, 0);
     const worst = kinds[0]?.[0] ?? 'speed';
-    const says = CHEATS[worst].says;
+    const says = CHEATS[worst]?.says ?? CHEATS.speed.says;
     const strikes = this.cheats.strike(player.key);
     const step = player.adminRole ? 0 : BAN_STEPS_MS[Math.min(strikes, BAN_STEPS_MS.length) - 1];
     const own = player.client.address;
@@ -3235,34 +3233,6 @@ export class Game {
     live.lander = { lat: player.state.lat, lon: player.state.lon, alt: player.state.alt };
     this.saveRecord(player.record);
     this.send(player.client, { t: 'lander', lander: live.lander });
-  }
-
-  /**
-   * What is left of each rocket the page carries, kept so that a reload is
-   * not a full set. The page counts them — the speed check bounds what any
-   * number of rockets can do — and the server keeps the count with you.
-   */
-  onRockets(player, m) {
-    // The page's stock is one whole number for each of its five rockets, none
-    // below nought or past a stack (Player.stock: fired only while there is
-    // one, refilled up to ROCKET_STACK, set from the server's own clamp). More
-    // than the server last counted is not one of these: a respawn refills it.
-    const sent = Array.isArray(m.stock) ? m.stock : null;
-    if (!sent || sent.length !== SWORD_SLOT || !sent.every((n) => Number.isInteger(n) && n >= 0 && n <= ROCKET_STACK)) {
-      if (this.detect(player, 'rockets', { stock: JSON.stringify(m.stock ?? null).slice(0, 60) })) return;
-    }
-    if (!Array.isArray(m.stock) || m.stock.length > 8) return;
-    const stock = m.stock.map((n) => Math.max(0, Math.min(ROCKET_STACK, Math.floor(Number(n) || 0))));
-    player.record.rockets = { stock, at: this.now() };
-    this.saveRecord(player.record);
-  }
-
-  /** The saved stock, with what has come back since. */
-  rocketsNow(record) {
-    const saved = record.rockets;
-    if (!saved || !Array.isArray(saved.stock)) return null;
-    const back = Math.floor(Math.max(0, this.now() - (saved.at ?? 0)) / 1000 / ROCKET_REFILL_S);
-    return saved.stock.map((n) => Math.min(ROCKET_STACK, n + back));
   }
 
   /* --------------------------------------------------------------- voice */

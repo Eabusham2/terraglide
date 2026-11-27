@@ -473,10 +473,6 @@ export class Game {
     this.bindVR();
     // Out of air. Somewhere you can breathe, which is what a random teleport
     // is for, and it says so rather than silently moving you.
-    // Running a slot dry is a thing that happened to you, so it says so.
-    this.player.on('outOfRockets', () => {
-      this.toast('Out of that rocket — it refills, or pick another', 'warn');
-    });
     // Hearts. Hurt flashes the edges and jolts the view; dying puts up the
     // screen with the one button on it.
     this.player.on('hurt', (how) => {

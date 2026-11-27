@@ -1111,57 +1111,25 @@ console.log('\nthe scanned city is something you stand on, not something you fal
     Math.abs(player.position.x - 6.2) < 0.01);
 }
 
-console.log('\nfireworks are a thing you carry, and they come back');
+console.log('\nfireworks are endless');
 {
-  const { settings } = await import('../src/core/settings.js');
-  const { cheats } = await import('../src/core/cheats.js');
-  const { Player, ROCKET_STACK, ROCKET_REFILL_S, HOTBAR } = await import('../src/player/player.js');
-
-  settings.set('rocketSupply', 'limited');
-  cheats.rocketFree = false;
+  const { Player, HOTBAR } = await import('../src/player/player.js');
   const frame = { toLocal: () => ({ x: 0, z: 0 }), toGeo: () => ({ lat: 0, lon: 0 }) };
   const player = new Player(frame);
   player.elytraDeployed = true;
-  player.selectSlot(0);
-
-  ok(`you start with a stack in every slot  (${ROCKET_STACK} x ${HOTBAR.length})`,
-    player.stock.length === HOTBAR.length && player.stock.every((n) => n === ROCKET_STACK));
-
-  // Each launch spends one, the way it does in Minecraft.
-  player.fireRocket();
-  player.fireRocket();
-  ok(`two launches spend two  (${player.stock[0]})`, player.stock[0] === ROCKET_STACK - 2);
-  ok('and only from the slot you fired', player.stock[1] === ROCKET_STACK);
-
-  // Run one dry and it says so rather than failing silently.
-  player.stock[0] = 1;
-  ok('the last one still fires', player.fireRocket() === true && player.stock[0] === 0);
-  let told = 0;
-  player.on('outOfRockets', () => { told++; });
-  ok('the next does not', player.fireRocket() === false);
-  ok('and you are told which slot ran dry', told === 1);
-  ok('while a slot you have not touched still works',
-    (player.selectSlot(1), player.fireRocket()) === true);
-
-  // They come back, per slot, and never past a stack.
-  player.selectSlot(0);
-  player.tickRefill(ROCKET_REFILL_S * 3 + 0.1);
-  ok(`three refill periods earn three back  (${player.stock[0]})`, player.stock[0] === 3);
-  player.stock[0] = ROCKET_STACK;
-  player.tickRefill(ROCKET_REFILL_S * 10);
-  ok('and a full slot does not overflow', player.stock[0] === ROCKET_STACK);
-
-  // Both escape hatches: the setting and the cheat.
-  player.stock[0] = 0;
-  settings.set('rocketSupply', 'unlimited');
-  ok('endless by setting fires from an empty slot', player.fireRocket() === true);
-  settings.set('rocketSupply', 'limited');
-  ok('and limited again refuses', player.fireRocket() === false);
-  cheats.rocketFree = true;
-  ok('endless by cheat fires too', player.fireRocket() === true);
-  cheats.rocketFree = false;
-
-  settings.set('rocketSupply', 'limited');
+  // A stack of 64 per slot that refilled every four seconds was taken out:
+  // every slot always lights, as many times as you like, online or not.
+  let fired = 0;
+  for (const slot of HOTBAR.keys()) {
+    player.selectSlot(slot);
+    for (let i = 0; i < 200; i++) if (player.fireRocket()) fired++;
+  }
+  ok(`every slot lights two hundred times running  (${fired} of ${HOTBAR.length * 200})`, fired === HOTBAR.length * 200);
+  ok('and nothing counts them', player.stock === undefined && player.rocketsLeft === undefined);
+  player.authority = 'server';
+  ok('on a server too', player.fireRocket() === true);
+  const settingsSrc = readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8');
+  ok('and there is no supply setting left to turn them back on', !/rocketSupply/.test(settingsSrc));
 }
 
 console.log('\nyour own legs are there when you look down mid-glide');
@@ -1608,9 +1576,6 @@ console.log('\na lit rocket works until its time is up, and never slows you');
 {
   const { Player } = await import('../src/player/player.js');
   const { PlayerController } = await import('../src/player/controller.js');
-  const { settings } = await import('../src/core/settings.js');
-  const was = settings.get('rocketSupply');
-  settings.set('rocketSupply', 'unlimited');
   const flat = { heightAt: () => 0, meshHeightAt: () => null, hasElevationAt: () => true, bedAt: () => -100 };
   const none = { forward: 0, right: 0, up: 0, sprint: false, crouch: false, jump: false };
   // The real player and the real glide tick, fireworks, hold and all.
@@ -1676,7 +1641,6 @@ console.log('\na lit rocket works until its time is up, and never slows you');
     ok(`weaving with Rocket ${slot} held levels off  (${minute[0].toFixed(0)} then ${minute[1].toFixed(0)} m/s)`,
       minute[1] < 170 && minute[1] <= minute[0] + 2);
   }
-  settings.set('rocketSupply', was);
 }
 
 console.log('\na firework may turn you and may not brake you');

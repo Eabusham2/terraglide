@@ -1377,7 +1377,6 @@ a script does. Those are counted against the account:
 | `target` | A hit on yourself, on a player number never handed out, or on somebody who has been on another world for six seconds while the page was up to date | 2 | The page only lists other players the server told it about, on its own world |
 | `reach` | A hit from more than 19.5 m — the reach, its allowance and fourteen metres more; more for players moving fast, and for what the target's claimed speed carries in 0.3 s — from everywhere the target has been in the last six seconds — judged only when the attacker's page is up to date (round trip under a second, no ping of the server's waiting over 2.5 s, no gap in what it sends for six seconds, not just arrived or put back) and the target has not teleported in that time | 4 | A page can only hit what it draws, and it draws other players where the server last said they were, at most two seconds old, or a moment ahead along their velocity. An ordinary out-of-reach hit — a slow connection does that — is refused and not counted |
 | `selfDamage` | Damage it reports itself other than drowning, two half-hearts at a time | 2 | Drowning is the only damage a page reports online; the server counts the oxygen tank and suffocates you itself, and `/kill` is a command |
-| `rockets` | A rocket stock that is not five whole numbers from 0 to 64 | 2 | That is the page's stock, always. (More rockets than the server last counted is fine: a respawn refills them) |
 | `message` | Something that is not JSON, a binary frame, a message with no type, or a type the server does not know | 1 | The page sends JSON objects of known types and nothing else |
 
 A page from a newer release that starts sending something new — a new kind of
@@ -1393,8 +1392,8 @@ arriving, immune or just gone; a move while a teleport is on its way, an
 arrival for an old teleport, a respawn when not dead; `/tpaccept` with no
 request, `/rtp`, `/travel` or `/spawn` while cooling down or in a fight, a
 lander too soon, an admin command typed by a player, party commands by a
-member who is not the leader; drowning messages bunched up by a stall; a stock
-of rockets bigger than the server's count; a position higher than 200 km
+member who is not the leader; drowning messages bunched up by a stall; a
+position higher than 200 km
 (a surge climbs that high on the smallest worlds), which is refused all the
 same. And floods — chat faster than six lines in six seconds, the players
 panel, map overlays, voice signalling, states past thirty a second — are
@@ -1477,8 +1476,7 @@ first gap in five seconds instead) — and any other gap with nothing
 arriving behind it, from a page not otherwise sending slowly, is left out for
 what is longer than the second and a half a page flies after a frame that
 long; and a page that only ever sends once a second keeps that speed for as
-long as it likes. How many rockets you have left
-is counted by the page, but
+long as it likes. Fireworks are endless, but
 however many you light the speed limit still holds. Players whose names
 look alike (`Alex` and `AIex`) are different accounts — check the colour.
 None of this lets anyone hurt somebody out of reach, go faster than the

@@ -54,7 +54,6 @@ export const CHEATS = {
   swordless: { weight: 3, says: 'hitting without a sword in hand' },
   reach: { weight: 4, says: 'hitting from out of reach' },
   selfDamage: { weight: 2, says: 'hurting itself in ways the game does not' },
-  rockets: { weight: 2, says: 'claiming rockets nobody can carry' },
   message: { weight: 1, says: 'sending messages no page sends' },
 };
 

@@ -99,8 +99,6 @@ export class PlayerRecord {
     this.oxygen = Number.isFinite(saved.oxygen) ? saved.oxygen : null;
     /** Friends, requests and preferences; see social.mjs. */
     this.social = saved.social && typeof saved.social === 'object' ? saved.social : null;
-    /** The rocket stock the page last reported, and when. */
-    this.rockets = saved.rockets && Array.isArray(saved.rockets.stock) ? saved.rockets : null;
     this.stats = { kills: 0, deaths: 0, playSeconds: 0, ...(saved.stats ?? {}) };
     /** Per world: { pos, explored (encoded), trail, waypoints, lander } as saved. */
     this.saved = saved.worlds && typeof saved.worlds === 'object' ? saved.worlds : {};
@@ -147,6 +145,6 @@ export class PlayerRecord {
         lander: live.lander,
       };
     }
-    return { version: 1, world: this.world, health: this.health, oxygen: this.oxygen, rockets: this.rockets, social: this.social, stats: this.stats, worlds };
+    return { version: 1, world: this.world, health: this.health, oxygen: this.oxygen, social: this.social, stats: this.stats, worlds };
   }
 }
