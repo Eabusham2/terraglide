@@ -1687,7 +1687,7 @@ export class Game {
       this.sky?.sunVec,
       !this.rig.isFreecam,
     );
-    this.rocketTrail.update(player, dt, rebasedX, rebasedZ);
+    this.rocketTrail.update(player, dt, rebasedX, rebasedZ, this.camera.position);
     // Everyone else: what they are doing, drawn; what you are doing, sent.
     this.session?.update(dt, this.camera, movement, rebasedX, rebasedZ);
     this.voice?.update(this.camera);

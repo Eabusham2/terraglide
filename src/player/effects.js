@@ -126,6 +126,34 @@ const TRAIL_POINTS = 90;
 const TRAIL_STEP_M = 0.6;
 /** Seconds a point survives after the rocket that made it burns out. */
 const TRAIL_LIFE_S = 1.4;
+/**
+ * Sparks closer than this to the camera are not drawn, metres. Each spark is
+ * laid where the player is, so in first person the newest ones sit right under
+ * the eye — and half a metre of point that close fills a large part of the
+ * screen. That was the flat coloured square in the bottom middle of the view
+ * while a rocket burned.
+ */
+const TRAIL_CLEAR_OF_EYE_M = 4;
+
+/**
+ * A round, soft dot for each spark. A PointsMaterial with no map draws every
+ * point as a hard-edged square.
+ */
+function sparkTexture() {
+  if (typeof document === 'undefined') return null;
+  const size = 64;
+  const canvas = Object.assign(document.createElement('canvas'), { width: size, height: size });
+  const ctx = canvas.getContext('2d');
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  gradient.addColorStop(0, 'rgba(255,255,255,1)');
+  gradient.addColorStop(0.35, 'rgba(255,255,255,0.6)');
+  gradient.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
 
 /**
  * The spark trail a firework leaves behind you.
@@ -140,6 +168,8 @@ export class RocketTrail {
   constructor(scene) {
     this.positions = new Float32Array(TRAIL_POINTS * 3);
     this.colours = new Float32Array(TRAIL_POINTS * 3);
+    /** Each spark's own rocket colour; `colours` is what is drawn this frame. */
+    this.base = new Float32Array(TRAIL_POINTS * 3);
     this.ages = new Float32Array(TRAIL_POINTS);
     this.alive = new Uint8Array(TRAIL_POINTS);
     this.next = 0;
@@ -151,6 +181,7 @@ export class RocketTrail {
     geometry.setDrawRange(0, TRAIL_POINTS);
     this.geometry = geometry;
     this.material = new THREE.PointsMaterial({
+      map: sparkTexture(),
       size: 0.5,
       sizeAttenuation: true,
       vertexColors: true,
@@ -173,6 +204,7 @@ export class RocketTrail {
     this.alive.fill(0);
     this.ages.fill(0);
     this.colours.fill(0);
+    this.base.fill(0);
     this.positions.fill(0);
     // The cursor too, or the next trail starts wherever the last one stopped
     // and the buffer keeps stale coordinates in the slots before it.
@@ -188,8 +220,10 @@ export class RocketTrail {
    * @param {number} dt
    * @param {number} rebaseX how far the world origin moved this frame
    * @param {number} rebaseZ
+   * @param {THREE.Vector3} [eye] where the camera is, so sparks on top of it
+   *   are left out (TRAIL_CLEAR_OF_EYE_M)
    */
-  update(player, dt, rebaseX = 0, rebaseZ = 0) {
+  update(player, dt, rebaseX = 0, rebaseZ = 0, eye = null) {
     const position = this.geometry.getAttribute('position');
     const colour = this.geometry.getAttribute('color');
 
@@ -223,9 +257,9 @@ export class RocketTrail {
         this.positions[i * 3 + 2] = p.z;
         const slot = Math.min(ROCKET_COLOURS.length - 1, Math.max(0, (player.rocketDuration ?? 1) - 1));
         this._colour.set(ROCKET_COLOURS[slot]);
-        this.colours[i * 3] = this._colour.r;
-        this.colours[i * 3 + 1] = this._colour.g;
-        this.colours[i * 3 + 2] = this._colour.b;
+        this.base[i * 3] = this._colour.r;
+        this.base[i * 3 + 1] = this._colour.g;
+        this.base[i * 3 + 2] = this._colour.b;
         this.ages[i] = 0;
         this.alive[i] = 1;
         this.last.set(p.x, p.y, p.z);
@@ -250,16 +284,21 @@ export class RocketTrail {
         continue;
       }
       any = true;
-      // Additive blending means dimming the colour is the whole of fading out.
-      const k = left * left;
+      // Additive blending means dimming the colour is the whole of fading out,
+      // and black is not drawn at all.
       const slot = i * 3;
-      const r = this.colours[slot];
-      const g = this.colours[slot + 1];
-      const b = this.colours[slot + 2];
-      const norm = Math.max(r, g, b) || 1;
-      this.colours[slot] = (r / norm) * k;
-      this.colours[slot + 1] = (g / norm) * k;
-      this.colours[slot + 2] = (b / norm) * k;
+      let k = left * left;
+      if (eye) {
+        const near = Math.hypot(
+          this.positions[slot] - eye.x,
+          this.positions[slot + 1] - eye.y,
+          this.positions[slot + 2] - eye.z,
+        );
+        if (near < TRAIL_CLEAR_OF_EYE_M) k = 0;
+      }
+      this.colours[slot] = this.base[slot] * k;
+      this.colours[slot + 1] = this.base[slot + 1] * k;
+      this.colours[slot + 2] = this.base[slot + 2] * k;
     }
     colour.needsUpdate = true;
     this.points.visible = any;
@@ -267,6 +306,7 @@ export class RocketTrail {
 
   dispose() {
     this.geometry.dispose();
+    this.material.map?.dispose();
     this.material.dispose();
     this.points.parent?.remove(this.points);
   }
