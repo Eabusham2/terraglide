@@ -370,14 +370,14 @@ export function drawMap(ctx, view, layers) {
 
   if (options.waypoints && layers.waypointStore) {
     drawWaypoints(ctx, layers.waypointStore, toScreen, options.labels !== false,
-      options.pinWaypoints ? { width, height, shape: options.pinShape } : null);
+      options.pinWaypoints ? { width, height, shape: options.pinShape, rotation } : null);
   }
 
   // The party's waypoints: diamonds, in the colour of whoever put them down.
   const partyMarks = options.waypoints ? layers.others?.marks?.() ?? [] : [];
   if (partyMarks.length) {
     drawPartyMarks(ctx, partyMarks, toScreen, options.labels !== false,
-      options.pinWaypoints ? { width, height, shape: options.pinShape } : null);
+      options.pinWaypoints ? { width, height, shape: options.pinShape, rotation } : null);
   }
 
   // Everyone else, as an arrow in their colour with their name, then you on top.
@@ -507,29 +507,36 @@ const PIN_INSET = 9;
 
 /**
  * Where to draw a place on a map that may not reach it: where it is, or — with
- * `pin` — pushed in along the line from the map's centre to the nearest point
- * inside the edge, so a waypoint off the minimap still shows which way it is.
+ * `pin` — pushed in towards the centre until it is just inside the edge, so a
+ * waypoint off the minimap still shows which way it is.
+ *
+ * `p` is in the map's drawing frame, which is centred on the map and turned
+ * by its rotation; the edge is the one on screen, so the point is turned into
+ * screen space to be measured and turned back to be drawn.
  */
 export function pinned(p, pin) {
   if (!pin) return { x: p.x, y: p.y, edge: false };
-  const cx = pin.width / 2;
-  const cy = pin.height / 2;
-  const hx = cx - PIN_INSET;
-  const hy = cy - PIN_INSET;
-  const dx = p.x - cx;
-  const dy = p.y - cy;
+  const turn = pin.rotation || 0;
+  const c = Math.cos(turn);
+  const s = Math.sin(turn);
+  const sx = p.x * c - p.y * s;
+  const sy = p.x * s + p.y * c;
+  const hx = pin.width / 2 - PIN_INSET;
+  const hy = pin.height / 2 - PIN_INSET;
   // How far past the edge, by the map's own outline: a circle's radius, a
   // squircle's |x|^4 + |y|^4, and the square's sides for the rest — the
   // corners a rounder frame cuts off would hide a pin put there.
-  const ux = Math.abs(dx) / hx;
-  const uy = Math.abs(dy) / hy;
+  const ux = Math.abs(sx) / hx;
+  const uy = Math.abs(sy) / hy;
   const over = pin.shape === 'circle'
     ? Math.hypot(ux, uy)
     : pin.shape === 'squircle'
       ? Math.pow(ux ** 4 + uy ** 4, 0.25)
       : Math.max(ux, uy);
   if (!(over > 1)) return { x: p.x, y: p.y, edge: false };
-  return { x: cx + dx / over, y: cy + dy / over, edge: true };
+  const tx = sx / over;
+  const ty = sy / over;
+  return { x: tx * c + ty * s, y: -tx * s + ty * c, edge: true };
 }
 
 function drawWaypoints(ctx, store, toScreen, labels, pin = null) {

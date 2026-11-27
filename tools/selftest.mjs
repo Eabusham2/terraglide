@@ -12196,15 +12196,20 @@ console.log('\nwaypoints always show, on the minimap and on screen');
   ok('without a beam', !beacons.beams.has(3));
   ok('and straight ahead on the horizon', far && !far.edge && Math.abs(far.x - 0.5) < 0.05);
 
+  // The map draws from its centre, turned by its rotation, so that is the
+  // frame a pin is worked out in. Assuming a top-left origin pinned every far
+  // waypoint somewhere off the map, and the minimap showed nothing.
   const { pinned } = await import('../src/ui/mapRenderer.js');
-  const off = { x: 400, y: 120 };
-  const square = pinned(off, { width: 240, height: 240, shape: 'rounded' });
+  const square = pinned({ x: 290, y: 0 }, { width: 240, height: 240, shape: 'rounded' });
   ok(`off the minimap, a waypoint is pinned inside its edge  (${square.x.toFixed(0)}, ${square.y.toFixed(0)})`,
-    square.edge && square.x <= 231 && square.x >= 9 && Math.abs(square.y - 120) < 0.01);
-  const corner = pinned({ x: 600, y: 600 }, { width: 240, height: 240, shape: 'circle' });
-  ok('and inside the circle on a round one', corner.edge && Math.hypot(corner.x - 120, corner.y - 120) <= 111 + 0.01);
-  const inside = pinned({ x: 100, y: 90 }, { width: 240, height: 240, shape: 'circle' });
-  ok('one on the map stays where it is', !inside.edge && inside.x === 100 && inside.y === 90);
+    square.edge && Math.abs(square.x - 111) < 0.01 && Math.abs(square.y) < 0.01);
+  const corner = pinned({ x: 480, y: 480 }, { width: 240, height: 240, shape: 'circle' });
+  ok('and inside the circle on a round one', corner.edge && Math.abs(Math.hypot(corner.x, corner.y) - 111) < 0.01);
+  const turned = pinned({ x: 500, y: 0 }, { width: 240, height: 240, shape: 'rounded', rotation: Math.PI / 2 });
+  ok('and on the edge you see when the minimap turns with you',
+    turned.edge && Math.abs(Math.hypot(turned.x, turned.y) - 111) < 0.01 && Math.abs(turned.y) < 0.01);
+  const inside = pinned({ x: -10, y: -20 }, { width: 240, height: 240, shape: 'circle' });
+  ok('one on the map stays where it is', !inside.edge && inside.x === -10 && inside.y === -20);
   const minimap = readFileSync(new URL('../src/ui/minimap.js', import.meta.url), 'utf8');
   ok('and the minimap asks for it', /pinWaypoints: true/.test(minimap));
 }
