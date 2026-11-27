@@ -596,7 +596,12 @@ export class Terrain {
     // looking at: it rose, and settled, and rose again. Asking for the finest
     // rung over the next few kilometres up front means most of it is built
     // once, at the height it is going to stay at.
+    //
+    // And all round you as well, a tile each way, so turning to look somewhere
+    // new near the ground finds its relief already there rather than starting
+    // it from the coarse rungs and settling.
     if (altitude < FINE_AHEAD_BELOW_M && this._viewX !== undefined) {
+      this.elevation.ensureAround(this._norm.nx, this._norm.ny, this.elevation.maxZoom, 1);
       const ahead = clamp(altitude * 4, 300, 2000);
       this.frame.worldToNorm(camX + this._viewX * ahead, camZ + this._viewZ * ahead, this._ahead);
       this.elevation.ensureAround(this._ahead.nx, this._ahead.ny, this.elevation.maxZoom, 2);

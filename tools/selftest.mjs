@@ -12245,6 +12245,8 @@ console.log('\nturning round keeps the ground you just saw');
   ok('six height tiles come down at once', /this\.maxActive = 6;/.test(elevationSrc));
   ok('and the finest relief ahead is asked for before you get there',
     /ensureAround\(this\._ahead\.nx, this\._ahead\.ny, this\.elevation\.maxZoom, 2\)/.test(terrainSrc));
+  ok('and all round you, for turning to look somewhere new',
+    /ensureAround\(this\._norm\.nx, this\._norm\.ny, this\.elevation\.maxZoom, 1\)/.test(terrainSrc));
 }
 
 console.log('\nevery module still parses');
