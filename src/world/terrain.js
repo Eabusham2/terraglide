@@ -101,6 +101,19 @@ const SKIRT_REACH = 4;
  */
 const NEAR_GEOMETRY_M = 64;
 
+/**
+ * How long a square waits for its finest heights before taking a coarser rung
+ * that has landed in the meantime, in milliseconds.
+ *
+ * Relief streams in a rung at a time — the coarse blanket, then zoom ten,
+ * twelve, fifteen — and a square rebuilt on every rung that landed walked up
+ * and down to each of them in turn: the ground rising and settling over and
+ * over, worst on arriving somewhere, when every rung lands within a couple of
+ * seconds. While the square's own zoom is already on its way it now waits for
+ * it and moves once. Four seconds is the most it waits, so a slow connection
+ * still gets the better rung rather than none.
+ */
+const FINER_WAIT_MS = 4000;
 /** How far the ground has to move under a square before it is rebuilt. */
 const MOVED_MIN_M = 0.25;
 /**
@@ -170,6 +183,15 @@ const HOLE_RATHER_THAN_STALL = 2;
  */
 const MORPH_SECONDS = 0.33;
 const MORPH_MIN_M = 0.05;
+/**
+ * The most a rebuild may walk, metres. Bigger changes happen at once.
+ *
+ * Walking a big change was the ground visibly rising and sinking back as finer
+ * heights landed — and asked again, with some force, not to: "just change it
+ * without going up and down". Under a metre and a half a walk reads as nothing
+ * at all, which is what it is for.
+ */
+const MORPH_MAX_M = 1.5;
 
 const FLOOR_REACH = 250;
 /** Below this height above the ground, the finest relief ahead is fetched early. */
@@ -510,6 +532,18 @@ export class Terrain {
     // no hole to see it through, just the sky. Which is "in freecam the ground
     // behind me is invisible", and most of what "the ground is not holding, as
     // seen by freecam" was actually showing.
+    //
+    // And as it is pointed *this* frame. The camera's matrices are only brought
+    // up to date when the frame is rendered, which is after this; read here
+    // without refreshing them they are the last frame's. Turning, that is a
+    // view cone one frame behind the one drawn through, and every square
+    // swinging in on the leading side was culled for the frame it first
+    // appeared in — a hole through to the haze-coloured edge of the world. A
+    // fast turn at sixty frames a second is fifteen degrees a frame, a fifth
+    // of the view; at the lower frame rates of High and Ultra, more. That was
+    // the ground flickering into flat tan and grey slabs while turning.
+    viewCamera.updateMatrixWorld();
+    if (camera !== viewCamera) camera.updateMatrixWorld();
     this.projScreenMatrix.multiplyMatrices(
       viewCamera.projectionMatrix,
       viewCamera.matrixWorldInverse,
@@ -720,25 +754,20 @@ export class Terrain {
   }
 
   /**
-   * How much further a tile may be and still subdivide, given where you look.
+   * How much further a tile may be and still subdivide, given where you look:
+   * not at all, any more.
    *
-   * Detail costs the same wherever it is spent, so spending it evenly means
-   * spending most of it on ground nobody is looking at. Tiles inside the view
-   * cone get a quarter more reach and tiles behind you a quarter less — a
-   * little over half a level either way — so the horizon you are facing
-   * reaches full detail sooner and the ground behind your head stays coarse
-   * until you turn round.
-   *
-   * Ground close enough to be underfoot is exempt: it is about to be in view
-   * whichever way you turn, and it is what you land on.
+   * Tiles inside the view cone used to get a quarter more reach and tiles
+   * behind you a quarter less, so the horizon you faced sharpened sooner.
    */
-  splitScale(cx, cz, camX, camZ, flatDist, size) {
-    if (flatDist < size) return 1;
-    const dx = cx - camX;
-    const dz = cz - camZ;
-    const len = Math.hypot(dx, dz);
-    if (len < 1) return 1;
-    return 1 + ((dx * this._viewX + dz * this._viewZ) / len) * 0.25;
+  splitScale() {
+    // Detail by distance alone. Leaning it a quarter towards the view meant
+    // every turn of the head re-cut the ground in front of you — squares
+    // splitting as they swung into view and merging as they swung out, each
+    // one a rebuild and a fresh photograph — which is the flicker turning
+    // round. Ground you have already seen now stays exactly as it was built
+    // whichever way you face.
+    return 1;
   }
 
   visit(tile, camera, camX, camZ, renderDistance, maxZoom) {
@@ -1029,6 +1058,7 @@ export class Terrain {
     // "the ground has not visibly moved" means every rung of the pyramid still
     // redraws the mesh, and the careful test upstairs decides nothing.
     if (node && !node.dirty && bestZoom > builtFrom && node.mesh
+      && !this.finerOnTheWay(node, x0, z0, size, bestZoom)
       && this.groundMoved(node, size,
         this.seeableMove(node, size, this._camX ?? x0, this._camZ ?? z0))) {
       node.dirty = true;
@@ -1250,7 +1280,7 @@ export class Terrain {
     }
 
     // Keep a matching elevation tile alive for this area.
-    const elevZ = Math.min(node.tile.z, this.elevation.maxZoom);
+    const elevZ = this.elevationZoomForTile(node.tile);
     const shift = node.tile.z - elevZ;
     this.elevation.request(
       { z: elevZ, x: node.tile.x >> shift, y: node.tile.y >> shift },
@@ -1552,7 +1582,9 @@ export class Terrain {
         for (let v = 0; v < prevY.length; v += 1) prevY[v] = positions[v * 3 + 1];
         moved = 0;
       }
-      startMorph = moved > MORPH_MIN_M;
+      // Only a small correction walks. Anything you would see move — the
+      // ground going up and then settling back down — changes in one go.
+      startMorph = moved > MORPH_MIN_M && moved <= MORPH_MAX_M;
     }
     geometry.boundingSphere = new THREE.Sphere(
       new THREE.Vector3(size / 2, (minY + maxY) / 2, size / 2),
@@ -1613,6 +1645,7 @@ export class Terrain {
       node.material.uniforms.uCanopy.value = this.streamer.canopyAt?.(tile) ?? 0;
     }
     node.dirty = false;
+    node.finerWaitSince = undefined;
     node.builtVersion = this.elevation.version ?? 0;
     node.used = this.streamer.frame;
 
@@ -1837,6 +1870,8 @@ export class Terrain {
       // MOVED_CHECK_MS.
       if (moment - (node.movedCheckedAt ?? -Infinity) < MOVED_CHECK_MS) continue;
       node.movedCheckedAt = moment;
+      // A finer rung for this square on its way: wait for it, and move once.
+      if (this.finerOnTheWay(node, node.mesh.position.x, node.mesh.position.z, size)) continue;
       // A deeper elevation zoom being available used to force the rebuild on
       // its own. It is the wrong question: what matters is whether the surface
       // this square would draw differs from the one on screen by enough to be
@@ -1930,6 +1965,47 @@ export class Terrain {
    * compared with what the mesh was made from. Half a metre is well under
    * anything you could see and well over the noise of a bilinear sample.
    */
+  /**
+   * Whether this square's own elevation zoom has been asked for and is still
+   * coming, so a rebuild now would only be one more rung to walk through. See
+   * FINER_WAIT_MS.
+   */
+  finerOnTheWay(node, x0, z0, size, best = this.elevationZoomFor(x0, z0, size)) {
+    // Ground built before any height had arrived is standing in for the real
+    // thing, and the first real heights replace it at once: waiting there
+    // only leaves it at sea level longer.
+    if (!((node.builtElevZoom ?? -1) >= 0)) return false;
+    // Only the finest rung, which is the one fetched early all round you and
+    // ahead (see FINE_AHEAD_BELOW_M): those squares all receive it together.
+    // Holding squares for rungs that land at different moments puts
+    // neighbours at different heights with a gap between them.
+    const target = this.elevationZoomForTile(node.tile);
+    if (target < this.elevation.maxZoom || !(best < target)) return false;
+    this._waitNorm ??= { nx: 0, ny: 0 };
+    this.frame.worldToNorm(x0 + size / 2, z0 + size / 2, this._waitNorm);
+    if (!this.elevation.awaiting?.(this._waitNorm.nx, this._waitNorm.ny, target)) return false;
+    const moment = typeof performance === 'undefined' ? Date.now() : performance.now();
+    node.finerWaitSince ??= moment;
+    return moment - node.finerWaitSince < FINER_WAIT_MS;
+  }
+
+  /**
+   * The elevation zoom a square asks for: two levels above its own, and never
+   * past the finest there is.
+   *
+   * A square's mesh has at most sixty-five vertices along a side, and an
+   * elevation tile two levels up still lays sixty-four samples across it, so
+   * nothing finer can show. Asking at the square's own zoom fetched sixteen
+   * times as many tiles for mid-distance ground — hundreds queued on High and
+   * Ultra — and the relief near you waited behind them, so the ground went on
+   * changing for longer the higher the setting.
+   */
+  elevationZoomForTile(tile) {
+    // Never deeper than the square itself, so a root square cannot ask for
+    // a tile that does not sit inside it.
+    return Math.min(Math.max(tile.z - 2, Math.min(3, tile.z)), this.elevation.maxZoom);
+  }
+
   groundMoved(node, size, enough = MOVED_MIN_M) {
     const built = node.builtHeights;
     if (!built) return false;

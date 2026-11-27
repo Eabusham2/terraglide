@@ -4904,16 +4904,24 @@ console.log('\nTurning your head does not lose the ground');
       const morph = node.material.uniforms.uMorph;
       ok('and starts settled, having nowhere to walk from', morph.value === 1);
 
-      // Move the ground under it and rebuild: it should set off walking.
+      // Move the ground under it a little and rebuild: a small correction
+      // walks. build(tile, x0, z0, size, existing) — rebuilding the node in
+      // place is what an elevation refresh does, and it is the path that
+      // morphs.
       const position = node.geometry.attributes.position.array;
-      for (let v = 1; v < position.length; v += 3) position[v] += 12;
-      node.dirty = true;
-      terrain.budget = { ms: 1e6, start: performance.now(), built: 0, refreshed: 0 };
-      // build(tile, x0, z0, size, existing) — rebuilding the node in place is
-      // what an elevation refresh does, and it is the path that morphs.
-      terrain.build(node.tile, node.mesh.position.x, node.mesh.position.z,
-        frame.worldTileSize(node.tile.z), node);
-      ok(`ground that moved sets off walking  (uMorph ${morph.value})`, morph.value === 0);
+      const rebuild = (by) => {
+        for (let v = 1; v < position.length; v += 3) position[v] += by;
+        node.dirty = true;
+        terrain.budget = { ms: 1e6, start: performance.now(), built: 0, refreshed: 0 };
+        terrain.build(node.tile, node.mesh.position.x, node.mesh.position.z,
+          frame.worldTileSize(node.tile.z), node);
+      };
+      // A big change happens at once: walking twelve metres up and back down
+      // was the ground visibly rising and settling, asked not to.
+      rebuild(12);
+      ok(`ground that moved a long way changes at once  (uMorph ${morph.value})`, morph.value === 1);
+      rebuild(1);
+      ok(`and a small correction walks  (uMorph ${morph.value})`, morph.value === 0);
 
       // And it gets there, in about the time it says.
       let elapsed = 0;
@@ -7885,7 +7893,7 @@ console.log('\nA tile that is culled is still a tile that needs rebuilding');
     /const MOVED_MIN_RAD = 0\.002;/.test(terrain)
     && /Math\.hypot\(cx - camX, cz - camZ\) \* MOVED_MIN_RAD/.test(terrain));
   ok('and the draw path asks the same question, not a different one',
-    /bestZoom > builtFrom && node\.mesh\n\s*&& this\.groundMoved\(node, size,/.test(terrain));
+    /bestZoom > builtFrom && node\.mesh\n\s*&& !this\.finerOnTheWay\(node, x0, z0, size, bestZoom\)\n\s*&& this\.groundMoved\(node, size,/.test(terrain));
   /*
     While a deeper elevation tile is still coming, the rungs in between are not
     steps toward the answer — they are different answers. Traced at one fixed
@@ -9139,26 +9147,17 @@ console.log('\nthe map you have actually seen');
     before && e.isExplored(4, x >> 4, y >> 4));
 }
 
-console.log('\ndetail follows your eyes');
+console.log('\ndetail follows distance, not where you look');
 {
-  const terrainSource = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
-  ok('the split threshold is weighted by where you are looking',
-    /const line = size \* this\.lodFactor \* this\.splitScale\(/.test(terrainSource));
-  // Borrow the method rather than standing a whole quadtree up: it is pure
-  // arithmetic on the view vector, and that is the whole of the behaviour.
+  // It leaned a quarter towards the view, so every turn of the head re-cut the
+  // ground in front of you: squares splitting as they swung into view and
+  // merging as they swung out — the flicker turning round.
   const { Terrain } = await import('../src/world/terrain.js');
   const probe = { _viewX: 0, _viewZ: -1, splitScale: Terrain.prototype.splitScale };
   const ahead = probe.splitScale(0, -10000, 0, 0, 10000, 500);
   const behind = probe.splitScale(0, 10000, 0, 0, 10000, 500);
   const across = probe.splitScale(10000, 0, 0, 0, 10000, 500);
-  ok('ground you are facing subdivides from further away', ahead > across,
-    `${ahead.toFixed(2)} vs ${across.toFixed(2)} across`);
-  ok('and ground behind you from closer', behind < across,
-    `${behind.toFixed(2)} vs ${across.toFixed(2)}`);
-  ok('by well under a level either way, so turning round is not a rebuild',
-    ahead / behind < 2, `${(ahead / behind).toFixed(2)}x`);
-  ok('and ground underfoot is never coarsened for facing away',
-    probe.splitScale(0, 300, 0, 0, 300, 500) === 1);
+  ok('ground ahead, across and behind splits at the same distance', ahead === 1 && behind === 1 && across === 1);
 }
 
 console.log('\nthe edge of the loaded world');
@@ -12245,8 +12244,40 @@ console.log('\nturning round keeps the ground you just saw');
   ok('six height tiles come down at once', /this\.maxActive = 6;/.test(elevationSrc));
   ok('and the finest relief ahead is asked for before you get there',
     /ensureAround\(this\._ahead\.nx, this\._ahead\.ny, this\.elevation\.maxZoom, 2\)/.test(terrainSrc));
+  const zoomFor = (z) => Terrain.prototype.elevationZoomForTile.call({ elevation: { maxZoom: 15 } }, { z });
+  ok(`a square asks for heights two levels up  (z13 -> z${zoomFor(13)}, z18 -> z${zoomFor(18)}, z2 -> z${zoomFor(2)})`,
+    zoomFor(13) === 11 && zoomFor(18) === 15 && zoomFor(2) === 2);
+  ok('and only waits for the finest rung, and never while it has no heights at all',
+    /if \(!\(\(node\.builtElevZoom \?\? -1\) >= 0\)\) return false;/.test(terrainSrc)
+    && /if \(target < this\.elevation\.maxZoom \|\| !\(best < target\)\) return false;/.test(terrainSrc));
   ok('and all round you, for turning to look somewhere new',
     /ensureAround\(this\._norm\.nx, this\._norm\.ny, this\.elevation\.maxZoom, 1\)/.test(terrainSrc));
+}
+
+console.log('\nthe ground is culled against where the camera points this frame');
+{
+  const terrainSrc = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  const gameSrc = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  // The camera's matrices are refreshed when the frame renders, after the
+  // ground is chosen, so turning culled the squares swinging into view for the
+  // frame they first appeared in: holes through to the edge of the world.
+  ok('the view cone is refreshed before it is read',
+    /viewCamera\.updateMatrixWorld\(\);\n[\s\S]{0,120}this\.projScreenMatrix\.multiplyMatrices\(\n\s*viewCamera\.projectionMatrix,/.test(terrainSrc));
+  ok('and the game refreshes it as soon as the rig has turned it',
+    /this\.rig\.update\(player, dt, this\.terrain, movement\);\n[\s\S]{0,300}this\.camera\.updateMatrixWorld\(\);/.test(gameSrc));
+  const THREE = await import('../vendor/three/three.module.js');
+  const cam = new THREE.PerspectiveCamera(70, 16 / 9, 0.15, 1e6);
+  cam.updateMatrixWorld();
+  cam.rotation.set(0, Math.PI / 2, 0);
+  const frustum = new THREE.Frustum();
+  const look = () => frustum.setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+  const box = new THREE.Box3(new THREE.Vector3(-1100, -10, -10), new THREE.Vector3(-900, 10, 10));
+  look();
+  const stale = frustum.intersectsBox(box);
+  cam.updateMatrixWorld();
+  look();
+  ok(`a square that swung into view is culled on stale matrices and kept on fresh ones  (${stale} -> ${frustum.intersectsBox(box)})`,
+    stale === false && frustum.intersectsBox(box) === true);
 }
 
 console.log('\nevery module still parses');

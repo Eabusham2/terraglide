@@ -1481,6 +1481,10 @@ export class Game {
     player.syncGeo();
 
     this.rig.update(player, dt, this.terrain, movement);
+    // Everything after this that culls or projects against the camera — the
+    // ground, the waypoint labels — needs where it points now, not where it
+    // pointed when the last frame was drawn. See Terrain.update.
+    this.camera.updateMatrixWorld();
     // The flight model reads the bank off the player; the rig owns it because
     // that is where the input for it lands.
     player.roll = this.rig.roll;
