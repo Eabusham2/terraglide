@@ -6916,20 +6916,16 @@ console.log('\nLosing the graphics context is survivable');
 }
 
 // ---------------------------------------------------------------------------
-console.log('\nJump opens the wings and never shuts them');
+console.log('\nJump opens the wings, and stows them again');
 {
   const controller = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');
-  // A press in the air used to toggle. Measured while gliding at 1.4 m/s down:
-  // one press of the jump key and the wings shut and the fall went to 16 m/s.
-  // Minecraft deploys on space and does nothing at all on the next press; you
-  // stow by landing, or with the key that is for stowing.
-  ok('a press in the air only ever opens them',
-    /if \(!player\.elytraDeployed\) player\.toggleElytra\(true\);/.test(controller));
-  ok('and there is no toggle left on that path',
-    !/player\.toggleElytra\(!player\.elytraDeployed\)/.test(controller));
+  // It only ever opened them, and "I can't press space and stop the glider"
+  // was the answer to that: a press in the air is a toggle.
+  ok('a press in the air toggles them',
+    /player\.toggleElytra\(!player\.elytraDeployed\);/.test(controller));
   const help = readFileSync(new URL('../src/ui/help.js', import.meta.url), 'utf8');
-  ok('and the card no longer promises a toggle',
-    /press again once airborne to open the wings/.test(help)
+  ok('and the card says so',
+    /press again in the air to open the wings, and again to stow them/.test(help)
     && /Open or stow the wings/.test(help));
 }
 
@@ -8906,11 +8902,8 @@ console.log('\nWalking, jumping and falling like Minecraft');
     tap();
     ok('a second tap in the air opens the wings', r.player.elytraDeployed);
     tap();
-    // And a third leaves them open. This asserted the opposite, because the
-    // key was a toggle — which is what "pressing jump breaks it" was: gliding
-    // down at 1.4 m/s, one press, wings shut, falling at 16. Minecraft does
-    // nothing on that press, and so does this now; the wings key stows.
-    ok('and a third leaves them open', r.player.elytraDeployed);
+    // And a third stows them again: Space takes you out of a glide as well.
+    ok('and a third stows them', !r.player.elytraDeployed);
 
     const held = rig();
     held.player.onGround = true;
