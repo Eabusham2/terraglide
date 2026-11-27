@@ -12147,6 +12147,68 @@ console.log('\na game controller, and a VR headset');
     /runFrame\(now\) \{\s*try \{\s*this\.loop\(now\);\s*\} catch \(error\) \{\s*setTimeout\(\(\) => \{\s*throw error;/.test(game));
 }
 
+console.log('\nthe rocket sparks are round and stay out of your eyes');
+{
+  const effects = readFileSync(new URL('../src/player/effects.js', import.meta.url), 'utf8');
+  // A PointsMaterial with no map draws every point as a square, and each spark
+  // was laid where the player is — right under the eye in first person. That
+  // was the flat coloured square in the bottom middle of the view.
+  ok('each spark is drawn as a soft round dot', /map: sparkTexture\(\)/.test(effects));
+  const { RocketTrail } = await import('../src/player/effects.js');
+  const THREE = await import('../vendor/three/three.module.js');
+  const trail = new RocketTrail({ add() {} });
+  const player = { position: new THREE.Vector3(0, 100, 0), rocketTicksLeft: 10, rocketDuration: 3 };
+  trail.update(player, 0.05, 0, 0, new THREE.Vector3(0, 101.5, 0));
+  const lit = (i) => trail.colours[i * 3] + trail.colours[i * 3 + 1] + trail.colours[i * 3 + 2];
+  ok('a spark at the camera is not drawn', lit(0) === 0);
+  trail.update(player, 0.05, 0, 0, new THREE.Vector3(0, 100, 40));
+  ok('and one forty metres off is', lit(0) > 0);
+  trail.dispose();
+}
+
+console.log('\nwaypoints always show, on the minimap and on screen');
+{
+  const THREE = await import('../vendor/three/three.module.js');
+  const { Beacons, BEACON_REACH_M } = await import('../src/world/beacons.js');
+  const { haversine } = await import('../src/geo/mercator.js');
+  const M = 111320;
+  const frame = { toWorld: (lat, lon, out) => { out.x = lon * M; out.z = -lat * M; return out; } };
+  const store = { waypoints: [] };
+  const beacons = new Beacons({ scene: new THREE.Scene(), store, terrain: { heightAt: () => 0 }, frame });
+  const camera = new THREE.PerspectiveCamera(70, 16 / 9, 1, 1e7);
+  camera.position.set(0, 300, 0);
+  camera.lookAt(0, 300, -1000);
+  camera.updateMatrixWorld();
+  const player = { lat: 0, lon: 0 };
+  const labelFor = (w) => {
+    store.waypoints = [w];
+    beacons.update(camera, player);
+    return beacons.labels[0];
+  };
+  const ahead = labelFor({ id: 1, name: 'ahead', lat: 0.05, lon: 0 });
+  ok('a waypoint ahead is labelled where it is', ahead && !ahead.edge && Math.abs(ahead.x - 0.5) < 0.05);
+  const behind = labelFor({ id: 2, name: 'behind', lat: -0.05, lon: 0.01 });
+  ok(`one behind you is pinned to the edge of the screen  (${behind?.x?.toFixed(2)}, ${behind?.y?.toFixed(2)})`,
+    behind && behind.edge && behind.x >= 0.07 && behind.x <= 0.93 && behind.y >= 0.12 && behind.y <= 0.94);
+  const far = labelFor({ id: 3, name: 'far', lat: 20, lon: 0 });
+  ok(`one ${Math.round(haversine(player, { lat: 20, lon: 0 }) / 1000)} km off, far past a beam's ${BEACON_REACH_M / 1000} km, still shows`,
+    far && Math.abs(far.metres - haversine(player, { lat: 20, lon: 0 })) < 1);
+  ok('without a beam', !beacons.beams.has(3));
+  ok('and straight ahead on the horizon', far && !far.edge && Math.abs(far.x - 0.5) < 0.05);
+
+  const { pinned } = await import('../src/ui/mapRenderer.js');
+  const off = { x: 400, y: 120 };
+  const square = pinned(off, { width: 240, height: 240, shape: 'rounded' });
+  ok(`off the minimap, a waypoint is pinned inside its edge  (${square.x.toFixed(0)}, ${square.y.toFixed(0)})`,
+    square.edge && square.x <= 231 && square.x >= 9 && Math.abs(square.y - 120) < 0.01);
+  const corner = pinned({ x: 600, y: 600 }, { width: 240, height: 240, shape: 'circle' });
+  ok('and inside the circle on a round one', corner.edge && Math.hypot(corner.x - 120, corner.y - 120) <= 111 + 0.01);
+  const inside = pinned({ x: 100, y: 90 }, { width: 240, height: 240, shape: 'circle' });
+  ok('one on the map stays where it is', !inside.edge && inside.x === 100 && inside.y === 90);
+  const minimap = readFileSync(new URL('../src/ui/minimap.js', import.meta.url), 'utf8');
+  ok('and the minimap asks for it', /pinWaypoints: true/.test(minimap));
+}
+
 console.log('\nevery module still parses');
 {
   /*

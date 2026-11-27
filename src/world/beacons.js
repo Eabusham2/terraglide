@@ -1,4 +1,5 @@
 import * as THREE from '../../vendor/three/three.module.js';
+import { bearing, haversine } from '../geo/mercator.js';
 
 /**
  * A beam of light standing on every waypoint, and a label saying what it is.
@@ -32,8 +33,16 @@ const BEAM_RADIUS = 1.6;
  * findable from the air without turning into a wall when you walk up to it.
  */
 const MIN_SCREEN_SHARE = 0.004;
-/** Beyond this there is nothing useful to see. */
+/**
+ * Beyond this the beam is not drawn: past it there is nothing useful to see.
+ * The label is shown at any distance — pinned to the edge of the screen when
+ * the place is behind you or off to one side — so a waypoint can always be
+ * found.
+ */
 export const BEACON_REACH_M = 120000;
+/** How far inside the screen's edges a pinned label sits, as fractions. */
+const EDGE_X = [0.07, 0.93];
+const EDGE_Y = [0.12, 0.94];
 
 // <common> first: the log-depth chunk calls isPerspectiveMatrix, which lives
 // there. Without it the program does not compile and no beam is ever drawn —
@@ -91,6 +100,33 @@ export class Beacons {
     this._geometry = new THREE.CylinderGeometry(1, 1, 1, 10, 1, true);
     this._world = { x: 0, z: 0 };
     this._screen = new THREE.Vector3();
+    this._view = new THREE.Vector3();
+  }
+
+  /**
+   * Where on screen a place's label goes, as fractions of the view: on the
+   * place itself when it is in view, otherwise pinned to the edge of the
+   * screen in the direction it lies, so it is never simply missing.
+   */
+  labelAt(camera, x, y, z) {
+    this._screen.set(x, y, z).project(camera);
+    if (this._screen.z < 1 && Math.abs(this._screen.x) < 1.1 && Math.abs(this._screen.y) < 1.1) {
+      return { x: this._screen.x * 0.5 + 0.5, y: -this._screen.y * 0.5 + 0.5, edge: false };
+    }
+    // Off screen: its direction as the camera sees it, squashed to the screen's
+    // shape, then pushed out to the edge.
+    this._view.set(x, y, z).applyMatrix4(camera.matrixWorldInverse);
+    let dx = this._view.x / Math.max(0.1, camera.aspect ?? 1);
+    let dy = this._view.y;
+    if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) dy = -1;
+    const k = 1 / Math.max(Math.abs(dx), Math.abs(dy));
+    dx *= k;
+    dy *= k;
+    return {
+      x: Math.min(EDGE_X[1], Math.max(EDGE_X[0], dx * 0.5 + 0.5)),
+      y: Math.min(EDGE_Y[1], Math.max(EDGE_Y[0], -dy * 0.5 + 0.5)),
+      edge: true,
+    };
   }
 
   makeBeam(waypoint) {
@@ -133,14 +169,35 @@ export class Beacons {
     const live = new Set();
 
     for (const waypoint of list) {
-      live.add(waypoint.id);
       this.frame.toWorld(waypoint.lat, waypoint.lon, this._world);
       const x = this._world.x;
       const z = this._world.z;
       const dx = x - camera.position.x;
       const dz = z - camera.position.z;
       const flat = Math.hypot(dx, dz);
-      if (flat > BEACON_REACH_M) continue;
+      const geo = player && Number.isFinite(player.lat) && Number.isFinite(player.lon);
+
+      if (flat > BEACON_REACH_M) {
+        // Too far for a beam, but never too far to show where it is: the
+        // label sits on the horizon along the great-circle bearing, which is
+        // the way to fly, at the great-circle distance.
+        const towards = geo ? bearing(player, waypoint) : Math.atan2(dx, -dz);
+        const at = this.labelAt(
+          camera,
+          camera.position.x + Math.sin(towards) * 10000,
+          camera.position.y,
+          camera.position.z - Math.cos(towards) * 10000,
+        );
+        this.labels.push({
+          id: waypoint.id,
+          name: waypoint.name,
+          colour: waypoint.colour ?? '#c8b98f',
+          metres: geo ? haversine(player, waypoint) : flat,
+          ...at,
+        });
+        continue;
+      }
+      live.add(waypoint.id);
 
       let beam = this.beams.get(waypoint.id);
       if (!beam) {
@@ -162,19 +219,15 @@ export class Beacons {
       beam.material.uniforms.uFade.value = Math.min(1, (BEACON_REACH_M - flat) / 20000);
       beam.mesh.visible = true;
 
-      // Where to write the label: at the foot of the beam, if that is on
-      // screen and in front of the camera.
-      this._screen.set(x, ground + 6, z).project(camera);
-      if (this._screen.z < 1 && Math.abs(this._screen.x) < 1.1 && Math.abs(this._screen.y) < 1.1) {
-        this.labels.push({
-          id: waypoint.id,
-          name: waypoint.name,
-          colour: waypoint.colour ?? '#c8b98f',
-          metres: flat,
-          x: (this._screen.x * 0.5 + 0.5),
-          y: (-this._screen.y * 0.5 + 0.5),
-        });
-      }
+      // The label at the foot of the beam when that is on screen, and pinned
+      // to the edge of the screen when it is not.
+      this.labels.push({
+        id: waypoint.id,
+        name: waypoint.name,
+        colour: waypoint.colour ?? '#c8b98f',
+        metres: flat,
+        ...this.labelAt(camera, x, ground + 6, z),
+      });
     }
 
     // Anything deleted, or now out of reach, stops being drawn.

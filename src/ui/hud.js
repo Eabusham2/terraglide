@@ -444,6 +444,9 @@ export class HUD {
       node.style.left = `${(beacon.x * 100).toFixed(2)}%`;
       node.style.top = `${(beacon.y * 100).toFixed(2)}%`;
       node.style.setProperty('--beacon', beacon.colour);
+      // Pinned to the edge of the screen: the place is behind you or off to
+      // one side, and the label says which way to turn.
+      if (node.classList.contains('edge') !== !!beacon.edge) node.classList.toggle('edge', !!beacon.edge);
       const name = node.firstChild;
       if (name.textContent !== beacon.name) name.textContent = beacon.name;
       const away = formatDistance(beacon.metres, units);
