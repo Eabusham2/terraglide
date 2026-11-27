@@ -9140,17 +9140,26 @@ console.log('\nthe map you have actually seen');
     before && e.isExplored(4, x >> 4, y >> 4));
 }
 
-console.log('\ndetail follows distance, not where you look');
+console.log('\ndetail follows your eyes');
 {
-  // It leaned a quarter towards the view, so every turn of the head re-cut the
-  // ground in front of you: squares splitting as they swung into view and
-  // merging as they swung out — the flicker turning round.
+  const terrainSource = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  ok('the split threshold is weighted by where you are looking',
+    /const line = size \* this\.lodFactor \* this\.splitScale\(/.test(terrainSource));
+  // Borrow the method rather than standing a whole quadtree up: it is pure
+  // arithmetic on the view vector, and that is the whole of the behaviour.
   const { Terrain } = await import('../src/world/terrain.js');
   const probe = { _viewX: 0, _viewZ: -1, splitScale: Terrain.prototype.splitScale };
   const ahead = probe.splitScale(0, -10000, 0, 0, 10000, 500);
   const behind = probe.splitScale(0, 10000, 0, 0, 10000, 500);
   const across = probe.splitScale(10000, 0, 0, 0, 10000, 500);
-  ok('ground ahead, across and behind splits at the same distance', ahead === 1 && behind === 1 && across === 1);
+  ok('ground you are facing subdivides from further away', ahead > across,
+    `${ahead.toFixed(2)} vs ${across.toFixed(2)} across`);
+  ok('and ground behind you from closer', behind < across,
+    `${behind.toFixed(2)} vs ${across.toFixed(2)}`);
+  ok('by well under a level either way, so turning round is not a rebuild',
+    ahead / behind < 2, `${(ahead / behind).toFixed(2)}x`);
+  ok('and ground underfoot is never coarsened for facing away',
+    probe.splitScale(0, 300, 0, 0, 300, 500) === 1);
 }
 
 console.log('\nthe edge of the loaded world');
@@ -12235,13 +12244,6 @@ console.log('\nturning round keeps the ground you just saw');
     && /share \* cacheRoom\(\)/.test(streamerSrc));
   const elevationSrc = readFileSync(new URL('../src/tiles/elevation.js', import.meta.url), 'utf8');
   ok('six height tiles come down at once', /this\.maxActive = 6;/.test(elevationSrc));
-  ok('and the finest relief ahead is asked for before you get there',
-    /ensureAround\(this\._ahead\.nx, this\._ahead\.ny, this\.elevation\.maxZoom, 2\)/.test(terrainSrc));
-  const zoomFor = (z) => Terrain.prototype.elevationZoomForTile.call({ elevation: { maxZoom: 15 } }, { z });
-  ok(`a square asks for heights two levels up  (z13 -> z${zoomFor(13)}, z18 -> z${zoomFor(18)}, z2 -> z${zoomFor(2)})`,
-    zoomFor(13) === 11 && zoomFor(18) === 15 && zoomFor(2) === 2);
-  ok('and all round you, for turning to look somewhere new',
-    /ensureAround\(this\._norm\.nx, this\._norm\.ny, this\.elevation\.maxZoom, 1\)/.test(terrainSrc));
 }
 
 console.log('\nthe ground is culled against where the camera points this frame');

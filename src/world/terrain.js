@@ -172,8 +172,6 @@ const MORPH_SECONDS = 0.33;
 const MORPH_MIN_M = 0.05;
 
 const FLOOR_REACH = 250;
-/** Below this height above the ground, the finest relief ahead is fetched early. */
-const FINE_AHEAD_BELOW_M = 2500;
 const LOD_HYSTERESIS_IN = 0.88;
 const LOD_HYSTERESIS_OUT = 1.12;
 
@@ -211,7 +209,6 @@ export class Terrain {
     this._rayDown = new THREE.Vector3(0, -1, 0);
     this._vecA = new THREE.Vector3();
     this._norm = { nx: 0, ny: 0 };
-    this._ahead = { nx: 0, ny: 0 };
     this._world = { x: 0, z: 0 };
     this._cover = { x: 0, z: 0 };
     this._geo = { lat: 0, lon: 0 };
@@ -600,25 +597,6 @@ export class Terrain {
      */
     this.wantedElevationZoom = elevZoom;
     this.elevation.ensureAround(this._norm.nx, this._norm.ny, elevZoom, 1);
-    // The finest relief for the ground ahead, before you get there.
-    //
-    // Each square asks for heights at its own zoom, so ground you fly towards
-    // got its relief a rung at a time — zoom twelve, thirteen, fourteen — as
-    // its squares split, and every rung that landed moved ground you were
-    // looking at: it rose, and settled, and rose again. Asking for the finest
-    // rung over the next few kilometres up front means most of it is built
-    // once, at the height it is going to stay at.
-    //
-    // And all round you as well, a tile each way, so turning to look somewhere
-    // new near the ground finds its relief already there rather than starting
-    // it from the coarse rungs and settling.
-    if (altitude < FINE_AHEAD_BELOW_M && this._viewX !== undefined) {
-      this.elevation.ensureAround(this._norm.nx, this._norm.ny, this.elevation.maxZoom, 1);
-      const ahead = clamp(altitude * 4, 300, 2000);
-      this.frame.worldToNorm(camX + this._viewX * ahead, camZ + this._viewZ * ahead, this._ahead);
-      this.elevation.ensureAround(this._ahead.nx, this._ahead.ny, this.elevation.maxZoom, 2);
-    }
-
     this.streamer.pump();
     this.streamer.evict();
     this.evict(preset.textureCacheSize * cacheRoom(), camX, camZ);
@@ -732,20 +710,25 @@ export class Terrain {
   }
 
   /**
-   * How much further a tile may be and still subdivide, given where you look:
-   * not at all, any more.
+   * How much further a tile may be and still subdivide, given where you look.
    *
-   * Tiles inside the view cone used to get a quarter more reach and tiles
-   * behind you a quarter less, so the horizon you faced sharpened sooner.
+   * Detail costs the same wherever it is spent, so spending it evenly means
+   * spending most of it on ground nobody is looking at. Tiles inside the view
+   * cone get a quarter more reach and tiles behind you a quarter less — a
+   * little over half a level either way — so the horizon you are facing
+   * reaches full detail sooner and the ground behind your head stays coarse
+   * until you turn round.
+   *
+   * Ground close enough to be underfoot is exempt: it is about to be in view
+   * whichever way you turn, and it is what you land on.
    */
-  splitScale() {
-    // Detail by distance alone. Leaning it a quarter towards the view meant
-    // every turn of the head re-cut the ground in front of you — squares
-    // splitting as they swung into view and merging as they swung out, each
-    // one a rebuild and a fresh photograph — which is the flicker turning
-    // round. Ground you have already seen now stays exactly as it was built
-    // whichever way you face.
-    return 1;
+  splitScale(cx, cz, camX, camZ, flatDist, size) {
+    if (flatDist < size) return 1;
+    const dx = cx - camX;
+    const dz = cz - camZ;
+    const len = Math.hypot(dx, dz);
+    if (len < 1) return 1;
+    return 1 + ((dx * this._viewX + dz * this._viewZ) / len) * 0.25;
   }
 
   visit(tile, camera, camX, camZ, renderDistance, maxZoom) {
@@ -1257,7 +1240,7 @@ export class Terrain {
     }
 
     // Keep a matching elevation tile alive for this area.
-    const elevZ = this.elevationZoomForTile(node.tile);
+    const elevZ = Math.min(node.tile.z, this.elevation.maxZoom);
     const shift = node.tile.z - elevZ;
     this.elevation.request(
       { z: elevZ, x: node.tile.x >> shift, y: node.tile.y >> shift },
@@ -1937,23 +1920,6 @@ export class Terrain {
    * compared with what the mesh was made from. Half a metre is well under
    * anything you could see and well over the noise of a bilinear sample.
    */
-  /**
-   * The elevation zoom a square asks for: two levels above its own, and never
-   * past the finest there is.
-   *
-   * A square's mesh has at most sixty-five vertices along a side, and an
-   * elevation tile two levels up still lays sixty-four samples across it, so
-   * nothing finer can show. Asking at the square's own zoom fetched sixteen
-   * times as many tiles for mid-distance ground — hundreds queued on High and
-   * Ultra — and the relief near you waited behind them, so the ground went on
-   * changing for longer the higher the setting.
-   */
-  elevationZoomForTile(tile) {
-    // Never deeper than the square itself, so a root square cannot ask for
-    // a tile that does not sit inside it.
-    return Math.min(Math.max(tile.z - 2, Math.min(3, tile.z)), this.elevation.maxZoom);
-  }
-
   groundMoved(node, size, enough = MOVED_MIN_M) {
     const built = node.builtHeights;
     if (!built) return false;
