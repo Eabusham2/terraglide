@@ -10840,7 +10840,7 @@ console.log('\nthe sea is not black');
   // A stand-in and the finer tiles under it are exactly coplanar over flat
   // water, and the depth test cannot separate them.
   ok('a stand-in is sunk so the detail wins the depth test',
-    /uSink\.value =\s*\n?\s*node\.tile\.z < requestedTile\.z \? 0\.25 \* \(requestedTile\.z - node\.tile\.z\) : 0;/.test(terrain));
+    /const levels = node\.tile\.z < requestedTile\.z \? requestedTile\.z - node\.tile\.z : 0;\n\s*node\.material\.uniforms\.uSink\.value = 0\.25 \* levels;/.test(terrain));
   ok('by moving it, because polygon offset cannot bias a depth the shader writes',
     /worldPos\.y -= sink \+ uCurvature/.test(shaders) && !/polygonOffset/.test(terrain));
 
@@ -12433,6 +12433,66 @@ console.log('\nevery level round you is held, whichever way you face');
   ok('at the price of a drawn square that far off, not ahead of the queue', asked.every((a) => a.priority > 0));
   const terrainSrc = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
   ok('and asked for every frame', /this\.holdCoverAround\(this\._norm\.nx, this\._norm\.ny, maxZoom\);/.test(terrainSrc));
+}
+
+console.log('\na stand-in never covers ground that is built');
+{
+  const { Terrain } = await import('../src/world/terrain.js');
+  const shaderSrc = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
+  ok('the ground shader can push a square back for the depth test only',
+    /uniform float uDepthPush;/.test(shaderSrc)
+    && /gl_FragDepth = min\(1\.0, gl_FragDepth \+ uDepthPush \* logDepthBufFC \* 0\.5\)/.test(shaderSrc)
+    && /uDepthPush: \{ value: 0 \}/.test(shaderSrc));
+  const t = Object.create(Terrain.prototype);
+  t._camY = 150;
+  // build() pads each bound by five metres.
+  const sea = t.standInPush({ minY: -5, maxY: 5 });
+  const valley = t.standInPush({ minY: -5, maxY: 105 });
+  ok('over a valley it is pushed past where the real floor lies',
+    valley >= 1 + 100 / 145, valley.toFixed(2));
+  ok('over open sea it stays in front of the sea sheet twelve metres down',
+    sea < 1 + 12 / 145, sea.toFixed(3));
+  t._camY = 20;
+  ok('and never so far that ground far behind it shows through', t.standInPush({ minY: 0, maxY: 900 }) === 4);
+  // show() itself: a leaf is not pushed, a stand-in is.
+  const node = () => ({ tile: { z: 12, x: 0, y: 0 }, minY: -5, maxY: 105, mesh: { visible: false },
+    material: { uniforms: { uSink: { value: 0 }, uDepthPush: { value: 0 }, uMap: { value: null },
+      uUvOffset: { value: { set() {} } }, uUvScale: { value: 1 }, uHasTexture: { value: 0 },
+      uCellsLo: { value: 0 }, uCellsHi: { value: 0 } } } });
+  Object.assign(t, { drawn: [], _camY: 150, elevation: { maxZoom: 15, request() {} },
+    streamer: { frame: 1, request() {}, requestAncestors() {}, resolve: () => ({ texture: {}, scale: 1, offsetX: 0, offsetY: 0 }) } });
+  const leaf = node();
+  t.show(leaf, { z: 12, x: 0, y: 0 }, 100);
+  const stand = node();
+  t.show(stand, { z: 14, x: 0, y: 0 }, 100);
+  ok('a square drawn as itself is not pushed', leaf.material.uniforms.uDepthPush.value === 0);
+  ok('a stand-in is', stand.material.uniforms.uDepthPush.value > 0.5, stand.material.uniforms.uDepthPush.value.toFixed(2));
+
+  // And it is cut to the cells that asked for it.
+  const { standInCells } = await import('../src/world/terrain.js');
+  const cells = (anc, ...tiles) => {
+    const into = { cellsLo: 0, cellsHi: 0 };
+    for (const t2 of tiles) standInCells(anc, t2, into);
+    const on = [];
+    for (let b = 0; b < 64; b++) if (((b < 32 ? into.cellsLo : into.cellsHi) >>> (b & 31)) & 1) on.push(b);
+    return on;
+  };
+  const anc = { z: 10, x: 3, y: 5 };
+  ok('a leaf three levels down is one cell', cells(anc, { z: 13, x: 3 * 8 + 2, y: 5 * 8 + 6 }).join() === String(6 * 8 + 2));
+  ok('deeper still, the cell it falls in', cells(anc, { z: 16, x: (3 * 8 + 7) * 8 + 5, y: (5 * 8 + 7) * 8 + 1 }).join() === '63');
+  const quarter = cells(anc, { z: 11, x: 7, y: 10 });
+  ok('a child is a four-by-four block', quarter.length === 16 && quarter[0] === 4 && quarter[15] === 31, quarter.join());
+  const grand = cells(anc, { z: 12, x: 12, y: 23 });
+  ok('a grandchild a two-by-two', grand.join() === [6 * 8, 6 * 8 + 1, 7 * 8, 7 * 8 + 1].join(), grand.join());
+  ok('and cells add up over the leaves that asked', cells(anc, { z: 13, x: 24, y: 40 }, { z: 13, x: 31, y: 47 }).join() === '0,63');
+  const standCells = stand.material.uniforms;
+  ok('a stand-in draws only those cells, a leaf all of them',
+    leaf.material.uniforms.uCellsLo.value === 0xffffffff && leaf.material.uniforms.uCellsHi.value === 0xffffffff
+    && (standCells.uCellsLo.value !== 0xffffffff || standCells.uCellsHi.value !== 0xffffffff));
+  ok('and the shader discards the rest, with a quarter-cell margin under its neighbours',
+    /return \(\(word >> uint\(bit & 31\)\) & 1u\) == 1u;/.test(shaderSrc)
+    && /cellOn\(p \+ vec2\(0\.25, 0\.25\)\)\)\) discard;/.test(shaderSrc)
+    && /uCellsLo: \{ value: 0xffffffff \}/.test(shaderSrc));
 }
 
 console.log('\nthe height queue holds only what is still wanted');

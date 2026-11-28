@@ -527,6 +527,7 @@ export class Terrain {
     // Kept for draw(), which is reached through visit() and does not carry it.
     this._camX = camX;
     this._camZ = camZ;
+    this._camY = camera.position.y;
 
     // Root zoom: the coarsest level whose tiles still comfortably cover the
     // view distance, so the recursion starts with only a few tiles.
@@ -1201,6 +1202,23 @@ export class Terrain {
     return built;
   }
 
+  /**
+   * How many times further off a stand-in counts for the depth test. See show.
+   *
+   * Its relief, with half again and ten metres to spare since a coarse mesh is
+   * smoother than what it stands for, over the camera's height above it. No
+   * floor: over open sea the relief is nought and the push stays smaller than
+   * the twelve metres down to the sea sheet (seaFloor.js), so a stand-in there
+   * still beats the sheet beneath it. Capped at four, past which it would let
+   * ground far behind it through.
+   */
+  standInPush(node) {
+    // Less the five metres build() pads each bound by.
+    const relief = Math.max(0, (node.maxY ?? 0) - (node.minY ?? 0) - 10);
+    const above = Math.max(5, (this._camY ?? 0) - (node.maxY ?? 0));
+    return clamp(1 + (relief * 1.5 + 10) / above, 1, 4);
+  }
+
   findBuiltAncestor(tile) {
     let z = tile.z - 1;
     let x = tile.x >> 1;
@@ -1245,8 +1263,56 @@ export class Terrain {
     // fragment shader, and offsetting the rasteriser's interpolated depth
     // cannot bias a value the shader computes itself. Moving the geometry
     // works whatever writes the depth.
-    node.material.uniforms.uSink.value =
-      node.tile.z < requestedTile.z ? 0.25 * (requestedTile.z - node.tile.z) : 0;
+    const levels = node.tile.z < requestedTile.z ? requestedTile.z - node.tile.z : 0;
+    node.material.uniforms.uSink.value = 0.25 * levels;
+    /*
+      And a stand-in loses every depth test against real ground.
+
+      A stand-in is a whole coarse square drawn for the leaves under it that
+      have no mesh yet — but it is drawn over its whole width, including over
+      the leaves that do. Its mesh is the coarse version of the same hills, so
+      across a valley it runs above the real floor and over a ridge below it:
+      the hand's breadth of sink above does nothing about tens of metres. That
+      was the tan block on a turn, covering everything round you with only the
+      tops of the tall things showing through it — the leaves that had been
+      built were there all along, underneath.
+
+      Sinking it by its relief would put it below the real ground everywhere,
+      and then the holes it is there to fill would be pits. So it keeps its
+      shape and is pushed back for the depth test instead: k times as far off,
+      where k is enough to cover how far above the true surface a coarse mesh
+      can sit, seen from this height — its relief over the camera's height
+      above it, which is how much further along a view ray the real ground
+      lies. Real ground then wins wherever it is drawn, and the stand-in is
+      only what you see where nothing else is.
+    */
+    node.material.uniforms.uDepthPush.value = levels > 0 ? Math.log2(this.standInPush(node)) : 0;
+    /*
+      Better still, a stand-in is not drawn over built ground at all.
+
+      Pushing it back loses it the depth test only as far as the push reaches,
+      and from low over a basin ringed by mountains — Athens, measured — the
+      coarse mesh runs hundreds of metres above the floor and no sensible push
+      reaches. So it is cut to the ground it is actually standing in for: an
+      eight-by-eight grid over the square, and only the cells that some leaf
+      asked it to cover this frame are drawn. Everything else is discarded, and
+      the built leaves there show as they are. The push stays for the cells a
+      stand-in shares with leaves that did get built.
+    */
+    const uniforms0 = node.material.uniforms;
+    if (levels === 0) {
+      uniforms0.uCellsLo.value = 0xffffffff;
+      uniforms0.uCellsHi.value = 0xffffffff;
+    } else {
+      if (node.cellsFrame !== this.streamer.frame) {
+        node.cellsFrame = this.streamer.frame;
+        node.cellsLo = 0;
+        node.cellsHi = 0;
+      }
+      standInCells(node.tile, requestedTile, node);
+      uniforms0.uCellsLo.value = node.cellsLo >>> 0;
+      uniforms0.uCellsHi.value = node.cellsHi >>> 0;
+    }
 
     // Texture: exact tile if we have it, otherwise the closest ancestor.
     const priority = distance / Math.pow(2, 20 - requestedTile.z);
@@ -2044,6 +2110,43 @@ export class Terrain {
     node.geometry = null;
     node.material = null;
   }
+}
+
+/**
+ * Mark the cells of a stand-in that `tile` needs it to cover. See Terrain.show.
+ *
+ * The stand-in is split eight by eight, which is three levels below it. A leaf
+ * three or more levels down falls in one cell; one or two levels down it
+ * covers a block of four by four or two by two. Cells are numbered row-major
+ * from the north-west corner — the same way round as the square's texture
+ * coordinates, which run with tile x and tile y — and kept as two 32-bit words.
+ */
+export function standInCells(standIn, tile, into) {
+  const d = tile.z - standIn.z;
+  if (d < 1) return into;
+  let x0;
+  let y0;
+  let span;
+  if (d >= 3) {
+    const s = d - 3;
+    x0 = (tile.x >> s) - standIn.x * 8;
+    y0 = (tile.y >> s) - standIn.y * 8;
+    span = 1;
+  } else {
+    span = 8 >> d;
+    x0 = (tile.x - standIn.x * (1 << d)) * span;
+    y0 = (tile.y - standIn.y * (1 << d)) * span;
+  }
+  for (let y = y0; y < y0 + span; y++) {
+    if (y < 0 || y > 7) continue;
+    for (let x = x0; x < x0 + span; x++) {
+      if (x < 0 || x > 7) continue;
+      const bit = y * 8 + x;
+      if (bit < 32) into.cellsLo |= 1 << bit;
+      else into.cellsHi |= 1 << (bit - 32);
+    }
+  }
+  return into;
 }
 
 const indexCache = new Map();

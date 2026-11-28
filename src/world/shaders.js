@@ -203,6 +203,15 @@ const TERRAIN_FRAG = /* glsl */ `
   uniform float uFogEnabled;
   uniform float uSnowLine;
   uniform float uHasTexture;
+  // How much further away a stand-in counts as being, as log2 of the factor.
+  // Nought for a square drawn as itself. See Terrain.show.
+  uniform float uDepthPush;
+  // Which eighths of this square to draw, as an eight-by-eight grid of bits
+  // (row-major from the north-west corner, rows 0-3 in Lo and 4-7 in Hi). All
+  // set for a square drawn as itself; a stand-in draws only the cells whose
+  // ground has nothing of its own yet. See Terrain.show.
+  uniform uint uCellsLo;
+  uniform uint uCellsHi;
   uniform float uLatitude;
   uniform float uHasRelief;
   uniform float uNight;
@@ -356,8 +365,31 @@ ${CLOUD_SHADOW_ONLY_GLSL}
     return mix(vec3(0.24, 0.25, 0.26), vec3(0.34, 0.35, 0.36), flatness);
   }
 
+  bool cellOn(vec2 p) {
+    ivec2 c = ivec2(clamp(floor(p), 0.0, 7.0));
+    int bit = c.y * 8 + c.x;
+    uint word = bit < 32 ? uCellsLo : uCellsHi;
+    return ((word >> uint(bit & 31)) & 1u) == 1u;
+  }
+
   void main() {
     #include <logdepthbuf_fragment>
+    #if defined( USE_LOGARITHMIC_DEPTH_BUFFER )
+      // Log depth is log2(1 + w) scaled, so adding log2(k) puts the fragment
+      // k times as far off for the depth test and nowhere else.
+      if (uDepthPush > 0.0) gl_FragDepth = min(1.0, gl_FragDepth + uDepthPush * logDepthBufFC * 0.5);
+    #endif
+    // A quarter of a cell's grace past each cell it keeps, so it runs a little
+    // way under the built ground beside it. Cut exactly at the line, the
+    // stand-in — sunk its hand's breadth — met the edge of the leaf next to it
+    // a step lower, and the step was a hairline crack straight through to the
+    // sky. Under the leaf it loses the depth test (uDepthPush), so the margin
+    // shows only through that crack.
+    if (uCellsLo != 0xffffffffu || uCellsHi != 0xffffffffu) {
+      vec2 p = clamp(vUv, 0.0, 1.0) * 8.0;
+      if (!(cellOn(p + vec2(-0.25, -0.25)) || cellOn(p + vec2(0.25, -0.25))
+        || cellOn(p + vec2(-0.25, 0.25)) || cellOn(p + vec2(0.25, 0.25)))) discard;
+    }
     vec3 n = normalize(vNormalW);
     float flatness = smoothstep(0.30, 0.92, n.y);
     vec2 uv = uUvOffset + clamp(vUv, 0.0, 1.0) * uUvScale;
@@ -706,6 +738,9 @@ export function createTerrainMaterial(shared) {
       uMeasured: { value: 0 },
       uWalk: { value: 0 },
       uSink: { value: 0 },
+      uDepthPush: { value: 0 },
+      uCellsLo: { value: 0xffffffff },
+      uCellsHi: { value: 0xffffffff },
       uMorph: { value: 1 },
       uWoodMask: shared.uWoodMask,
       uWoodOrigin: shared.uWoodOrigin,
