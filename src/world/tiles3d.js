@@ -1108,11 +1108,12 @@ export class Tiles3D {
     // ground nobody drew — a hole exactly the shape of one tile.
     //
     // There were four of them: past the depth cap, an unreadable bounding
-    // volume, past the render distance, and no content. The first three are
+    // volume, past the render distance, and no content. The first two are
     // "I gave up here", which is the opposite of "I covered this", and they are
     // why whole blocks of the city are missing with a flat plate underneath.
-    // They answer `false` now, so the coarse parent keeps drawing — which is
-    // the rule the rest of this function already follows.
+    // They answer `false`, so the coarse parent keeps drawing — which is the
+    // rule the rest of this function already follows. Past the render distance
+    // is different, and says why below.
     if (!tile) return true;
     // And the cap itself was far too shallow. Depth counts tiles *and* the hops
     // between the tilesets they are spread across, and Google's tree at street
@@ -1130,11 +1131,21 @@ export class Tiles3D {
     const centre = new THREE.Vector3(sphere.x, sphere.y, sphere.z).applyMatrix4(transform);
     const distance = Math.max(1, centre.distanceTo(cameraEcef) - sphere.radius);
 
-    // Beyond the render distance there is no point even considering it — but
-    // saying so is not the same as covering it, and a parent that straddles the
-    // edge used to be dropped over the half that was never drawn.
+    // Beyond the render distance there is no point even considering it, and it
+    // counts as covered: the ordinary ground is drawn out there instead —
+    // `coverage` only marks what this layer actually drew, so the quadtree
+    // never steps aside for it.
+    //
+    // It answered "not covered" for a while, so that a parent straddling the
+    // edge would not be dropped over the half nobody drew. But every parent
+    // near the top of Google's tree straddles it: one child is the city you
+    // are over and another is sixty kilometres off. So the coarsest tiles were
+    // never released, and the city drew its blurred top-level mesh over the
+    // detailed one — a flat olive plate at about the height of an average
+    // roof, with only the tallest towers poking out of it, measured over
+    // Manhattan with every wanted tile loaded.
     const reach = settings.get('renderDistanceKm') * 1000;
-    if (distance > reach) return false;
+    if (distance > reach) return true;
 
     const error = screenSpaceError(tile.geometricError ?? 0, distance, screenHeight, fov);
     const wantsChildren = error > this.budget.sse && Array.isArray(tile.children) && tile.children.length > 0;
