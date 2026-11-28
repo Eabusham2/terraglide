@@ -369,12 +369,16 @@ export function drawMap(ctx, view, layers) {
   }
 
   if (options.waypoints && layers.waypointStore) {
-    drawWaypoints(ctx, layers.waypointStore, toScreen, options.labels !== false);
+    drawWaypoints(ctx, layers.waypointStore, toScreen, options.labels !== false,
+      options.pinWaypoints ? { width, height, shape: options.pinShape, rotation } : null);
   }
 
   // The party's waypoints: diamonds, in the colour of whoever put them down.
   const partyMarks = options.waypoints ? layers.others?.marks?.() ?? [] : [];
-  if (partyMarks.length) drawPartyMarks(ctx, partyMarks, toScreen, options.labels !== false);
+  if (partyMarks.length) {
+    drawPartyMarks(ctx, partyMarks, toScreen, options.labels !== false,
+      options.pinWaypoints ? { width, height, shape: options.pinShape, rotation } : null);
+  }
 
   // Everyone else, as an arrow in their colour with their name, then you on top.
   //
@@ -498,17 +502,55 @@ function drawTrail(ctx, trail, toScreen, width) {
   });
 }
 
-function drawWaypoints(ctx, store, toScreen, labels) {
+/** How far inside the map's edge a pinned waypoint sits, in pixels. */
+const PIN_INSET = 9;
+
+/**
+ * Where to draw a place on a map that may not reach it: where it is, or — with
+ * `pin` — pushed in towards the centre until it is just inside the edge, so a
+ * waypoint off the minimap still shows which way it is.
+ *
+ * `p` is in the map's drawing frame, which is centred on the map and turned
+ * by its rotation; the edge is the one on screen, so the point is turned into
+ * screen space to be measured and turned back to be drawn.
+ */
+export function pinned(p, pin) {
+  if (!pin) return { x: p.x, y: p.y, edge: false };
+  const turn = pin.rotation || 0;
+  const c = Math.cos(turn);
+  const s = Math.sin(turn);
+  const sx = p.x * c - p.y * s;
+  const sy = p.x * s + p.y * c;
+  const hx = pin.width / 2 - PIN_INSET;
+  const hy = pin.height / 2 - PIN_INSET;
+  // How far past the edge, by the map's own outline: a circle's radius, a
+  // squircle's |x|^4 + |y|^4, and the square's sides for the rest — the
+  // corners a rounder frame cuts off would hide a pin put there.
+  const ux = Math.abs(sx) / hx;
+  const uy = Math.abs(sy) / hy;
+  const over = pin.shape === 'circle'
+    ? Math.hypot(ux, uy)
+    : pin.shape === 'squircle'
+      ? Math.pow(ux ** 4 + uy ** 4, 0.25)
+      : Math.max(ux, uy);
+  if (!(over > 1)) return { x: p.x, y: p.y, edge: false };
+  const tx = sx / over;
+  const ty = sy / over;
+  return { x: tx * c + ty * s, y: -tx * s + ty * c, edge: true };
+}
+
+function drawWaypoints(ctx, store, toScreen, labels, pin = null) {
   ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
   ctx.textBaseline = 'middle';
   for (const waypoint of store.waypoints) {
-    const p = toScreen(waypoint.lat, waypoint.lon);
+    const p = pinned(toScreen(waypoint.lat, waypoint.lon), pin);
     ctx.fillStyle = waypoint.colour ?? '#c8b98f';
     ctx.fillRect(p.x - 3.5, p.y - 3.5, 7, 7);
     ctx.strokeStyle = 'rgba(10,12,15,0.85)';
     ctx.lineWidth = 1;
     ctx.strokeRect(p.x - 3.5, p.y - 3.5, 7, 7);
-    if (labels && waypoint.name) {
+    // A pinned one is only a pointer, and its name would run off the map.
+    if (labels && waypoint.name && !p.edge) {
       const text = waypoint.name;
       const w = ctx.measureText(text).width;
       ctx.fillStyle = 'rgba(12,14,18,0.72)';
@@ -519,11 +561,11 @@ function drawWaypoints(ctx, store, toScreen, labels) {
   }
 }
 
-function drawPartyMarks(ctx, marks, toScreen, labels) {
+function drawPartyMarks(ctx, marks, toScreen, labels, pin = null) {
   ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
   ctx.textBaseline = 'middle';
   for (const mark of marks) {
-    const p = toScreen(mark.lat, mark.lon);
+    const p = pinned(toScreen(mark.lat, mark.lon), pin);
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.rotate(Math.PI / 4);
@@ -533,7 +575,7 @@ function drawPartyMarks(ctx, marks, toScreen, labels) {
     ctx.lineWidth = 1.4;
     ctx.strokeRect(-4.5, -4.5, 9, 9);
     ctx.restore();
-    if (labels && mark.name) {
+    if (labels && mark.name && !p.edge) {
       const text = `${mark.name} · party`;
       const w = ctx.measureText(text).width;
       ctx.fillStyle = 'rgba(12,14,18,0.72)';

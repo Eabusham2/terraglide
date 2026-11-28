@@ -480,8 +480,7 @@ export class PlayerController {
    *
    * Holding the key does nothing on its own: only the press edge counts, and
    * an ordinary jump ends with the key still held, so the wings never snap out
-   * unasked. Pressing it once more in a glide stows them, exactly as it does
-   * in the game this borrows from.
+   * unasked. Pressing it once more in a glide stows them.
    */
   readJumpEdges(dt, input) {
     const player = this.player;
@@ -516,15 +515,9 @@ export class PlayerController {
         // been spent yet, and toggling on the same press that launched you
         // would open the wings from standing.
         if (this.clock - this.lastJumpTap < WING_LOCKOUT_S) continue;
-        // Opens the wings. Never closes them.
-        //
-        // This was a toggle, and a toggle is what "pressing jump breaks it"
-        // was: gliding along at 1.4 m/s down, one press of the key you jump
-        // with, and the wings shut and you are falling at 16. Minecraft does
-        // not do that — space deploys an elytra and pressing it again while
-        // you are gliding does nothing at all. You stow the wings by landing,
-        // or with the key that is for stowing them.
-        if (!player.elytraDeployed) player.toggleElytra(true);
+        // Opens the wings, and a press while gliding stows them again, so
+        // Space alone takes you into a glide and out of one.
+        player.toggleElytra(!player.elytraDeployed);
         this.lastJumpTap = this.clock;
         continue;
       }

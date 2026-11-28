@@ -71,3 +71,22 @@ export function detectTier(gl) {
     touch: typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches,
   });
 }
+
+/**
+ * How many times the tier's caches a machine can hold: two on a desktop or
+ * laptop that has not said it is short of memory, one on a phone, a tablet or
+ * anything reporting four gigabytes or less.
+ *
+ * The caches are what keep ground you have just flown over, and ground behind
+ * you, loaded. At the tier's own figures flying for a minute threw away about a
+ * thousand built squares and hundreds of photographs, and turning round then
+ * rebuilt and re-fetched them - the blurry slabs and the ground settling back
+ * into place. A machine with the room keeps twice as much. The cap stays,
+ * because Safari ends a tab that holds too much graphics memory, and a tab
+ * that reloads is worse than a blurry one.
+ */
+export function cacheRoom() {
+  const memoryGB = Number(globalThis.navigator?.deviceMemory ?? 0);
+  const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  return coarse || (memoryGB > 0 && memoryGB <= 4) ? 1 : 2;
+}

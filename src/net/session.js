@@ -115,7 +115,7 @@ function dropPrefUnsent(key) {
 function shownPrefs() {
   return Object.fromEntries(SOCIAL_PREFS.map((key) => [key, prefValue(key)]));
 }
-import { FLAG, ROCKET_STACK, SPEED_MODE_COOLDOWN_S, encodeState, nameKey } from './protocol.js';
+import { FLAG, SPEED_MODE_COOLDOWN_S, encodeState, nameKey } from './protocol.js';
 
 /**
  * Playing on a server, from the page's side.
@@ -650,11 +650,6 @@ export class OnlineSession extends Emitter {
     player.setHealth(m.health ?? player.maxHealth);
     // Not a fresh tank because the page was reloaded: what the server has.
     if (Number.isFinite(m.oxygen)) player.oxygen = Math.max(0, m.oxygen);
-    // Nor a full set of rockets.
-    if (Array.isArray(m.rockets) && m.rockets.length === player.stock.length) {
-      player.stock = m.rockets.map((n) => Math.max(0, Math.min(ROCKET_STACK, Math.floor(Number(n) || 0))));
-    }
-    this.rocketsSent = player.stock.join();
     // Nor a surge the server is still recharging: its clock is the account's.
     const surgeIn = Number(m.surgeIn);
     if (surgeIn > 0 && !player.speedActive) {
@@ -838,16 +833,6 @@ export class OnlineSession extends Emitter {
   update(dt, camera, input, rebaseX, rebaseZ) {
     this.lastInput = input;
     this.sendState(false, input);
-    // The rocket stock, to be kept with you, every few seconds it changes.
-    this.rocketsTimer = (this.rocketsTimer ?? 0) + dt;
-    if (this.rocketsTimer > 5 && this.signedIn) {
-      this.rocketsTimer = 0;
-      const stock = this.game.player.stock;
-      if (stock.join() !== this.rocketsSent) {
-        this.rocketsSent = stock.join();
-        this.net.send({ t: 'rockets', stock });
-      }
-    }
     this.remote.update(camera, dt, BOOT.world, rebaseX, rebaseZ);
     // Requests that have run out on this side too, so the countdown on the
     // prompt never shows a negative number while the server's word is late.

@@ -48,7 +48,6 @@ export const CHEAT_DEFAULTS = {
   /** Speed mode never runs out and never needs to recharge. */
   speedFree: false,
   /** Endless fireworks, whatever the supply setting says. */
-  rocketFree: false,
   /**
    * How big you are, as a multiple of your real height.
    *
@@ -104,7 +103,6 @@ class Cheats extends Emitter {
     if (this.noclip) list.push('noclip');
     if (this.mapUnlocked) list.push('map');
     if (this.speedFree) list.push('2x free');
-    if (this.rocketFree) list.push('endless rockets');
     if (this.playerSpeed !== 1) list.push(`speed ${trim(this.playerSpeed)}x`);
     if (this.gameSpeed !== 1) list.push(`time ${trim(this.gameSpeed)}x`);
     if (this.rocketPower !== 1) list.push(`rocket ${trim(this.rocketPower)}x`);

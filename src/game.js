@@ -473,10 +473,6 @@ export class Game {
     this.bindVR();
     // Out of air. Somewhere you can breathe, which is what a random teleport
     // is for, and it says so rather than silently moving you.
-    // Running a slot dry is a thing that happened to you, so it says so.
-    this.player.on('outOfRockets', () => {
-      this.toast('Out of that rocket — it refills, or pick another', 'warn');
-    });
     // Hearts. Hurt flashes the edges and jolts the view; dying puts up the
     // screen with the one button on it.
     this.player.on('hurt', (how) => {
@@ -1485,6 +1481,10 @@ export class Game {
     player.syncGeo();
 
     this.rig.update(player, dt, this.terrain, movement);
+    // Everything after this that culls or projects against the camera — the
+    // ground, the waypoint labels — needs where it points now, not where it
+    // pointed when the last frame was drawn. See Terrain.update.
+    this.camera.updateMatrixWorld();
     // The flight model reads the bank off the player; the rig owns it because
     // that is where the input for it lands.
     player.roll = this.rig.roll;
@@ -1691,7 +1691,7 @@ export class Game {
       this.sky?.sunVec,
       !this.rig.isFreecam,
     );
-    this.rocketTrail.update(player, dt, rebasedX, rebasedZ);
+    this.rocketTrail.update(player, dt, rebasedX, rebasedZ, this.camera.position);
     // Everyone else: what they are doing, drawn; what you are doing, sent.
     this.session?.update(dt, this.camera, movement, rebasedX, rebasedZ);
     this.voice?.update(this.camera);

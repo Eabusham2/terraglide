@@ -1111,57 +1111,25 @@ console.log('\nthe scanned city is something you stand on, not something you fal
     Math.abs(player.position.x - 6.2) < 0.01);
 }
 
-console.log('\nfireworks are a thing you carry, and they come back');
+console.log('\nfireworks are endless');
 {
-  const { settings } = await import('../src/core/settings.js');
-  const { cheats } = await import('../src/core/cheats.js');
-  const { Player, ROCKET_STACK, ROCKET_REFILL_S, HOTBAR } = await import('../src/player/player.js');
-
-  settings.set('rocketSupply', 'limited');
-  cheats.rocketFree = false;
+  const { Player, HOTBAR } = await import('../src/player/player.js');
   const frame = { toLocal: () => ({ x: 0, z: 0 }), toGeo: () => ({ lat: 0, lon: 0 }) };
   const player = new Player(frame);
   player.elytraDeployed = true;
-  player.selectSlot(0);
-
-  ok(`you start with a stack in every slot  (${ROCKET_STACK} x ${HOTBAR.length})`,
-    player.stock.length === HOTBAR.length && player.stock.every((n) => n === ROCKET_STACK));
-
-  // Each launch spends one, the way it does in Minecraft.
-  player.fireRocket();
-  player.fireRocket();
-  ok(`two launches spend two  (${player.stock[0]})`, player.stock[0] === ROCKET_STACK - 2);
-  ok('and only from the slot you fired', player.stock[1] === ROCKET_STACK);
-
-  // Run one dry and it says so rather than failing silently.
-  player.stock[0] = 1;
-  ok('the last one still fires', player.fireRocket() === true && player.stock[0] === 0);
-  let told = 0;
-  player.on('outOfRockets', () => { told++; });
-  ok('the next does not', player.fireRocket() === false);
-  ok('and you are told which slot ran dry', told === 1);
-  ok('while a slot you have not touched still works',
-    (player.selectSlot(1), player.fireRocket()) === true);
-
-  // They come back, per slot, and never past a stack.
-  player.selectSlot(0);
-  player.tickRefill(ROCKET_REFILL_S * 3 + 0.1);
-  ok(`three refill periods earn three back  (${player.stock[0]})`, player.stock[0] === 3);
-  player.stock[0] = ROCKET_STACK;
-  player.tickRefill(ROCKET_REFILL_S * 10);
-  ok('and a full slot does not overflow', player.stock[0] === ROCKET_STACK);
-
-  // Both escape hatches: the setting and the cheat.
-  player.stock[0] = 0;
-  settings.set('rocketSupply', 'unlimited');
-  ok('endless by setting fires from an empty slot', player.fireRocket() === true);
-  settings.set('rocketSupply', 'limited');
-  ok('and limited again refuses', player.fireRocket() === false);
-  cheats.rocketFree = true;
-  ok('endless by cheat fires too', player.fireRocket() === true);
-  cheats.rocketFree = false;
-
-  settings.set('rocketSupply', 'limited');
+  // A stack of 64 per slot that refilled every four seconds was taken out:
+  // every slot always lights, as many times as you like, online or not.
+  let fired = 0;
+  for (const slot of HOTBAR.keys()) {
+    player.selectSlot(slot);
+    for (let i = 0; i < 200; i++) if (player.fireRocket()) fired++;
+  }
+  ok(`every slot lights two hundred times running  (${fired} of ${HOTBAR.length * 200})`, fired === HOTBAR.length * 200);
+  ok('and nothing counts them', player.stock === undefined && player.rocketsLeft === undefined);
+  player.authority = 'server';
+  ok('on a server too', player.fireRocket() === true);
+  const settingsSrc = readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8');
+  ok('and there is no supply setting left to turn them back on', !/rocketSupply/.test(settingsSrc));
 }
 
 console.log('\nyour own legs are there when you look down mid-glide');
@@ -1608,9 +1576,6 @@ console.log('\na lit rocket works until its time is up, and never slows you');
 {
   const { Player } = await import('../src/player/player.js');
   const { PlayerController } = await import('../src/player/controller.js');
-  const { settings } = await import('../src/core/settings.js');
-  const was = settings.get('rocketSupply');
-  settings.set('rocketSupply', 'unlimited');
   const flat = { heightAt: () => 0, meshHeightAt: () => null, hasElevationAt: () => true, bedAt: () => -100 };
   const none = { forward: 0, right: 0, up: 0, sprint: false, crouch: false, jump: false };
   // The real player and the real glide tick, fireworks, hold and all.
@@ -1676,7 +1641,6 @@ console.log('\na lit rocket works until its time is up, and never slows you');
     ok(`weaving with Rocket ${slot} held levels off  (${minute[0].toFixed(0)} then ${minute[1].toFixed(0)} m/s)`,
       minute[1] < 170 && minute[1] <= minute[0] + 2);
   }
-  settings.set('rocketSupply', was);
 }
 
 console.log('\na firework may turn you and may not brake you');
@@ -3821,7 +3785,7 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
       readFileSync(new URL('../src/game.js', import.meta.url), 'utf8')));
   ok('and reaching it stops the splitting rather than the drawing',
     /const outOfBudget = this\.drawn\.length >= this\.maxDrawn;/.test(terrainSrc)
-    && /!outOfBudget && tile\.z < maxZoom/.test(terrainSrc));
+    && /\(wasSplit \|\| !outOfBudget\) && tile\.z < maxZoom/.test(terrainSrc));
   ok('with a far ceiling above it so a runaway frame still ends',
     /HOLE_RATHER_THAN_STALL/.test(terrainSrc)
     && /this\.maxDrawn \* HOLE_RATHER_THAN_STALL/.test(terrainSrc));
@@ -4553,7 +4517,7 @@ console.log('\nNo tier buys frame rate by making the picture worse');
     + ` against ${medium.maxDrawnTiles})`,
     low.applies.renderDistanceKm <= medium.applies.renderDistanceKm / 2
     && low.maxDrawnTiles < medium.maxDrawnTiles
-    && low.applies.buildings === false && low.applies.weather === false);
+    && low.applies.weather === false);
 }
 
 console.log('\nAuto graphics is a dial, not a label');
@@ -4941,6 +4905,8 @@ console.log('\nTurning your head does not lose the ground');
       ok('and starts settled, having nowhere to walk from', morph.value === 1);
 
       // Move the ground under it and rebuild: it should set off walking.
+      // Changing at once instead was tried, and left a crack against every
+      // neighbour not rebuilt in the same frame: gaps in the ground.
       const position = node.geometry.attributes.position.array;
       for (let v = 1; v < position.length; v += 3) position[v] += 12;
       node.dirty = true;
@@ -5358,7 +5324,7 @@ console.log('\nDetail goes where you can see it, not straight down');
   ok('including the height of the square itself',
     /Math\.max\(minY - camera\.position\.y, 0, camera\.position\.y - maxY\)/.test(terrain));
   ok('and both sides of the hysteresis use it',
-    /wasSplit \? eyeDist < line \* LOD_HYSTERESIS_OUT : eyeDist < line \* LOD_HYSTERESIS_IN/.test(terrain));
+    /wasSplit\s*\? eyeDist < line \* LOD_HYSTERESIS_OUT\s*: eyeDist < line \* LOD_HYSTERESIS_IN/.test(terrain));
   // Culling and reach are questions about ground covered, not apparent size.
   ok('reach is still horizontal', /if \(flatDist > reach\)/.test(terrain));
   ok('and so is the ground kept under your feet', /flatDist > FLOOR_REACH/.test(terrain));
@@ -6952,20 +6918,16 @@ console.log('\nLosing the graphics context is survivable');
 }
 
 // ---------------------------------------------------------------------------
-console.log('\nJump opens the wings and never shuts them');
+console.log('\nJump opens the wings, and stows them again');
 {
   const controller = readFileSync(new URL('../src/player/controller.js', import.meta.url), 'utf8');
-  // A press in the air used to toggle. Measured while gliding at 1.4 m/s down:
-  // one press of the jump key and the wings shut and the fall went to 16 m/s.
-  // Minecraft deploys on space and does nothing at all on the next press; you
-  // stow by landing, or with the key that is for stowing.
-  ok('a press in the air only ever opens them',
-    /if \(!player\.elytraDeployed\) player\.toggleElytra\(true\);/.test(controller));
-  ok('and there is no toggle left on that path',
-    !/player\.toggleElytra\(!player\.elytraDeployed\)/.test(controller));
+  // It only ever opened them, and "I can't press space and stop the glider"
+  // was the answer to that: a press in the air is a toggle.
+  ok('a press in the air toggles them',
+    /player\.toggleElytra\(!player\.elytraDeployed\);/.test(controller));
   const help = readFileSync(new URL('../src/ui/help.js', import.meta.url), 'utf8');
-  ok('and the card no longer promises a toggle',
-    /press again once airborne to open the wings/.test(help)
+  ok('and the card says so',
+    /press again in the air to open the wings, and again to stow them/.test(help)
     && /Open or stow the wings/.test(help));
 }
 
@@ -7115,16 +7077,15 @@ console.log('\nA wood reads as a canopy');
     it sitting low. Re-laying the square moved the line, so a ring of ground
     popped up or down by the same amount as you flew.
   */
-  ok('the canopy lift reaches nought before the sheet ends, not at it',
+  // The lift is gone altogether: twenty-five metres from a distance and
+  // nothing up close made every wood ground bent upwards that sank as you
+  // approached it. The shading stays, and still fades before the sheet ends.
+  ok('woods are not lifted out of the ground', !/CANOPY_HEIGHT_M/.test(shaders));
+  ok('and their shading fades before the sheet ends, not at it',
     /const float CANOPY_EDGE_FADE = 0\.0833;/.test(shaders)
-    && /vec2 fromEdge = min\(wuv, 1\.0 - wuv\);/.test(shaders)
     && /smoothstep\(0\.0, CANOPY_EDGE_FADE, min\(fromEdge\.x, fromEdge\.y\)\)/.test(shaders));
   ok('and the hard in-or-out test that made that edge is gone',
     !/wuv\.x > 0\.0 && wuv\.x < 1\.0/.test(shaders));
-  // Both halves fade together: a shading edge in the same place would be just
-  // as visible a line as a geometric one.
-  ok('the shading fades on the same margin as the lift',
-    (shaders.match(/smoothstep\(0\.0, CANOPY_EDGE_FADE,/g) || []).length === 2);
 
   ok('and does nothing at all where nothing is mapped',
     /float wood = 0\.0;/.test(shaders) && /if \(uHasWood > 0\.5\)/.test(shaders)
@@ -8942,11 +8903,8 @@ console.log('\nWalking, jumping and falling like Minecraft');
     tap();
     ok('a second tap in the air opens the wings', r.player.elytraDeployed);
     tap();
-    // And a third leaves them open. This asserted the opposite, because the
-    // key was a toggle — which is what "pressing jump breaks it" was: gliding
-    // down at 1.4 m/s, one press, wings shut, falling at 16. Minecraft does
-    // nothing on that press, and so does this now; the wings key stows.
-    ok('and a third leaves them open', r.player.elytraDeployed);
+    // And a third stows them again: Space takes you out of a glide as well.
+    ok('and a third stows them', !r.player.elytraDeployed);
 
     const held = rig();
     held.player.onGround = true;
@@ -9182,26 +9140,64 @@ console.log('\nthe map you have actually seen');
     before && e.isExplored(4, x >> 4, y >> 4));
 }
 
-console.log('\ndetail follows your eyes');
+console.log('\ndetail does not depend on which way you face');
 {
   const terrainSource = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
-  ok('the split threshold is weighted by where you are looking',
+  ok('the split threshold still goes through splitScale',
     /const line = size \* this\.lodFactor \* this\.splitScale\(/.test(terrainSource));
-  // Borrow the method rather than standing a whole quadtree up: it is pure
-  // arithmetic on the view vector, and that is the whole of the behaviour.
+  // Borrow the method rather than standing a whole quadtree up.
   const { Terrain } = await import('../src/world/terrain.js');
   const probe = { _viewX: 0, _viewZ: -1, splitScale: Terrain.prototype.splitScale };
   const ahead = probe.splitScale(0, -10000, 0, 0, 10000, 500);
   const behind = probe.splitScale(0, 10000, 0, 0, 10000, 500);
   const across = probe.splitScale(10000, 0, 0, 0, 10000, 500);
-  ok('ground you are facing subdivides from further away', ahead > across,
-    `${ahead.toFixed(2)} vs ${across.toFixed(2)} across`);
-  ok('and ground behind you from closer', behind < across,
-    `${behind.toFixed(2)} vs ${across.toFixed(2)}`);
-  ok('by well under a level either way, so turning round is not a rebuild',
-    ahead / behind < 2, `${(ahead / behind).toFixed(2)}x`);
-  ok('and ground underfoot is never coarsened for facing away',
-    probe.splitScale(0, 300, 0, 0, 300, 500) === 1);
+  const under = probe.splitScale(0, 300, 0, 0, 300, 500);
+  ok('every direction gets the reach that only dead ahead used to', ahead === 1.25 && behind === 1.25
+    && across === 1.25 && under === 1.25, `${ahead}, ${across}, ${behind}, ${under}`);
+  // The heading is still used to order work, and is read as it is now: a
+  // smoothed one put the ground you had just turned to last for a second.
+  ok('and the heading that orders the work is not lagged',
+    !/Math\.exp\(-viewDt \/ 0\.66\)/.test(terrainSource) && /this\._viewX = flatLen > 1e-6 \? this\._vecA\.x \/ flatLen/.test(terrainSource));
+}
+
+console.log('\nthe drawn cap holds what is split instead of switching it');
+{
+  const { Terrain } = await import('../src/world/terrain.js');
+  // A tile far enough off to split on its own, walked with the cap already
+  // reached: one that was split stays split, and one that was not does not.
+  const run = (wasSplit) => {
+    const t = Object.create(Terrain.prototype);
+    Object.assign(t, {
+      drawn: { length: 10 }, maxDrawn: 10, split: new Set(wasSplit ? ['12/100/100'] : []),
+      frame: { worldTileSize: () => 1000, normToWorld: (_x, _y, out) => { out.x = 0; out.z = -3000; } },
+      _world: { x: 0, z: 0 }, _box: { min: { set() {} }, max: { set() {} } },
+      frustum: { intersectsBox: () => true }, nodes: new Map(), elevation: { version: 0 },
+      streamer: { resolve: () => ({ scale: 1 }), atFinest: () => false },
+      farDistance: 1e9, explored: null, covered3d: null, _viewX: 0, _viewZ: -1,
+      visited: [],
+    });
+    t.squircle = () => 1;
+    t.noteEdge = () => {};
+    t.viewDistance = (_a, _b, _c, _d, flat) => flat;
+    t.draw = (tile) => t.visited.push(tile.z);
+    const deeper = [];
+    const visit = Terrain.prototype.visit;
+    t.visit = function (tile, ...rest) {
+      if (tile.z > 12) { deeper.push(tile.z); return; }
+      return visit.call(this, tile, ...rest);
+    };
+    t.visit({ z: 12, x: 100, y: 100 }, { position: { y: 100 } }, 0, 0, 1e9, 20);
+    return { split: t.split.has('12/100/100'), children: deeper.length, drawnHere: t.visited.length };
+  };
+  const held = run(true);
+  const fresh = run(false);
+  ok('a square already split stays split past the cap', held.split && held.children === 4,
+    JSON.stringify(held));
+  ok('and a square not yet split is drawn as it is', !fresh.split && fresh.children === 0 && fresh.drawnHere === 1,
+    JSON.stringify(fresh));
+  const { GRAPHICS_PRESETS: G } = await import('../src/core/settings.js');
+  ok('and Ultra\'s cap is twice what its walk was measured asking for', G.ultra.maxDrawnTiles >= 3000,
+    `${G.ultra.maxDrawnTiles}`);
 }
 
 console.log('\nthe edge of the loaded world');
@@ -10844,7 +10840,7 @@ console.log('\nthe sea is not black');
   // A stand-in and the finer tiles under it are exactly coplanar over flat
   // water, and the depth test cannot separate them.
   ok('a stand-in is sunk so the detail wins the depth test',
-    /uSink\.value =\s*\n?\s*node\.tile\.z < requestedTile\.z \? 0\.25 \* \(requestedTile\.z - node\.tile\.z\) : 0;/.test(terrain));
+    /const levels = node\.tile\.z < requestedTile\.z \? requestedTile\.z - node\.tile\.z : 0;\n\s*node\.material\.uniforms\.uSink\.value = 0\.25 \* levels;/.test(terrain));
   ok('by moving it, because polygon offset cannot bias a depth the shader writes',
     /worldPos\.y -= sink \+ uCurvature/.test(shaders) && !/polygonOffset/.test(terrain));
 
@@ -12188,6 +12184,337 @@ console.log('\na game controller, and a VR headset');
   // throws must not be the last one.
   ok('and a frame that throws is not the last one',
     /runFrame\(now\) \{\s*try \{\s*this\.loop\(now\);\s*\} catch \(error\) \{\s*setTimeout\(\(\) => \{\s*throw error;/.test(game));
+}
+
+console.log('\nthe rocket sparks are round and stay out of your eyes');
+{
+  const effects = readFileSync(new URL('../src/player/effects.js', import.meta.url), 'utf8');
+  // A PointsMaterial with no map draws every point as a square, and each spark
+  // was laid where the player is — right under the eye in first person. That
+  // was the flat coloured square in the bottom middle of the view.
+  ok('each spark is drawn as a soft round dot', /map: sparkTexture\(\)/.test(effects));
+  const { RocketTrail } = await import('../src/player/effects.js');
+  const THREE = await import('../vendor/three/three.module.js');
+  const trail = new RocketTrail({ add() {} });
+  const player = { position: new THREE.Vector3(0, 100, 0), rocketTicksLeft: 10, rocketDuration: 3 };
+  trail.update(player, 0.05, 0, 0, new THREE.Vector3(0, 101.5, 0));
+  const lit = (i) => trail.colours[i * 3] + trail.colours[i * 3 + 1] + trail.colours[i * 3 + 2];
+  ok('a spark at the camera is not drawn', lit(0) === 0);
+  trail.update(player, 0.05, 0, 0, new THREE.Vector3(0, 100, 40));
+  ok('and one forty metres off is', lit(0) > 0);
+  trail.dispose();
+}
+
+console.log('\nwaypoints always show, on the minimap and on screen');
+{
+  const THREE = await import('../vendor/three/three.module.js');
+  const { Beacons, BEACON_REACH_M } = await import('../src/world/beacons.js');
+  const { haversine } = await import('../src/geo/mercator.js');
+  const M = 111320;
+  const frame = { toWorld: (lat, lon, out) => { out.x = lon * M; out.z = -lat * M; return out; } };
+  const store = { waypoints: [] };
+  const beacons = new Beacons({ scene: new THREE.Scene(), store, terrain: { heightAt: () => 0 }, frame });
+  const camera = new THREE.PerspectiveCamera(70, 16 / 9, 1, 1e7);
+  camera.position.set(0, 300, 0);
+  camera.lookAt(0, 300, -1000);
+  camera.updateMatrixWorld();
+  const player = { lat: 0, lon: 0 };
+  const labelFor = (w) => {
+    store.waypoints = [w];
+    beacons.update(camera, player);
+    return beacons.labels[0];
+  };
+  const ahead = labelFor({ id: 1, name: 'ahead', lat: 0.05, lon: 0 });
+  ok('a waypoint ahead is labelled where it is', ahead && !ahead.edge && Math.abs(ahead.x - 0.5) < 0.05);
+  const behind = labelFor({ id: 2, name: 'behind', lat: -0.05, lon: 0.01 });
+  ok(`one behind you is pinned to the edge of the screen  (${behind?.x?.toFixed(2)}, ${behind?.y?.toFixed(2)})`,
+    behind && behind.edge && behind.x >= 0.07 && behind.x <= 0.93 && behind.y >= 0.12 && behind.y <= 0.94);
+  const far = labelFor({ id: 3, name: 'far', lat: 20, lon: 0 });
+  ok(`one ${Math.round(haversine(player, { lat: 20, lon: 0 }) / 1000)} km off, far past a beam's ${BEACON_REACH_M / 1000} km, still shows`,
+    far && Math.abs(far.metres - haversine(player, { lat: 20, lon: 0 })) < 1);
+  ok('without a beam', !beacons.beams.has(3));
+  ok('and straight ahead on the horizon', far && !far.edge && Math.abs(far.x - 0.5) < 0.05);
+
+  // The map draws from its centre, turned by its rotation, so that is the
+  // frame a pin is worked out in. Assuming a top-left origin pinned every far
+  // waypoint somewhere off the map, and the minimap showed nothing.
+  const { pinned } = await import('../src/ui/mapRenderer.js');
+  const square = pinned({ x: 290, y: 0 }, { width: 240, height: 240, shape: 'rounded' });
+  ok(`off the minimap, a waypoint is pinned inside its edge  (${square.x.toFixed(0)}, ${square.y.toFixed(0)})`,
+    square.edge && Math.abs(square.x - 111) < 0.01 && Math.abs(square.y) < 0.01);
+  const corner = pinned({ x: 480, y: 480 }, { width: 240, height: 240, shape: 'circle' });
+  ok('and inside the circle on a round one', corner.edge && Math.abs(Math.hypot(corner.x, corner.y) - 111) < 0.01);
+  const turned = pinned({ x: 500, y: 0 }, { width: 240, height: 240, shape: 'rounded', rotation: Math.PI / 2 });
+  ok('and on the edge you see when the minimap turns with you',
+    turned.edge && Math.abs(Math.hypot(turned.x, turned.y) - 111) < 0.01 && Math.abs(turned.y) < 0.01);
+  const inside = pinned({ x: -10, y: -20 }, { width: 240, height: 240, shape: 'circle' });
+  ok('one on the map stays where it is', !inside.edge && inside.x === -10 && inside.y === -20);
+  const minimap = readFileSync(new URL('../src/ui/minimap.js', import.meta.url), 'utf8');
+  ok('and the minimap asks for it', /pinWaypoints: true/.test(minimap));
+}
+
+console.log('\nturning round keeps the ground you just saw');
+{
+  const THREE = await import('../vendor/three/three.module.js');
+  const { Terrain } = await import('../src/world/terrain.js');
+  const terrain = new Terrain({ scene: new THREE.Scene(), frame: {}, streamer: {}, elevation: {}, shared: {} });
+  terrain.keepDistance = 1e9;
+  const node = (z, x, y, px, pz, visible = false) => ({
+    key: `${z}/${x}/${y}`, tile: { z, x, y }, size: 10,
+    mesh: { position: { x: px, z: pz }, visible }, geometry: null, material: null,
+  });
+  const leaf = node(16, 40, 40, 0, 0, true);
+  const parent = node(15, 20, 20, 0, 0);
+  const grand = node(14, 10, 10, 0, 0);
+  const near = node(16, 90, 90, 50, 0);
+  const far = node(16, 91, 91, 5000, 0);
+  for (const n of [leaf, parent, grand, near, far]) terrain.nodes.set(n.key, n);
+  terrain.drawn = [leaf];
+  terrain.evict(4, 0, 0);
+  ok('the squares on screen merge back into are kept', terrain.nodes.has(parent.key) && terrain.nodes.has(grand.key));
+  ok('and the furthest goes before the ground just behind you', !terrain.nodes.has(far.key) && terrain.nodes.has(near.key));
+  const deviceTier = readFileSync(new URL('../src/core/deviceTier.js', import.meta.url), 'utf8');
+  const terrainSrc = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  const streamerSrc = readFileSync(new URL('../src/tiles/streamer.js', import.meta.url), 'utf8');
+  ok('a machine with room holds twice the squares and photographs',
+    /return coarse \|\| \(memoryGB > 0 && memoryGB <= 4\) \? 1 : 2;/.test(deviceTier)
+    && /this\.evict\(preset\.textureCacheSize \* cacheRoom\(\)/.test(terrainSrc)
+    && /share \* cacheRoom\(\)/.test(streamerSrc));
+  const elevationSrc = readFileSync(new URL('../src/tiles/elevation.js', import.meta.url), 'utf8');
+  ok('six height tiles come down at once from each name the server has',
+    /this\.maxActive = 6;/.test(elevationSrc)
+    && /this\.maxActive = 6 \* Math\.max\(1, source\?\.descriptor\?\.hosts\?\.length \?\? 1\);/.test(elevationSrc));
+}
+
+console.log('\nthe ground is culled against where the camera points this frame');
+{
+  const terrainSrc = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  const gameSrc = readFileSync(new URL('../src/game.js', import.meta.url), 'utf8');
+  // The camera's matrices are refreshed when the frame renders, after the
+  // ground is chosen, so turning culled the squares swinging into view for the
+  // frame they first appeared in: holes through to the edge of the world.
+  ok('the view cone is refreshed before it is read',
+    /viewCamera\.updateMatrixWorld\(\);\n[\s\S]{0,120}this\.projScreenMatrix\.multiplyMatrices\(\n\s*viewCamera\.projectionMatrix,/.test(terrainSrc));
+  ok('and the game refreshes it as soon as the rig has turned it',
+    /this\.rig\.update\(player, dt, this\.terrain, movement\);\n[\s\S]{0,300}this\.camera\.updateMatrixWorld\(\);/.test(gameSrc));
+  const THREE = await import('../vendor/three/three.module.js');
+  const cam = new THREE.PerspectiveCamera(70, 16 / 9, 0.15, 1e6);
+  cam.updateMatrixWorld();
+  cam.rotation.set(0, Math.PI / 2, 0);
+  const frustum = new THREE.Frustum();
+  const look = () => frustum.setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse));
+  const box = new THREE.Box3(new THREE.Vector3(-1100, -10, -10), new THREE.Vector3(-900, 10, 10));
+  look();
+  const stale = frustum.intersectsBox(box);
+  cam.updateMatrixWorld();
+  look();
+  ok(`a square that swung into view is culled on stale matrices and kept on fresh ones  (${stale} -> ${frustum.intersectsBox(box)})`,
+    stale === false && frustum.intersectsBox(box) === true);
+}
+
+console.log('\nheights are found quickly, and the same heights');
+{
+  // Every height on the ground goes through sampleFrom, which built a string
+  // key per zoom per sample: about forty thousand per square rebuilt on Ultra,
+  // two hundred rebuilds a second, most of a slow frame. Lookups are now by
+  // number and remembered until the tiles change; the answers must not.
+  const { ElevationField } = await import('../src/tiles/elevation.js');
+  const field = new ElevationField({ addEventListener() {}, postMessage() {} });
+  field.source = { maxZoom: 15, ready: true, urlFor: () => null };
+  let seed = 11;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const ready = [];
+  let mismatches = 0;
+  let samples = 0;
+  for (let step = 0; step < 1500; step++) {
+    const z = 6 + Math.floor(rnd() * 8);
+    const n = 2 ** z;
+    const x = Math.floor((0.55 + (rnd() - 0.5) * 0.002) * n);
+    const y = Math.floor((0.33 + (rnd() - 0.5) * 0.002) * n);
+    if (rnd() < 0.6) {
+      field.request({ z, x, y }, 1);
+      const entry = field.tiles.get(`${z}/${x}/${y}`);
+      if (entry && rnd() < 0.8) {
+        entry.state = 2;
+        entry.heights = new Float32Array(65 * 65).map(() => rnd() * 500);
+        ready.push(entry.key);
+      }
+    } else if (ready.length) {
+      const key = ready.splice(Math.floor(rnd() * ready.length), 1)[0];
+      const entry = field.tiles.get(key);
+      if (entry) {
+        field.tiles.delete(key);
+        field.noteTile(entry.tile.z, entry.tile.x, entry.tile.y, null);
+      }
+    }
+    for (let i = 0; i < 10; i++) {
+      const nx = 0.55 + (rnd() - 0.5) * 0.002;
+      const ny = 0.33 + (rnd() - 0.5) * 0.002;
+      const remembered = field.sampleNorm(nx, ny);
+      field.forgetLookups();
+      if (Math.abs(remembered - field.sampleNorm(nx, ny)) > 1e-9) mismatches++;
+      samples++;
+    }
+  }
+  ok(`remembered lookups give the same heights as fresh ones, tiles coming and going  (${mismatches} of ${samples} differ)`,
+    mismatches === 0 && samples === 15000);
+  const settingsSrc = readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8');
+  ok('buildings are off until you turn them on, whatever the tier',
+    /\n  buildings: false,/.test(settingsSrc) && !/\n      buildings: (true|false),/.test(settingsSrc));
+}
+
+console.log('\nphotographs and heights come from both names their servers answer to');
+{
+  const { IMAGERY_PROVIDERS: IP, ELEVATION_PROVIDERS: EP, TileSource: TS } = await import('../src/tiles/providers.js');
+  const esri = new TS(IP.find((p) => p.id === 'esri'), {});
+  const urls = [{ z: 15, x: 17090, y: 11450 }, { z: 15, x: 17091, y: 11450 }].map((t) => esri.urlFor(t));
+  ok('neighbouring photographs go to the two Esri hosts in turn',
+    /^https:\/\/server\.arcgisonline\.com\/ArcGIS\/rest\/services\/World_Imagery\/MapServer\/tile\/15\/11450\/17090$/.test(urls[0])
+    && /^https:\/\/services\.arcgisonline\.com\/ArcGIS\/rest\/services\/World_Imagery\/MapServer\/tile\/15\/11450\/17091$/.test(urls[1]),
+    urls.join(' '));
+  ok('and the same tile always to the same one, so the browser cache finds it',
+    esri.urlFor({ z: 15, x: 17090, y: 11450 }) === urls[0]);
+  const terr = new TS(EP.find((p) => p.id === 'terrarium'), {});
+  const hs = [{ z: 12, x: 2150, y: 1440 }, { z: 12, x: 2151, y: 1440 }].map((t) => terr.urlFor(t));
+  ok('heights alternate between the bucket’s two names',
+    hs[0] === 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/12/2150/1440.png'
+    && hs[1] === 'https://elevation-tiles-prod.s3.amazonaws.com/terrarium/12/2151/1440.png', hs.join(' '));
+  ok('and nothing is left unfilled in either', !urls.concat(hs).some((u) => /[{}]/.test(u)));
+  const { ElevationField } = await import('../src/tiles/elevation.js');
+  const field = new ElevationField({ addEventListener() {}, postMessage() {} });
+  field.setSource(terr);
+  ok('six heights in flight per name, twelve in all', field.maxActive === 12, `${field.maxActive}`);
+  field.setSource(new TS({ id: 'one', kind: 'terrarium', template: 'https://one/{z}/{x}/{y}.png' }, {}));
+  ok('and six for a server with one name', field.maxActive === 6, `${field.maxActive}`);
+}
+
+console.log('\nthe photograph budget counts photographs');
+{
+  const { ImageryStreamer: IS } = await import('../src/tiles/streamer.js');
+  const st = new IS({ addEventListener() {}, postMessage() {} }, null);
+  st.frame = 100;
+  st.textureLimit = () => 4;
+  let disposed = 0;
+  const add = (z, x, state, used, texture) => {
+    const key = `${z}/${x}/0`;
+    st.entries.set(key, { key, tile: { z, x, y: 0 }, state, texture: texture ? { dispose() { disposed++; } } : null, used, seen: 0 });
+  };
+  // Four photographs held and drawn long ago, and a crowd of names nobody
+  // has sent for — the request queue, which used to be counted.
+  for (let i = 0; i < 4; i++) add(15, i, 2, 10 + i, true);
+  for (let i = 0; i < 40; i++) add(15, 100 + i, 0, 100, false);
+  for (let i = 0; i < 40; i++) add(15, 200 + i, 0, 50, false);
+  st.evict();
+  const held = [...st.entries.values()].filter((e) => e.texture).length;
+  ok('names waiting to be sent are not counted against it', held === 4 && disposed === 0, `${held} held, ${disposed} dropped`);
+  ok('those still asked for are kept, those nobody wants any more go',
+    st.entries.has('15/100/0') && st.entries.has('15/139/0') && !st.entries.has('15/200/0') && !st.entries.has('15/239/0'));
+  add(15, 50, 2, 99, true);
+  st.evict();
+  ok('and a photograph over the budget is still what is evicted', disposed === 1 && !st.entries.has('15/0/0'),
+    `${disposed} dropped`);
+}
+
+console.log('\nevery level round you is held, whichever way you face');
+{
+  const { Terrain } = await import('../src/world/terrain.js');
+  const asked = [];
+  const t = Object.create(Terrain.prototype);
+  t.frame = { worldTileSize: (z) => 40075016 / 2 ** z };
+  t.streamer = { request: (tile, priority) => asked.push({ ...tile, priority }) };
+  t.holdCoverAround(0.53, 0.35, 19);
+  const zooms = [...new Set(asked.map((a) => a.z))];
+  ok('a three-by-three block at each level from 10 to two above the finest', zooms.join(',') === '10,11,12,13,14,15,16'
+    && asked.length === 63, `${zooms.join(',')} — ${asked.length}`);
+  const under = asked.filter((a) => a.z === 14);
+  const n14 = 2 ** 14;
+  ok('centred on the square you are over', under.some((a) => a.x === Math.floor(0.53 * n14) && a.y === Math.floor(0.35 * n14))
+    && under.every((a) => Math.abs(a.x - Math.floor(0.53 * n14)) <= 1));
+  ok('at the price of a drawn square that far off, not ahead of the queue', asked.every((a) => a.priority > 0));
+  const terrainSrc = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  ok('and asked for every frame', /this\.holdCoverAround\(this\._norm\.nx, this\._norm\.ny, maxZoom\);/.test(terrainSrc));
+}
+
+console.log('\na stand-in never covers ground that is built');
+{
+  const { Terrain } = await import('../src/world/terrain.js');
+  const shaderSrc = readFileSync(new URL('../src/world/shaders.js', import.meta.url), 'utf8');
+  ok('the ground shader can push a square back for the depth test only',
+    /uniform float uDepthPush;/.test(shaderSrc)
+    && /gl_FragDepth = min\(1\.0, gl_FragDepth \+ uDepthPush \* logDepthBufFC \* 0\.5\)/.test(shaderSrc)
+    && /uDepthPush: \{ value: 0 \}/.test(shaderSrc));
+  const t = Object.create(Terrain.prototype);
+  t._camY = 150;
+  // build() pads each bound by five metres.
+  const sea = t.standInPush({ minY: -5, maxY: 5 });
+  const valley = t.standInPush({ minY: -5, maxY: 105 });
+  ok('over a valley it is pushed past where the real floor lies',
+    valley >= 1 + 100 / 145, valley.toFixed(2));
+  ok('over open sea it stays in front of the sea sheet twelve metres down',
+    sea < 1 + 12 / 145, sea.toFixed(3));
+  t._camY = 20;
+  ok('and never so far that ground far behind it shows through', t.standInPush({ minY: 0, maxY: 900 }) === 4);
+  // show() itself: a leaf is not pushed, a stand-in is.
+  const node = () => ({ tile: { z: 12, x: 0, y: 0 }, minY: -5, maxY: 105, mesh: { visible: false },
+    material: { uniforms: { uSink: { value: 0 }, uDepthPush: { value: 0 }, uMap: { value: null },
+      uUvOffset: { value: { set() {} } }, uUvScale: { value: 1 }, uHasTexture: { value: 0 },
+      uCellsLo: { value: 0 }, uCellsHi: { value: 0 } } } });
+  Object.assign(t, { drawn: [], _camY: 150, elevation: { maxZoom: 15, request() {} },
+    streamer: { frame: 1, request() {}, requestAncestors() {}, resolve: () => ({ texture: {}, scale: 1, offsetX: 0, offsetY: 0 }) } });
+  const leaf = node();
+  t.show(leaf, { z: 12, x: 0, y: 0 }, 100);
+  const stand = node();
+  t.show(stand, { z: 14, x: 0, y: 0 }, 100);
+  ok('a square drawn as itself is not pushed', leaf.material.uniforms.uDepthPush.value === 0);
+  ok('a stand-in is', stand.material.uniforms.uDepthPush.value > 0.5, stand.material.uniforms.uDepthPush.value.toFixed(2));
+
+  // And it is cut to the cells that asked for it.
+  const { standInCells } = await import('../src/world/terrain.js');
+  const cells = (anc, ...tiles) => {
+    const into = { cellsLo: 0, cellsHi: 0 };
+    for (const t2 of tiles) standInCells(anc, t2, into);
+    const on = [];
+    for (let b = 0; b < 64; b++) if (((b < 32 ? into.cellsLo : into.cellsHi) >>> (b & 31)) & 1) on.push(b);
+    return on;
+  };
+  const anc = { z: 10, x: 3, y: 5 };
+  ok('a leaf three levels down is one cell', cells(anc, { z: 13, x: 3 * 8 + 2, y: 5 * 8 + 6 }).join() === String(6 * 8 + 2));
+  ok('deeper still, the cell it falls in', cells(anc, { z: 16, x: (3 * 8 + 7) * 8 + 5, y: (5 * 8 + 7) * 8 + 1 }).join() === '63');
+  const quarter = cells(anc, { z: 11, x: 7, y: 10 });
+  ok('a child is a four-by-four block', quarter.length === 16 && quarter[0] === 4 && quarter[15] === 31, quarter.join());
+  const grand = cells(anc, { z: 12, x: 12, y: 23 });
+  ok('a grandchild a two-by-two', grand.join() === [6 * 8, 6 * 8 + 1, 7 * 8, 7 * 8 + 1].join(), grand.join());
+  ok('and cells add up over the leaves that asked', cells(anc, { z: 13, x: 24, y: 40 }, { z: 13, x: 31, y: 47 }).join() === '0,63');
+  const standCells = stand.material.uniforms;
+  ok('a stand-in draws only those cells, a leaf all of them',
+    leaf.material.uniforms.uCellsLo.value === 0xffffffff && leaf.material.uniforms.uCellsHi.value === 0xffffffff
+    && (standCells.uCellsLo.value !== 0xffffffff || standCells.uCellsHi.value !== 0xffffffff));
+  ok('and the shader discards the rest, with a quarter-cell margin under its neighbours',
+    /return \(\(word >> uint\(bit & 31\)\) & 1u\) == 1u;/.test(shaderSrc)
+    && /cellOn\(p \+ vec2\(0\.25, 0\.25\)\)\)\) discard;/.test(shaderSrc)
+    && /uCellsLo: \{ value: 0xffffffff \}/.test(shaderSrc));
+}
+
+console.log('\nthe height queue holds only what is still wanted');
+{
+  const { ElevationField } = await import('../src/tiles/elevation.js');
+  const field = new ElevationField({ addEventListener() {}, postMessage() {} });
+  // A source that is not ready, so nothing is sent and the queue can be read.
+  field.source = { maxZoom: 15, ready: false, prepare() {}, urlFor: () => null };
+  field.beginFrame();
+  field.request({ z: 12, x: 10, y: 10 }, 500);
+  field.request({ z: 12, x: 10, y: 10 }, 40);
+  field.request({ z: 12, x: 11, y: 10 }, 90);
+  ok('one entry per tile however many squares ask', field.queue.length === 2);
+  ok('and the nearest asker sets its place', field.tiles.get('12/10/10').priority === 40);
+  // Flown on: only the second tile is still asked for.
+  for (let i = 0; i < 3; i++) {
+    field.beginFrame();
+    field.request({ z: 12, x: 11, y: 10 }, 90);
+  }
+  ok('ground you have left drops out of the queue', field.queue.length === 1 && field.queue[0].key === '12/11/10');
+  const elevationSrc = readFileSync(new URL('../src/tiles/elevation.js', import.meta.url), 'utf8');
+  ok('and no request searches the queue', !/this\.queue\.includes\(/.test(elevationSrc));
 }
 
 console.log('\nevery module still parses');

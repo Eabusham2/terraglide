@@ -647,6 +647,14 @@ input[type='checkbox'] {
   font-variant-numeric: tabular-nums;
 }
 
+/* A waypoint that is off screen, pinned to the edge in its direction. */
+.beacon-label.edge {
+  transform: translate(-50%, -50%);
+  margin-top: 0;
+  opacity: 0.88;
+  border-left-style: dashed;
+}
+
 /* The exact bearing, sitting under the needle where an instrument puts it. */
 .compass-heading {
   position: absolute;

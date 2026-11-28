@@ -213,9 +213,6 @@ export const SUFFOCATION_PER_S = 2;
  */
 export const OXYGEN_SECONDS = 300;
 export const OXYGEN_REFILL_PER_S = 40;
-/** Rockets carried of each kind, and seconds for one to come back. See Player. */
-export const ROCKET_STACK = 64;
-export const ROCKET_REFILL_S = 4;
 /** How often a lander can be moved, seconds. */
 export const LANDER_EVERY_S = 30;
 /** How close to your lander or the base the suit refills, metres, on the ground. */

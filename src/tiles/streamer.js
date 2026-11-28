@@ -1,5 +1,6 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { Emitter } from '../core/events.js';
+import { cacheRoom } from '../core/deviceTier.js';
 import { settings } from '../core/settings.js';
 import { tileKey, wrapTileX } from '../geo/mercator.js';
 import { SHARPNESS_FLOOR, SHARPNESS_FROM_ZOOM, SHARPNESS_RATIO } from './sharpness.js';
@@ -507,7 +508,10 @@ export class ImageryStreamer extends Emitter {
   beginFrame(nx = null, ny = null) {
     this.frame++;
     // The forty-kilometre square the camera is standing in. See probeDeeper.
-    if (nx !== null && ny !== null) this.here = depthRegionAt(nx, ny);
+    if (nx !== null && ny !== null) {
+      this.here = depthRegionAt(nx, ny);
+      this.camera = { nx, ny };
+    }
     // Per frame, because the question is "how much of what I am looking at
     // right now is stretched", not "how much has ever been".
     this.stats.exact = 0;
@@ -1038,7 +1042,7 @@ export class ImageryStreamer extends Emitter {
     const perTile = (256 / size) ** 2;
     const memoryGB = Number(globalThis.navigator?.deviceMemory ?? 0);
     const share = memoryGB > 0 && memoryGB <= 4 ? 0.5 : 1;
-    const budget = preset.textureCacheSize * perTile * share;
+    const budget = preset.textureCacheSize * perTile * share * cacheRoom();
 
     /**
      * Never smaller than the view.
@@ -1078,9 +1082,37 @@ export class ImageryStreamer extends Emitter {
     // the tiles coming into view have no photograph of their own, walk up
     // looking for one to stretch, and find it was evicted. Nothing to stretch
     // means `uHasTexture` is zero, which is drawn as flat grey.
+    /*
+      The budget is photographs held, not squares asked after.
+
+      Every square asked for gets an entry the moment it is asked, long before
+      anything is fetched, and the count against the budget was the size of the
+      whole map. Measured on Ultra over a minute of flying: 2,840 entries
+      against a budget of 2,800, of which some 1,400 were the request queue —
+      no picture, no memory, just a name waiting its turn. So half the budget
+      was spent on nothing, the cache held barely more than the frame in front
+      of it, and every photograph of the ground behind you went the moment you
+      looked away. Turning round then found nothing to draw but the coarse
+      cover nine levels up, stretched until it was one flat colour — the grey,
+      tan and green slabs — until the same pictures were fetched all over again.
+
+      A waiting entry costs nothing to keep and nothing to drop, so the ones
+      nobody asked for this frame or the last simply go (asking again makes
+      them again), and only entries that hold or are fetching a picture are
+      counted and evicted. The budget then means what its own comment says it
+      means: that many pictures in memory.
+    */
+    const holds = (entry) => entry.texture || entry.state === STATE_PENDING;
     const cover = [];
     const rest = [];
     for (const entry of this.entries.values()) {
+      if (!holds(entry)) {
+        // Unsent and unwanted. A failure or a bare square keeps its clock for a
+        // while, since that is what stops it being asked again at once.
+        const idle = this.frame - (entry.used ?? 0);
+        if ((entry.state === 0 && idle > 1) || idle > 3600) this.entries.delete(entry.key);
+        continue;
+      }
       (entry.tile.z <= COVER_ZOOM ? cover : rest).push(entry);
     }
     /**
@@ -1141,6 +1173,19 @@ export class ImageryStreamer extends Emitter {
       // and the cover pool immediately below has always been bounded this way
       // and says so.
       if (excess > 0) {
+        // Furthest first, now that it has to be something recent: ground
+        // behind you a few hundred metres back is the next thing you see when
+        // you turn round, and ground ten kilometres back is not.
+        const cam = this.camera;
+        if (cam) {
+          const away = (entry) => {
+            const n = 2 ** entry.tile.z;
+            let dx = (entry.tile.x + 0.5) / n - cam.nx;
+            dx -= Math.round(dx);
+            return Math.hypot(dx, (entry.tile.y + 0.5) / n - cam.ny);
+          };
+          rest.sort((a, b) => away(b) - away(a));
+        }
         for (const entry of rest) {
           if (excess <= 0) break;
           if (entry.state === STATE_PENDING) continue;

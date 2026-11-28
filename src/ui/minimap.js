@@ -172,6 +172,9 @@ export class Minimap {
           fog: ONLINE || settings.get('minimapFog'),
           trail: settings.get('showTrail'),
           waypoints: settings.get('minimapShowWaypoints'),
+          // Off the minimap, a waypoint is pinned to its edge rather than lost.
+          pinWaypoints: true,
+          pinShape: settings.get('minimapShape'),
           labels: this.size >= 200,
           playerSize: 7,
           pathWidth: 1.3,

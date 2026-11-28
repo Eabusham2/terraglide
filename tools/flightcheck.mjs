@@ -153,7 +153,6 @@ async function flyOne(world) {
   const lon0 = spawnAt.lon + 0.3;
 
   // The page. Flat ground at nought, so a landing is a landing.
-  settings.set('rocketSupply', 'unlimited');
   const flat = {
     heightAt: () => 0, meshHeightAt: () => null, hasElevationAt: () => true, bedAt: () => 0,
     isWaterAt: () => false,

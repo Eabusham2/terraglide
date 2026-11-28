@@ -444,6 +444,9 @@ export class HUD {
       node.style.left = `${(beacon.x * 100).toFixed(2)}%`;
       node.style.top = `${(beacon.y * 100).toFixed(2)}%`;
       node.style.setProperty('--beacon', beacon.colour);
+      // Pinned to the edge of the screen: the place is behind you or off to
+      // one side, and the label says which way to turn.
+      if (node.classList.contains('edge') !== !!beacon.edge) node.classList.toggle('edge', !!beacon.edge);
       const name = node.firstChild;
       if (name.textContent !== beacon.name) name.textContent = beacon.name;
       const away = formatDistance(beacon.metres, units);
@@ -701,20 +704,9 @@ export class HUD {
       // real numbers now — a bigger rocket pushes harder as well as longer, in
       // the same proportion — and the speed is formatted in whichever units
       // the player is using.
-      // How many you are carrying, then what one of them does. The count goes
-      // first because it is the thing that changes while you fly, and a slot
-      // you have run dry has to be readable at a glance from the hotbar rather
-      // than discovered by pressing the key.
-      const left = player.stock ? player.stock[index] : Infinity;
-      const endless = !Number.isFinite(player.rocketsLeft) || !player.stock;
-      // Written out rather than an infinity sign: a minimal font set draws
-      // U+221E as an empty box, and the hotbar is not the place to find that
-      // out. Same rule that caught the arrow in the map's zoom buttons.
-      const what = `${item.burnSeconds.toFixed(1)}s · ${formatSpeed(item.topSpeed, settings.get('units'))}`;
-      const hint = endless ? what : `${left} · ${what}`;
+      // Fireworks are endless, so there is no count: what one of them does.
+      const hint = `${item.burnSeconds.toFixed(1)}s · ${formatSpeed(item.topSpeed, settings.get('units'))}`;
       if (meta.textContent !== hint) meta.textContent = hint;
-      const empty = !endless && left <= 0;
-      if (slot.classList.contains('empty') !== empty) slot.classList.toggle('empty', empty);
     });
   }
 

@@ -11,8 +11,6 @@ import {
   OXYGEN_SECONDS,
   REGEN_DELAY_S,
   REGEN_EVERY_S,
-  ROCKET_REFILL_S,
-  ROCKET_STACK,
   SPEED_MODE_COOLDOWN_S,
   SPEED_MODE_SECONDS,
   SUFFOCATION_PER_S,
@@ -52,22 +50,11 @@ import {
 const MAX_LIT = 12;
 
 /**
- * How many of each rocket you carry, and how fast they come back.
- *
- * They were infinite, which is not how you fly one in Minecraft: you carry a
- * stack, each launch spends one, and running out is the thing that makes a
- * long crossing a decision rather than a held key. A stack is 64 there, so it
- * is 64 here.
- *
- * They refill because there is nothing to craft them from in a game made of
- * satellite photographs — no gunpowder, no paper, no chest to go back to. A
- * slot recovers one rocket every few seconds, per slot, so a spent Rocket V is
- * a real cost paid over minutes while a Rocket I you barely touched is always
- * there. Turn it off in Settings and they are endless again. The numbers —
- * how many, and seconds to earn one back in the slot it was spent from — live
- * with the wire protocol, since a server keeps your stock: net/protocol.js.
+ * Fireworks are endless: every slot always has one to light, offline and on a
+ * server alike. There was a stack of 64 per slot that refilled one every four
+ * seconds; it was taken out because running dry mid-flight is no fun, and the
+ * server's speed check bounds what any number of rockets can do anyway.
  */
-export { ROCKET_REFILL_S, ROCKET_STACK };
 
 export const ROCKET_COLOURS = ['#8fb8d8', '#74c47a', '#e8c54a', '#e08a35', '#d23f2f'];
 
@@ -239,10 +226,6 @@ export class Player extends Emitter {
      */
     this.rocketHold = 0;
     this.rocketHoldSpeed = 0;
-    /** How many of each hotbar rocket you are carrying. See ROCKET_STACK. */
-    this.stock = HOTBAR.map(() => ROCKET_STACK);
-    /** Fractional progress towards the next one in each slot. */
-    this.refill = HOTBAR.map(() => 0);
     this.rocketDuration = 0;
     this.rocketsFired = 0;
 
@@ -376,7 +359,6 @@ export class Player extends Emitter {
     this.drowned = false;
     this.lastHurtAt = -Infinity;
     this.suffocateTimer = 0;
-    this.stock = HOTBAR.map(() => ROCKET_STACK);
     this.emit('revived', {});
   }
 
@@ -535,21 +517,6 @@ export class Player extends Emitter {
   }
 
   /**
-   * Fire the selected rocket. No cooldown and no timer: like the real thing,
-   * you can light another one whenever you want, and lighting one mid-burn
-   * simply restarts the burn.
-   */
-  /** How many of the selected rocket are left, or Infinity when endless. */
-  get rocketsLeft() {
-    // On a server every rocket counts: endless ones there are an advantage
-    // over everybody else in the air, which makes them a cheat, not a taste.
-    if ((settings.get('rocketSupply') === 'unlimited' && this.authority !== 'server') || cheats.rocketFree) {
-      return Infinity;
-    }
-    return this.stock[this.rocketSlot] ?? 0;
-  }
-
-  /**
    * Which rocket fires when you light one.
    *
    * The one in your hand, or — with the sword in your hand — the last rocket
@@ -559,17 +526,15 @@ export class Player extends Emitter {
     return this.holdingSword ? (this.lastRocketSlot ?? 0) : this.selectedSlot;
   }
 
+  /**
+   * Fire the selected rocket. No cooldown and no timer: like the real thing,
+   * you can light another one whenever you want, and lighting one mid-burn
+   * simply restarts the burn. There is always one to light.
+   */
   fireRocket() {
     const item = HOTBAR[this.rocketSlot];
     const duration = item ? item.duration : 2;
     if (!this.elytraDeployed) return false;
-    // You have to have one. Spending the last of a slot is allowed; spending
-    // one you do not have is not, and it says so rather than failing silently.
-    if (this.rocketsLeft <= 0) {
-      this.emit('outOfRockets', { slot: this.rocketSlot });
-      return false;
-    }
-    if (Number.isFinite(this.rocketsLeft)) this.stock[this.rocketSlot] -= 1;
     const total = rocketTicks(duration);
     // Its own power, taken now: a firework in flight is the one you lit, not
     // whichever slot you have scrolled to since.
@@ -641,30 +606,8 @@ export class Player extends Emitter {
     return true;
   }
 
-  /**
-   * Earn spent rockets back, one slot at a time.
-   *
-   * Per slot rather than from a pool, so emptying the Rocket V does not cost
-   * you the Rocket I you never touched. Nothing accumulates past a stack.
-   */
-  tickRefill(dt) {
-    if (!Number.isFinite(this.rocketsLeft) && this.stock.every((n) => n >= ROCKET_STACK)) return;
-    for (let i = 0; i < this.stock.length; i++) {
-      if (this.stock[i] >= ROCKET_STACK) {
-        this.refill[i] = 0;
-        continue;
-      }
-      this.refill[i] += dt;
-      while (this.refill[i] >= ROCKET_REFILL_S && this.stock[i] < ROCKET_STACK) {
-        this.refill[i] -= ROCKET_REFILL_S;
-        this.stock[i] += 1;
-      }
-    }
-  }
-
   tickTimers(dt) {
     this.clock += dt;
-    this.tickRefill(dt);
     // Speed mode comes on like a switch and goes off like momentum. Dropping
     // it used to halve your ground speed between one frame and the next, which
     // is not what running out of anything feels like; now it bleeds away over

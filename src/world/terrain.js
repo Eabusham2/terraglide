@@ -2,6 +2,7 @@ import * as THREE from '../../vendor/three/three.module.js';
 import { clamp } from '../core/math.js';
 import { EDGE_SECTORS } from './edgeWall.js';
 import { settings } from '../core/settings.js';
+import { cacheRoom } from '../core/deviceTier.js';
 import { BODY } from '../geo/bodies.js';
 import { WORLD_RADIUS, tileKey, wrapTileX } from '../geo/mercator.js';
 import { createTerrainMaterial } from './shaders.js';
@@ -50,6 +51,11 @@ const EARTH_RADIUS_M = WORLD_RADIUS === 6378137 ? 6371000 : WORLD_RADIUS;
  * still there when you come back to it.
  */
 const KEEP_FACTOR = 1.5;
+/**
+ * How much further than the level-of-detail line a square splits, everywhere.
+ * See splitScale: this is what the ground straight ahead always had.
+ */
+const SPLIT_REACH = 1.25;
 /** How much further distant mode reaches than the render distance proper. */
 /**
  * The most tiles one frame will rebuild for being plainly wrong rather than
@@ -467,27 +473,19 @@ export class Terrain {
     // GRAPHICS_PRESETS.maxDrawnTiles.
     this.maxDrawn = settings.preset().maxDrawnTiles;
     // Which way you are facing, flattened. Ground in front of you is what you
-    // are about to look at, so it is what gets built first and sharpened
-    // furthest.
+    // are about to look at, so it is what gets built and fetched first.
     //
-    // Smoothed, because the heading now decides how finely ground subdivides
-    // as well as what order it is built in. Read raw, a flick of the mouse
-    // re-cuts the quadtree twice — once away and once back — and every re-cut
-    // is a rebuild you can see. Two thirds of a second of lag makes a
-    // deliberate turn count and a twitch not.
+    // As you face now. This was smoothed over two thirds of a second when the
+    // heading also decided how finely ground subdivided, so that a flick would
+    // not re-cut the tree; it no longer does (see splitScale), and the lag was
+    // only ever a cost here — for a second after a turn the ground you had
+    // turned to was built and fetched last, as if it were behind you.
     camera.getWorldDirection(this._vecA);
-    const wantLen = Math.hypot(this._vecA.x, this._vecA.z) || 1;
-    const wantX = this._vecA.x / wantLen;
-    const wantZ = this._vecA.z / wantLen;
-    const now = performance.now();
-    const viewDt = clamp((now - (this._viewTime ?? now)) / 1000, 0, 0.5);
-    this._viewTime = now;
-    const follow = this._viewX === undefined ? 1 : 1 - Math.exp(-viewDt / 0.66);
-    this._viewX = (this._viewX ?? wantX) + (wantX - (this._viewX ?? wantX)) * follow;
-    this._viewZ = (this._viewZ ?? wantZ) + (wantZ - (this._viewZ ?? wantZ)) * follow;
-    const flatLen = Math.hypot(this._viewX, this._viewZ) || 1;
-    this._viewX /= flatLen;
-    this._viewZ /= flatLen;
+    const flatLen = Math.hypot(this._vecA.x, this._vecA.z);
+    if (flatLen > 1e-6 || this._viewX === undefined) {
+      this._viewX = flatLen > 1e-6 ? this._vecA.x / flatLen : 0;
+      this._viewZ = flatLen > 1e-6 ? this._vecA.z / flatLen : -1;
+    }
 
     // Where the camera is, so the streamer can tell a depth learned here from
     // one learned forty kilometres away. See probeDeeper.
@@ -506,6 +504,18 @@ export class Terrain {
     // no hole to see it through, just the sky. Which is "in freecam the ground
     // behind me is invisible", and most of what "the ground is not holding, as
     // seen by freecam" was actually showing.
+    //
+    // And as it is pointed *this* frame. The camera's matrices are only brought
+    // up to date when the frame is rendered, which is after this; read here
+    // without refreshing them they are the last frame's. Turning, that is a
+    // view cone one frame behind the one drawn through, and every square
+    // swinging in on the leading side was culled for the frame it first
+    // appeared in — a hole through to the haze-coloured edge of the world. A
+    // fast turn at sixty frames a second is fifteen degrees a frame, a fifth
+    // of the view; at the lower frame rates of High and Ultra, more. That was
+    // the ground flickering into flat tan and grey slabs while turning.
+    viewCamera.updateMatrixWorld();
+    if (camera !== viewCamera) camera.updateMatrixWorld();
     this.projScreenMatrix.multiplyMatrices(
       viewCamera.projectionMatrix,
       viewCamera.matrixWorldInverse,
@@ -517,6 +527,7 @@ export class Terrain {
     // Kept for draw(), which is reached through visit() and does not carry it.
     this._camX = camX;
     this._camZ = camZ;
+    this._camY = camera.position.y;
 
     // Root zoom: the coarsest level whose tiles still comfortably cover the
     // view distance, so the recursion starts with only a few tiles.
@@ -584,15 +595,52 @@ export class Terrain {
      */
     this.wantedElevationZoom = elevZoom;
     this.elevation.ensureAround(this._norm.nx, this._norm.ny, elevZoom, 1);
-
+    this.holdCoverAround(this._norm.nx, this._norm.ny, maxZoom);
     this.streamer.pump();
     this.streamer.evict();
-    this.evict(preset.textureCacheSize, camX, camZ);
+    this.evict(preset.textureCacheSize * cacheRoom(), camX, camZ);
 
     this.stats.drawn = this.drawn.length;
     this.stats.nodes = this.nodes.size;
     this.stats.baseZoom = baseZoom;
     this.stats.maxZoom = maxZoom;
+  }
+
+  /**
+   * Keep a photograph of every level round you, whichever way you face.
+   *
+   * The cover pool holds zoom nine and coarser, and nothing else was kept for
+   * ground out of view, so on a turn the ground swinging in had either its own
+   * photograph or — once the cache had let the levels between go — zoom nine,
+   * stretched over a square a hundred times smaller than itself until it was
+   * one flat colour. That is the grey, tan and green slabs, for as long as the
+   * levels between took to fetch again.
+   *
+   * So the three-by-three block of squares round you is asked for at every
+   * level from just under the cover pool to two above the finest drawn: about
+   * sixty photographs, twenty megabytes, each one asked for every frame and so
+   * never evicted. Any ground within a square and a half of you at some level
+   * then always has that level to stretch, which is at most two levels — four
+   * times — coarser than it wants: soft for a moment rather than one colour.
+   * Asked at the same price as a drawn square at the same distance, so they
+   * neither jump the queue nor wait behind all of it.
+   */
+  holdCoverAround(nx, ny, maxZoom) {
+    const top = Math.min(maxZoom - 2, 16);
+    for (let z = 10; z <= top; z++) {
+      const n = 2 ** z;
+      const cx = Math.floor(nx * n);
+      const cy = Math.floor(clamp(ny, 0, 0.999999) * n);
+      const size = this.frame.worldTileSize(z);
+      for (let dy = -1; dy <= 1; dy++) {
+        const y = cy + dy;
+        if (y < 0 || y >= n) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const away = size * Math.max(0.5, Math.hypot(dx, dy));
+          this.streamer.request({ z, x: wrapTileX(cx + dx, z), y }, (away * 1.6) / 2 ** (20 - z));
+        }
+      }
+    }
   }
 
   /**
@@ -697,26 +745,28 @@ export class Terrain {
     }
   }
 
-  /**
-   * How much further a tile may be and still subdivide, given where you look.
-   *
-   * Detail costs the same wherever it is spent, so spending it evenly means
-   * spending most of it on ground nobody is looking at. Tiles inside the view
-   * cone get a quarter more reach and tiles behind you a quarter less — a
-   * little over half a level either way — so the horizon you are facing
-   * reaches full detail sooner and the ground behind your head stays coarse
-   * until you turn round.
-   *
-   * Ground close enough to be underfoot is exempt: it is about to be in view
-   * whichever way you turn, and it is what you land on.
-   */
-  splitScale(cx, cz, camX, camZ, flatDist, size) {
-    if (flatDist < size) return 1;
-    const dx = cx - camX;
-    const dz = cz - camZ;
-    const len = Math.hypot(dx, dz);
-    if (len < 1) return 1;
-    return 1 + ((dx * this._viewX + dz * this._viewZ) / len) * 0.25;
+  /*
+    How much further a tile may be and still subdivide.
+
+    Now the same everywhere: the reach that only dead ahead used to get.
+
+    Weighting by heading took detail away from whatever you were not facing,
+    and what you were facing was read through a heading smoothed over two
+    thirds of a second so that a flick would not re-cut the tree. Both halves
+    were the flat ground on a turn. For a second after turning, the ground now
+    in front of you still counted as behind you — three quarters of the reach,
+    most of a level coarser — so it merged, was drawn from whatever coarse
+    stand-in and stretched photograph were to hand, and then split again as
+    the smoothed heading caught up. Detail dropping out of the view you had
+    just turned to, and coming back.
+
+    Nothing behind you is drawn in any case: the frustum rejects it before this
+    is asked, so the weighting saved squares only at the sides of the view and
+    underfoot, and spent them as flicker. The arguments stay so the call reads
+    the same; the answer no longer depends on them.
+  */
+  splitScale() {
+    return SPLIT_REACH;
   }
 
   visit(tile, camera, camX, camZ, renderDistance, maxZoom) {
@@ -934,9 +984,19 @@ export class Terrain {
     // rather than read off a published maximum zoom, because coverage is
     // patchy: the level that is real over a city is the same level resampled
     // a valley away. See streamer.atFinest.
+    // Past the cap, nothing new splits — but nothing already split merges
+    // either. Merging there made the cap a switch: one frame over it a band of
+    // ground merged, the next frame under it split again, and on Ultra it sat
+    // on the line (1,402 to 1,514 against 1,500, measured), so that band went
+    // sharp, flat, sharp, every frame, wherever the count happened to run out.
+    // Held as it was, the count stays where it was too; the hard ceiling below
+    // still bounds it.
+    const withinLine = wasSplit
+      ? eyeDist < line * LOD_HYSTERESIS_OUT
+      : eyeDist < line * LOD_HYSTERESIS_IN;
     const shouldSplit =
-      !outOfBudget && tile.z < maxZoom && sharpEnough && !this.streamer.atFinest(tile) &&
-      (wasSplit ? eyeDist < line * LOD_HYSTERESIS_OUT : eyeDist < line * LOD_HYSTERESIS_IN);
+      (wasSplit || !outOfBudget) && tile.z < maxZoom && sharpEnough &&
+      !this.streamer.atFinest(tile) && withinLine;
     if (shouldSplit) this.split.add(key);
     else this.split.delete(key);
     if (shouldSplit) {
@@ -1142,6 +1202,23 @@ export class Terrain {
     return built;
   }
 
+  /**
+   * How many times further off a stand-in counts for the depth test. See show.
+   *
+   * Its relief, with half again and ten metres to spare since a coarse mesh is
+   * smoother than what it stands for, over the camera's height above it. No
+   * floor: over open sea the relief is nought and the push stays smaller than
+   * the twelve metres down to the sea sheet (seaFloor.js), so a stand-in there
+   * still beats the sheet beneath it. Capped at four, past which it would let
+   * ground far behind it through.
+   */
+  standInPush(node) {
+    // Less the five metres build() pads each bound by.
+    const relief = Math.max(0, (node.maxY ?? 0) - (node.minY ?? 0) - 10);
+    const above = Math.max(5, (this._camY ?? 0) - (node.maxY ?? 0));
+    return clamp(1 + (relief * 1.5 + 10) / above, 1, 4);
+  }
+
   findBuiltAncestor(tile) {
     let z = tile.z - 1;
     let x = tile.x >> 1;
@@ -1186,8 +1263,56 @@ export class Terrain {
     // fragment shader, and offsetting the rasteriser's interpolated depth
     // cannot bias a value the shader computes itself. Moving the geometry
     // works whatever writes the depth.
-    node.material.uniforms.uSink.value =
-      node.tile.z < requestedTile.z ? 0.25 * (requestedTile.z - node.tile.z) : 0;
+    const levels = node.tile.z < requestedTile.z ? requestedTile.z - node.tile.z : 0;
+    node.material.uniforms.uSink.value = 0.25 * levels;
+    /*
+      And a stand-in loses every depth test against real ground.
+
+      A stand-in is a whole coarse square drawn for the leaves under it that
+      have no mesh yet — but it is drawn over its whole width, including over
+      the leaves that do. Its mesh is the coarse version of the same hills, so
+      across a valley it runs above the real floor and over a ridge below it:
+      the hand's breadth of sink above does nothing about tens of metres. That
+      was the tan block on a turn, covering everything round you with only the
+      tops of the tall things showing through it — the leaves that had been
+      built were there all along, underneath.
+
+      Sinking it by its relief would put it below the real ground everywhere,
+      and then the holes it is there to fill would be pits. So it keeps its
+      shape and is pushed back for the depth test instead: k times as far off,
+      where k is enough to cover how far above the true surface a coarse mesh
+      can sit, seen from this height — its relief over the camera's height
+      above it, which is how much further along a view ray the real ground
+      lies. Real ground then wins wherever it is drawn, and the stand-in is
+      only what you see where nothing else is.
+    */
+    node.material.uniforms.uDepthPush.value = levels > 0 ? Math.log2(this.standInPush(node)) : 0;
+    /*
+      Better still, a stand-in is not drawn over built ground at all.
+
+      Pushing it back loses it the depth test only as far as the push reaches,
+      and from low over a basin ringed by mountains — Athens, measured — the
+      coarse mesh runs hundreds of metres above the floor and no sensible push
+      reaches. So it is cut to the ground it is actually standing in for: an
+      eight-by-eight grid over the square, and only the cells that some leaf
+      asked it to cover this frame are drawn. Everything else is discarded, and
+      the built leaves there show as they are. The push stays for the cells a
+      stand-in shares with leaves that did get built.
+    */
+    const uniforms0 = node.material.uniforms;
+    if (levels === 0) {
+      uniforms0.uCellsLo.value = 0xffffffff;
+      uniforms0.uCellsHi.value = 0xffffffff;
+    } else {
+      if (node.cellsFrame !== this.streamer.frame) {
+        node.cellsFrame = this.streamer.frame;
+        node.cellsLo = 0;
+        node.cellsHi = 0;
+      }
+      standInCells(node.tile, requestedTile, node);
+      uniforms0.uCellsLo.value = node.cellsLo >>> 0;
+      uniforms0.uCellsHi.value = node.cellsHi >>> 0;
+    }
 
     // Texture: exact tile if we have it, otherwise the closest ancestor.
     const priority = distance / Math.pow(2, 20 - requestedTile.z);
@@ -1923,27 +2048,46 @@ export class Terrain {
   }
 
   /**
-   * Throw away the least recently used tiles, but never one that is still
-   * within reach.
+   * Throw away built squares when there are too many, furthest first, and
+   * never one the next frame is likely to need.
    *
    * Ground you flew over thirty seconds ago used to be evicted the moment the
    * cache filled, so turning round rebuilt it from nothing — a wall of empty
    * ground where you had just been. Anything inside the keep radius survives
    * the cull; only when *that* alone overflows does distance decide.
+   *
+   * Two more things are kept. The parent and grandparent of every square on
+   * screen: they are what the ground merges back into as you move, and one
+   * that had been thrown away came back as a coarse stand-in first and then
+   * settled into place — ground rising and sliding back down, over and over,
+   * as you fly. And among what may go, the furthest goes first rather than
+   * the least recently drawn: everything behind you is equally "not drawn",
+   * and the ground just behind you is what you see when you turn round.
    */
   evict(limit, camX = 0, camZ = 0) {
     if (this.nodes.size <= limit) return;
     const keep = (this.keepDistance ?? Infinity) ** 2;
+    const needed = new Set();
+    for (const node of this.drawn) {
+      let { z, x, y } = node.tile;
+      for (let up = 0; up < 2 && z > 0; up++) {
+        z -= 1;
+        x >>= 1;
+        y >>= 1;
+        needed.add(tileKey(z, x, y));
+      }
+    }
     const near = [];
     const far = [];
     for (const node of this.nodes.values()) {
-      if (!node.mesh) continue;
+      if (!node.mesh || needed.has(node.key)) continue;
       const dx = node.mesh.position.x + (node.size ?? 0) / 2 - camX;
       const dz = node.mesh.position.z + (node.size ?? 0) / 2 - camZ;
-      (dx * dx + dz * dz <= keep ? near : far).push(node);
+      node._away = dx * dx + dz * dz;
+      (node._away <= keep ? near : far).push(node);
     }
-    far.sort((a, b) => a.used - b.used);
-    near.sort((a, b) => a.used - b.used);
+    far.sort((a, b) => b._away - a._away);
+    near.sort((a, b) => b._away - a._away);
 
     let excess = this.nodes.size - limit;
     for (const node of [...far, ...near]) {
@@ -1966,6 +2110,43 @@ export class Terrain {
     node.geometry = null;
     node.material = null;
   }
+}
+
+/**
+ * Mark the cells of a stand-in that `tile` needs it to cover. See Terrain.show.
+ *
+ * The stand-in is split eight by eight, which is three levels below it. A leaf
+ * three or more levels down falls in one cell; one or two levels down it
+ * covers a block of four by four or two by two. Cells are numbered row-major
+ * from the north-west corner — the same way round as the square's texture
+ * coordinates, which run with tile x and tile y — and kept as two 32-bit words.
+ */
+export function standInCells(standIn, tile, into) {
+  const d = tile.z - standIn.z;
+  if (d < 1) return into;
+  let x0;
+  let y0;
+  let span;
+  if (d >= 3) {
+    const s = d - 3;
+    x0 = (tile.x >> s) - standIn.x * 8;
+    y0 = (tile.y >> s) - standIn.y * 8;
+    span = 1;
+  } else {
+    span = 8 >> d;
+    x0 = (tile.x - standIn.x * (1 << d)) * span;
+    y0 = (tile.y - standIn.y * (1 << d)) * span;
+  }
+  for (let y = y0; y < y0 + span; y++) {
+    if (y < 0 || y > 7) continue;
+    for (let x = x0; x < x0 + span; x++) {
+      if (x < 0 || x > 7) continue;
+      const bit = y * 8 + x;
+      if (bit < 32) into.cellsLo |= 1 << bit;
+      else into.cellsHi |= 1 << (bit - 32);
+    }
+  }
+  return into;
 }
 
 const indexCache = new Map();

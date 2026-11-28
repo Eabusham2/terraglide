@@ -12,7 +12,7 @@ const SEEN_KEY = 'seen-intro';
 export const ROWS = [
   ['Move', ['forward', 'left', 'back', 'right']],
   ['Sprint / crouch', ['sprint', 'crouch']],
-  ['Jump \u2014 press again once airborne to open the wings', ['jump']],
+  ['Jump \u2014 press again in the air to open the wings, and again to stow them', ['jump']],
   ['Fire a rocket — opens the wings for you (or use the mouse)', ['rocket']],
   ['Swim — jump to rise, crouch to dive', ['jump', 'crouch']],
   ['Surge — 2.4x for twelve seconds, then it recharges', ['speedMode']],

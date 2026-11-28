@@ -2,6 +2,8 @@
 
 **Play it: <https://eabusham2.github.io/terraglide/>**
 
+**Play online with everyone: <https://terraglide.dpdns.org/>**
+
 A first-person world exploration game that runs in a browser. Press one key and
 you are dropped somewhere random on Earth. Open a pair of elytra, dive to build
 speed, flare to trade it back for height, fire a rocket when you run out of
@@ -107,7 +109,7 @@ Leave with the headset's own exit, or the **VR** button again on a desktop.
 | --- | --- |
 | `W A S D` | walk |
 | `Shift` / `C` | sprint / crouch — `C` also dives when you are swimming |
-| `Space` | jump — **hold it while falling** to snap the wings open |
+| `Space` | jump — press again in the air to open the wings, and again to stow them |
 | mouse buttons / `E` | fire a rocket, which opens the wings for you (see mouse modes below) |
 | `1`–`5` | rockets — the number is the burn in seconds, and the power |
 | `V` | speed mode — everything at 2x for a while, then a cooldown |

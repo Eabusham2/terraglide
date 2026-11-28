@@ -885,11 +885,11 @@ try {
     back.send({ t: 'lander' });
     const again = await back.next('chat', (m) => m.kind === 'error');
     ok('nor move again straight away, whatever the page says', /can move again/.test(again.text));
-    // Rockets: what the page had is kept, and comes back at the page's rate.
+    // Fireworks are endless now; a page from before still sends its stock,
+    // and the server lets it go without keeping it or holding it against it.
     back.send({ t: 'rockets', stock: [10, 64, 64, 64, 64] });
     await sleep(100);
-    me.record.rockets.at = Date.now() - 8000;
-    ok('the rocket stock is kept, with what has come back since', g.rocketsNow(me.record)[0] === 12);
+    ok('an old page\'s rocket stock is let go, not kept', me.record.rockets === undefined && !('rockets' in me.record.toJSON()));
     back.send({ t: 'rtp' });
     const dropped = await back.next('teleport');
     const said = await back.next('chat', (m) => /Dropped/.test(m.text ?? ''));
@@ -2803,13 +2803,11 @@ try {
       vela.state({});
     }
     vp.health = MAX_HEALTH;
-    // Rockets: five whole numbers, none past a stack.
+    // Rockets are endless, so no stock an old page sends is counted.
+    const messagesBefore = held('vela', 'message');
     vela.send({ t: 'rockets', stock: [1.5, 2, 3, 4, 5] });
     await sleep(80);
-    ok('a rocket stock that cannot be is counted', held('vela', 'rockets') === 2);
-    vela.send({ t: 'rockets', stock: [64, 64, 64, 64, 64] });
-    await sleep(80);
-    ok('a full one - a respawn refills it - is not', held('vela', 'rockets') === 2);
+    ok('an old page\'s rocket stock is not counted against it', !held('vela', 'rockets') && held('vela', 'message') === messagesBefore);
     // Messages no page sends.
     vela.ws.send('{not json');
     vela.ws.send(new Uint8Array([1, 2, 3]));

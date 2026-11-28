@@ -40,10 +40,33 @@ export class ElevationField {
     /** A world with no measured relief at all: flat, and known to be. See setSource. */
     this.flat = false;
     this.tiles = new Map();
+    /**
+     * Lookups by number rather than by string, remembered until the set of
+     * tiles changes. Every height on the ground is read through sampleFrom,
+     * which walks down from the finest zoom and asks after neighbours at the
+     * edges — on Ultra about forty thousand string keys built and looked up
+     * per square rebuilt, two hundred rebuilds a second while flying: four
+     * tenths of the frame, measured, spent making the same strings again.
+     * The answers are the same entries; only finding them is cheaper. A tile
+     * added or dropped updates its own answer (`noteTile`), and a new source
+     * forgets them all (`forgetLookups`): those are the only times an answer
+     * could be different.
+     */
+    this.lookups = new Map();
+    // And the last answer at each zoom, since neighbouring samples almost
+    // always fall in the same tile: checked before the map is.
+    this.lastX = new Float64Array(32).fill(-1);
+    this.lastY = new Float64Array(32).fill(-1);
+    this.lastEntry = new Array(32).fill(null);
     this.jobs = new Map();
     this.nextId = 1;
     this.active = 0;
-    this.maxActive = 4;
+    // Six: what a browser allows to one server at a time over HTTP/1.1, which
+    // is how the height tiles are served. Four left the ground ahead of you
+    // waiting its turn while you flew onto it, and every rung of height that
+    // then landed under you moved the ground you were looking at. Six for each
+    // name the source answers to — see setSource.
+    this.maxActive = 6;
     /** Set when something is queued, so pump only re-sorts when it must. */
     this.queueDirty = false;
     this.queue = [];
@@ -70,7 +93,10 @@ export class ElevationField {
     this.source = source;
     this.flat = !source && flat === true;
     this.tiles.clear();
+    this.forgetLookups();
     this.queue.length = 0;
+    // Six per server name, since that is what the browser allows each one.
+    this.maxActive = 6 * Math.max(1, source?.descriptor?.hosts?.length ?? 1);
   }
 
   get maxZoom() {
@@ -90,7 +116,7 @@ export class ElevationField {
     const y = clamp(ny, 0, 0.999999);
     for (let z = Math.min(topZoom, this.maxZoom); z >= 3; z--) {
       const n = Math.pow(2, z);
-      const entry = this.tiles.get(tileKey(z, Math.floor(x * n), Math.floor(y * n)));
+      const entry = this.entryAt(z, Math.floor(x * n), Math.floor(y * n));
       if (entry && entry.state === STATE_READY) return true;
     }
     return false;
@@ -113,7 +139,7 @@ export class ElevationField {
     const y = clamp(ny, 0, 0.999999);
     for (let z = this.maxZoom; z >= 3; z--) {
       const n = Math.pow(2, z);
-      const entry = this.tiles.get(tileKey(z, Math.floor(x * n), Math.floor(y * n)));
+      const entry = this.entryAt(z, Math.floor(x * n), Math.floor(y * n));
       if (entry && entry.state === STATE_READY) return z;
     }
     return -1;
@@ -165,7 +191,7 @@ export class ElevationField {
       const n = Math.pow(2, z);
       const tx = Math.floor(x * n);
       const ty = Math.floor(y * n);
-      const entry = this.tiles.get(tileKey(z, tx, ty));
+      const entry = this.entryAt(z, tx, ty);
       if (!entry || entry.state !== STATE_READY) continue;
       entry.used = this.frame;
       const u = x * n - tx;
@@ -209,8 +235,38 @@ export class ElevationField {
   readyAt(z, tx, ty) {
     const n = Math.pow(2, z);
     if (ty < 0 || ty >= n) return false;
-    const entry = this.tiles.get(tileKey(z, ((tx % n) + n) % n, ty));
+    const entry = this.entryAt(z, ((tx % n) + n) % n, ty);
     return Boolean(entry && entry.state === STATE_READY);
+  }
+
+  /** The set of tiles changed: every remembered answer may be wrong now. */
+  forgetLookups() {
+    this.lookups.clear();
+    this.lastX.fill(-1);
+    this.lastY.fill(-1);
+    this.lastEntry.fill(null);
+  }
+
+  /** One tile came or went: its remembered answer is now this. */
+  noteTile(z, tx, ty, entry) {
+    this.lookups.set((z * 16777216 + tx) * 16777216 + ty, entry);
+    if (this.lastX[z] === tx && this.lastY[z] === ty) this.lastEntry[z] = entry;
+  }
+
+  /** The tile entry at z/x/y, or undefined. See `lookups`. */
+  entryAt(z, tx, ty) {
+    if (this.lastX[z] === tx && this.lastY[z] === ty) return this.lastEntry[z] ?? undefined;
+    // Exact for every zoom this field holds (up to 24): z * 2^48 + x * 2^24 + y.
+    const id = (z * 16777216 + tx) * 16777216 + ty;
+    let entry = this.lookups.get(id);
+    if (entry === undefined) {
+      entry = this.tiles.get(tileKey(z, tx, ty)) ?? null;
+      this.lookups.set(id, entry);
+    }
+    this.lastX[z] = tx;
+    this.lastY[z] = ty;
+    this.lastEntry[z] = entry;
+    return entry ?? undefined;
   }
 
   sampleLatLon(lat, lon) {
@@ -224,7 +280,7 @@ export class ElevationField {
     const y = clamp(ny, 0, 0.999999);
     for (let z = this.maxZoom; z >= 3; z--) {
       const n = Math.pow(2, z);
-      const entry = this.tiles.get(tileKey(z, Math.floor(x * n), Math.floor(y * n)));
+      const entry = this.entryAt(z, Math.floor(x * n), Math.floor(y * n));
       if (entry && entry.state === STATE_READY) return true;
     }
     return false;
@@ -240,6 +296,21 @@ export class ElevationField {
     // whole tile map into an array and sorting it. Per frame is what it always
     // meant; the call has just moved to somewhere that says so.
     this.evict();
+    // Only what is still being asked for. Requests are made again every frame
+    // for every square on screen, so anything not asked for in the last two
+    // frames is ground you have left. It used to wait in the queue until it
+    // was fetched: on Ultra the queue grew to two thousand six hundred, and an
+    // old request that was near when it was made could be fetched ahead of the
+    // ground you are over now — which then went on settling for longer.
+    if (this.queue.length) {
+      const keep = this.frame - 2;
+      let kept = 0;
+      for (const entry of this.queue) {
+        if ((entry.wanted ?? -Infinity) >= keep) this.queue[kept++] = entry;
+        else entry.queued = false;
+      }
+      this.queue.length = kept;
+    }
   }
 
   /**
@@ -306,11 +377,22 @@ export class ElevationField {
     if (!entry) {
       entry = { key, tile, state: 0, heights: null, used: this.frame, priority };
       this.tiles.set(key, entry);
+      this.noteTile(tile.z, tile.x, tile.y, entry);
     }
     entry.used = this.frame;
     if (entry.state === 0 || (entry.state === STATE_FAILED && entry.retryAt < performance.now())) {
-      entry.priority = priority;
-      if (!this.queue.includes(entry)) {
+      // The most urgent asking this frame decides: many squares share one
+      // height tile, and the nearest of them is the one waiting on it.
+      const next = entry.wanted === this.frame ? Math.min(entry.priority, priority) : priority;
+      if (next !== entry.priority) this.queueDirty = true;
+      entry.priority = next;
+      entry.wanted = this.frame;
+      // A flag, not a search. `includes` walked the whole queue on every
+      // request, and every square on screen requests every frame: measured on
+      // Ultra, thirteen hundred requests a frame against a queue that had grown
+      // to two thousand six hundred.
+      if (!entry.queued) {
+        entry.queued = true;
         this.queue.push(entry);
         this.queueDirty = true;
       }
@@ -332,7 +414,10 @@ export class ElevationField {
     }
     while (this.active < this.maxActive && this.queue.length > 0) {
       const entry = this.queue.shift();
+      if (entry) entry.queued = false;
       if (!entry || entry.state === STATE_PENDING || entry.state === STATE_READY) continue;
+      // Dropped from the cache while it waited: nothing would keep what came back.
+      if (this.tiles.get(entry.key) !== entry) continue;
       const url = this.source.urlFor(entry.tile);
       if (url === null) continue;
       // A planetary source needs more than a URL: the box or the rows it
@@ -488,6 +573,7 @@ export class ElevationField {
       if (excess <= 0) break;
       if (entry.state === STATE_PENDING || entry.used >= this.frame - 2) continue;
       this.tiles.delete(entry.key);
+      this.noteTile(entry.tile.z, entry.tile.x, entry.tile.y, null);
       excess--;
     }
   }
