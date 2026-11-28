@@ -79,7 +79,20 @@ export const IMAGERY_PROVIDERS = [
      * tested.
      */
     maxZoom: 23,
-    template: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    template: 'https://{host}/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    /**
+     * Two names for the same service, so twice the photographs in flight.
+     *
+     * Both speak HTTP/1.1 (measured; see GRAPHICS_PRESETS), so a browser opens
+     * at most six connections to each, and on any connection faster than a few
+     * megabits that is the ceiling on how fast the ground can sharpen — not the
+     * line. Measured on Ultra: a thousand-odd photographs waiting, and seven
+     * squares in eight drawn from a stretched ancestor. The two hosts return
+     * byte-identical tiles (checked: the same z15 tile, the same MD5 from
+     * both), and a tile always goes to the same one, so the browser's cache
+     * still finds it.
+     */
+    hosts: ['server.arcgisonline.com', 'services.arcgisonline.com'],
     attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
     note: 'Keyless. Fair use only — do not bulk download.',
   },
@@ -337,7 +350,12 @@ export const ELEVATION_PROVIDERS = [
     needsKey: null,
     recommended: true,
     maxZoom: 14,
-    template: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+    template: 'https://{host}/terrarium/{z}/{x}/{y}.png',
+    // The same bucket by its two names, path style and virtual-hosted, so a
+    // browser opens six connections to each rather than six in all: heights
+    // arrive twice as fast, and the ground spends half as long settling. Both
+    // answer with the same bytes and the same CORS header (checked).
+    hosts: ['s3.amazonaws.com/elevation-tiles-prod', 'elevation-tiles-prod.s3.amazonaws.com'],
     attribution: 'Elevation: AWS Terrain Tiles, SRTM/GMTED',
     note:
       'Public dataset, no key needed, and the default for that reason. '
@@ -472,8 +490,9 @@ export function gibsDate(now = Date.now()) {
   return new Date(now - GIBS_LAG_DAYS * 86400000).toISOString().slice(0, 10);
 }
 
-function fillTemplate(template, tile, key) {
+function fillTemplate(template, tile, key, hosts) {
   return template
+    .replace('{host}', hosts?.length ? hosts[(tile.x + tile.y) % hosts.length] : '')
     .replace('{z}', String(tile.z))
     .replace('{x}', String(tile.x))
     .replace('{y}', String(tile.y))
@@ -884,7 +903,7 @@ export class TileSource {
       return fillTemplate(this.vectorTemplate, tile, this.key);
     }
     if (!d.template) return null;
-    return fillTemplate(d.template, tile, this.key);
+    return fillTemplate(d.template, tile, this.key, d.hosts);
   }
 
   /** How the worker should read the answer: a picture, or a grid of numbers. */

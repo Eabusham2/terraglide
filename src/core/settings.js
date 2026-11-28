@@ -67,7 +67,10 @@ export const DEFAULT_SETTINGS = {
   mapillaryToken: '',
   maxarConnectId: '',
   addressLookup: true,
-  buildings: true,
+  // Off until you turn it on: they come from Overpass a few kilometres at a
+  // time and cost frame rate while they do, and a graphics tier is not a reason
+  // to switch them on behind your back.
+  buildings: false,
   /**
    * Slight relief over woodland the survey knows about, so a forest reads as a
    * canopy rather than as green paint. Shading only — nothing is built and the
@@ -397,7 +400,6 @@ export const GRAPHICS_PRESETS = {
       maxTileZoom: NO_ZOOM_CEILING,
       fog: true,
       weather: false,
-      buildings: false,
       streetLevel: false,
       world3dDetail: 'low',
     },
@@ -418,7 +420,6 @@ export const GRAPHICS_PRESETS = {
       maxTileZoom: NO_ZOOM_CEILING,
       fog: true,
       weather: true,
-      buildings: true,
       streetLevel: true,
       world3dDetail: 'medium',
     },
@@ -426,7 +427,9 @@ export const GRAPHICS_PRESETS = {
   high: {
     sseThreshold: 1.25,
     tileGridSize: 33,
-    maxDrawnTiles: 1100,
+    // Above what the walk asks for here, so it never decides what is drawn;
+    // only a runaway reaches it. See Ultra.
+    maxDrawnTiles: 1800,
     maxConcurrentRequests: 26,
     textureCacheSize: 900,
     anisotropy: 16,
@@ -438,7 +441,6 @@ export const GRAPHICS_PRESETS = {
       maxTileZoom: NO_ZOOM_CEILING,
       fog: true,
       weather: true,
-      buildings: true,
       streetLevel: true,
       world3dDetail: 'high',
     },
@@ -451,7 +453,16 @@ export const GRAPHICS_PRESETS = {
   ultra: {
     sseThreshold: 0.85,
     tileGridSize: 41,
-    maxDrawnTiles: 1500,
+    /*
+      Ultra is not capped by this. It was 1,500, and measured on a MacBook
+      flying at sixty-four kilometres of view the walk wanted more than that —
+      the count sat at 1,402 to 1,514 — so the cap, not the detail setting, was
+      deciding what the far half of the view looked like: past it nothing
+      split, and that ground stayed as the big coarse squares the walk had
+      reached it with. 3,000 is twice what was measured, so it is a backstop
+      against a runaway rather than a quality setting.
+    */
+    maxDrawnTiles: 3000,
     maxConcurrentRequests: 34,
     textureCacheSize: 1400,
     anisotropy: 16,
@@ -464,7 +475,6 @@ export const GRAPHICS_PRESETS = {
       maxTileZoom: NO_ZOOM_CEILING,
       fog: true,
       weather: true,
-      buildings: true,
       streetLevel: true,
       world3dDetail: 'ultra',
     },

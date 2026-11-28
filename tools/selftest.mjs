@@ -3785,7 +3785,7 @@ console.log('\nThe imagery goes as deep as it is actually flown, per square');
       readFileSync(new URL('../src/game.js', import.meta.url), 'utf8')));
   ok('and reaching it stops the splitting rather than the drawing',
     /const outOfBudget = this\.drawn\.length >= this\.maxDrawn;/.test(terrainSrc)
-    && /!outOfBudget && tile\.z < maxZoom/.test(terrainSrc));
+    && /\(wasSplit \|\| !outOfBudget\) && tile\.z < maxZoom/.test(terrainSrc));
   ok('with a far ceiling above it so a runaway frame still ends',
     /HOLE_RATHER_THAN_STALL/.test(terrainSrc)
     && /this\.maxDrawn \* HOLE_RATHER_THAN_STALL/.test(terrainSrc));
@@ -4517,7 +4517,7 @@ console.log('\nNo tier buys frame rate by making the picture worse');
     + ` against ${medium.maxDrawnTiles})`,
     low.applies.renderDistanceKm <= medium.applies.renderDistanceKm / 2
     && low.maxDrawnTiles < medium.maxDrawnTiles
-    && low.applies.buildings === false && low.applies.weather === false);
+    && low.applies.weather === false);
 }
 
 console.log('\nAuto graphics is a dial, not a label');
@@ -5324,7 +5324,7 @@ console.log('\nDetail goes where you can see it, not straight down');
   ok('including the height of the square itself',
     /Math\.max\(minY - camera\.position\.y, 0, camera\.position\.y - maxY\)/.test(terrain));
   ok('and both sides of the hysteresis use it',
-    /wasSplit \? eyeDist < line \* LOD_HYSTERESIS_OUT : eyeDist < line \* LOD_HYSTERESIS_IN/.test(terrain));
+    /wasSplit\s*\? eyeDist < line \* LOD_HYSTERESIS_OUT\s*: eyeDist < line \* LOD_HYSTERESIS_IN/.test(terrain));
   // Culling and reach are questions about ground covered, not apparent size.
   ok('reach is still horizontal', /if \(flatDist > reach\)/.test(terrain));
   ok('and so is the ground kept under your feet', /flatDist > FLOOR_REACH/.test(terrain));
@@ -9140,26 +9140,64 @@ console.log('\nthe map you have actually seen');
     before && e.isExplored(4, x >> 4, y >> 4));
 }
 
-console.log('\ndetail follows your eyes');
+console.log('\ndetail does not depend on which way you face');
 {
   const terrainSource = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
-  ok('the split threshold is weighted by where you are looking',
+  ok('the split threshold still goes through splitScale',
     /const line = size \* this\.lodFactor \* this\.splitScale\(/.test(terrainSource));
-  // Borrow the method rather than standing a whole quadtree up: it is pure
-  // arithmetic on the view vector, and that is the whole of the behaviour.
+  // Borrow the method rather than standing a whole quadtree up.
   const { Terrain } = await import('../src/world/terrain.js');
   const probe = { _viewX: 0, _viewZ: -1, splitScale: Terrain.prototype.splitScale };
   const ahead = probe.splitScale(0, -10000, 0, 0, 10000, 500);
   const behind = probe.splitScale(0, 10000, 0, 0, 10000, 500);
   const across = probe.splitScale(10000, 0, 0, 0, 10000, 500);
-  ok('ground you are facing subdivides from further away', ahead > across,
-    `${ahead.toFixed(2)} vs ${across.toFixed(2)} across`);
-  ok('and ground behind you from closer', behind < across,
-    `${behind.toFixed(2)} vs ${across.toFixed(2)}`);
-  ok('by well under a level either way, so turning round is not a rebuild',
-    ahead / behind < 2, `${(ahead / behind).toFixed(2)}x`);
-  ok('and ground underfoot is never coarsened for facing away',
-    probe.splitScale(0, 300, 0, 0, 300, 500) === 1);
+  const under = probe.splitScale(0, 300, 0, 0, 300, 500);
+  ok('every direction gets the reach that only dead ahead used to', ahead === 1.25 && behind === 1.25
+    && across === 1.25 && under === 1.25, `${ahead}, ${across}, ${behind}, ${under}`);
+  // The heading is still used to order work, and is read as it is now: a
+  // smoothed one put the ground you had just turned to last for a second.
+  ok('and the heading that orders the work is not lagged',
+    !/Math\.exp\(-viewDt \/ 0\.66\)/.test(terrainSource) && /this\._viewX = flatLen > 1e-6 \? this\._vecA\.x \/ flatLen/.test(terrainSource));
+}
+
+console.log('\nthe drawn cap holds what is split instead of switching it');
+{
+  const { Terrain } = await import('../src/world/terrain.js');
+  // A tile far enough off to split on its own, walked with the cap already
+  // reached: one that was split stays split, and one that was not does not.
+  const run = (wasSplit) => {
+    const t = Object.create(Terrain.prototype);
+    Object.assign(t, {
+      drawn: { length: 10 }, maxDrawn: 10, split: new Set(wasSplit ? ['12/100/100'] : []),
+      frame: { worldTileSize: () => 1000, normToWorld: (_x, _y, out) => { out.x = 0; out.z = -3000; } },
+      _world: { x: 0, z: 0 }, _box: { min: { set() {} }, max: { set() {} } },
+      frustum: { intersectsBox: () => true }, nodes: new Map(), elevation: { version: 0 },
+      streamer: { resolve: () => ({ scale: 1 }), atFinest: () => false },
+      farDistance: 1e9, explored: null, covered3d: null, _viewX: 0, _viewZ: -1,
+      visited: [],
+    });
+    t.squircle = () => 1;
+    t.noteEdge = () => {};
+    t.viewDistance = (_a, _b, _c, _d, flat) => flat;
+    t.draw = (tile) => t.visited.push(tile.z);
+    const deeper = [];
+    const visit = Terrain.prototype.visit;
+    t.visit = function (tile, ...rest) {
+      if (tile.z > 12) { deeper.push(tile.z); return; }
+      return visit.call(this, tile, ...rest);
+    };
+    t.visit({ z: 12, x: 100, y: 100 }, { position: { y: 100 } }, 0, 0, 1e9, 20);
+    return { split: t.split.has('12/100/100'), children: deeper.length, drawnHere: t.visited.length };
+  };
+  const held = run(true);
+  const fresh = run(false);
+  ok('a square already split stays split past the cap', held.split && held.children === 4,
+    JSON.stringify(held));
+  ok('and a square not yet split is drawn as it is', !fresh.split && fresh.children === 0 && fresh.drawnHere === 1,
+    JSON.stringify(fresh));
+  const { GRAPHICS_PRESETS: G } = await import('../src/core/settings.js');
+  ok('and Ultra\'s cap is twice what its walk was measured asking for', G.ultra.maxDrawnTiles >= 3000,
+    `${G.ultra.maxDrawnTiles}`);
 }
 
 console.log('\nthe edge of the loaded world');
@@ -12243,7 +12281,9 @@ console.log('\nturning round keeps the ground you just saw');
     && /this\.evict\(preset\.textureCacheSize \* cacheRoom\(\)/.test(terrainSrc)
     && /share \* cacheRoom\(\)/.test(streamerSrc));
   const elevationSrc = readFileSync(new URL('../src/tiles/elevation.js', import.meta.url), 'utf8');
-  ok('six height tiles come down at once', /this\.maxActive = 6;/.test(elevationSrc));
+  ok('six height tiles come down at once from each name the server has',
+    /this\.maxActive = 6;/.test(elevationSrc)
+    && /this\.maxActive = 6 \* Math\.max\(1, source\?\.descriptor\?\.hosts\?\.length \?\? 1\);/.test(elevationSrc));
 }
 
 console.log('\nthe ground is culled against where the camera points this frame');
@@ -12270,6 +12310,151 @@ console.log('\nthe ground is culled against where the camera points this frame')
   look();
   ok(`a square that swung into view is culled on stale matrices and kept on fresh ones  (${stale} -> ${frustum.intersectsBox(box)})`,
     stale === false && frustum.intersectsBox(box) === true);
+}
+
+console.log('\nheights are found quickly, and the same heights');
+{
+  // Every height on the ground goes through sampleFrom, which built a string
+  // key per zoom per sample: about forty thousand per square rebuilt on Ultra,
+  // two hundred rebuilds a second, most of a slow frame. Lookups are now by
+  // number and remembered until the tiles change; the answers must not.
+  const { ElevationField } = await import('../src/tiles/elevation.js');
+  const field = new ElevationField({ addEventListener() {}, postMessage() {} });
+  field.source = { maxZoom: 15, ready: true, urlFor: () => null };
+  let seed = 11;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const ready = [];
+  let mismatches = 0;
+  let samples = 0;
+  for (let step = 0; step < 1500; step++) {
+    const z = 6 + Math.floor(rnd() * 8);
+    const n = 2 ** z;
+    const x = Math.floor((0.55 + (rnd() - 0.5) * 0.002) * n);
+    const y = Math.floor((0.33 + (rnd() - 0.5) * 0.002) * n);
+    if (rnd() < 0.6) {
+      field.request({ z, x, y }, 1);
+      const entry = field.tiles.get(`${z}/${x}/${y}`);
+      if (entry && rnd() < 0.8) {
+        entry.state = 2;
+        entry.heights = new Float32Array(65 * 65).map(() => rnd() * 500);
+        ready.push(entry.key);
+      }
+    } else if (ready.length) {
+      const key = ready.splice(Math.floor(rnd() * ready.length), 1)[0];
+      const entry = field.tiles.get(key);
+      if (entry) {
+        field.tiles.delete(key);
+        field.noteTile(entry.tile.z, entry.tile.x, entry.tile.y, null);
+      }
+    }
+    for (let i = 0; i < 10; i++) {
+      const nx = 0.55 + (rnd() - 0.5) * 0.002;
+      const ny = 0.33 + (rnd() - 0.5) * 0.002;
+      const remembered = field.sampleNorm(nx, ny);
+      field.forgetLookups();
+      if (Math.abs(remembered - field.sampleNorm(nx, ny)) > 1e-9) mismatches++;
+      samples++;
+    }
+  }
+  ok(`remembered lookups give the same heights as fresh ones, tiles coming and going  (${mismatches} of ${samples} differ)`,
+    mismatches === 0 && samples === 15000);
+  const settingsSrc = readFileSync(new URL('../src/core/settings.js', import.meta.url), 'utf8');
+  ok('buildings are off until you turn them on, whatever the tier',
+    /\n  buildings: false,/.test(settingsSrc) && !/\n      buildings: (true|false),/.test(settingsSrc));
+}
+
+console.log('\nphotographs and heights come from both names their servers answer to');
+{
+  const { IMAGERY_PROVIDERS: IP, ELEVATION_PROVIDERS: EP, TileSource: TS } = await import('../src/tiles/providers.js');
+  const esri = new TS(IP.find((p) => p.id === 'esri'), {});
+  const urls = [{ z: 15, x: 17090, y: 11450 }, { z: 15, x: 17091, y: 11450 }].map((t) => esri.urlFor(t));
+  ok('neighbouring photographs go to the two Esri hosts in turn',
+    /^https:\/\/server\.arcgisonline\.com\/ArcGIS\/rest\/services\/World_Imagery\/MapServer\/tile\/15\/11450\/17090$/.test(urls[0])
+    && /^https:\/\/services\.arcgisonline\.com\/ArcGIS\/rest\/services\/World_Imagery\/MapServer\/tile\/15\/11450\/17091$/.test(urls[1]),
+    urls.join(' '));
+  ok('and the same tile always to the same one, so the browser cache finds it',
+    esri.urlFor({ z: 15, x: 17090, y: 11450 }) === urls[0]);
+  const terr = new TS(EP.find((p) => p.id === 'terrarium'), {});
+  const hs = [{ z: 12, x: 2150, y: 1440 }, { z: 12, x: 2151, y: 1440 }].map((t) => terr.urlFor(t));
+  ok('heights alternate between the bucket’s two names',
+    hs[0] === 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/12/2150/1440.png'
+    && hs[1] === 'https://elevation-tiles-prod.s3.amazonaws.com/terrarium/12/2151/1440.png', hs.join(' '));
+  ok('and nothing is left unfilled in either', !urls.concat(hs).some((u) => /[{}]/.test(u)));
+  const { ElevationField } = await import('../src/tiles/elevation.js');
+  const field = new ElevationField({ addEventListener() {}, postMessage() {} });
+  field.setSource(terr);
+  ok('six heights in flight per name, twelve in all', field.maxActive === 12, `${field.maxActive}`);
+  field.setSource(new TS({ id: 'one', kind: 'terrarium', template: 'https://one/{z}/{x}/{y}.png' }, {}));
+  ok('and six for a server with one name', field.maxActive === 6, `${field.maxActive}`);
+}
+
+console.log('\nthe photograph budget counts photographs');
+{
+  const { ImageryStreamer: IS } = await import('../src/tiles/streamer.js');
+  const st = new IS({ addEventListener() {}, postMessage() {} }, null);
+  st.frame = 100;
+  st.textureLimit = () => 4;
+  let disposed = 0;
+  const add = (z, x, state, used, texture) => {
+    const key = `${z}/${x}/0`;
+    st.entries.set(key, { key, tile: { z, x, y: 0 }, state, texture: texture ? { dispose() { disposed++; } } : null, used, seen: 0 });
+  };
+  // Four photographs held and drawn long ago, and a crowd of names nobody
+  // has sent for — the request queue, which used to be counted.
+  for (let i = 0; i < 4; i++) add(15, i, 2, 10 + i, true);
+  for (let i = 0; i < 40; i++) add(15, 100 + i, 0, 100, false);
+  for (let i = 0; i < 40; i++) add(15, 200 + i, 0, 50, false);
+  st.evict();
+  const held = [...st.entries.values()].filter((e) => e.texture).length;
+  ok('names waiting to be sent are not counted against it', held === 4 && disposed === 0, `${held} held, ${disposed} dropped`);
+  ok('those still asked for are kept, those nobody wants any more go',
+    st.entries.has('15/100/0') && st.entries.has('15/139/0') && !st.entries.has('15/200/0') && !st.entries.has('15/239/0'));
+  add(15, 50, 2, 99, true);
+  st.evict();
+  ok('and a photograph over the budget is still what is evicted', disposed === 1 && !st.entries.has('15/0/0'),
+    `${disposed} dropped`);
+}
+
+console.log('\nevery level round you is held, whichever way you face');
+{
+  const { Terrain } = await import('../src/world/terrain.js');
+  const asked = [];
+  const t = Object.create(Terrain.prototype);
+  t.frame = { worldTileSize: (z) => 40075016 / 2 ** z };
+  t.streamer = { request: (tile, priority) => asked.push({ ...tile, priority }) };
+  t.holdCoverAround(0.53, 0.35, 19);
+  const zooms = [...new Set(asked.map((a) => a.z))];
+  ok('a three-by-three block at each level from 10 to two above the finest', zooms.join(',') === '10,11,12,13,14,15,16'
+    && asked.length === 63, `${zooms.join(',')} — ${asked.length}`);
+  const under = asked.filter((a) => a.z === 14);
+  const n14 = 2 ** 14;
+  ok('centred on the square you are over', under.some((a) => a.x === Math.floor(0.53 * n14) && a.y === Math.floor(0.35 * n14))
+    && under.every((a) => Math.abs(a.x - Math.floor(0.53 * n14)) <= 1));
+  ok('at the price of a drawn square that far off, not ahead of the queue', asked.every((a) => a.priority > 0));
+  const terrainSrc = readFileSync(new URL('../src/world/terrain.js', import.meta.url), 'utf8');
+  ok('and asked for every frame', /this\.holdCoverAround\(this\._norm\.nx, this\._norm\.ny, maxZoom\);/.test(terrainSrc));
+}
+
+console.log('\nthe height queue holds only what is still wanted');
+{
+  const { ElevationField } = await import('../src/tiles/elevation.js');
+  const field = new ElevationField({ addEventListener() {}, postMessage() {} });
+  // A source that is not ready, so nothing is sent and the queue can be read.
+  field.source = { maxZoom: 15, ready: false, prepare() {}, urlFor: () => null };
+  field.beginFrame();
+  field.request({ z: 12, x: 10, y: 10 }, 500);
+  field.request({ z: 12, x: 10, y: 10 }, 40);
+  field.request({ z: 12, x: 11, y: 10 }, 90);
+  ok('one entry per tile however many squares ask', field.queue.length === 2);
+  ok('and the nearest asker sets its place', field.tiles.get('12/10/10').priority === 40);
+  // Flown on: only the second tile is still asked for.
+  for (let i = 0; i < 3; i++) {
+    field.beginFrame();
+    field.request({ z: 12, x: 11, y: 10 }, 90);
+  }
+  ok('ground you have left drops out of the queue', field.queue.length === 1 && field.queue[0].key === '12/11/10');
+  const elevationSrc = readFileSync(new URL('../src/tiles/elevation.js', import.meta.url), 'utf8');
+  ok('and no request searches the queue', !/this\.queue\.includes\(/.test(elevationSrc));
 }
 
 console.log('\nevery module still parses');

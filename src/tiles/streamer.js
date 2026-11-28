@@ -1082,9 +1082,37 @@ export class ImageryStreamer extends Emitter {
     // the tiles coming into view have no photograph of their own, walk up
     // looking for one to stretch, and find it was evicted. Nothing to stretch
     // means `uHasTexture` is zero, which is drawn as flat grey.
+    /*
+      The budget is photographs held, not squares asked after.
+
+      Every square asked for gets an entry the moment it is asked, long before
+      anything is fetched, and the count against the budget was the size of the
+      whole map. Measured on Ultra over a minute of flying: 2,840 entries
+      against a budget of 2,800, of which some 1,400 were the request queue —
+      no picture, no memory, just a name waiting its turn. So half the budget
+      was spent on nothing, the cache held barely more than the frame in front
+      of it, and every photograph of the ground behind you went the moment you
+      looked away. Turning round then found nothing to draw but the coarse
+      cover nine levels up, stretched until it was one flat colour — the grey,
+      tan and green slabs — until the same pictures were fetched all over again.
+
+      A waiting entry costs nothing to keep and nothing to drop, so the ones
+      nobody asked for this frame or the last simply go (asking again makes
+      them again), and only entries that hold or are fetching a picture are
+      counted and evicted. The budget then means what its own comment says it
+      means: that many pictures in memory.
+    */
+    const holds = (entry) => entry.texture || entry.state === STATE_PENDING;
     const cover = [];
     const rest = [];
     for (const entry of this.entries.values()) {
+      if (!holds(entry)) {
+        // Unsent and unwanted. A failure or a bare square keeps its clock for a
+        // while, since that is what stops it being asked again at once.
+        const idle = this.frame - (entry.used ?? 0);
+        if ((entry.state === 0 && idle > 1) || idle > 3600) this.entries.delete(entry.key);
+        continue;
+      }
       (entry.tile.z <= COVER_ZOOM ? cover : rest).push(entry);
     }
     /**

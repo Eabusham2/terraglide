@@ -51,6 +51,11 @@ const EARTH_RADIUS_M = WORLD_RADIUS === 6378137 ? 6371000 : WORLD_RADIUS;
  * still there when you come back to it.
  */
 const KEEP_FACTOR = 1.5;
+/**
+ * How much further than the level-of-detail line a square splits, everywhere.
+ * See splitScale: this is what the ground straight ahead always had.
+ */
+const SPLIT_REACH = 1.25;
 /** How much further distant mode reaches than the render distance proper. */
 /**
  * The most tiles one frame will rebuild for being plainly wrong rather than
@@ -468,27 +473,19 @@ export class Terrain {
     // GRAPHICS_PRESETS.maxDrawnTiles.
     this.maxDrawn = settings.preset().maxDrawnTiles;
     // Which way you are facing, flattened. Ground in front of you is what you
-    // are about to look at, so it is what gets built first and sharpened
-    // furthest.
+    // are about to look at, so it is what gets built and fetched first.
     //
-    // Smoothed, because the heading now decides how finely ground subdivides
-    // as well as what order it is built in. Read raw, a flick of the mouse
-    // re-cuts the quadtree twice — once away and once back — and every re-cut
-    // is a rebuild you can see. Two thirds of a second of lag makes a
-    // deliberate turn count and a twitch not.
+    // As you face now. This was smoothed over two thirds of a second when the
+    // heading also decided how finely ground subdivided, so that a flick would
+    // not re-cut the tree; it no longer does (see splitScale), and the lag was
+    // only ever a cost here — for a second after a turn the ground you had
+    // turned to was built and fetched last, as if it were behind you.
     camera.getWorldDirection(this._vecA);
-    const wantLen = Math.hypot(this._vecA.x, this._vecA.z) || 1;
-    const wantX = this._vecA.x / wantLen;
-    const wantZ = this._vecA.z / wantLen;
-    const now = performance.now();
-    const viewDt = clamp((now - (this._viewTime ?? now)) / 1000, 0, 0.5);
-    this._viewTime = now;
-    const follow = this._viewX === undefined ? 1 : 1 - Math.exp(-viewDt / 0.66);
-    this._viewX = (this._viewX ?? wantX) + (wantX - (this._viewX ?? wantX)) * follow;
-    this._viewZ = (this._viewZ ?? wantZ) + (wantZ - (this._viewZ ?? wantZ)) * follow;
-    const flatLen = Math.hypot(this._viewX, this._viewZ) || 1;
-    this._viewX /= flatLen;
-    this._viewZ /= flatLen;
+    const flatLen = Math.hypot(this._vecA.x, this._vecA.z);
+    if (flatLen > 1e-6 || this._viewX === undefined) {
+      this._viewX = flatLen > 1e-6 ? this._vecA.x / flatLen : 0;
+      this._viewZ = flatLen > 1e-6 ? this._vecA.z / flatLen : -1;
+    }
 
     // Where the camera is, so the streamer can tell a depth learned here from
     // one learned forty kilometres away. See probeDeeper.
@@ -597,6 +594,7 @@ export class Terrain {
      */
     this.wantedElevationZoom = elevZoom;
     this.elevation.ensureAround(this._norm.nx, this._norm.ny, elevZoom, 1);
+    this.holdCoverAround(this._norm.nx, this._norm.ny, maxZoom);
     this.streamer.pump();
     this.streamer.evict();
     this.evict(preset.textureCacheSize * cacheRoom(), camX, camZ);
@@ -605,6 +603,43 @@ export class Terrain {
     this.stats.nodes = this.nodes.size;
     this.stats.baseZoom = baseZoom;
     this.stats.maxZoom = maxZoom;
+  }
+
+  /**
+   * Keep a photograph of every level round you, whichever way you face.
+   *
+   * The cover pool holds zoom nine and coarser, and nothing else was kept for
+   * ground out of view, so on a turn the ground swinging in had either its own
+   * photograph or — once the cache had let the levels between go — zoom nine,
+   * stretched over a square a hundred times smaller than itself until it was
+   * one flat colour. That is the grey, tan and green slabs, for as long as the
+   * levels between took to fetch again.
+   *
+   * So the three-by-three block of squares round you is asked for at every
+   * level from just under the cover pool to two above the finest drawn: about
+   * sixty photographs, twenty megabytes, each one asked for every frame and so
+   * never evicted. Any ground within a square and a half of you at some level
+   * then always has that level to stretch, which is at most two levels — four
+   * times — coarser than it wants: soft for a moment rather than one colour.
+   * Asked at the same price as a drawn square at the same distance, so they
+   * neither jump the queue nor wait behind all of it.
+   */
+  holdCoverAround(nx, ny, maxZoom) {
+    const top = Math.min(maxZoom - 2, 16);
+    for (let z = 10; z <= top; z++) {
+      const n = 2 ** z;
+      const cx = Math.floor(nx * n);
+      const cy = Math.floor(clamp(ny, 0, 0.999999) * n);
+      const size = this.frame.worldTileSize(z);
+      for (let dy = -1; dy <= 1; dy++) {
+        const y = cy + dy;
+        if (y < 0 || y >= n) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const away = size * Math.max(0.5, Math.hypot(dx, dy));
+          this.streamer.request({ z, x: wrapTileX(cx + dx, z), y }, (away * 1.6) / 2 ** (20 - z));
+        }
+      }
+    }
   }
 
   /**
@@ -709,26 +744,28 @@ export class Terrain {
     }
   }
 
-  /**
-   * How much further a tile may be and still subdivide, given where you look.
-   *
-   * Detail costs the same wherever it is spent, so spending it evenly means
-   * spending most of it on ground nobody is looking at. Tiles inside the view
-   * cone get a quarter more reach and tiles behind you a quarter less — a
-   * little over half a level either way — so the horizon you are facing
-   * reaches full detail sooner and the ground behind your head stays coarse
-   * until you turn round.
-   *
-   * Ground close enough to be underfoot is exempt: it is about to be in view
-   * whichever way you turn, and it is what you land on.
-   */
-  splitScale(cx, cz, camX, camZ, flatDist, size) {
-    if (flatDist < size) return 1;
-    const dx = cx - camX;
-    const dz = cz - camZ;
-    const len = Math.hypot(dx, dz);
-    if (len < 1) return 1;
-    return 1 + ((dx * this._viewX + dz * this._viewZ) / len) * 0.25;
+  /*
+    How much further a tile may be and still subdivide.
+
+    Now the same everywhere: the reach that only dead ahead used to get.
+
+    Weighting by heading took detail away from whatever you were not facing,
+    and what you were facing was read through a heading smoothed over two
+    thirds of a second so that a flick would not re-cut the tree. Both halves
+    were the flat ground on a turn. For a second after turning, the ground now
+    in front of you still counted as behind you — three quarters of the reach,
+    most of a level coarser — so it merged, was drawn from whatever coarse
+    stand-in and stretched photograph were to hand, and then split again as
+    the smoothed heading caught up. Detail dropping out of the view you had
+    just turned to, and coming back.
+
+    Nothing behind you is drawn in any case: the frustum rejects it before this
+    is asked, so the weighting saved squares only at the sides of the view and
+    underfoot, and spent them as flicker. The arguments stay so the call reads
+    the same; the answer no longer depends on them.
+  */
+  splitScale() {
+    return SPLIT_REACH;
   }
 
   visit(tile, camera, camX, camZ, renderDistance, maxZoom) {
@@ -946,9 +983,19 @@ export class Terrain {
     // rather than read off a published maximum zoom, because coverage is
     // patchy: the level that is real over a city is the same level resampled
     // a valley away. See streamer.atFinest.
+    // Past the cap, nothing new splits — but nothing already split merges
+    // either. Merging there made the cap a switch: one frame over it a band of
+    // ground merged, the next frame under it split again, and on Ultra it sat
+    // on the line (1,402 to 1,514 against 1,500, measured), so that band went
+    // sharp, flat, sharp, every frame, wherever the count happened to run out.
+    // Held as it was, the count stays where it was too; the hard ceiling below
+    // still bounds it.
+    const withinLine = wasSplit
+      ? eyeDist < line * LOD_HYSTERESIS_OUT
+      : eyeDist < line * LOD_HYSTERESIS_IN;
     const shouldSplit =
-      !outOfBudget && tile.z < maxZoom && sharpEnough && !this.streamer.atFinest(tile) &&
-      (wasSplit ? eyeDist < line * LOD_HYSTERESIS_OUT : eyeDist < line * LOD_HYSTERESIS_IN);
+      (wasSplit || !outOfBudget) && tile.z < maxZoom && sharpEnough &&
+      !this.streamer.atFinest(tile) && withinLine;
     if (shouldSplit) this.split.add(key);
     else this.split.delete(key);
     if (shouldSplit) {
