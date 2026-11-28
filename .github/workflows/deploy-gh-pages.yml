@@ -99,8 +99,10 @@ jobs:
           rm -rf _files
           mkdir _files
           cp terraglide.html terraglide-online.html _files/
-          git show origin/singlefiles:README.md > _files/README.md 2>/dev/null \
-            || git show ${GITHUB_SHA}:README.md > _files/README.md
+          # The README from main, every time. Keeping the branch's own copy
+          # froze it at whatever main said the first time this ran, so links
+          # and instructions added since never reached the downloads.
+          git show ${GITHUB_SHA}:README.md > _files/README.md
           cd _files
           git init -q -b singlefiles
           git config user.name "github-actions[bot]"

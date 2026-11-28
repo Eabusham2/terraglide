@@ -88,6 +88,12 @@ in a browser) is always that server's lobby. Private
 servers for a group of friends still work exactly as below; the public one is
 just the one the published game points at.
 
+**This project's public server is <https://terraglide.dpdns.org/>**, run from
+a Mac through [a named Cloudflare tunnel](#a-permanent-address-a-named-cloudflare-tunnel);
+`src/net/publicServer.js` points the published game at
+`wss://terraglide.dpdns.org/ws`. The steps below are for running one somewhere
+else, or for your own copy.
+
 Running it is one deploy and one setting — in this order:
 
 1. **Deploy a server that stays up and keeps its disk.** [Fly.io](#flyio) is

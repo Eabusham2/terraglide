@@ -2,6 +2,8 @@
 
 **Play it: <https://eabusham2.github.io/terraglide/>**
 
+**Play online with everyone: <https://terraglide.dpdns.org/>**
+
 A first-person world exploration game that runs in a browser. Press one key and
 you are dropped somewhere random on Earth. Open a pair of elytra, dive to build
 speed, flare to trade it back for height, fire a rocket when you run out of
