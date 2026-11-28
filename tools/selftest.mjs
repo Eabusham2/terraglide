@@ -10314,8 +10314,10 @@ console.log('\ngiving up is not the same as covering it');
   const cam = new THREE.Vector3(0, 0, 0);
   const run = (rig, tree) => rig.traverse(tree, new THREE.Matrix4(), cam, 900, 1.2, 0);
 
-  // A parent whose children sit past the render distance. Its far half is never
-  // drawn, so letting it go leaves a hole there.
+  // A parent whose children sit partly past the render distance. The far half
+  // is the ordinary ground's to draw, so once the near half is here the parent
+  // steps aside; holding on to it drew Google's blurred top-level mesh over the
+  // whole city, an olive plate with only the tallest towers poking through.
   const reach = settings.get('renderDistanceKm') * 1000;
   const straddling = {
     boundingVolume: { sphere: [0, 0, 0, 500] },
@@ -10327,8 +10329,11 @@ console.log('\ngiving up is not the same as covering it');
   };
   const far = probe(['near.glb']);
   const farReady = run(far, straddling);
-  ok('a child past the render distance does not claim to cover it',
-    !farReady && far.visible.has('parent.glb'), [...far.visible].join(','));
+  ok('a parent straddling the render distance gives way once its near half is here',
+    farReady && !far.visible.has('parent.glb') && far.visible.has('near.glb') && !far.visible.has('far.glb'),
+    [...far.visible].join(','));
+  const early = probe([]);
+  ok('but not before', !run(early, straddling) && early.visible.has('parent.glb'), [...early.visible].join(','));
 
   // Past the depth cap. Google's tree at street level goes deeper than the old
   // cap of 24, counting the hops between tilesets, so this fired in ordinary
